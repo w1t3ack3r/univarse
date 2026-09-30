@@ -6,11 +6,17 @@ const schema = z.object({
   HOST: z.string().default('127.0.0.1'),
   PORT: z.coerce.number().int().min(1).max(65535).default(8080),
   PLATFORM_DATABASE_URL: z.string().startsWith('postgresql://'),
-  /** Only trust X-Forwarded-* when running behind our edge proxy. */
-  TRUST_PROXY: z
-    .enum(['true', 'false'])
-    .default('false')
-    .transform((v) => v === 'true'),
+  /**
+   * Comma-separated IPs/CIDRs of OUR edge proxies. X-Forwarded-For/-Host are honoured only when the
+   * TCP peer is in this list; the client IP is then the right-most address not in it, so a client
+   * prepending forged addresses changes nothing. Empty (default) ⇒ forwarding headers are ignored.
+   * Never use a blanket "trust all" (docs/08 §3.4).
+   */
+  TRUSTED_PROXIES: z
+    .string()
+    .default('')
+    .transform((v) => v.split(',').map((s) => s.trim()).filter(Boolean))
+    .refine((list) => list.every((s) => /^[0-9a-fA-F:.]+(\/\d{1,3})?$/.test(s)), 'must be IPs or CIDRs'),
   /** How long a resolved host→tenant mapping is cached in memory. */
   TENANT_CACHE_TTL_MS: z.coerce.number().int().min(0).default(30_000),
   /** Valkey/Redis for rate limiting (later: sessions cache, queues). */

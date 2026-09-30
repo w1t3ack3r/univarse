@@ -1,0 +1,18 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "api",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["tools/dev-edge/start-api.mjs"],
+      "port": 8099
+    },
+    {
+      "name": "edge-demo-uni",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["tools/dev-edge/server.mjs"],
+      "port": 4180,
+      "url": "http://demo-uni.univarse.localhost:4180"
+    }
+  ]
+}

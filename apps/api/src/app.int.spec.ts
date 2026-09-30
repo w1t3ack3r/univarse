@@ -60,7 +60,7 @@ describe('tenant resolution from Host', () => {
     expect(res.json()).toMatchObject({ code: 'tenant.suspended' });
   });
 
-  it('ignores client-supplied tenant hints and forwarded hosts (TRUST_PROXY=false)', async () => {
+  it('ignores client-supplied tenant hints and forwarded hosts (no trusted proxies)', async () => {
     const res = await get('/api/v1/tenant/public-profile', 'nobody.univarse.localhost', {
       'x-tenant-slug': 'demo-uni',
       'x-forwarded-host': 'demo-uni.univarse.localhost',

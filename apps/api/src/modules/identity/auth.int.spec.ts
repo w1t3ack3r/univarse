@@ -6,7 +6,8 @@
 import { randomBytes, randomInt } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import type { NestFastifyApplication } from '@nestjs/platform-fastify';
-import { createPlatformClient, createTenantShardClient, forTenant, type TenantShardClient } from '@univarse/db';
+import { createPlatformClient, createTenantShardClient, forTenant, type PlatformClient, type TenantShardClient } from '@univarse/db';
+import { TenantResolver } from '../../shared/tenancy/tenant-resolver.service.js';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createApp } from '../../bootstrap.js';
 import { loadConfig } from '../../config/config.js';
@@ -26,7 +27,9 @@ const captureMailer: Mailer = { send: async (m) => void outbox.push(m) };
 
 let app: NestFastifyApplication;
 let shard: TenantShardClient;
-const tenants: Record<'demo' | 'poly', string> = { demo: '', poly: '' };
+const tenants: { demo: string; poly: string; [slug: string]: string } = { demo: '', poly: '' };
+let platform: PlatformClient;
+let appBehindEdge: NestFastifyApplication; // TRUSTED_PROXIES=127.0.0.1
 const created: { tenantId: string; userId: string }[] = [];
 
 const randomIp = () => `10.${randomInt(255)}.${randomInt(255)}.${randomInt(1, 255)}`;
@@ -54,10 +57,11 @@ const cookieFrom = (setCookie: string | string[] | undefined) => {
 };
 
 async function makeUser(
-  tenant: 'demo' | 'poly',
+  tenant: string,
   opts: { role: string; username?: string; active?: boolean; validTo?: Date },
 ): Promise<{ id: string; username: string }> {
   const tenantId = tenants[tenant];
+  if (!tenantId) throw new Error(`Unknown test tenant ${tenant}`);
   const db = forTenant(shard, tenantId);
   const username = opts.username ?? `T${run}-${randomBytes(3).toString('hex').toUpperCase()}`;
   const user = await db.userAccount.create({
@@ -83,19 +87,23 @@ async function login(host: string, username: string, password = PASSWORD, ip = r
 }
 
 beforeAll(async () => {
-  const platform = createPlatformClient(process.env.PLATFORM_DATABASE_URL!);
+  platform = createPlatformClient(process.env.PLATFORM_DATABASE_URL!);
   for (const [k, slug] of [['demo', 'demo-uni'], ['poly', 'test-poly']] as const) {
     tenants[k] = (await platform.tenant.findUniqueOrThrow({ where: { slug } })).id;
   }
-  await platform.$disconnect();
   shard = createTenantShardClient(process.env.TENANT_POOL_01_DATABASE_URL!);
   app = await createApp(loadConfig({ ...process.env, NODE_ENV: 'test' }), { mailer: captureMailer });
+  appBehindEdge = await createApp(loadConfig({ ...process.env, NODE_ENV: 'test', TRUSTED_PROXIES: '127.0.0.1' }), {
+    mailer: captureMailer,
+  });
 });
 
 afterAll(async () => {
   for (const c of created) await forTenant(shard, c.tenantId).userAccount.deleteMany({ where: { id: c.userId } });
   await shard.$disconnect();
+  await platform.$disconnect();
   await app.close();
+  await appBehindEdge.close();
 });
 
 describe('activation', () => {
@@ -295,5 +303,108 @@ describe('authorization', () => {
     const u = await makeUser('demo', { role: 'INSTITUTION_ADMIN', validTo: new Date(Date.now() - 60_000) });
     const cookie = cookieFrom((await login(DEMO, u.username)).headers['set-cookie']);
     expect((await call('GET', DEMO, '/api/v1/users', { cookie })).statusCode).toBe(403);
+  });
+});
+
+describe('active membership: already-issued sessions lose access', () => {
+  it('removing a role takes effect on the very next request', async () => {
+    const admin = await makeUser('demo', { role: 'INSTITUTION_ADMIN' });
+    const cookie = cookieFrom((await login(DEMO, admin.username)).headers['set-cookie']);
+    expect((await call('GET', DEMO, '/api/v1/users', { cookie })).statusCode).toBe(200);
+
+    await forTenant(shard, tenants.demo).roleAssignment.updateMany({ where: { userId: admin.id }, data: { revokedAt: new Date() } });
+
+    expect((await call('GET', DEMO, '/api/v1/users', { cookie })).statusCode).toBe(403);
+    expect((await call('GET', DEMO, '/api/v1/auth/me', { cookie })).json().permissions).toEqual([]);
+  });
+
+  it('a locked account loses its existing sessions', async () => {
+    const u = await makeUser('demo', { role: 'STUDENT' });
+    const cookie = cookieFrom((await login(DEMO, u.username)).headers['set-cookie']);
+    await forTenant(shard, tenants.demo).userAccount.update({ where: { id: u.id }, data: { status: 'LOCKED' } });
+    expect((await call('GET', DEMO, '/api/v1/auth/me', { cookie })).statusCode).toBe(401);
+  });
+
+  it('suspending the institution blocks existing sessions; resuming restores them', async () => {
+    // Dedicated tenant so suspending it cannot disturb other tests.
+    const pool = await platform.shard.findUniqueOrThrow({ where: { name: 'pool-01' } });
+    const slug = `susp-${run.toLowerCase()}`;
+    const host = `${slug}.univarse.localhost`;
+    const tenant = await platform.tenant.create({
+      data: { slug, legalName: 'Suspension Test University', shortName: 'SUSP', type: 'UNIVERSITY', ownership: 'PRIVATE', status: 'ACTIVE', shardId: pool.id },
+    });
+    await platform.tenantDomain.create({ data: { tenantId: tenant.id, hostname: host, kind: 'SUBDOMAIN', verifiedAt: new Date() } });
+    tenants[slug] = tenant.id;
+    const db = forTenant(shard, tenant.id);
+    await db.role.create({ data: { tenantId: tenant.id, key: 'STUDENT', name: 'Student', isSystem: true, permissions: [] } });
+    try {
+      const u = await makeUser(slug, { role: 'STUDENT' });
+      const cookie = cookieFrom((await login(host, u.username)).headers['set-cookie']);
+      expect((await call('GET', host, '/api/v1/auth/me', { cookie })).statusCode).toBe(200);
+
+      // Lifecycle operations call TenantResolver.invalidate() on the instance that performs them;
+      // other instances converge within TENANT_CACHE_TTL_MS (docs/02 §7.3).
+      await platform.tenant.update({ where: { id: tenant.id }, data: { status: 'SUSPENDED' } });
+      app.get(TenantResolver).invalidate();
+      const blocked = await call('GET', host, '/api/v1/auth/me', { cookie });
+      expect(blocked.statusCode).toBe(423);
+      expect(blocked.json().code).toBe('tenant.suspended');
+
+      await platform.tenant.update({ where: { id: tenant.id }, data: { status: 'ACTIVE' } });
+      app.get(TenantResolver).invalidate();
+      expect((await call('GET', host, '/api/v1/auth/me', { cookie })).statusCode).toBe(200);
+    } finally {
+      await db.userAccount.deleteMany({});
+      await db.role.deleteMany({});
+      await platform.tenant.delete({ where: { id: tenant.id } });
+      created.splice(0, created.length, ...created.filter((c) => c.tenantId !== tenant.id));
+      app.get(TenantResolver).invalidate();
+    }
+  });
+});
+
+describe('client IP for rate limiting cannot be forged', () => {
+  const attempt = (target: NestFastifyApplication, username: string, remoteAddress: string, xff?: string) =>
+    target.getHttpAdapter().getInstance().inject({
+      method: 'POST',
+      url: '/api/v1/auth/login',
+      remoteAddress,
+      headers: { host: DEMO, 'sec-fetch-site': 'same-origin', ...(xff ? { 'x-forwarded-for': xff } : {}) },
+      payload: { username, password: 'wrong-password-xx' },
+    });
+
+  it('without trusted proxies, rotating X-Forwarded-For does not reset the limit', async () => {
+    const u = await makeUser('demo', { role: 'STUDENT' });
+    const ip = randomIp();
+    const codes: number[] = [];
+    for (let i = 0; i < 6; i++) codes.push((await attempt(app, u.username, ip, randomIp())).statusCode);
+    expect(codes).toEqual([401, 401, 401, 401, 401, 429]);
+  });
+
+  it('behind a trusted edge, forged left-most entries are ignored (right-most untrusted address is the client)', async () => {
+    const u = await makeUser('demo', { role: 'STUDENT' });
+    const realClient = randomIp();
+    const codes: number[] = [];
+    for (let i = 0; i < 6; i++) {
+      // Client forges a different address each time; the edge appends the real one.
+      codes.push((await attempt(appBehindEdge, u.username, '127.0.0.1', `${randomIp()}, ${realClient}`)).statusCode);
+    }
+    expect(codes).toEqual([401, 401, 401, 401, 401, 429]);
+  });
+
+  it('forwarding headers from an untrusted peer are ignored even when proxies are configured', async () => {
+    const u = await makeUser('demo', { role: 'STUDENT' });
+    const peer = randomIp(); // not 127.0.0.1 ⇒ not trusted
+    const codes: number[] = [];
+    for (let i = 0; i < 6; i++) codes.push((await attempt(appBehindEdge, u.username, peer, randomIp())).statusCode);
+    expect(codes.at(-1)).toBe(429);
+  });
+
+  it('distinct clients behind the same edge get separate buckets (the edge IP is not the key)', async () => {
+    const u = await makeUser('demo', { role: 'STUDENT' });
+    const codes: number[] = [];
+    // 8 attempts from 8 different real clients: none should be limited by the per IP+user rule.
+    for (let i = 0; i < 8; i++) codes.push((await attempt(appBehindEdge, u.username, '127.0.0.1', randomIp())).statusCode);
+    expect(codes.every((c) => c === 401)).toBe(true);
   });
 });

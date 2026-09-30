@@ -9,14 +9,22 @@ Multi-tenant platform for Nigerian tertiary institutions: admissions, fees, cour
 Rebuilding from scratch (see [ADR-013](docs/19-decision-log.md)). The earlier prototype is preserved at git tag `v0-prototype`.
 Current phase: **Phase 0 — Foundations** ([roadmap](docs/18-roadmap.md)).
 
-| Package | What | State |
-|---------|------|-------|
-| `packages/domain` | Pure grading / GPA / CGPA / standing / classification engine | ✅ 41 tests, 100% line coverage |
-| `packages/db` | Platform + tenant Prisma schemas, forced RLS, composite tenant FKs, RLS checker, isolation tests | ✅ migrated; RLS gate + 8 isolation tests green |
-| `apps/api` | Host→tenant resolution, activation → login → sessions → logout, deny-by-default access guard, CSRF, rate limits, lockout | ✅ 31 integration tests (mutation-checked) |
-| `packages/contracts` | Permission catalog + system role grants | ✅ |
-| CI | `.github/workflows/ci.yml`: build, typecheck, unit, RLS gate, seed×2, DB + API integration, gitleaks | 🟡 written; runs once a GitHub remote exists |
-| `apps/web`, `apps/console` | Next.js apps | ⏳ |
+### Verification status
+
+Statuses are kept distinct: **implemented** → **tested locally** → **verified in CI** / **verified in browser**.
+
+| Capability | Implemented | Tested locally | Verified in CI | Verified in browser |
+|---|---|---|---|---|
+| Grading / GPA engine (`packages/domain`) | ✅ | ✅ 41 tests, 100% lines | ⏳ first run pending | n/a |
+| Tenant DB isolation (forced RLS, composite FKs, RLS gate) | ✅ | ✅ 8 tests + checker negative control | ⏳ | n/a |
+| Host → tenant resolution, suspended → 423 | ✅ | ✅ | ⏳ | ✅ via dev edge |
+| Activation → login → /me → logout | ✅ | ✅ | ⏳ | ✅ HTTP on `*.localhost` · ❌ HTTPS not yet |
+| Existing sessions blocked on disable / lock / role removal / suspension | ✅ | ✅ | ⏳ | — |
+| Rate limits not bypassable via forwarding headers | ✅ | ✅ mutation-checked | ⏳ | — |
+| CSRF (Fetch Metadata / Origin) | ✅ | ✅ | ⏳ | ✅ same-origin path only |
+| Password reset, MFA (TOTP), step-up | ❌ next | — | — | — |
+
+Isolation-layer coverage and known gaps: [docs/12 §3.1](docs/12-testing-strategy.md).
 
 ## Prerequisites
 
@@ -36,5 +44,7 @@ pnpm rls:check     # static tenant-isolation gate
 pnpm test          # unit tests
 pnpm --filter @univarse/db test:int   # cross-tenant isolation tests against the real DB
 ```
+
+Browser check without the web app: start `api` and `edge-demo-uni` from `.claude/launch.json` (or `node tools/dev-edge/start-api.mjs` + `node tools/dev-edge/server.mjs`) and open http://demo-uni.univarse.localhost:4180.
 
 Use `PGPORT=5433 pnpm db:setup` if your PostgreSQL 18 runs on another port.

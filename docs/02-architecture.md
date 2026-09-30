@@ -211,6 +211,9 @@ sequenceDiagram
 8. **Object keys are prefixed:** `tenants/{tenantId}/…`. Presigned URLs are only issued after an authorization check.
 
 ### 7.3 Tenant lifecycle
+
+**Propagation of status changes.** Each API instance caches host → tenant (including status) for `TENANT_CACHE_TTL_MS` (default 30 s). The instance performing a lifecycle change invalidates its own cache immediately. **Other instances converge within the TTL**, so a suspension may take up to 30 s to block every request cluster-wide. Before multi-instance production, publish lifecycle changes over Valkey pub/sub so all instances invalidate at once (tracked in the roadmap). Already-issued sessions are covered: the tenant guard runs before session lookup on every request, and this is tested.
+
 `REQUESTED → PROVISIONING → ONBOARDING → ACTIVE ⇄ SUSPENDED → OFFBOARDING (60-day export window) → ARCHIVED → PURGED`. See [03](03-domain-model.md) §12 for the state machine. Provisioning is an idempotent, resumable job: create tenant rows → seed defaults (roles, grading scheme, settings) → create first institution admin → DNS/TLS for the subdomain → mark ONBOARDING.
 
 ### 7.4 Promotion pool → dedicated

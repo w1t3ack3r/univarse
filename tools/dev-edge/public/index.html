@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>UniVarse auth harness (dev)</title>
+</head>
+<body>
+  <h1>UniVarse auth harness <small>(dev only — not product UI)</small></h1>
+  <p>Origin: <code id="origin"></code></p>
+
+  <fieldset><legend>1. Request activation</legend>
+    <label>Username <input id="act-user" name="act-user" autocomplete="off"></label>
+    <button id="btn-request" type="button">Request code</button>
+  </fieldset>
+  <fieldset><legend>2. Confirm activation</legend>
+    <label>Code <input id="act-code" name="act-code" inputmode="numeric" autocomplete="off"></label>
+    <label>New password <input id="act-pass" name="act-pass" type="password" autocomplete="new-password"></label>
+    <button id="btn-confirm" type="button">Activate</button>
+  </fieldset>
+  <fieldset><legend>3. Session</legend>
+    <label>Username <input id="login-user" name="login-user" autocomplete="username"></label>
+    <label>Password <input id="login-pass" name="login-pass" type="password" autocomplete="current-password"></label>
+    <button id="btn-login" type="button">Log in</button>
+    <button id="btn-me" type="button">GET /me</button>
+    <button id="btn-logout" type="button">Log out</button>
+  </fieldset>
+
+  <h2>Last response</h2>
+  <pre id="out">—</pre>
+  <h2>document.cookie (session cookie must NOT appear — HttpOnly)</h2>
+  <pre id="cookies">—</pre>
+  <script src="/harness.js"></script>
+</body>
+</html>

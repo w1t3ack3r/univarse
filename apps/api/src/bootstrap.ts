@@ -8,7 +8,7 @@ import { genRequestId, registerCsrfGuard, registerSecurityHeaders } from './shar
 /** Builds the HTTP app. Shared by main.ts and the integration tests. */
 export async function createApp(config: AppConfig, overrides: AppOverrides = {}): Promise<NestFastifyApplication> {
   const adapter = new FastifyAdapter({
-    trustProxy: config.TRUST_PROXY,
+    trustProxy: config.TRUSTED_PROXIES.length > 0 ? config.TRUSTED_PROXIES : false,
     genReqId: genRequestId,
     bodyLimit: 1_048_576, // 1 MiB; uploads go direct to object storage (docs/06 §9)
     logger: false,
