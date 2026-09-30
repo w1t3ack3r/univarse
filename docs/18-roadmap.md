@@ -31,7 +31,7 @@ gantt
 
 - Monorepo (pnpm + Turborepo), shared configs, lefthook, commitlint, CI pipeline ([13](13-ci-cd-and-workflow.md)) with all security scans
 - `compose.dev.yml` (Postgres 18, PgBouncer, Valkey, MinIO, Mailpit, Gotenberg, ClamAV)
-- `packages/db`: platform + tenant Prisma schemas, roles/grants, **RLS template + checker**, `TenantPrismaService`, `TenantTx`
+- `packages/db`: platform + tenant Prisma schemas, roles/grants, **RLS template + checker**, `forTenant`, `withTenantTx`, API `ShardRegistry`
 - API skeleton: NestJS/Fastify, config validation, tenant resolver, Problem Details filter, rate limiting, security headers, health endpoints, OTel + Pino, OpenAPI generation, `packages/api-client` generation
 - **Identity:** users, argon2id, activation via OTP, login/logout, sessions (cookie), password reset, TOTP MFA, step-up, roles/permissions/scoped assignments, `PolicyService`
 - **Audit** (hash chain), **outbox** + relay + BullMQ worker skeleton, **files** (presigned upload, ClamAV scan), **settings** module with typed keys

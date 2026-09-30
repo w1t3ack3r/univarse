@@ -13,7 +13,7 @@ Current phase: **Phase 0 — Foundations** ([roadmap](docs/18-roadmap.md)).
 |---------|------|-------|
 | `packages/domain` | Pure grading / GPA / CGPA / standing / classification engine | ✅ 41 tests, 100% line coverage |
 | `packages/db` | Platform + tenant Prisma schemas, forced RLS, composite tenant FKs, RLS checker, isolation tests | ✅ migrated; RLS gate + 8 isolation tests green |
-| `apps/api` | NestJS (Fastify) API | ⏳ next |
+| `apps/api` | NestJS (Fastify) API: Host→tenant resolution, suspended→423, Problem Details, security headers, health | ✅ 10 integration tests |
 | `apps/web`, `apps/console` | Next.js apps | ⏳ |
 
 ## Prerequisites
@@ -28,6 +28,8 @@ pnpm install
 pnpm db:setup      # asks for your local postgres superuser password (hidden), creates
                    # least-privilege roles + databases, writes .env (git-ignored)
 pnpm db:migrate    # platform + tenant migrations (RLS, grants)
+pnpm db:seed       # demo-uni, test-poly, paused-uni (suspended)
+pnpm dev:secrets && pnpm dev:infra   # Valkey + Mailpit (Docker; UI http://127.0.0.1:8025)
 pnpm rls:check     # static tenant-isolation gate
 pnpm test          # unit tests
 pnpm --filter @univarse/db test:int   # cross-tenant isolation tests against the real DB

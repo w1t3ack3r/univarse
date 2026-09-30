@@ -187,7 +187,7 @@ sequenceDiagram
   T-->>A: {tenantId, shardId, status}
   A->>A: reject if status ∉ {ACTIVE} (SUSPENDED → 423)
   A->>R: load session (cookie) → user must belong to tenantId
-  A->>A: AsyncLocalStorage ctx = {tenantId, userId, perms, requestId}
+  A->>A: TenantGuard attaches ctx {tenantId, shardId} to the request; handlers receive it via @CurrentTenant()
   A->>D: BEGIN; SELECT set_config('app.tenant_id', $tenantId, true); <query>; COMMIT
   D-->>A: only rows where tenant_id = app.tenant_id
   A-->>B: 200 JSON
@@ -195,7 +195,7 @@ sequenceDiagram
 
 1. **Tenant resolution comes from the Host header only** (subdomain or verified custom domain). It never comes from a request body, query string or client header in production. In development, `X-Tenant-Slug` is accepted **only** when `NODE_ENV=development`.
 2. The session is bound to a tenant. A session cookie presented on another tenant's host is rejected (401) and logged as a security event.
-3. `TenantPrismaService.forTenant(ctx)` returns a client for the tenant's shard. It wraps every operation in a transaction that first runs `set_config('app.tenant_id', …, true)` (transaction-local, safe with PgBouncer transaction pooling).
+3. `ShardRegistry.forTenant(ctx.shardId, ctx.tenantId)` (or `.tx(...)` for multi-statement use cases) returns a client for the tenant's shard. Context is passed explicitly, never via globals or AsyncLocalStorage. It wraps every operation in a transaction that first runs `set_config('app.tenant_id', …, true)` (transaction-local, safe with PgBouncer transaction pooling).
 4. RLS policy on every tenant table:
    ```sql
    ALTER TABLE student ENABLE ROW LEVEL SECURITY;

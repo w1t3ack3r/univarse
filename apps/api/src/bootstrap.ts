@@ -1,0 +1,23 @@
+import 'reflect-metadata';
+import { NestFactory } from '@nestjs/core';
+import { FastifyAdapter, type NestFastifyApplication } from '@nestjs/platform-fastify';
+import { AppModule } from './app.module.js';
+import type { AppConfig } from './config/config.js';
+import { genRequestId, registerSecurityHeaders } from './shared/http/fastify-hooks.js';
+
+/** Builds the HTTP app. Shared by main.ts and the integration tests. */
+export async function createApp(config: AppConfig): Promise<NestFastifyApplication> {
+  const adapter = new FastifyAdapter({
+    trustProxy: config.TRUST_PROXY,
+    genReqId: genRequestId,
+    bodyLimit: 1_048_576, // 1 MiB; uploads go direct to object storage (docs/06 §9)
+    logger: false,
+  });
+  const app = await NestFactory.create<NestFastifyApplication>(AppModule.forRoot(config), adapter, {
+    logger: config.NODE_ENV === 'test' ? false : ['error', 'warn', 'log'],
+  });
+  registerSecurityHeaders(app.getHttpAdapter().getInstance(), { production: config.NODE_ENV === 'production' });
+  app.enableShutdownHooks();
+  await app.init();
+  return app;
+}

@@ -182,7 +182,7 @@ CSP starts in `report-only` mode in staging, reports go to an endpoint, and it's
 ## 13. Security checklist for every PR (copy into the PR template)
 
 - [ ] Endpoint declares permission. Scope checked against the loaded resource
-- [ ] Tenant data accessed only via `TenantPrismaService` / `TenantTx`
+- [ ] Tenant data accessed only via `ShardRegistry.forTenant` / `ShardRegistry.tx`
 - [ ] zod `strict()` schemas for input. Response DTO mapper for output
 - [ ] Sensitive action has `@RequireStepUp()` and an audit event
 - [ ] No secrets/PII in logs, errors or analytics

@@ -24,7 +24,7 @@ pnpm contracts:gen      # regenerate OpenAPI + api-client after contract changes
 Local tenant URL: `http://demo-uni.univarse.localhost:3000`
 
 ## Invariants — never violate
-1. **Tenant isolation:** tenant data only via `TenantPrismaService` / `TenantTx`. Never import the raw tenant PrismaClient. Every new tenant table gets `tenant_id` + forced RLS (run `pnpm rls:check`). Tenant comes from the Host, never from request input.
+1. **Tenant isolation:** tenant data only via `ShardRegistry.forTenant` / `ShardRegistry.tx`. Never import the raw tenant PrismaClient. Every new tenant table gets `tenant_id` + forced RLS (run `pnpm rls:check`). Tenant comes from the Host, never from request input.
 2. **Authorization:** every endpoint declares a permission. Use cases check scope against the **loaded resource**. Sensitive actions use `@RequireStepUp()`. Out-of-scope → 404.
 3. **Money = `bigint` kobo. Scores/GPA = decimal.js / `numeric`.** Never floats.
 4. **Business rules** live in `packages/domain` as pure functions and follow `docs/04-business-rules.md`. Institution differences are **settings**, never `if (tenant === …)`.
