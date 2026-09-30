@@ -12,7 +12,7 @@ Current phase: **Phase 0 — Foundations** ([roadmap](docs/18-roadmap.md)).
 | Package | What | State |
 |---------|------|-------|
 | `packages/domain` | Pure grading / GPA / CGPA / standing / classification engine | ✅ 41 tests, 100% line coverage |
-| `packages/db` | Platform + tenant Prisma schemas, forced RLS, composite tenant FKs, RLS checker, isolation tests | 🟡 schema + tooling written; needs local DB setup |
+| `packages/db` | Platform + tenant Prisma schemas, forced RLS, composite tenant FKs, RLS checker, isolation tests | ✅ migrated; RLS gate + 8 isolation tests green |
 | `apps/api` | NestJS (Fastify) API | ⏳ next |
 | `apps/web`, `apps/console` | Next.js apps | ⏳ |
 
