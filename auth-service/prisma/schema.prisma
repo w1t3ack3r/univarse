@@ -1,0 +1,311 @@
+// UniVarse Authentication Service - Prisma Schema
+// Multi-tenant database schema with row-level isolation
+
+generator client {
+  provider = "prisma-client-js"
+  binaryTargets = ["native", "linux-musl-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================
+// INSTITUTION & MULTI-TENANCY
+// ============================================
+
+model Institution {
+  id          String   @id @default(uuid())
+  name        String
+  code        String   @unique // e.g., "UNILAG", "OAU"
+  domain      String?  // Optional custom domain
+  logo        String?
+  address     String?
+  phone       String?
+  email       String?
+  website     String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  users       User[]
+  faculties   Faculty[]
+  departments Department[]
+  sessions    AcademicSession[]
+  auditLogs   AuditLog[]
+
+  @@map("institutions")
+}
+
+// ============================================
+// ACADEMIC STRUCTURE
+// ============================================
+
+model Faculty {
+  id            String   @id @default(uuid())
+  name          String
+  code          String   // e.g., "SCI", "ENG"
+  description   String?
+  institutionId String
+  institution   Institution @relation(fields: [institutionId], references: [id], onDelete: Cascade)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // Relations
+  departments Department[]
+  users       User[]       // Deans
+
+  @@unique([code, institutionId])
+  @@map("faculties")
+}
+
+model Department {
+  id            String   @id @default(uuid())
+  name          String
+  code          String   // e.g., "CSC", "PHY"
+  description   String?
+  facultyId     String
+  faculty       Faculty  @relation(fields: [facultyId], references: [id], onDelete: Cascade)
+  institutionId String
+  institution   Institution @relation(fields: [institutionId], references: [id], onDelete: Cascade)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // Relations
+  users         User[]   // Students, Lecturers, HoDs
+  courses       Course[]
+
+  @@unique([code, institutionId])
+  @@map("departments")
+}
+
+model AcademicSession {
+  id            String   @id @default(uuid())
+  name          String   // e.g., "2025/2026"
+  startDate     DateTime
+  endDate       DateTime
+  isCurrent     Boolean  @default(false)
+  institutionId String
+  institution   Institution @relation(fields: [institutionId], references: [id], onDelete: Cascade)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // Relations
+  semesters     Semester[]
+
+  @@map("academic_sessions")
+}
+
+model Semester {
+  id        String   @id @default(uuid())
+  name      String   // e.g., "First Semester", "Second Semester"
+  number    Int      // 1 or 2
+  startDate DateTime
+  endDate   DateTime
+  isCurrent Boolean  @default(false)
+  sessionId String
+  session   AcademicSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("semesters")
+}
+
+// ============================================
+// USER MANAGEMENT
+// ============================================
+
+enum Role {
+  STUDENT
+  LECTURER
+  HOD
+  DEAN
+  ICT_ADMIN      // Institution-level admin
+  SUPER_ADMIN    // Platform-level admin (UniVarse staff, not tied to any institution)
+}
+
+// IT Admin Sub-Roles for RBAC within ICT_ADMIN
+enum ITAdminRole {
+  IT_ADMIN_CENTRAL         // Full access to all IT Admin modules
+  IT_ADMIN_ACADEMIC        // Academic Structure, Courses, Programmes, Sessions
+  IT_ADMIN_ADMISSIONS      // Admissions only
+  IT_ADMIN_BURSARY         // Fee Management only
+  IT_ADMIN_EXAMS           // Examinations, Results, Clearance
+  IT_ADMIN_STUDENT_AFFAIRS // Notifications, Support
+  IT_ADMIN_HOSTEL          // Hostel only
+}
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+  PENDING_VERIFICATION
+}
+
+model User {
+  id                String     @id @default(uuid())
+  email             String
+  password          String
+  firstName         String
+  lastName          String
+  middleName        String?
+  phone             String?
+  avatar            String?
+  role              Role       @default(STUDENT)
+  status            UserStatus @default(PENDING_VERIFICATION)
+  emailVerified     Boolean    @default(false)
+  emailVerifiedAt   DateTime?
+  lastLoginAt       DateTime?
+  mustChangePassword Boolean   @default(false)  // Force password change on first login
+  tempPasswordExpiresAt DateTime?               // Temp password expiry (e.g., 24 hours)
+  itAdminRole       ITAdminRole?                // Sub-role for ICT_ADMIN users (RBAC)
+  
+  // Institution relation - Optional for SUPER_ADMIN (platform-level admins)
+  institutionId     String?
+  institution       Institution? @relation(fields: [institutionId], references: [id], onDelete: Cascade)
+  
+  // Optional foreign keys for academic structure
+  departmentId      String?
+  department        Department? @relation(fields: [departmentId], references: [id])
+  facultyId         String?
+  faculty           Faculty?    @relation(fields: [facultyId], references: [id])
+  
+  createdAt         DateTime   @default(now())
+  updatedAt         DateTime   @updatedAt
+
+  // Profile relations
+  studentProfile    StudentProfile?
+  lecturerProfile   LecturerProfile?
+  
+  // Auth relations
+  refreshTokens     RefreshToken[]
+  passwordResets    PasswordReset[]
+  auditLogs         AuditLog[]
+
+  // SUPER_ADMIN has unique email globally, others unique per institution
+  @@unique([email, institutionId])
+  @@index([institutionId])
+  @@index([role])
+  @@map("users")
+}
+
+model StudentProfile {
+  id              String   @id @default(uuid())
+  matricNumber    String
+  level           Int      @default(100) // 100, 200, 300, etc.
+  enrollmentYear  Int
+  graduationYear  Int?
+  cgpa            Float?
+  userId          String   @unique
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@map("student_profiles")
+}
+
+model LecturerProfile {
+  id            String   @id @default(uuid())
+  staffId       String
+  title         String?  // e.g., "Dr.", "Prof."
+  rank          String?  // e.g., "Senior Lecturer", "Professor"
+  specialization String?
+  userId        String   @unique
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // Relations
+  courses       Course[]
+
+  @@map("lecturer_profiles")
+}
+
+// ============================================
+// COURSE MANAGEMENT
+// ============================================
+
+model Course {
+  id            String   @id @default(uuid())
+  code          String   // e.g., "CSC101"
+  title         String
+  description   String?
+  creditUnits   Int      @default(3)
+  level         Int      @default(100)
+  departmentId  String
+  department    Department @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+  lecturerId    String?
+  lecturer      LecturerProfile? @relation(fields: [lecturerId], references: [id])
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([code, departmentId])
+  @@map("courses")
+}
+
+// ============================================
+// AUTHENTICATION & SECURITY
+// ============================================
+
+model RefreshToken {
+  id          String   @id @default(uuid())
+  token       String   @unique
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt   DateTime
+  createdAt   DateTime @default(now())
+  revokedAt   DateTime?
+
+  @@index([userId])
+  @@map("refresh_tokens")
+}
+
+model PasswordReset {
+  id        String   @id @default(uuid())
+  token     String   @unique
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime @default(now())
+
+  @@map("password_resets")
+}
+
+// ============================================
+// AUDIT LOGGING
+// ============================================
+
+enum AuditAction {
+  LOGIN
+  LOGOUT
+  REGISTER
+  PASSWORD_CHANGE
+  PASSWORD_RESET
+  PROFILE_UPDATE
+  ROLE_CHANGE
+  ACCOUNT_SUSPENDED
+  ACCOUNT_ACTIVATED
+}
+
+model AuditLog {
+  id            String      @id @default(uuid())
+  action        AuditAction
+  description   String?
+  ipAddress     String?
+  userAgent     String?
+  metadata      Json?
+  userId        String?
+  user          User?       @relation(fields: [userId], references: [id], onDelete: SetNull)
+  institutionId String?
+  institution   Institution? @relation(fields: [institutionId], references: [id], onDelete: SetNull)
+  createdAt     DateTime    @default(now())
+
+  @@index([userId])
+  @@index([action])
+  @@index([createdAt])
+  @@map("audit_logs")
+}

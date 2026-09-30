@@ -1,0 +1,37 @@
+# dependencies
+node_modules/
+vendor/
+.pnpm-store/
+
+# builds
+dist/
+build/
+.next/
+out/
+.turbo/
+coverage/
+*.tsbuildinfo
+**/prisma/generated/
+**/src/generated/
+
+# env & secrets — NEVER commit
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# logs & OS
+*.log
+.DS_Store
+Thumbs.db
+*.tmp*
+
+# editor
+.vscode/*
+!.vscode/extensions.json
+.idea/
+
+# local data
+backups/
+storage/
