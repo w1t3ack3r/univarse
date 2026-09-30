@@ -1,5 +1,7 @@
 # UniVarse
 
+[![ci](https://github.com/w1t3ack3r/univarse/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/w1t3ack3r/univarse/actions/workflows/ci.yml)
+
 Multi-tenant platform for Nigerian tertiary institutions: admissions, fees, course registration, examinations, results (HOD → Dean → Senate), GPA/CGPA, clearance, graduation, transcripts and hostels.
 
 **Start with the blueprint:** [docs/README.md](docs/README.md).
@@ -15,13 +17,13 @@ Statuses are kept distinct: **implemented** → **tested locally** → **verifie
 
 | Capability | Implemented | Tested locally | Verified in CI | Verified in browser |
 |---|---|---|---|---|
-| Grading / GPA engine (`packages/domain`) | ✅ | ✅ 41 tests, 100% lines | ⏳ first run pending | n/a |
-| Tenant DB isolation (forced RLS, composite FKs, RLS gate) | ✅ | ✅ 8 tests + checker negative control | ⏳ | n/a |
-| Host → tenant resolution, suspended → 423 | ✅ | ✅ | ⏳ | ✅ via dev edge |
-| Activation → login → /me → logout | ✅ | ✅ | ⏳ | ✅ HTTP on `*.localhost` · ❌ HTTPS not yet |
-| Existing sessions blocked on disable / lock / role removal / suspension | ✅ | ✅ | ⏳ | — |
-| Rate limits not bypassable via forwarding headers | ✅ | ✅ mutation-checked | ⏳ | — |
-| CSRF (Fetch Metadata / Origin) | ✅ | ✅ | ⏳ | ✅ same-origin path only |
+| Grading / GPA engine (`packages/domain`) | ✅ | ✅ 41 tests, 100% lines | ✅ | n/a |
+| Tenant DB isolation (forced RLS, composite FKs, RLS gate) | ✅ | ✅ 8 tests + checker negative control | ✅ | n/a |
+| Host → tenant resolution, suspended → 423 | ✅ | ✅ | ✅ | ✅ via dev edge |
+| Activation → login → /me → logout | ✅ | ✅ | ✅ | ✅ HTTP on `*.localhost` · ❌ HTTPS not yet |
+| Existing sessions blocked on disable / lock / role removal / suspension | ✅ | ✅ | ✅ | — |
+| Rate limits not bypassable via forwarding headers | ✅ | ✅ mutation-checked | ✅ | — |
+| CSRF (Fetch Metadata / Origin) | ✅ | ✅ | ✅ | ✅ same-origin path only |
 | Password reset, MFA (TOTP), step-up | ❌ next | — | — | — |
 
 Isolation-layer coverage and known gaps: [docs/12 §3.1](docs/12-testing-strategy.md).
