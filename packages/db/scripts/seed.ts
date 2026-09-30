@@ -3,6 +3,7 @@
  *   pnpm db:seed
  * Uses the APP roles (not the migrator), so it goes through RLS like the real app.
  */
+import { SYSTEM_ROLE_PERMISSIONS } from '@univarse/contracts';
 import { createPlatformClient } from '../src/platform.js';
 import { createTenantShardClient, withTenantTx } from '../src/tenant.js';
 import { loadRootEnv, requireEnv } from './env.js';
@@ -37,6 +38,12 @@ const SYSTEM_ROLES: [string, string][] = [
   ['APPLICANT', 'Applicant'],
 ];
 
+const DEMO_USERS = [
+  { username: 'ADMIN001', emailLocal: 'ict.admin', displayName: 'Ngozi Adeyemi', role: 'INSTITUTION_ADMIN' },
+  { username: 'STAFF001', emailLocal: 'lecturer', displayName: 'Dr. Ibrahim Musa', role: 'LECTURER' },
+  { username: '25/SCI/CSC/0001', emailLocal: 'student', displayName: 'Chiamaka Okonkwo', role: 'STUDENT' },
+] as const;
+
 async function main() {
   loadRootEnv();
   const platform = createPlatformClient(requireEnv('PLATFORM_DATABASE_URL'));
@@ -70,12 +77,36 @@ async function main() {
       if (root.path === '/') {
         await tx.orgUnit.update({ where: { id: root.id }, data: { path: `/${root.id}/` } });
       }
+      const roleIds = new Map<string, string>();
       for (const [key, name] of SYSTEM_ROLES) {
-        await tx.role.upsert({
+        const permissions = [...(SYSTEM_ROLE_PERMISSIONS[key] ?? [])];
+        const role = await tx.role.upsert({
           where: { tenantId_key: { tenantId: tenant.id, key } },
-          update: { name },
-          create: { tenantId: tenant.id, key, name, isSystem: true, permissions: [] },
+          update: { name, permissions },
+          create: { tenantId: tenant.id, key, name, isSystem: true, permissions },
         });
+        roleIds.set(key, role.id);
+      }
+
+      // Demo accounts: NO passwords. Activate via /api/v1/auth/activation/* (code arrives in Mailpit).
+      for (const u of DEMO_USERS) {
+        const user = await tx.userAccount.upsert({
+          where: { tenantId_username: { tenantId: tenant.id, username: u.username } },
+          update: {},
+          create: {
+            tenantId: tenant.id,
+            username: u.username,
+            email: `${u.emailLocal}@${t.slug}.test`,
+            displayName: u.displayName,
+          },
+        });
+        const roleId = roleIds.get(u.role)!;
+        const exists = await tx.roleAssignment.findFirst({ where: { userId: user.id, roleId, revokedAt: null } });
+        if (!exists) {
+          await tx.roleAssignment.create({
+            data: { tenantId: tenant.id, userId: user.id, roleId, scopeType: 'INSTITUTION', reason: 'seed' },
+          });
+        }
       }
     });
     console.log(`  ✓ ${t.slug} (${t.status}) → http://${hostname}`);

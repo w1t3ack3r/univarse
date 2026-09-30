@@ -13,7 +13,9 @@ Current phase: **Phase 0 — Foundations** ([roadmap](docs/18-roadmap.md)).
 |---------|------|-------|
 | `packages/domain` | Pure grading / GPA / CGPA / standing / classification engine | ✅ 41 tests, 100% line coverage |
 | `packages/db` | Platform + tenant Prisma schemas, forced RLS, composite tenant FKs, RLS checker, isolation tests | ✅ migrated; RLS gate + 8 isolation tests green |
-| `apps/api` | NestJS (Fastify) API: Host→tenant resolution, suspended→423, Problem Details, security headers, health | ✅ 10 integration tests |
+| `apps/api` | Host→tenant resolution, activation → login → sessions → logout, deny-by-default access guard, CSRF, rate limits, lockout | ✅ 31 integration tests (mutation-checked) |
+| `packages/contracts` | Permission catalog + system role grants | ✅ |
+| CI | `.github/workflows/ci.yml`: build, typecheck, unit, RLS gate, seed×2, DB + API integration, gitleaks | 🟡 written; runs once a GitHub remote exists |
 | `apps/web`, `apps/console` | Next.js apps | ⏳ |
 
 ## Prerequisites

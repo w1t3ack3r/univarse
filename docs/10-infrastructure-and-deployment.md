@@ -54,6 +54,8 @@ flowchart TB
 
 ## 4. Local development
 
+> **Current state:** see [ADR-015](19-decision-log.md). Postgres runs natively in Phase 0, and dependencies are added to compose as features need them. The list below is the target.
+
 `infra/compose/compose.dev.yml` provides: `postgres` (with `platform` + `pool_01` DBs, roles and extensions via init scripts), `pgbouncer`, `valkey`, `minio` (+ bucket bootstrap), `mailpit` (catches email), `gotenberg`, `clamav`, and an optional `caddy` for `*.univarse.localhost` subdomains.
 
 ```bash

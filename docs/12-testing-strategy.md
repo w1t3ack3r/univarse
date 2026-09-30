@@ -39,6 +39,18 @@ Mutation testing (Stryker) on `packages/domain` runs nightly with a mutation sco
 
 Any failure here is a release blocker.
 
+### 3.1 Current coverage of the five layers (update as modules land)
+
+| Layer | Status | Where | Gap to close |
+|-------|--------|-------|--------------|
+| 1. Static (RLS checker) | ✅ Complete for current tables. Negative control verified (flags missing RLS, FORCE, policy, non-tenant unique, non-tenant FK) | `packages/db/scripts/rls-check.ts` (CI gate) | — |
+| 2. Dynamic DB | 🟡 **Partial.** Hand-written cases on `user_account`, `org_unit`, `session` (FK), `audit_event` (grants), plus the no-context and cannot-bypass-RLS checks | `packages/db/test/isolation.int.spec.ts` | Generic sweep: iterate *every* tenant table from `pg_catalog` and assert read/update/delete/insert isolation automatically |
+| 3. API | 🟡 **Partial.** Host → tenant resolution; tenant session rejected on another tenant's host (`/me`, `/users`); same username across tenants; admin list excludes other tenant's users | `apps/api/src/app.int.spec.ts`, `modules/identity/auth.int.spec.ts` | Route-table sweep: for every resource route, request tenant B's IDs with tenant A's session → 404 |
+| 4. Jobs | ⏳ Not applicable yet (no queues) | — | Arrives with the outbox/BullMQ slice |
+| 5. Caches / files | 🟡 Rate-limit keys are tenant-prefixed. No file storage yet | `shared/infra/rate-limiter.ts` | Presigned-URL and cache-key tests with the files module |
+
+Mutation checks were run on the auth slice (2026-09-30). Disabling the permission check, CSRF, session expiry, or Host-based tenant resolution each made the suite fail.
+
 ## 4. Domain engine testing
 
 - **Golden fixtures:** `packages/domain/fixtures/<tenant-or-generic>/*.json`. Real (anonymised) result sheets and broadsheets from the pilot institution, with the Senate-approved GPA/CGPA/class values. The engine output MUST match to the last digit. These fixtures are the contract with the institution.

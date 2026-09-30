@@ -1,4 +1,5 @@
 import { Controller, Get } from '@nestjs/common';
+import { Public } from '../identity/access.guard.js';
 import { CurrentTenant } from '../../shared/tenancy/tenant.guard.js';
 import type { TenantContext } from '../../shared/tenancy/tenant-resolver.service.js';
 
@@ -6,6 +7,7 @@ import type { TenantContext } from '../../shared/tenancy/tenant-resolver.service
 @Controller('api/v1/tenant')
 export class TenantProfileController {
   @Get('public-profile')
+  @Public()
   profile(@CurrentTenant() tenant: TenantContext) {
     return { slug: tenant.slug, shortName: tenant.shortName, legalName: tenant.legalName, type: tenant.type };
   }

@@ -9,6 +9,40 @@ export function genRequestId(req: { headers: Record<string, string | string[] | 
   return typeof incoming === 'string' && SAFE_REQUEST_ID.test(incoming) ? incoming : randomUUID();
 }
 
+const UNSAFE = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
+
+/**
+ * CSRF defence (docs/08 §3.5): state-changing API requests must come from our own origin.
+ * Fetch Metadata first; fall back to Origin for browsers without it. Requests carrying neither
+ * are refused — the web app's server-side calls set Origin explicitly.
+ */
+export function registerCsrfGuard(app: FastifyInstance): void {
+  app.addHook('onRequest', async (req, reply) => {
+    if (!UNSAFE.has(req.method) || !req.url.startsWith('/api/')) return;
+    const site = req.headers['sec-fetch-site'];
+    let ok: boolean;
+    if (typeof site === 'string') {
+      ok = site === 'same-origin';
+    } else {
+      const origin = req.headers.origin;
+      try {
+        ok = typeof origin === 'string' && new URL(origin).host.toLowerCase() === req.host.toLowerCase();
+      } catch {
+        ok = false;
+      }
+    }
+    if (!ok) {
+      return reply.status(403).header('content-type', 'application/problem+json').send({
+        type: 'https://docs.univarse.ng/errors/request.csrf-rejected',
+        title: 'Cross-site request rejected',
+        status: 403,
+        code: 'request.csrf_rejected',
+        requestId: req.id,
+      });
+    }
+  });
+}
+
 /** API security headers (docs/08-security.md §6). The web app sets its own CSP with nonces. */
 export function registerSecurityHeaders(app: FastifyInstance, opts: { production: boolean }): void {
   app.addHook('onSend', async (req, reply, payload) => {

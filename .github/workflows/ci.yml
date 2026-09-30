@@ -1,0 +1,80 @@
+# CI — docs/13-ci-cd-and-workflow.md §3 (Phase 0 subset).
+# Every job must pass before merge to main.
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  secrets-scan:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - name: gitleaks
+        run: |
+          curl -sSfL https://github.com/gitleaks/gitleaks/releases/download/v8.28.0/gitleaks_8.28.0_linux_x64.tar.gz | tar -xz gitleaks
+          ./gitleaks git --redact --no-banner --exit-code 1 .
+
+  build-test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_PASSWORD: ci-superuser-only
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 20
+      valkey:
+        image: valkey/valkey:8-alpine
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "valkey-cli ping" --health-interval 5s --health-timeout 5s --health-retries 20
+    env:
+      NODE_ENV: test
+      PGHOST: 127.0.0.1
+      PGPORT: '5432'
+      PGSUPERPASSWORD: ci-superuser-only
+      VALKEY_URL: redis://127.0.0.1:6379
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+      - name: Generate CI-only secrets
+        run: |
+          echo "SESSION_PEPPER=$(openssl rand -base64 32)" >> .env
+      - name: Build (includes Prisma generate)
+        run: pnpm build
+      - name: Typecheck
+        run: pnpm typecheck
+      - name: Unit tests (domain coverage gates enforced)
+        run: pnpm test
+
+      - name: Create roles + databases (least privilege)
+        run: pnpm db:setup
+      - name: Migrate
+        run: pnpm db:migrate
+      - name: RLS gate
+        run: pnpm rls:check
+      - name: Seed (twice — must be idempotent)
+        run: pnpm db:seed && pnpm db:seed
+      - name: DB isolation tests (as app role)
+        run: pnpm --filter @univarse/db test:int
+      - name: API integration tests
+        run: pnpm --filter @univarse/api test:int

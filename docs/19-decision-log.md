@@ -103,3 +103,32 @@ Alternatives considered: option — why not.
 **Context:** We rebuild inside the existing folder. The v0 prototype is preserved in git as tag `v0-prototype` (secrets scrubbed). At rebuild time the newest majors were TypeScript 7 (native compiler), NestJS 12, Vitest 5 and pnpm 12. Decorator support, ecosystem compatibility and config changes in those majors weren't yet verified for this stack.
 **Decision:** Phase 0 pins TypeScript ~5.9, NestJS 11, Prisma 7 (the `prisma-client` generator + `@prisma/adapter-pg`), Vitest 3, pnpm 10 and Node 24 LTS. Upgrading to the newer majors is a scheduled task after Phase 0 exit, done one major at a time with CI green.
 **Consequences:** A known-good foundation now, and a small upgrade task later. The docs mention "NestJS 11" deliberately.
+
+## ADR-014 — Explicit tenant context instead of AsyncLocalStorage
+**Status:** Accepted (2026-09-30). Amends [02 §7.2](02-architecture.md) (sequence diagram and rule 3).
+**Context:** The blueprint planned an AsyncLocalStorage (ALS) store holding `{tenantId, userId, perms}`, read implicitly by the DB layer. ALS context can be lost across some async boundaries (event emitters, pooled callbacks, some library hooks). A lost context either fails confusingly or, worse, invites "fallback" code. Implicit globals also hide which code touches tenant data.
+**Decision:** Tenant context is **passed explicitly**. `TenantGuard` resolves the tenant from the Host and attaches `TenantContext` to the request. Handlers receive it via `@CurrentTenant()` and pass `(shardId, tenantId)` to `ShardRegistry.forTenant()` / `ShardRegistry.tx()`. Jobs carry `tenantId` in their payload and do the same. There are no module-level "current tenant" variables anywhere.
+**Consequences:** One extra parameter per call chain. Tenant data access is grep-able and obvious in review. RLS remains the enforcement layer either way: a missing context still fails closed at the database.
+**Alternatives:** ALS (implicit, fragile). Request-scoped Nest providers (a DI performance cost on every request, and still implicit).
+
+## ADR-015 — Local development topology (Phase 0) vs. the planned stack
+**Status:** Accepted (2026-09-30). Amends [10 §4](10-infrastructure-and-deployment.md).
+**Context:** The blueprint's `compose.dev.yml` lists Postgres, PgBouncer, Valkey, MinIO, Mailpit, Gotenberg and ClamAV. The dev machine already runs PostgreSQL 18 natively, and the network is slow (large image pulls take a long time and time out).
+**Decision:** Introduce each dependency **when the first feature needs it**, and record the gap explicitly:
+
+| Dependency | Planned | Phase 0 status | Added when |
+|---|---|---|---|
+| PostgreSQL 18 | compose | **Native host install** (`pnpm db:setup` creates least-privilege roles). CI uses the `postgres:18` service container | — |
+| PgBouncer (transaction mode) | compose + prod | **Not yet.** App connects directly. RLS context is already transaction-local (`set_config(…, true)`), so it's PgBouncer-safe by design | Before the staging environment. Add a CI job running the isolation suite *through* PgBouncer |
+| Valkey | compose | **Running** (compose, hardened, 127.0.0.1) | Now: rate limits |
+| Mailpit | compose | **Running** | Now: activation codes |
+| S3-compatible storage | MinIO | **Not yet.** MinIO's community image distribution changed in 2025 `[VERIFY]`. Evaluate MinIO vs Garage/SeaweedFS behind the S3 API | Files module (uploads) |
+| Gotenberg, ClamAV | compose | Defined under the `docs` profile, not pulled | Documents / uploads |
+
+**Consequences:** Faster Phase 0. The Postgres versions in dev and CI must match (both 18). A PgBouncer compatibility gap exists until staging, mitigated by the transaction-local design and a planned CI job.
+
+## ADR-016 — Password hashing with Node's built-in Argon2id
+**Status:** Accepted (2026-09-30)
+**Context:** [08 §3.1](08-security.md) mandates Argon2id. The `argon2` npm package is a native addon: an install script plus prebuilt binaries, which is supply-chain surface ([09 §1](09-container-security.md)). Node ≥ 24.7 ships `crypto.argon2()`.
+**Decision:** Use `crypto.argon2('argon2id', …)` with `m=19456 KiB, t=2, p=1`, a 16-byte salt and a 32-byte tag, stored as a standard PHC string (`$argon2id$v=19$m=…,t=…,p=…$salt$hash`) so we can rehash or migrate later. Measured at ~260 ms per hash on the dev machine.
+**Consequences:** No native dependency. The API is marked experimental in Node 24, so pin the Node minor in images, cover it with tests (known-answer + round-trip), and keep the PHC format so we can switch implementations without resetting passwords.

@@ -10,7 +10,7 @@ import type { FastifyRequest } from 'fastify';
 import { ProblemError } from '../errors/problem.js';
 import { TenantResolver, type TenantContext } from './tenant-resolver.service.js';
 
-const NO_TENANT = 'univarse:no-tenant';
+export const NO_TENANT = 'univarse:no-tenant';
 /** Marks routes that run without a tenant (health checks, platform API). */
 export const NoTenant = () => SetMetadata(NO_TENANT, true);
 

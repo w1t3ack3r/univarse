@@ -25,6 +25,9 @@ export class ProblemFilter implements ExceptionFilter {
     const body = this.toProblem(exception);
     body.requestId = req.id;
 
+    const retryAfter = (exception as { retryAfterSec?: number } | null)?.retryAfterSec;
+    if (body.status === 429 && retryAfter) void reply.header('retry-after', String(retryAfter));
+
     if (body.status >= 500) {
       this.logger.error({ requestId: req.id, err: exception }, 'Unhandled error');
     }
@@ -33,7 +36,15 @@ export class ProblemFilter implements ExceptionFilter {
 
   private toProblem(e: unknown): ProblemBody {
     if (e instanceof ProblemError) {
-      return { type: problemType(e.code), title: e.title, status: e.status, code: e.code, ...(e.detail ? { detail: e.detail } : {}) };
+      const errors = (e as ProblemError & { errors?: ProblemBody['errors'] }).errors;
+      return {
+        type: problemType(e.code),
+        title: e.title,
+        status: e.status,
+        code: e.code,
+        ...(e.detail ? { detail: e.detail } : {}),
+        ...(errors ? { errors } : {}),
+      };
     }
     if (e instanceof DomainError) {
       return { type: problemType(e.code), title: 'Business rule violation', status: 422, code: e.code, detail: e.message };

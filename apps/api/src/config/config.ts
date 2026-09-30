@@ -13,6 +13,12 @@ const schema = z.object({
     .transform((v) => v === 'true'),
   /** How long a resolved host→tenant mapping is cached in memory. */
   TENANT_CACHE_TTL_MS: z.coerce.number().int().min(0).default(30_000),
+  /** Valkey/Redis for rate limiting (later: sessions cache, queues). */
+  VALKEY_URL: z.string().startsWith('redis://'),
+  /** Server-side secret mixed into one-time-code hashes so a DB leak can't brute-force 6-digit codes. */
+  SESSION_PEPPER: z.string().min(32),
+  SMTP_URL: z.string().startsWith('smtp').default('smtp://127.0.0.1:1025'),
+  MAIL_FROM: z.string().default('UniVarse <no-reply@univarse.localhost>'),
 });
 
 export type AppConfig = z.infer<typeof schema>;

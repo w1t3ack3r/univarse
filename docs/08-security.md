@@ -52,7 +52,7 @@ Revisit the threat model at the start of every roadmap phase. New modules add ro
 - SMS OTP is allowed for **activation and password reset of students/applicants only**, never as an MFA factor for privileged users (SIM-swap risk).
 
 ### 3.3 Sessions
-- 256-bit random session ID. The cookie `__Host-uv_sid` is `Secure; HttpOnly; SameSite=Lax; Path=/`. The server stores only `SHA-256(id)`.
+- 256-bit random session ID. The cookie `__Host-uv_sid` is `Secure; HttpOnly; SameSite=Lax; Path=/`. The server stores only `SHA-256(id)`. Sessions are looked up under the requesting tenant's RLS context, so another tenant's token is simply not found (the membership check). One-time codes are low-entropy, so they are hashed with HMAC-SHA256 using a server-side pepper and limited to 5 attempts.
 - Lifetimes `[CONFIG]` within bounds:
 
 | User type | Idle timeout | Absolute |
