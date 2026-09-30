@@ -1,0 +1,26 @@
+{
+  "name": "@univarse/domain",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Pure domain engines (grading, GPA/CGPA, standing, classification). No IO.",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run --coverage"
+  },
+  "dependencies": {
+    "decimal.js": "^10.6.0"
+  },
+  "devDependencies": {
+    "@vitest/coverage-v8": "^3.2.0",
+    "fast-check": "^4.3.0",
+    "vitest": "^3.2.0"
+  }
+}

@@ -27,7 +27,8 @@
 - Table names: `snake_case`, **singular** (`course_offering`). Prisma models are PascalCase and mapped with `@@map`.
 - Columns: `snake_case` (`@map`). Foreign keys are `<entity>_id`.
 - Primary keys: `id uuid DEFAULT uuidv7()` (time-ordered, index-friendly, not guessable in sequence).
-- Every tenant table: `tenant_id uuid NOT NULL` as the **first column of every composite index and unique constraint**.
+- Every tenant table: `tenant_id uuid NOT NULL` as the **first column of every composite index and unique constraint**, plus `UNIQUE (tenant_id, id)`.
+- **Every foreign key is composite on `(tenant_id, …)`** and references `(tenant_id, id)`. PostgreSQL validates FKs *without* applying RLS, so a single-column FK would let a row reference another tenant's row by UUID. The RLS checker fails any FK that doesn't include `tenant_id`.
 - Standard columns: `created_at timestamptz NOT NULL DEFAULT now()`, `updated_at`, `created_by uuid`, `updated_by uuid`, and `version int NOT NULL DEFAULT 0` for optimistically locked entities.
 - Money: `bigint` kobo, with column names ending in `_kobo`. Scores: `numeric(5,2)`. GPA: `numeric(4,2)`. Never `float`/`real`/`double`.
 - Enums: PostgreSQL enums via Prisma for stable sets. Lookup tables for tenant-configurable sets (remark codes, fee categories).
@@ -71,8 +72,11 @@ For interactive transactions, the `TenantTx` helper runs `set_config` as the fir
 After migrations run on the test DB, the checker queries `pg_class` / `pg_policies` and fails the build if any table in the tenant schema (except an explicit allowlist, e.g. `_prisma_migrations`):
 - lacks `tenant_id`, or
 - has `relrowsecurity = false` or `relforcerowsecurity = false`, or
-- lacks the `*_tenant_isolation` policy, or
-- has a unique index/constraint not starting with `tenant_id`.
+- lacks the `tenant_isolation` policy, or
+- has a unique index/constraint not starting with `tenant_id`, or
+- has a foreign key that doesn't include `tenant_id`.
+
+Policies are applied with the SQL helper `univarse_enable_tenant_rls('<table>')` (created in the first tenant migration), which enables and forces RLS and creates the `tenant_isolation` policy.
 
 ### 3.4 Isolation tests
 The integration suite creates two tenants with identical data shapes and asserts, for every repository, that tenant A's context can never read, update or delete tenant B's rows. It also asserts that no context at all returns zero rows. See [12 §3](12-testing-strategy.md).

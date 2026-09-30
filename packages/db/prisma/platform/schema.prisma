@@ -1,0 +1,165 @@
+// Platform (control plane) schema — no tenant personal data lives here.
+// Entities: docs/03-domain-model.md §1
+
+generator client {
+  provider            = "prisma-client"
+  output              = "../../src/generated/platform"
+  moduleFormat        = "esm"
+  importFileExtension = "js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum TenantType {
+  UNIVERSITY
+  POLYTECHNIC
+  COLLEGE_OF_EDUCATION
+}
+
+enum TenantOwnership {
+  FEDERAL
+  STATE
+  PRIVATE
+}
+
+enum TenantStatus {
+  REQUESTED
+  PROVISIONING
+  ONBOARDING
+  ACTIVE
+  SUSPENDED
+  OFFBOARDING
+  ARCHIVED
+  PURGED
+}
+
+enum TenantTier {
+  POOLED
+  DEDICATED
+}
+
+enum ShardKind {
+  POOL
+  DEDICATED
+}
+
+model Shard {
+  id        String    @id @default(dbgenerated("uuidv7()")) @db.Uuid
+  name      String    @unique
+  kind      ShardKind
+  /// Name of the env var / secret holding the connection string — never the URL itself.
+  secretRef String    @map("secret_ref")
+  region    String
+  isActive  Boolean   @default(true) @map("is_active")
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  tenants Tenant[]
+
+  @@map("shard")
+}
+
+model Tenant {
+  id                   String          @id @default(dbgenerated("uuidv7()")) @db.Uuid
+  /// Immutable; becomes the subdomain.
+  slug                 String          @unique
+  legalName            String          @map("legal_name")
+  shortName            String          @map("short_name")
+  type                 TenantType
+  ownership            TenantOwnership
+  status               TenantStatus    @default(REQUESTED)
+  tier                 TenantTier      @default(POOLED)
+  shardId              String          @map("shard_id") @db.Uuid
+  suspendedReason      String?         @map("suspended_reason")
+  offboardingStartedAt DateTime?       @map("offboarding_started_at") @db.Timestamptz(3)
+  purgeAfter           DateTime?       @map("purge_after") @db.Timestamptz(3)
+  createdAt            DateTime        @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt            DateTime        @updatedAt @map("updated_at") @db.Timestamptz(3)
+  version              Int             @default(0)
+
+  shard   Shard          @relation(fields: [shardId], references: [id], onDelete: Restrict)
+  domains TenantDomain[]
+
+  @@map("tenant")
+}
+
+enum DomainKind {
+  SUBDOMAIN
+  CUSTOM
+}
+
+model TenantDomain {
+  id                String     @id @default(dbgenerated("uuidv7()")) @db.Uuid
+  tenantId          String     @map("tenant_id") @db.Uuid
+  /// Lower-case host without port, e.g. "unilag.univarse.ng".
+  hostname          String     @unique
+  kind              DomainKind
+  verificationToken String?    @map("verification_token")
+  verifiedAt        DateTime?  @map("verified_at") @db.Timestamptz(3)
+  createdAt         DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@map("tenant_domain")
+}
+
+enum PlatformRole {
+  OWNER
+  SUPER_ADMIN
+  SUPPORT
+  FINANCE
+  READ_ONLY
+}
+
+model PlatformUser {
+  id           String       @id @default(dbgenerated("uuidv7()")) @db.Uuid
+  email        String       @unique
+  displayName  String       @map("display_name")
+  passwordHash String?      @map("password_hash")
+  role         PlatformRole
+  totpSecretEnc String?     @map("totp_secret_enc")
+  isActive     Boolean      @default(true) @map("is_active")
+  lastLoginAt  DateTime?    @map("last_login_at") @db.Timestamptz(3)
+  createdAt    DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt    DateTime     @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  sessions PlatformSession[]
+
+  @@map("platform_user")
+}
+
+model PlatformSession {
+  id                String    @id @default(dbgenerated("uuidv7()")) @db.Uuid
+  userId            String    @map("user_id") @db.Uuid
+  tokenHash         Bytes     @unique @map("token_hash")
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  lastSeenAt        DateTime  @default(now()) @map("last_seen_at") @db.Timestamptz(3)
+  idleExpiresAt     DateTime  @map("idle_expires_at") @db.Timestamptz(3)
+  absoluteExpiresAt DateTime  @map("absolute_expires_at") @db.Timestamptz(3)
+  mfaAt             DateTime? @map("mfa_at") @db.Timestamptz(3)
+  ip                String?
+  userAgent         String?   @map("user_agent")
+  revokedAt         DateTime? @map("revoked_at") @db.Timestamptz(3)
+
+  user PlatformUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("platform_session")
+}
+
+model PlatformAuditEvent {
+  id         String   @id @default(dbgenerated("uuidv7()")) @db.Uuid
+  occurredAt DateTime @default(now()) @map("occurred_at") @db.Timestamptz(3)
+  actorId    String?  @map("actor_id") @db.Uuid
+  action     String
+  tenantId   String?  @map("tenant_id") @db.Uuid
+  metadata   Json?
+  ip         String?
+  prevHash   Bytes    @map("prev_hash")
+  hash       Bytes
+
+  @@index([tenantId, occurredAt])
+  @@map("platform_audit_event")
+}

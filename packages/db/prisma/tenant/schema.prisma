@@ -1,0 +1,342 @@
+// Tenant shard schema — every table carries tenant_id and forced RLS.
+// Conventions: docs/07-data-and-database.md. Entities: docs/03-domain-model.md.
+//
+// RULES (checked by `pnpm rls:check`):
+//  - every model has `tenantId` and `@@unique([tenantId, id])`
+//  - every unique constraint starts with tenant_id
+//  - every relation is composite on (tenantId, …) so FK checks can't cross tenants
+//    (PostgreSQL FK validation bypasses RLS)
+
+generator client {
+  provider               = "prisma-client"
+  output                 = "../../src/generated/tenant"
+  moduleFormat           = "esm"
+  importFileExtension    = "js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ───────────────────────── Organization ─────────────────────────
+
+enum OrgUnitKind {
+  ACADEMIC
+  ADMINISTRATIVE
+}
+
+enum OrgUnitType {
+  INSTITUTION
+  COLLEGE
+  FACULTY
+  SCHOOL
+  DEPARTMENT
+  INSTITUTE
+  CENTRE
+  UNIT
+}
+
+enum RecordStatus {
+  ACTIVE
+  ARCHIVED
+}
+
+model OrgUnit {
+  id        String       @id @default(dbgenerated("uuidv7()")) @db.Uuid
+  tenantId  String       @map("tenant_id") @db.Uuid
+  code      String
+  name      String
+  kind      OrgUnitKind
+  type      OrgUnitType
+  parentId  String?      @map("parent_id") @db.Uuid
+  /// Materialized path of ancestor ids, e.g. "/<root>/<faculty>/<dept>/" — used for scope checks.
+  path      String
+  status    RecordStatus @default(ACTIVE)
+  createdAt DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime     @updatedAt @map("updated_at") @db.Timestamptz(3)
+  version   Int          @default(0)
+
+  parent   OrgUnit?  @relation("OrgTree", fields: [tenantId, parentId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  children OrgUnit[] @relation("OrgTree")
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, code])
+  @@index([tenantId, parentId])
+  @@index([tenantId, path])
+  @@map("org_unit")
+}
+
+// ───────────────────────── Identity & access ─────────────────────────
+
+enum UserStatus {
+  PENDING_ACTIVATION
+  ACTIVE
+  LOCKED
+  DISABLED
+}
+
+model UserAccount {
+  id               String     @id @default(dbgenerated("uuidv7()")) @db.Uuid
+  tenantId         String     @map("tenant_id") @db.Uuid
+  /// Login identifier: matric no., staff no., or application no. Normalised upper-case.
+  username         String
+  /// Normalised lower-case.
+  email            String?
+  /// E.164, e.g. +2348012345678
+  phone            String?
+  displayName      String     @map("display_name")
+  /// argon2id; null until activation.
+  passwordHash     String?    @map("password_hash")
+  status           UserStatus @default(PENDING_ACTIVATION)
+  failedLoginCount Int        @default(0) @map("failed_login_count")
+  lockedUntil      DateTime?  @map("locked_until") @db.Timestamptz(3)
+  lastLoginAt      DateTime?  @map("last_login_at") @db.Timestamptz(3)
+  createdAt        DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime   @updatedAt @map("updated_at") @db.Timestamptz(3)
+  version          Int        @default(0)
+
+  sessions        Session[]
+  mfaFactors      MfaFactor[]
+  oneTimeTokens   OneTimeToken[]
+  roleAssignments RoleAssignment[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, username])
+  @@unique([tenantId, email])
+  @@map("user_account")
+}
+
+model Session {
+  id                String    @id @default(dbgenerated("uuidv7()")) @db.Uuid
+  tenantId          String    @map("tenant_id") @db.Uuid
+  userId            String    @map("user_id") @db.Uuid
+  /// SHA-256 of the opaque session token. The token itself is never stored.
+  tokenHash         Bytes     @map("token_hash")
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  lastSeenAt        DateTime  @default(now()) @map("last_seen_at") @db.Timestamptz(3)
+  idleExpiresAt     DateTime  @map("idle_expires_at") @db.Timestamptz(3)
+  absoluteExpiresAt DateTime  @map("absolute_expires_at") @db.Timestamptz(3)
+  mfaAt             DateTime? @map("mfa_at") @db.Timestamptz(3)
+  ip                String?
+  userAgent         String?   @map("user_agent")
+  revokedAt         DateTime? @map("revoked_at") @db.Timestamptz(3)
+  revokeReason      String?   @map("revoke_reason")
+
+  user UserAccount @relation(fields: [tenantId, userId], references: [tenantId, id], onDelete: Cascade)
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, tokenHash])
+  @@index([tenantId, userId])
+  @@map("session")
+}
+
+enum MfaFactorType {
+  TOTP
+  WEBAUTHN
+  RECOVERY_CODES
+}
+
+model MfaFactor {
+  id          String        @id @default(dbgenerated("uuidv7()")) @db.Uuid
+  tenantId    String        @map("tenant_id") @db.Uuid
+  userId      String        @map("user_id") @db.Uuid
+  type        MfaFactorType
+  label       String?
+  /// Envelope-encrypted secret (docs/07 §8).
+  secretEnc   String        @map("secret_enc")
+  confirmedAt DateTime?     @map("confirmed_at") @db.Timestamptz(3)
+  lastUsedAt  DateTime?     @map("last_used_at") @db.Timestamptz(3)
+  createdAt   DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  user UserAccount @relation(fields: [tenantId, userId], references: [tenantId, id], onDelete: Cascade)
+
+  @@unique([tenantId, id])
+  @@index([tenantId, userId])
+  @@map("mfa_factor")
+}
+
+enum TokenPurpose {
+  ACTIVATION
+  PASSWORD_RESET
+  CONTACT_VERIFICATION
+}
+
+model OneTimeToken {
+  id        String       @id @default(dbgenerated("uuidv7()")) @db.Uuid
+  tenantId  String       @map("tenant_id") @db.Uuid
+  userId    String       @map("user_id") @db.Uuid
+  purpose   TokenPurpose
+  tokenHash Bytes        @map("token_hash")
+  channel   String
+  attempts  Int          @default(0)
+  expiresAt DateTime     @map("expires_at") @db.Timestamptz(3)
+  usedAt    DateTime?    @map("used_at") @db.Timestamptz(3)
+  createdAt DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  user UserAccount @relation(fields: [tenantId, userId], references: [tenantId, id], onDelete: Cascade)
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, tokenHash])
+  @@index([tenantId, userId, purpose])
+  @@map("one_time_token")
+}
+
+model Role {
+  id          String   @id @default(dbgenerated("uuidv7()")) @db.Uuid
+  tenantId    String   @map("tenant_id") @db.Uuid
+  key         String
+  name        String
+  description String?
+  isSystem    Boolean  @default(false) @map("is_system")
+  /// Permission keys from packages/contracts (module.resource.action).
+  permissions String[]
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+  version     Int      @default(0)
+
+  assignments RoleAssignment[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, key])
+  @@map("role")
+}
+
+enum ScopeType {
+  INSTITUTION
+  ORG_UNIT
+  PROGRAMME
+  COHORT
+  COURSE_OFFERING
+  HOSTEL
+}
+
+model RoleAssignment {
+  id          String    @id @default(dbgenerated("uuidv7()")) @db.Uuid
+  tenantId    String    @map("tenant_id") @db.Uuid
+  userId      String    @map("user_id") @db.Uuid
+  roleId      String    @map("role_id") @db.Uuid
+  scopeType   ScopeType @map("scope_type")
+  /// null only for INSTITUTION scope.
+  scopeId     String?   @map("scope_id") @db.Uuid
+  validFrom   DateTime  @default(now()) @map("valid_from") @db.Timestamptz(3)
+  validTo     DateTime? @map("valid_to") @db.Timestamptz(3)
+  grantedById String?   @map("granted_by_id") @db.Uuid
+  reason      String?
+  revokedAt   DateTime? @map("revoked_at") @db.Timestamptz(3)
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  user UserAccount @relation(fields: [tenantId, userId], references: [tenantId, id], onDelete: Cascade)
+  role Role        @relation(fields: [tenantId, roleId], references: [tenantId, id], onDelete: Restrict)
+
+  @@unique([tenantId, id])
+  @@index([tenantId, userId])
+  @@map("role_assignment")
+}
+
+// ───────────────────────── Platform plumbing (per tenant) ─────────────────────────
+
+/// Append-only, hash-chained audit trail (docs/07 §7). UPDATE/DELETE revoked from the app role.
+model AuditEvent {
+  id         String   @id @default(dbgenerated("uuidv7()")) @db.Uuid
+  tenantId   String   @map("tenant_id") @db.Uuid
+  occurredAt DateTime @default(now()) @map("occurred_at") @db.Timestamptz(3)
+  actorType  String   @map("actor_type")
+  actorId    String?  @map("actor_id") @db.Uuid
+  action     String
+  entityType String   @map("entity_type")
+  entityId   String?  @map("entity_id") @db.Uuid
+  before     Json?
+  after      Json?
+  reason     String?
+  ip         String?
+  userAgent  String?  @map("user_agent")
+  requestId  String?  @map("request_id")
+  prevHash   Bytes    @map("prev_hash")
+  hash       Bytes
+
+  @@unique([tenantId, id])
+  @@index([tenantId, entityType, entityId, occurredAt(sort: Desc)])
+  @@index([tenantId, occurredAt])
+  @@map("audit_event")
+}
+
+/// Transactional outbox (ADR-008). Only publish bookkeeping columns are updatable by the app.
+model OutboxEvent {
+  id          String    @id @default(dbgenerated("uuidv7()")) @db.Uuid
+  tenantId    String    @map("tenant_id") @db.Uuid
+  type        String
+  payload     Json
+  occurredAt  DateTime  @default(now()) @map("occurred_at") @db.Timestamptz(3)
+  publishedAt DateTime? @map("published_at") @db.Timestamptz(3)
+  attempts    Int       @default(0)
+  lastError   String?   @map("last_error")
+
+  @@unique([tenantId, id])
+  @@index([tenantId, publishedAt])
+  @@map("outbox_event")
+}
+
+/// Typed tenant configuration (docs/02 §11). scopeKey = "INSTITUTION" | "ORG_UNIT:<id>" | "PROGRAMME:<id>".
+model Setting {
+  id        String   @id @default(dbgenerated("uuidv7()")) @db.Uuid
+  tenantId  String   @map("tenant_id") @db.Uuid
+  key       String
+  scopeKey  String   @default("INSTITUTION") @map("scope_key")
+  value     Json
+  updatedBy String?  @map("updated_by") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+  version   Int      @default(0)
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, key, scopeKey])
+  @@map("setting")
+}
+
+enum ScanStatus {
+  PENDING
+  CLEAN
+  INFECTED
+  ERROR
+}
+
+enum DataClass {
+  PUBLIC
+  INTERNAL
+  CONFIDENTIAL
+  SENSITIVE
+}
+
+model FileObject {
+  id             String     @id @default(dbgenerated("uuidv7()")) @db.Uuid
+  tenantId       String     @map("tenant_id") @db.Uuid
+  bucketKey      String     @map("bucket_key")
+  originalName   String     @map("original_name")
+  mime           String
+  sizeBytes      BigInt     @map("size_bytes")
+  sha256         Bytes?
+  scanStatus     ScanStatus @default(PENDING) @map("scan_status")
+  classification DataClass  @default(CONFIDENTIAL)
+  ownerType      String?    @map("owner_type")
+  ownerId        String?    @map("owner_id") @db.Uuid
+  uploadedById   String?    @map("uploaded_by_id") @db.Uuid
+  createdAt      DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, bucketKey])
+  @@index([tenantId, ownerType, ownerId])
+  @@map("file_object")
+}
+
+/// Per-tenant numbering (receipts, invoices, matric numbers). Incremented inside the business tx.
+model Sequence {
+  id        String   @id @default(dbgenerated("uuidv7()")) @db.Uuid
+  tenantId  String   @map("tenant_id") @db.Uuid
+  name      String
+  nextValue BigInt   @default(1) @map("next_value")
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, name])
+  @@map("sequence")
+}

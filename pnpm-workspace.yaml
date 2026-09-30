@@ -1,0 +1,16 @@
+packages:
+  - apps/*
+  - packages/*
+  - tools/*
+
+# Supply-chain hardening — docs/09-container-security.md §1
+# New package versions are unusable until they have been public for 3 days.
+minimumReleaseAge: 4320
+# Only these packages may run install/build scripts.
+onlyBuiltDependencies:
+  - '@prisma/client'
+  - '@prisma/engines'
+  - prisma
+  - esbuild
+  - argon2
+  - '@nestjs/core'

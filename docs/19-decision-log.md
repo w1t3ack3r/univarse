@@ -97,3 +97,9 @@ Alternatives considered: option — why not.
 **Context:** v0 built separate portals (`/it-admin`, `/dean`, …), duplicating layouts and logic. Real staff hold several roles at once (Lecturer + HOD + Level Adviser), and roles differ per institution.
 **Decision:** One `/staff` workspace. Navigation and actions are derived from effective permissions and scopes. Student, applicant and console surfaces remain separate.
 **Consequences:** No duplicated screens, and custom roles work automatically. It needs a well-designed permission catalog and nav registry.
+
+## ADR-013 — Rebuild in place; pin a proven toolchain for Phase 0
+**Status:** Accepted (2026-09-30)
+**Context:** We rebuild inside the existing folder. The v0 prototype is preserved in git as tag `v0-prototype` (secrets scrubbed). At rebuild time the newest majors were TypeScript 7 (native compiler), NestJS 12, Vitest 5 and pnpm 12. Decorator support, ecosystem compatibility and config changes in those majors weren't yet verified for this stack.
+**Decision:** Phase 0 pins TypeScript ~5.9, NestJS 11, Prisma 7 (the `prisma-client` generator + `@prisma/adapter-pg`), Vitest 3, pnpm 10 and Node 24 LTS. Upgrading to the newer majors is a scheduled task after Phase 0 exit, done one major at a time with CI green.
+**Consequences:** A known-good foundation now, and a small upgrade task later. The docs mention "NestJS 11" deliberately.
