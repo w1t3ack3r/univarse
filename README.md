@@ -24,7 +24,8 @@ Statuses are kept distinct: **implemented** → **tested locally** → **verifie
 | Existing sessions blocked on disable / lock / role removal / suspension | ✅ | ✅ | ✅ | — |
 | Rate limits not bypassable via forwarding headers | ✅ | ✅ mutation-checked | ✅ | — |
 | CSRF (Fetch Metadata / Origin) | ✅ | ✅ | ✅ | ✅ same-origin path only |
-| Password reset, MFA (TOTP), step-up | ❌ next | — | — | — |
+| Password reset (spec 0001 R1–R11) | ✅ | ✅ 14 tests, 3 mutations caught | ⏳ PR | — |
+| TOTP MFA (M1–M10), step-up (S1–S5) | ❌ next | — | — | — |
 
 Isolation-layer coverage and known gaps: [docs/12 §3.1](docs/12-testing-strategy.md).
 
