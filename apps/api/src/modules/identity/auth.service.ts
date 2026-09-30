@@ -1,21 +1,39 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
-import { APP_CONFIG, type AppConfig } from '../../config/config.js';
+import type { TenantTx } from '@univarse/db';
 import { ShardRegistry } from '../../shared/db/db.module.js';
 import { ProblemError } from '../../shared/errors/problem.js';
 import { MAILER, type Mailer } from '../../shared/infra/mailer.js';
 import { RateLimiter } from '../../shared/infra/rate-limiter.js';
 import type { TenantContext } from '../../shared/tenancy/tenant-resolver.service.js';
+import { OneTimeCodeService, type CodePurpose } from './one-time-code.service.js';
 import { hashPassword, needsRehash, passwordProblems, verifyAgainstDummy, verifyPassword } from './password.js';
 import { SessionService, type SessionMeta } from './session.service.js';
-import { hashOneTimeCode, newOneTimeCode, normaliseIdentifier, safeEqual } from './tokens.js';
+import { normaliseIdentifier } from './tokens.js';
 
-const ACTIVATION_TTL_MS = 15 * 60_000;
-const MAX_CODE_ATTEMPTS = 5;
 const LOCK_AFTER_FAILURES = 10;
 const LOCK_MS = 15 * 60_000;
 
 const invalidCredentials = () => new ProblemError(401, 'auth.invalid_credentials', 'Invalid username or password');
-const invalidActivation = () => new ProblemError(400, 'auth.activation_invalid', 'Invalid or expired activation code');
+const invalidCode = (purpose: CodePurpose) =>
+  purpose === 'ACTIVATION'
+    ? new ProblemError(400, 'auth.activation_invalid', 'Invalid or expired activation code')
+    : new ProblemError(400, 'auth.reset_invalid', 'Invalid or expired reset code');
+
+/** Which account status each code flow serves (spec 0001 R11). */
+const ELIGIBLE_STATUS: Record<CodePurpose, 'PENDING_ACTIVATION' | 'ACTIVE'> = {
+  ACTIVATION: 'PENDING_ACTIVATION',
+  PASSWORD_RESET: 'ACTIVE',
+};
+
+type UserWithRoles = Awaited<ReturnType<typeof findUserWithRoles>>;
+
+function findUserWithRoles(tx: TenantTx, raw: string) {
+  const id = normaliseIdentifier(raw);
+  return tx.userAccount.findFirst({
+    where: id.kind === 'email' ? { email: id.value } : { username: id.value },
+    include: { roleAssignments: { include: { role: true } } },
+  });
+}
 
 @Injectable()
 export class AuthService {
@@ -24,9 +42,9 @@ export class AuthService {
   constructor(
     private readonly shards: ShardRegistry,
     private readonly sessions: SessionService,
+    private readonly codes: OneTimeCodeService,
     private readonly limiter: RateLimiter,
     @Inject(MAILER) private readonly mailer: Mailer,
-    @Inject(APP_CONFIG) private readonly config: AppConfig,
   ) {}
 
   private async limit(key: string, rules: { limit: number; windowSec: number }[]): Promise<void> {
@@ -38,95 +56,112 @@ export class AuthService {
     }
   }
 
-  /** Step 1 of activation: email a 6-digit code. Always answers the same way (no enumeration). */
-  async requestActivation(tenant: TenantContext, rawUsername: string, ip: string): Promise<void> {
-    const id = normaliseIdentifier(rawUsername);
-    await this.limit(`${tenant.tenantId}:act-req:ip:${ip}`, [{ limit: 20, windowSec: 900 }]);
-    await this.limit(`${tenant.tenantId}:act-req:id:${id.value}`, [{ limit: 3, windowSec: 900 }]);
-
-    const code = newOneTimeCode();
-    const email = await this.shards.tx(tenant.shardId, tenant.tenantId, async (tx) => {
-      const user = await tx.userAccount.findFirst({
-        where: id.kind === 'email' ? { email: id.value } : { username: id.value },
-      });
-      if (!user || user.status !== 'PENDING_ACTIVATION' || !user.email) return null;
-      const now = new Date();
-      // Only the newest code is valid.
-      await tx.oneTimeToken.updateMany({
-        where: { userId: user.id, purpose: 'ACTIVATION', usedAt: null },
-        data: { usedAt: now },
-      });
-      await tx.oneTimeToken.create({
-        data: {
-          tenantId: tenant.tenantId,
-          userId: user.id,
-          purpose: 'ACTIVATION',
-          channel: 'EMAIL',
-          tokenHash: hashOneTimeCode(this.config.SESSION_PEPPER, user.id, 'ACTIVATION', code),
-          expiresAt: new Date(now.getTime() + ACTIVATION_TTL_MS),
-        },
-      });
-      return user.email;
+  private assertPasswordPolicy(tenant: TenantContext, user: NonNullable<UserWithRoles>, password: string): void {
+    const isStaff = user.roleAssignments.some((a) => a.role.key !== 'STUDENT' && a.role.key !== 'APPLICANT');
+    const problems = passwordProblems(password, {
+      minLength: isStaff ? 12 : 8,
+      context: [user.username, user.displayName, user.email ?? '', tenant.shortName, tenant.slug],
     });
-
-    if (email) {
-      await this.mailer.send({
-        to: email,
-        subject: `${tenant.shortName}: your UniVarse activation code`,
-        text: `Your activation code is ${code}. It expires in 15 minutes.\n\nIf you did not request this, ignore this email.`,
+    if (problems.length > 0) {
+      throw Object.assign(new ProblemError(422, 'auth.password_rejected', 'Password does not meet the policy'), {
+        errors: problems.map((p) => ({ path: 'password', code: p, message: p.replaceAll('_', ' ') })),
       });
     }
   }
 
-  /** Step 2: verify code, set password, activate. */
-  async confirmActivation(
+  /**
+   * Emails a code for activation or reset. Identical outcome for every input (no enumeration, R1).
+   */
+  private async requestCode(tenant: TenantContext, purpose: CodePurpose, rawUsername: string, ip: string): Promise<void> {
+    const id = normaliseIdentifier(rawUsername);
+    const k = purpose === 'ACTIVATION' ? 'act' : 'reset';
+    await this.limit(`${tenant.tenantId}:${k}-req:ip:${ip}`, [{ limit: 20, windowSec: 900 }]);
+    await this.limit(`${tenant.tenantId}:${k}-req:id:${id.value}`, [{ limit: 3, windowSec: 900 }]);
+
+    const issued = await this.shards.tx(tenant.shardId, tenant.tenantId, async (tx) => {
+      const user = await findUserWithRoles(tx, rawUsername);
+      if (!user || user.status !== ELIGIBLE_STATUS[purpose] || !user.email) return null;
+      return { email: user.email, code: await this.codes.issue(tx, tenant.tenantId, user.id, purpose) };
+    });
+    if (!issued) return;
+
+    const what = purpose === 'ACTIVATION' ? 'activation' : 'password reset';
+    await this.mailer.send({
+      to: issued.email,
+      subject: `${tenant.shortName}: your UniVarse ${what} code`,
+      text: `Your ${what} code is ${issued.code}. It expires in 15 minutes.\n\nIf you did not request this, ignore this email — your account is unchanged.`,
+    });
+  }
+
+  /**
+   * Verifies a code and sets a new password. Wrong codes are counted in a committed transaction
+   * before failing (R3); policy failures roll back without consuming the code (R5).
+   */
+  private async confirmCode(
     tenant: TenantContext,
+    purpose: CodePurpose,
     input: { username: string; code: string; password: string },
     ip: string,
-  ): Promise<void> {
-    const id = normaliseIdentifier(input.username);
-    await this.limit(`${tenant.tenantId}:act-confirm:ip:${ip}`, [{ limit: 30, windowSec: 900 }]);
+  ): Promise<{ email: string | null }> {
+    const k = purpose === 'ACTIVATION' ? 'act' : 'reset';
+    await this.limit(`${tenant.tenantId}:${k}-confirm:ip:${ip}`, [{ limit: 30, windowSec: 900 }]);
 
-    await this.shards.tx(tenant.shardId, tenant.tenantId, async (tx) => {
+    const outcome = await this.shards.tx(tenant.shardId, tenant.tenantId, async (tx) => {
+      const user = await findUserWithRoles(tx, input.username);
+      if (!user || user.status !== ELIGIBLE_STATUS[purpose]) return { ok: false as const };
+      const check = await this.codes.check(tx, user.id, purpose, input.code);
+      if (!check.ok) return { ok: false as const };
+
+      this.assertPasswordPolicy(tenant, user, input.password);
       const now = new Date();
-      const user = await tx.userAccount.findFirst({
-        where: id.kind === 'email' ? { email: id.value } : { username: id.value },
-        include: { roleAssignments: { include: { role: true } } },
-      });
-      if (!user || user.status !== 'PENDING_ACTIVATION') throw invalidActivation();
-      const token = await tx.oneTimeToken.findFirst({
-        where: { userId: user.id, purpose: 'ACTIVATION', usedAt: null, expiresAt: { gt: now } },
-        orderBy: { createdAt: 'desc' },
-      });
-      if (!token || token.attempts >= MAX_CODE_ATTEMPTS) throw invalidActivation();
-
-      const expected = hashOneTimeCode(this.config.SESSION_PEPPER, user.id, 'ACTIVATION', input.code);
-      if (!safeEqual(expected, token.tokenHash)) {
-        await tx.oneTimeToken.update({ where: { id: token.id }, data: { attempts: { increment: 1 } } });
-        return 'WRONG_CODE' as const;
-      }
-
-      const isStaff = user.roleAssignments.some((a) => a.role.key !== 'STUDENT' && a.role.key !== 'APPLICANT');
-      const problems = passwordProblems(input.password, {
-        minLength: isStaff ? 12 : 8,
-        context: [user.username, user.displayName, user.email ?? '', tenant.shortName, tenant.slug],
-      });
-      if (problems.length > 0) {
-        throw Object.assign(new ProblemError(422, 'auth.password_rejected', 'Password does not meet the policy'), {
-          errors: problems.map((p) => ({ path: 'password', code: p, message: p.replaceAll('_', ' ') })),
-        });
-      }
-
       await tx.userAccount.update({
         where: { id: user.id },
-        data: { passwordHash: await hashPassword(input.password), status: 'ACTIVE', failedLoginCount: 0 },
+        data: {
+          passwordHash: await hashPassword(input.password),
+          status: 'ACTIVE',
+          failedLoginCount: 0, // R8
+          lockedUntil: null,
+        },
       });
-      await tx.oneTimeToken.update({ where: { id: token.id }, data: { usedAt: now } });
-      return 'OK' as const;
-    }).then((outcome) => {
-      // Attempt counter must persist, so the wrong-code error is thrown after commit.
-      if (outcome === 'WRONG_CODE') throw invalidActivation();
+      await this.codes.consume(tx, check.tokenId);
+      if (purpose === 'PASSWORD_RESET') {
+        // R6: every session of the user dies, including any that asked for the reset.
+        await tx.session.updateMany({
+          where: { userId: user.id, revokedAt: null },
+          data: { revokedAt: now, revokeReason: 'password_reset' },
+        });
+      }
+      return { ok: true as const, email: user.email };
     });
+    if (!outcome.ok) throw invalidCode(purpose);
+    return { email: outcome.email };
+  }
+
+  requestActivation(tenant: TenantContext, rawUsername: string, ip: string): Promise<void> {
+    return this.requestCode(tenant, 'ACTIVATION', rawUsername, ip);
+  }
+
+  async confirmActivation(tenant: TenantContext, input: { username: string; code: string; password: string }, ip: string) {
+    await this.confirmCode(tenant, 'ACTIVATION', input, ip);
+  }
+
+  requestPasswordReset(tenant: TenantContext, rawUsername: string, ip: string): Promise<void> {
+    return this.requestCode(tenant, 'PASSWORD_RESET', rawUsername, ip);
+  }
+
+  /** R7: never creates a session — the user logs in (and later passes MFA) afterwards. */
+  async confirmPasswordReset(tenant: TenantContext, input: { username: string; code: string; password: string }, ip: string) {
+    const { email } = await this.confirmCode(tenant, 'PASSWORD_RESET', input, ip);
+    if (email) {
+      // R9: notification only — no code, no link.
+      await this.mailer.send({
+        to: email,
+        subject: `${tenant.shortName}: your UniVarse password was changed`,
+        text:
+          'The password for your UniVarse account was just changed and all your sessions were signed out.\n\n' +
+          'If this was not you, contact your institution’s ICT unit immediately.',
+      });
+    }
   }
 
   async login(

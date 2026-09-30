@@ -10,6 +10,7 @@ import { AuthService } from './auth.service.js';
 import { clearedSessionCookie, sessionCookie, SessionService } from './session.service.js';
 
 const Identifier = z.string().trim().min(1).max(254);
+/** Shared by activation and reset: both take an identifier, then identifier + code + new password. */
 const RequestActivation = z.object({ username: Identifier }).strict();
 const ConfirmActivation = z
   .object({ username: Identifier, code: z.string().regex(/^\d{6}$/), password: z.string().min(1).max(256) })
@@ -39,6 +40,22 @@ export class AuthController {
   @HttpCode(204)
   async confirmActivation(@CurrentTenant() tenant: TenantContext, @Body() body: unknown, @Req() req: FastifyRequest) {
     await this.auth.confirmActivation(tenant, parse(ConfirmActivation, body), req.ip);
+  }
+
+  @Post('password-reset/request')
+  @Public()
+  @HttpCode(202)
+  async requestReset(@CurrentTenant() tenant: TenantContext, @Body() body: unknown, @Req() req: FastifyRequest) {
+    const input = parse(RequestActivation, body);
+    await this.auth.requestPasswordReset(tenant, input.username, req.ip);
+    return { message: 'If an active account matches, a reset code has been sent to its email address.' };
+  }
+
+  @Post('password-reset/confirm')
+  @Public()
+  @HttpCode(204)
+  async confirmReset(@CurrentTenant() tenant: TenantContext, @Body() body: unknown, @Req() req: FastifyRequest) {
+    await this.auth.confirmPasswordReset(tenant, parse(ConfirmActivation, body), req.ip);
   }
 
   @Post('login')
