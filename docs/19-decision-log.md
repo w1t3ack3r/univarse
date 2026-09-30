@@ -132,3 +132,12 @@ Alternatives considered: option — why not.
 **Context:** [08 §3.1](08-security.md) mandates Argon2id. The `argon2` npm package is a native addon: an install script plus prebuilt binaries, which is supply-chain surface ([09 §1](09-container-security.md)). Node ≥ 24.7 ships `crypto.argon2()`.
 **Decision:** Use `crypto.argon2('argon2id', …)` with `m=19456 KiB, t=2, p=1`, a 16-byte salt and a 32-byte tag, stored as a standard PHC string (`$argon2id$v=19$m=…,t=…,p=…$salt$hash`) so we can rehash or migrate later. Measured at ~260 ms per hash on the dev machine.
 **Consequences:** No native dependency. The API is marked experimental in Node 24, so pin the Node minor in images, cover it with tests (known-answer + round-trip), and keep the PHC format so we can switch implementations without resetting passwords.
+
+## ADR-017 — Security overrides for transitive pins; dependency audit gate
+**Status:** Accepted (2026-10-01)
+**Context:** Enabling Dependabot surfaced 30 alerts on day one. `nodemailer` 7.x had high-severity advisories, including cross-tenant SMTP credential disclosure through a process-global DNS/TLS cache. `@nestjs/platform-fastify` 11.2.x pins `fastify` **exactly** to 5.11.3, which is affected by an X-Forwarded-\* spoofing advisory and a schema-validation bypass (fixed in 5.12.1). The Prisma CLI pulls vulnerable `mysql2` (never executed: we use `pg`) and `deepmerge-ts`.
+**Decision:**
+1. Upgrade direct dependencies to patched versions: nodemailer ^10.0.11, vitest ^4.1.11 (the smallest patched major, not 5).
+2. Where a framework pins a vulnerable transitive version, use **`pnpm.overrides`** to the version the framework's *next* major already ships (fastify 5.12.5, the same version NestJS 12 uses), and only after the full suite passes.
+3. CI runs `pnpm audit --audit-level high` right after install. A high or critical advisory fails the build.
+**Consequences:** Overrides must be revisited on every framework upgrade and removed once the framework catches up. The NestJS 12 upgrade (ADR-013) will retire the fastify override. The audit gate can block unrelated PRs when a new advisory lands. That's intended: fix or explicitly document an exception with an expiry.
