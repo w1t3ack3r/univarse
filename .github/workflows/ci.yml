@@ -63,6 +63,8 @@ jobs:
           cache: pnpm
 
       - run: pnpm install --frozen-lockfile
+      - name: Dependency audit (fail on high/critical — docs/09 §1)
+        run: pnpm audit --audit-level high
       - name: Generate CI-only secrets
         run: |
           echo "SESSION_PEPPER=$(openssl rand -base64 32)" >> .env

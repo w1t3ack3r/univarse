@@ -28,5 +28,12 @@
     "prettier": "^3.6.0",
     "turbo": "^2.5.0",
     "typescript": "~5.9.3"
+  },
+  "pnpm": {
+    "overrides": {
+      "fastify": "5.12.5",
+      "mysql2": ">=3.23.1 <4",
+      "deepmerge-ts": ">=8.0.0 <9"
+    }
   }
 }
