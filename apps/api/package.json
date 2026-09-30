@@ -21,7 +21,7 @@
     "@univarse/domain": "workspace:*",
     "fastify": "5.11.3",
     "ioredis": "^5.11.1",
-    "nodemailer": "^7.0.13",
+    "nodemailer": "^10.0.9",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.2",
     "zod": "^4.1.0"

@@ -48,8 +48,8 @@ importers:
         specifier: ^5.11.1
         version: 5.11.1
       nodemailer:
-        specifier: ^7.0.13
-        version: 7.0.13
+        specifier: ^10.0.9
+        version: 10.0.9
       reflect-metadata:
         specifier: ^0.2.2
         version: 0.2.2
@@ -1487,9 +1487,9 @@ packages:
   node-cleanup@2.1.2:
     resolution: {integrity: sha512-qN8v/s2PAJwGUtr1/hYTpNKlD6Y9rc4p8KSmJXyGdYGZsDGKXrGThikLFP9OCHFeLeEpQzPwiAtdIvBLqm//Hw==}
 
-  nodemailer@7.0.13:
-    resolution: {integrity: sha512-PNDFSJdP+KFgdsG3ZzMXCgquO7I6McjY2vlqILjtJd0hy8wEvtugS9xKRF2NWlPNGxvLCXlTNIae4serI7dinw==}
-    engines: {node: '>=6.0.0'}
+  nodemailer@10.0.9:
+    resolution: {integrity: sha512-BF0qcyplCwp+jMk6HCjFykBz/YhhZSsxrARhOldLwFWH+8kGjQsd2WIMIZhqEuyXRoGFi0ONbDeWDMDoL8MhLw==}
+    engines: {node: '>=20.0.0'}
 
   ohash@2.0.12:
     resolution: {integrity: sha512-65S/5gk9YSsaRjcyf7Nfa6h/d3E8/1gslpXfI4W7Dxn/oap8IKRuNT5VXkLQ1YFKIEg4apRY4Pj6aiwFzrDdmw==}
@@ -3315,7 +3315,7 @@ snapshots:
 
   node-cleanup@2.1.2: {}
 
-  nodemailer@7.0.13: {}
+  nodemailer@10.0.9: {}
 
   ohash@2.0.12: {}
 
