@@ -6,6 +6,8 @@ import { HealthController } from './modules/health/health.controller.js';
 import { AccessGuard } from './modules/identity/access.guard.js';
 import { AuthController } from './modules/identity/auth.controller.js';
 import { AuthService } from './modules/identity/auth.service.js';
+import { MfaController } from './modules/identity/mfa.controller.js';
+import { MfaService } from './modules/identity/mfa.service.js';
 import { OneTimeCodeService } from './modules/identity/one-time-code.service.js';
 import { SessionService } from './modules/identity/session.service.js';
 import { UsersController } from './modules/identity/users.controller.js';
@@ -29,7 +31,7 @@ export class AppModule {
       module: AppModule,
       global: true,
       imports: [DbModule],
-      controllers: [HealthController, TenantProfileController, AuthController, UsersController],
+      controllers: [HealthController, TenantProfileController, AuthController, MfaController, UsersController],
       providers: [
         { provide: APP_CONFIG, useValue: config },
         {
@@ -42,6 +44,7 @@ export class AppModule {
         RateLimiter,
         SessionService,
         OneTimeCodeService,
+        MfaService,
         AuthService,
         // Guard order matters: resolve the tenant first, then authenticate against it.
         { provide: APP_GUARD, useClass: TenantGuard },

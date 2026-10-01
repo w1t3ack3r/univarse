@@ -9,6 +9,8 @@ const wanted = {
   VALKEY_PASSWORD: () => randomBytes(24).toString('hex'),
   SESSION_PEPPER: () => randomBytes(32).toString('base64url'),
   SMTP_URL: () => 'smtp://127.0.0.1:1025',
+  DATA_ENCRYPTION_KEY_ID: () => 'dev-1',
+  DATA_ENCRYPTION_KEY: () => randomBytes(32).toString('base64'),
   MAIL_FROM: () => 'UniVarse <no-reply@univarse.localhost>',
 };
 const added = [];

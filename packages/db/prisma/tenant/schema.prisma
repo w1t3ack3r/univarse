@@ -97,6 +97,8 @@ model UserAccount {
 
   sessions        Session[]
   mfaFactors      MfaFactor[]
+  mfaChallenges   MfaChallenge[]
+  recoveryCodes   RecoveryCode[]
   oneTimeTokens   OneTimeToken[]
   roleAssignments RoleAssignment[]
 
@@ -117,6 +119,10 @@ model Session {
   idleExpiresAt     DateTime  @map("idle_expires_at") @db.Timestamptz(3)
   absoluteExpiresAt DateTime  @map("absolute_expires_at") @db.Timestamptz(3)
   mfaAt             DateTime? @map("mfa_at") @db.Timestamptz(3)
+  /// Enrolment-only session for privileged users without a factor (spec 0001 M8/M14).
+  restricted        Boolean   @default(false)
+  /// Last step-up on THIS session (spec 0001 Part S).
+  stepUpAt          DateTime? @map("step_up_at") @db.Timestamptz(3)
   ip                String?
   userAgent         String?   @map("user_agent")
   revokedAt         DateTime? @map("revoked_at") @db.Timestamptz(3)
@@ -146,6 +152,8 @@ model MfaFactor {
   secretEnc   String        @map("secret_enc")
   confirmedAt DateTime?     @map("confirmed_at") @db.Timestamptz(3)
   lastUsedAt  DateTime?     @map("last_used_at") @db.Timestamptz(3)
+  /// Highest accepted TOTP time step; codes for steps <= this are replays (M5).
+  lastUsedStep BigInt?      @map("last_used_step")
   createdAt   DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
 
   user UserAccount @relation(fields: [tenantId, userId], references: [tenantId, id], onDelete: Cascade)
@@ -153,6 +161,44 @@ model MfaFactor {
   @@unique([tenantId, id])
   @@index([tenantId, userId])
   @@map("mfa_factor")
+}
+
+/// Login challenge between password and second factor (spec 0001 M4). Not a session.
+model MfaChallenge {
+  id        String    @id @default(dbgenerated("uuidv7()")) @db.Uuid
+  tenantId  String    @map("tenant_id") @db.Uuid
+  userId    String    @map("user_id") @db.Uuid
+  tokenHash Bytes     @map("token_hash")
+  attempts  Int       @default(0)
+  expiresAt DateTime  @map("expires_at") @db.Timestamptz(3)
+  usedAt    DateTime? @map("used_at") @db.Timestamptz(3)
+  revokedAt DateTime? @map("revoked_at") @db.Timestamptz(3)
+  ip        String?
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  user UserAccount @relation(fields: [tenantId, userId], references: [tenantId, id], onDelete: Cascade)
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, tokenHash])
+  @@index([tenantId, userId])
+  @@map("mfa_challenge")
+}
+
+/// Single-use MFA recovery codes, stored hashed (spec 0001 M3/M7).
+model RecoveryCode {
+  id        String    @id @default(dbgenerated("uuidv7()")) @db.Uuid
+  tenantId  String    @map("tenant_id") @db.Uuid
+  userId    String    @map("user_id") @db.Uuid
+  codeHash  Bytes     @map("code_hash")
+  usedAt    DateTime? @map("used_at") @db.Timestamptz(3)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  user UserAccount @relation(fields: [tenantId, userId], references: [tenantId, id], onDelete: Cascade)
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, codeHash])
+  @@index([tenantId, userId])
+  @@map("recovery_code")
 }
 
 enum TokenPurpose {

@@ -12,6 +12,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createApp } from '../../bootstrap.js';
 import { loadConfig } from '../../config/config.js';
 import type { Mailer, OutboundEmail } from '../../shared/infra/mailer.js';
+import { enrolTestTotp, totpCode } from '../../testing/mfa-helpers.js';
 import { hashPassword } from './password.js';
 
 const rootEnv = new URL('../../../../../.env', import.meta.url);
@@ -80,6 +81,19 @@ async function makeUser(
   });
   created.push({ tenantId, userId: user.id });
   return { id: user.id, username };
+}
+
+/** Admins hold privileged permissions ⇒ need MFA (spec 0001 M8). Enrol a factor and complete the challenge. */
+async function loginAdminWithMfa(host: string, user: { id: string; username: string }, tenantKey: string = 'demo'): Promise<string> {
+  const secret = await enrolTestTotp(shard, tenants[tenantKey]!, user.id);
+  const first = await login(host, user.username);
+  expect(first.json()).toEqual({ mfaRequired: true });
+  const verify = await call('POST', host, '/api/v1/auth/mfa/verify', {
+    cookie: cookieFrom(first.headers['set-cookie']),
+    body: { code: totpCode(secret) },
+  });
+  expect(verify.statusCode).toBe(200);
+  return cookieFrom(verify.headers['set-cookie']);
 }
 
 async function login(host: string, username: string, password = PASSWORD, ip = randomIp()) {
@@ -291,7 +305,7 @@ describe('authorization', () => {
   it('an institution admin sees only their own institution’s users, without secrets', async () => {
     const admin = await makeUser('demo', { role: 'INSTITUTION_ADMIN' });
     const polyUser = await makeUser('poly', { role: 'STUDENT' });
-    const cookie = cookieFrom((await login(DEMO, admin.username)).headers['set-cookie']);
+    const cookie = await loginAdminWithMfa(DEMO, admin);
     const res = await call('GET', DEMO, '/api/v1/users', { cookie });
     expect(res.statusCode).toBe(200);
     const ids = res.json().data.map((u: { id: string }) => u.id);
@@ -309,7 +323,7 @@ describe('authorization', () => {
 describe('active membership: already-issued sessions lose access', () => {
   it('removing a role takes effect on the very next request', async () => {
     const admin = await makeUser('demo', { role: 'INSTITUTION_ADMIN' });
-    const cookie = cookieFrom((await login(DEMO, admin.username)).headers['set-cookie']);
+    const cookie = await loginAdminWithMfa(DEMO, admin);
     expect((await call('GET', DEMO, '/api/v1/users', { cookie })).statusCode).toBe(200);
 
     await forTenant(shard, tenants.demo).roleAssignment.updateMany({ where: { userId: admin.id }, data: { revokedAt: new Date() } });
