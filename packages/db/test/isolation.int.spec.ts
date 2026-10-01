@@ -120,3 +120,74 @@ describe('tenant isolation (RLS, forced)', () => {
     expect(r.rows[0]).toEqual({ rolbypassrls: false, rolsuper: false });
   });
 });
+
+/**
+ * MFA tables (migration mfa_totp) — live checks as the APP role, not just the static gate.
+ * The static checker proves policies exist; these prove they bite for the role the API uses.
+ */
+describe('tenant isolation: mfa_challenge and recovery_code', () => {
+  let challengeA: string;
+  let recoveryA: string;
+
+  beforeAll(async () => {
+    const a = forTenant(shard, A);
+    challengeA = (
+      await a.mfaChallenge.create({
+        data: { tenantId: A, userId: userA, tokenHash: Buffer.alloc(32, 3), expiresAt: new Date(Date.now() + 300_000) },
+      })
+    ).id;
+    recoveryA = (await a.recoveryCode.create({ data: { tenantId: A, userId: userA, codeHash: Buffer.alloc(32, 4) } })).id;
+  });
+
+  it('another tenant cannot read them, even by id', async () => {
+    const b = forTenant(shard, B);
+    expect(await b.mfaChallenge.findMany()).toEqual([]);
+    expect(await b.recoveryCode.findMany()).toEqual([]);
+    expect(await b.mfaChallenge.findFirst({ where: { id: challengeA } })).toBeNull();
+    expect(await b.recoveryCode.findFirst({ where: { id: recoveryA } })).toBeNull();
+  });
+
+  it('another tenant cannot consume, revoke or delete them (0 rows affected, owner unaffected)', async () => {
+    const b = forTenant(shard, B);
+    const results = await Promise.all([
+      b.mfaChallenge.updateMany({ where: { id: challengeA }, data: { usedAt: new Date() } }),
+      b.mfaChallenge.updateMany({ where: { id: challengeA }, data: { revokedAt: new Date() } }),
+      b.recoveryCode.updateMany({ where: { id: recoveryA }, data: { usedAt: new Date() } }),
+      b.mfaChallenge.deleteMany({ where: { id: challengeA } }),
+      b.recoveryCode.deleteMany({ where: { id: recoveryA } }),
+    ]);
+    expect(results.map((r) => r.count)).toEqual([0, 0, 0, 0, 0]);
+    const a = forTenant(shard, A);
+    expect(await a.mfaChallenge.findUniqueOrThrow({ where: { id: challengeA } })).toMatchObject({ usedAt: null, revokedAt: null });
+    expect(await a.recoveryCode.findUniqueOrThrow({ where: { id: recoveryA } })).toMatchObject({ usedAt: null });
+  });
+
+  it('rows cannot be inserted for another tenant (WITH CHECK)', async () => {
+    const b = forTenant(shard, B);
+    await expect(
+      b.mfaChallenge.create({ data: { tenantId: A, userId: userA, tokenHash: Buffer.alloc(32, 5), expiresAt: new Date() } }),
+    ).rejects.toThrow();
+    await expect(b.recoveryCode.create({ data: { tenantId: A, userId: userA, codeHash: Buffer.alloc(32, 6) } })).rejects.toThrow();
+  });
+
+  it("rows cannot point at another tenant's user (composite FK, which RLS alone would not catch)", async () => {
+    const b = forTenant(shard, B);
+    await expect(
+      b.mfaChallenge.create({ data: { tenantId: B, userId: userA, tokenHash: Buffer.alloc(32, 7), expiresAt: new Date() } }),
+    ).rejects.toThrow();
+    await expect(b.recoveryCode.create({ data: { tenantId: B, userId: userA, codeHash: Buffer.alloc(32, 8) } })).rejects.toThrow();
+  });
+
+  it('without tenant context they are invisible and unwritable', async () => {
+    const n = await asTenant<{ n: number }>(null, 'SELECT (SELECT count(*) FROM mfa_challenge) + (SELECT count(*) FROM recovery_code) AS n');
+    expect(Number(n.rows[0]!.n)).toBe(0);
+    await expect(
+      asTenant(null, `INSERT INTO recovery_code (id, tenant_id, user_id, code_hash) VALUES (uuidv7(), $1, $2, decode('00', 'hex'))`, [A, userA]),
+    ).rejects.toThrow(/row-level security/);
+  });
+
+  it('the attempt budget is enforced by the database, not only the app (CHECK constraint)', async () => {
+    const a = forTenant(shard, A);
+    await expect(a.mfaChallenge.update({ where: { id: challengeA }, data: { attempts: 6 } })).rejects.toThrow();
+  });
+});

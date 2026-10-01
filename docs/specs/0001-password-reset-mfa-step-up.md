@@ -41,7 +41,7 @@ These were missing from the first version of the spec. Two exposed real bugs (R1
 
 | ID | Acceptance criterion |
 |----|----------------------|
-| M1 | *Enrolment.* A signed-in user who re-enters their password gets a TOTP secret (RFC 6238, SHA-1, 6 digits, 30 s) as base32 plus an `otpauth://` URI **once**. The secret is stored envelope-encrypted, never in plaintext, and is never returned again. |
+| M1 | **⚠ Partially met: see the M1 deviation note below.** *Enrolment.* A signed-in user who re-enters their password gets a TOTP secret (RFC 6238, SHA-1, 6 digits, 30 s) as base32 plus an `otpauth://` URI **once**. The secret is stored envelope-encrypted, never in plaintext, and is never returned again. |
 | M2 | *Confirmation.* The factor becomes active only after one valid code is submitted. Unconfirmed factors expire after 15 min. |
 | M3 | *Recovery codes.* On confirmation, 10 single-use recovery codes are shown once and stored hashed. Regenerating them invalidates all previous ones. |
 | M4 | *Two-step login.* With an active factor, a correct password returns `200 {mfaRequired: true}` and a short-lived (5 min), single-use **challenge** cookie, not a session. `POST /auth/mfa/verify {code}` exchanges the challenge for a full session with `mfa_at` set. |
@@ -59,8 +59,12 @@ These were missing from the first version of the spec. Two exposed real bugs (R1
 
 ### Part M verification notes (2026-10-01)
 
+- **M1 deviation (explicit):** secrets are encrypted at rest with AES-256-GCM, AAD-bound to tenant and user, and are never stored or returned in plaintext. That part is met. They are **not envelope-encrypted**: one platform-wide server key, no DEK/KEK split. This is a temporary deviation recorded in **ADR-018**, which must be closed before staging.
+- **Live isolation (added at review):** `mfa_challenge` and `recovery_code` have live cross-tenant read, write, insert, FK and no-context tests **as the app role** (`packages/db/test/isolation.int.spec.ts`). Disabling RLS on both tables fails 4 of them (verified).
+- **Challenge single-use (added at review):** new tests cover TOTP-then-unused-recovery-code on the same challenge, and the parallel TOTP + recovery version (exactly one session; the recovery code is spent only if it won). Layered mutation testing found the post-consumption backstop **returned** instead of throwing, which would commit a burned recovery code. Fixed. Now the reservation check and the consume backstop are each independently sufficient and side-effect free (each mutant alone survives), and removing both fails 4 tests.
+
 - **22 tests, one or more per M-criterion.** Mutation checks: disabling the replay guard (M5), session rotation (M14), challenge revocation on reset (M11), the restricted-session guard (M8), or the verify floor (M13) each fails at least one test.
-- **Accepted equivalent mutant (M12):** making the final challenge-consume UPDATE unconditional is undetectable. The attempt reservation (`used_at IS NULL` plus row lock) and the TOTP replay guard already prevent double use. The condition stays as a third layer.
+- **~~Accepted equivalent mutant (M12)~~ superseded by the layered analysis above.** The first claim was incomplete: the backstop was not side-effect free.
 - **M13 measurement:** without the floor, wrong-code verifies were **~3–4 ms slower, consistently** than unknown-challenge verifies (3 runs). With the 400 ms floor the gap was noise (−5.5 ms). The test therefore also asserts that the floor is in force; a 40 ms tolerance alone cannot see a 3 ms leak. Claim scope: *tested conditions only*, as for R15.
 - **Known test gap (reset slice, not reopened):** the R15 test detects the SMTP gap but would not detect removal of the reset floor alone. Fix it the same way when the reset code is next touched.
 

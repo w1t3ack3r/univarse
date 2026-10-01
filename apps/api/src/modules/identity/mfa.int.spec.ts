@@ -131,6 +131,35 @@ describe('login with MFA (M4–M7, M10)', () => {
     expect((await verify(challenge, { code: totpCode(u.secret) })).statusCode).toBe(401);
   });
 
+  it('[M4] a challenge consumed by TOTP cannot be reused with a different valid credential (unused recovery code)', async () => {
+    const u = await h.makeUser('demo', { role: 'STUDENT' });
+    const { recoveryCodes, secret } = await enrolViaApi(u.username);
+    await resetReplayGuard(h.shard, h.tenants.demo, u.id); // enrolment confirm used the current step
+    const challenge = challengeOf(await h.login(D, u.username));
+    expect((await verify(challenge, { code: totpCode(secret) })).statusCode).toBe(200);
+    // Fresh, never-used credential of a different kind on the SAME challenge → refused.
+    expect((await verify(challenge, { recoveryCode: recoveryCodes[0]! })).statusCode).toBe(401);
+    // …and the refused attempt did not burn the recovery code.
+    expect(await forTenant(h.shard, h.tenants.demo).recoveryCode.count({ where: { userId: u.id, usedAt: null } })).toBe(10);
+  });
+
+  it('[M4][M12] TOTP and recovery code in parallel on one challenge: exactly one session, nothing else consumed', async () => {
+    const u = await h.makeUser('demo', { role: 'STUDENT' });
+    const { recoveryCodes, secret } = await enrolViaApi(u.username);
+    await resetReplayGuard(h.shard, h.tenants.demo, u.id);
+    const challenge = challengeOf(await h.login(D, u.username));
+    const [byTotp, byRecovery] = await Promise.all([
+      verify(challenge, { code: totpCode(secret) }),
+      verify(challenge, { recoveryCode: recoveryCodes[1]! }),
+    ]);
+    expect([byTotp.statusCode, byRecovery.statusCode].sort()).toEqual([200, 401]);
+    const unused = await forTenant(h.shard, h.tenants.demo).recoveryCode.count({ where: { userId: u.id, usedAt: null } });
+    // The recovery code is spent only if it was the winner.
+    expect(unused).toBe(byRecovery.statusCode === 200 ? 9 : 10);
+    const sessions = await forTenant(h.shard, h.tenants.demo).session.count({ where: { userId: u.id, mfaAt: { not: null }, revokedAt: null } });
+    expect(sessions).toBe(2); // the enrolment session + exactly one from this challenge
+  });
+
   it('[M4] an expired challenge is rejected', async () => {
     const u = await mfaUser();
     const challenge = challengeOf(await h.login(D, u.username));

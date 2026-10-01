@@ -22,6 +22,9 @@ export type VerifyInput = { code: string } | { recoveryCode: string };
 
 const invalidMfa = () => new ProblemError(401, 'auth.mfa_invalid', 'Invalid or expired verification code');
 
+/** Thrown inside the verify transaction to roll back already-spent credentials. */
+class ChallengeConsumeConflict extends Error {}
+
 /** "ABCDE-FGHJK": 10 base32 chars ≈ 50 bits, grouped for humans. */
 const newRecoveryCode = () => {
   const s = base32Encode(randomBytes(7)).slice(0, 10);
@@ -72,7 +75,17 @@ export class MfaService {
 
   /** M4–M7, M12: exchanges a challenge + second factor for a full session (mfa_at set). */
   async verify(tenant: TenantContext, challengeToken: string, input: VerifyInput, meta: SessionMeta) {
-    const outcome = await this.shards.tx(tenant.shardId, tenant.tenantId, async (tx) => {
+    const outcome = await this.verifyTx(tenant, challengeToken, input).catch((err: unknown) => {
+      if (err instanceof ChallengeConsumeConflict) return { ok: false as const };
+      throw err;
+    });
+    // Failed attempts are committed before failing (same rule as one-time codes).
+    if (!outcome.ok) throw invalidMfa();
+    return this.completeLogin(tenant, outcome, meta);
+  }
+
+  private verifyTx(tenant: TenantContext, challengeToken: string, input: VerifyInput) {
+    return this.shards.tx(tenant.shardId, tenant.tenantId, async (tx) => {
       const now = new Date();
       const challenge = await tx.mfaChallenge.findUnique({
         where: { tenantId_tokenHash: { tenantId: tenant.tenantId, tokenHash: sha256(challengeToken) } },
@@ -84,6 +97,10 @@ export class MfaService {
         data: { attempts: { increment: 1 } },
       });
       if (reserved.count === 0) return { ok: false as const };
+
+      // Check eligibility BEFORE spending any credential (no side effects on a refused login).
+      const user = await tx.userAccount.findUniqueOrThrow({ where: { id: challenge.userId } });
+      if (user.status !== 'ACTIVE') return { ok: false as const };
 
       let usedRecovery = false;
       if ('code' in input) {
@@ -107,18 +124,22 @@ export class MfaService {
         usedRecovery = true;
       }
 
+      // Backstop for single-use (M4/M12). By now a credential (TOTP step or recovery code) has been
+      // spent, so failing here must THROW to roll the whole transaction back — returning would
+      // commit a burned recovery code. Mutation testing (2026-10-01) showed that side effect.
       const consumed = await tx.mfaChallenge.updateMany({ where: { id: challenge.id, usedAt: null, revokedAt: null }, data: { usedAt: now } });
-      if (consumed.count === 0) return { ok: false as const };
+      if (consumed.count === 0) throw new ChallengeConsumeConflict();
 
-      const user = await tx.userAccount.findUniqueOrThrow({ where: { id: challenge.userId } });
-      if (user.status !== 'ACTIVE') return { ok: false as const };
       const remaining = usedRecovery ? await tx.recoveryCode.count({ where: { userId: user.id, usedAt: null } }) : null;
       return { ok: true as const, user, remaining };
     });
-    // Failed attempts are committed before failing (same rule as one-time codes).
-    if (!outcome.ok) throw invalidMfa();
+  }
 
-    const { user, remaining } = outcome;
+  private async completeLogin(
+    tenant: TenantContext,
+    { user, remaining }: { user: { id: string; username: string; displayName: string; email: string | null }; remaining: number | null },
+    meta: SessionMeta,
+  ) {
     if (remaining !== null && user.email) {
       // M7: tell the user a recovery code was used and how many are left.
       void this.mailer
