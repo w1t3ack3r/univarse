@@ -85,12 +85,38 @@ These were missing from the first version of the spec. Two exposed real bugs (R1
 | S4 | Step-up is scoped to one session: stepping up on device A doesn't elevate device B. |
 | S5 | Step-up attempts share login's rate limits and lockout counters. |
 
+### Added 2026-10-01 before implementation (S6–S12, M9 detail, M15 update)
+
+| ID | Acceptance criterion |
+|----|----------------------|
+| S6 | *Where step-up lives.* `step_up_at` is set only on the **new** session created by the rotation (S3). It is never copied to other sessions, and a session issued by login or MFA verify starts with `step_up_at = NULL`. |
+| S7 | *Atomicity.* A TOTP code accepted at step-up goes through the same per-factor replay guard as login (M5). Parallel step-ups with one code yield at most one elevated session. A recovery code used at step-up is consumed atomically and emails the user (as M7). |
+| S8 | *Restricted sessions can't step up.* An enrolment-only session (M8) gets `403 auth.mfa_enrolment_required` from `/auth/step-up`, so step-up can't route around enrolment. |
+| M9a | *Endpoints (now behind step-up).* `POST /auth/mfa/totp/disable` and `POST /auth/mfa/recovery-codes/regenerate` require `@RequireStepUp()`. Without a fresh step-up → `428`. Replacing a factor = disable, then enrol (enrolment stays refused while a factor is active, M15). |
+| M9b | *Regenerate.* Issues 10 new recovery codes (shown once), and **every** previous code stops working immediately, used or not. Revokes all the user's **other** sessions. |
+| M9c | *Disable.* Deletes the TOTP factor and all recovery codes, revokes all the user's **other** sessions, and revokes their pending MFA challenges. |
+| **M9d** | **Disable by a privileged user → the current session becomes enrolment-only immediately** (review requirement, 2026-10-01). The same response that confirms the disable leaves the session `restricted = true`, `mfa_at = NULL`, `step_up_at = NULL` (rotating the token). Every route except the M8 allow-list (enrol, confirm, logout, `/me`) then answers `403 auth.mfa_enrolment_required`. Revoking other sessions protects other devices; this protects the current one. A **non-privileged** user who disables MFA keeps a normal session, with `mfa_at` and `step_up_at` cleared. |
+| M9e | *Notification.* Disabling MFA or regenerating recovery codes emails the user (no codes in the email). |
+| M15′ | *Update to M15.* The management endpoints now **exist**, but only behind step-up. The M15 tests change from "404" to "428 without step-up". Enrolment over an active factor stays `409`. |
+| S9 | *Permission-flagged step-up.* Permissions marked `stepUp` in the catalog (e.g. `identity.role.assign`, `settings.tenant.manage`) are enforced by the access guard automatically. No route uses them yet, so the guard behaviour is unit-tested now and integration-tested when the first such route lands. |
+| S10 | *Concurrency of management actions.* Parallel disables or regenerates by one session leave a consistent end state: exactly one set of 10 recovery codes after regenerate; no factor and no recovery codes after disable. |
+| S11 | *Timing.* `/auth/step-up` gets the same 400 ms floor as verify (scoped to tested conditions). |
+| S12 | *Lockout parity (S5 detail).* A wrong password at step-up increments the same `failed_login_count` as login. 10 failures lock the account, and the lock also blocks login. |
+
 ---
 
-## Out of scope for these PRs (tracked)
+## Out of scope for these PRs (tracked, with milestones)
 
-- Durable, retried email delivery (R15a): the outbox/worker slice.
+| Gap | Milestone |
+|-----|-----------|
+| Durable, retried email delivery (R15a) | Outbox/worker slice: next Phase 0 slice after spec 0001 |
+| Hash-chained audit events for reset/MFA/step-up | Audit slice: Phase 0, alongside the outbox |
+| Envelope encryption: KMS-wrapped per-tenant DEKs (ADR-018) | **Gate before the staging environment** |
+| HTTPS browser verification (cookies + proxy on real TLS) | Staging environment (Phase 0 exit) |
+| Browser verification of reset / MFA / step-up over HTTP | Harness extension at the close of spec 0001 |
+| Generic all-table isolation sweep | Phase 0 (before Phase 0 exit) |
+| R15 test would not detect removal of the reset floor alone | The next change to reset code |
+| Permission-flagged step-up integration test (S9) | The first route using a `stepUp` permission (role assignment, Phase 2) |
+| WebAuthn/passkeys | Phase 8. SMS as a second factor is **not** allowed for privileged users ([08 §3.2](../08-security.md)) |
 
-- Hash-chained audit events for these actions ([07 §7](../07-data-and-database.md)). This is the next slice. Until then, security-relevant events are logged via the `Auth`/`Sessions` loggers.
-- WebAuthn/passkeys (Phase 8). SMS as a second factor is **not** allowed for privileged users ([08 §3.2](../08-security.md)).
-- HTTPS browser verification of these flows. It stays open in the README matrix until staging exists.
+Until the audit slice lands, security-relevant events are logged via the `Auth`/`Sessions`/`Mfa` loggers.
