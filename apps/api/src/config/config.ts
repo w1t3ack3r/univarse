@@ -23,6 +23,9 @@ const schema = z.object({
   VALKEY_URL: z.string().startsWith('redis://'),
   /** Server-side secret mixed into one-time-code hashes so a DB leak can't brute-force 6-digit codes. */
   SESSION_PEPPER: z.string().min(32),
+  /** Field-encryption key for secrets at rest (TOTP secrets). 32 bytes base64. ADR-018. */
+  DATA_ENCRYPTION_KEY: z.string().min(40),
+  DATA_ENCRYPTION_KEY_ID: z.string().regex(/^[a-z0-9-]{1,32}$/),
   SMTP_URL: z.string().startsWith('smtp').default('smtp://127.0.0.1:1025'),
   MAIL_FROM: z.string().default('UniVarse <no-reply@univarse.localhost>'),
 });

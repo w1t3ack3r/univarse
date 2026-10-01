@@ -15,8 +15,13 @@ export interface Actor {
   readonly username: string;
   readonly displayName: string;
   readonly mfaAt: Date | null;
+  /** Enrolment-only session (spec 0001 M8): may reach only @AllowRestricted routes. */
+  readonly restricted: boolean;
   readonly grants: readonly Grant[];
 }
+
+/** True when the user holds any permission that requires MFA (docs/08 §3.2). */
+export const needsMfa = (grants: readonly Grant[]): boolean => grants.some((g) => isPrivileged(g.permission));
 
 /** Institution-wide permission check. Resource-scoped checks (faculty/department) arrive with those modules. */
 export const canInstitutionWide = (actor: Actor, permission: Permission): boolean =>

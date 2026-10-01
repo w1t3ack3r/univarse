@@ -68,6 +68,8 @@ jobs:
       - name: Generate CI-only secrets
         run: |
           echo "SESSION_PEPPER=$(openssl rand -base64 32)" >> .env
+          echo "DATA_ENCRYPTION_KEY_ID=ci-1" >> .env
+          echo "DATA_ENCRYPTION_KEY=$(openssl rand -base64 32)" >> .env
       - name: Build (includes Prisma generate)
         run: pnpm build
       - name: Typecheck

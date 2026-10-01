@@ -57,6 +57,13 @@ These were missing from the first version of the spec. Two exposed real bugs (R1
 | M14 | *Restricted → full session transition.* A restricted (enrolment-only) session from M8 becomes a full session **only** by confirming enrolment. On confirmation the restricted session is **revoked** and a **new token** is issued with `mfa_at` set (no token reuse across privilege levels). Any other restricted session of the same user stays restricted until that user logs in again with MFA. |
 | M15 | *No MFA management before step-up.* Endpoints that weaken or change an active factor (disable MFA, remove or replace a confirmed TOTP factor, regenerate recovery codes) **don't exist** in this PR: requests get 404. Enrolment is refused (409) when a confirmed factor already exists. These endpoints arrive with Part S, behind `@RequireStepUp()`. |
 
+### Part M verification notes (2026-10-01)
+
+- **22 tests, one or more per M-criterion.** Mutation checks: disabling the replay guard (M5), session rotation (M14), challenge revocation on reset (M11), the restricted-session guard (M8), or the verify floor (M13) each fails at least one test.
+- **Accepted equivalent mutant (M12):** making the final challenge-consume UPDATE unconditional is undetectable. The attempt reservation (`used_at IS NULL` plus row lock) and the TOTP replay guard already prevent double use. The condition stays as a third layer.
+- **M13 measurement:** without the floor, wrong-code verifies were **~3–4 ms slower, consistently** than unknown-challenge verifies (3 runs). With the 400 ms floor the gap was noise (−5.5 ms). The test therefore also asserts that the floor is in force; a 40 ms tolerance alone cannot see a 3 ms leak. Claim scope: *tested conditions only*, as for R15.
+- **Known test gap (reset slice, not reopened):** the R15 test detects the SMTP gap but would not detect removal of the reset floor alone. Fix it the same way when the reset code is next touched.
+
 ### Part M design decisions (decided before implementation)
 
 - **Data:** `session.restricted` (bool) and `session.step_up_at`; `mfa_factor.last_used_step` (replay guard, updated with a conditional `UPDATE … WHERE last_used_step < $step`); new tables `mfa_challenge` (hashed token, 5-min TTL, attempts, used/revoked) and `recovery_code` (hashed, single-use). All new tables are tenant tables with forced RLS and composite FKs, so `rls:check` must stay green.

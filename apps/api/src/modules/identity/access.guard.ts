@@ -21,6 +21,10 @@ type Access = { kind: 'public' } | { kind: 'authenticated' } | { kind: 'permissi
 export const Public = () => SetMetadata(ACCESS, { kind: 'public' } satisfies Access);
 /** Any signed-in member of this tenant (e.g. /me, logout). */
 export const Authenticated = () => SetMetadata(ACCESS, { kind: 'authenticated' } satisfies Access);
+const ALLOW_RESTRICTED = 'univarse:allow-restricted';
+/** Reachable from an enrolment-only (restricted) session: MFA enrolment, logout, /me (spec 0001 M8). */
+export const AllowRestricted = () => SetMetadata(ALLOW_RESTRICTED, true);
+
 /** Signed-in member holding the permission institution-wide. */
 export const RequirePermission = (permission: Permission) =>
   SetMetadata(ACCESS, { kind: 'permission', permission } satisfies Access);
@@ -60,6 +64,10 @@ export class AccessGuard implements CanActivate {
     const actor = token && req.tenant ? await this.sessions.authenticate(req.tenant, token, req.id) : null;
     if (!actor) throw new ProblemError(401, 'auth.unauthenticated', 'Authentication required');
     req.actor = actor;
+
+    if (actor.restricted && !this.reflector.getAllAndOverride<boolean>(ALLOW_RESTRICTED, targets)) {
+      throw new ProblemError(403, 'auth.mfa_enrolment_required', 'Set up multi-factor authentication to continue');
+    }
 
     if (access.kind === 'permission') {
       if (!canInstitutionWide(actor, access.permission)) {

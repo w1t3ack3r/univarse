@@ -28,7 +28,8 @@ Statuses are kept distinct: **implemented** → **tested locally** → **verifie
 | Password reset (spec 0001 R1–R11) | ✅ | ✅ 14 tests, 3 mutations caught | ✅ (#3) | — |
 | Reset hardening R12–R15 (concurrency, eligibility, timing) | ✅ | ✅ 6 tests, R12/R13/R15 mutation-checked | ⏳ PR | — |
 | Reset flow in a real browser (dev edge, HTTP) | ❌ harness has no reset form yet | — | — | ❌ |
-| TOTP MFA (M1–M13 incl. R16), step-up (S1–S5) | ❌ next | — | — | — |
+| TOTP MFA (M1–M15 incl. R16) | ✅ | ✅ 22 tests + 24 unit (RFC vectors, crypto); 5/6 mutations caught, 1 equivalent | ⏳ PR | ❌ harness has no MFA flow yet |
+| Step-up (S1–S5) + MFA management (M9) | ❌ next | — | — | — |
 
 Isolation-layer coverage and known gaps: [docs/12 §3.1](docs/12-testing-strategy.md).
 

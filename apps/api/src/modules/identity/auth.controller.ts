@@ -4,10 +4,10 @@ import { z } from 'zod';
 import { parse } from '../../shared/http/validate.js';
 import { CurrentTenant } from '../../shared/tenancy/tenant.guard.js';
 import type { TenantContext } from '../../shared/tenancy/tenant-resolver.service.js';
-import { Authenticated, CurrentActor, Public } from './access.guard.js';
+import { AllowRestricted, Authenticated, CurrentActor, Public } from './access.guard.js';
 import type { Actor } from './actor.js';
 import { AuthService } from './auth.service.js';
-import { clearedSessionCookie, sessionCookie, SessionService } from './session.service.js';
+import { challengeCookie, clearedSessionCookie, sessionCookie, SessionService } from './session.service.js';
 
 const Identifier = z.string().trim().min(1).max(254);
 /** Shared by activation and reset: both take an identifier, then identifier + code + new password. */
@@ -68,12 +68,18 @@ export class AuthController {
     @Res({ passthrough: true }) reply: FastifyReply,
   ) {
     const result = await this.auth.login(tenant, parse(Login, body), meta(req));
+    if (result.kind === 'mfa_challenge') {
+      // M4: no session yet — only a short-lived challenge cookie usable at /auth/mfa/verify.
+      void reply.header('set-cookie', challengeCookie(result.challengeToken));
+      return { mfaRequired: true };
+    }
     void reply.header('set-cookie', sessionCookie(result.token, result.maxAgeSec));
-    return { user: result.user };
+    return { user: result.user, ...(result.mfaEnrolmentRequired ? { mfaEnrolmentRequired: true } : {}) };
   }
 
   @Post('logout')
   @Authenticated()
+  @AllowRestricted()
   @HttpCode(204)
   async logout(
     @CurrentTenant() tenant: TenantContext,
@@ -86,12 +92,14 @@ export class AuthController {
 
   @Get('me')
   @Authenticated()
+  @AllowRestricted()
   me(@CurrentActor() actor: Actor) {
     return {
       id: actor.userId,
       username: actor.username,
       displayName: actor.displayName,
       mfa: actor.mfaAt !== null,
+      restricted: actor.restricted,
       permissions: [...new Set(actor.grants.filter((g) => g.scopeType === 'INSTITUTION').map((g) => g.permission))].sort(),
     };
   }

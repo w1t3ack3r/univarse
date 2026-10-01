@@ -6,6 +6,8 @@ import { MAILER, type Mailer } from '../../shared/infra/mailer.js';
 import { RateLimiter } from '../../shared/infra/rate-limiter.js';
 import { withMinimumDuration } from '../../shared/http/timing.js';
 import type { TenantContext } from '../../shared/tenancy/tenant-resolver.service.js';
+import { needsMfa } from './actor.js';
+import { MfaService } from './mfa.service.js';
 import { OneTimeCodeService, type CodePurpose } from './one-time-code.service.js';
 import { hashPassword, needsRehash, passwordProblems, verifyAgainstDummy, verifyPassword } from './password.js';
 import { SessionService, type SessionMeta } from './session.service.js';
@@ -39,6 +41,16 @@ function findUserWithRoles(tx: TenantTx, raw: string) {
   });
 }
 
+export type LoginResult =
+  | { kind: 'mfa_challenge'; challengeToken: string }
+  | {
+      kind: 'session';
+      token: string;
+      maxAgeSec: number;
+      user: { id: string; username: string; displayName: string };
+      mfaEnrolmentRequired: boolean;
+    };
+
 @Injectable()
 export class AuthService {
   private readonly logger = new Logger('Auth');
@@ -47,6 +59,7 @@ export class AuthService {
     private readonly shards: ShardRegistry,
     private readonly sessions: SessionService,
     private readonly codes: OneTimeCodeService,
+    private readonly mfa: MfaService,
     private readonly limiter: RateLimiter,
     @Inject(MAILER) private readonly mailer: Mailer,
   ) {}
@@ -140,6 +153,8 @@ export class AuthService {
           where: { userId: user.id, revokedAt: null },
           data: { revokedAt: now, revokeReason: 'password_reset' },
         });
+        // M11 / R16: a challenge started before the reset can never be completed after it.
+        await tx.mfaChallenge.updateMany({ where: { userId: user.id, usedAt: null, revokedAt: null }, data: { revokedAt: now } });
       }
       return { ok: true as const, email: user.email };
     });
@@ -180,7 +195,7 @@ export class AuthService {
     tenant: TenantContext,
     input: { username: string; password: string },
     meta: SessionMeta,
-  ): Promise<{ token: string; maxAgeSec: number; user: { id: string; username: string; displayName: string } }> {
+  ): Promise<LoginResult> {
     const id = normaliseIdentifier(input.username);
     await this.limit(`${tenant.tenantId}:login:ip:${meta.ip}`, [{ limit: 50, windowSec: 60 }]);
     await this.limit(`${tenant.tenantId}:login:ipid:${meta.ip}:${id.value}`, [
@@ -227,7 +242,18 @@ export class AuthService {
         ...(needsRehash(user.passwordHash) ? { passwordHash: await hashPassword(input.password) } : {}),
       },
     });
-    const { token, maxAgeSec } = await this.sessions.create(tenant, user.id, meta);
-    return { token, maxAgeSec, user: { id: user.id, username: user.username, displayName: user.displayName } };
+    const publicUser = { id: user.id, username: user.username, displayName: user.displayName };
+
+    // Second factor (spec 0001 M4/M8): MFA users get a challenge, never a session, at this point.
+    const { hasFactor, privileged } = await this.shards.tx(tenant.shardId, tenant.tenantId, async (tx) => ({
+      hasFactor: await this.mfa.hasActiveFactor(tx, user.id),
+      privileged: needsMfa((await this.sessions.loadGrants(tx, user.id, now)).grants),
+    }));
+    if (hasFactor) {
+      return { kind: 'mfa_challenge', challengeToken: await this.mfa.startChallenge(tenant, user.id, meta.ip) };
+    }
+    // Privileged without a factor ⇒ enrolment-only session until M14 upgrades it.
+    const { token, maxAgeSec } = await this.sessions.create(tenant, user.id, meta, { restricted: privileged });
+    return { kind: 'session', token, maxAgeSec, user: publicUser, mfaEnrolmentRequired: privileged };
   }
 }

@@ -83,6 +83,7 @@ The integration suite creates two tenants with identical data shapes and asserts
 
 ## 4. Migrations
 
+- **Authoring workflow (learned the hard way, 2026-10-01):** run `pnpm --filter @univarse/db migrate:new:tenant --name <x>` **once**. It writes the SQL without applying it. Append the RLS/grants SQL to that file, then apply with `pnpm db:migrate` (`migrate deploy`). **Never re-run `migrate dev`** while a created migration is pending: it applies the pending migration *as-is* (without your RLS edits) and then creates an empty follow-up migration. `rls:check` catches the missing RLS, but the local DB then needs a manual rollback.
 - Tool: Prisma Migrate. **Custom SQL** (RLS policies, grants, triggers, partial indexes, `ltree`) goes in the same migration folder's `migration.sql`, appended after Prisma's generated DDL.
 - **Expand → migrate → contract.** A release never removes or renames something the previous release still uses:
   1. Release N: add new column/table (nullable or defaulted), write to both, backfill in a job.

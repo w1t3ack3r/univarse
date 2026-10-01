@@ -7,6 +7,8 @@ import { SESSION_LIFETIMES, sessionClassFor, type Actor, type Grant, type Sessio
 import { newSessionToken, sha256 } from './tokens.js';
 
 export const SESSION_COOKIE = '__Host-uv_sid';
+/** MFA login challenge (spec 0001 M4): 5 minutes, grants nothing except /auth/mfa/verify. */
+export const CHALLENGE_COOKIE = '__Host-uv_mfa';
 const MAX_ACTIVE_SESSIONS = 5;
 /** Don't write last_seen on every request; 60s granularity is enough for idle timeouts. */
 const TOUCH_INTERVAL_MS = 60_000;
@@ -45,7 +47,12 @@ export class SessionService {
   }
 
   /** Creates a session (new token every login ⇒ no session fixation) and trims old ones. */
-  async create(tenant: TenantContext, userId: string, meta: SessionMeta): Promise<{ token: string; maxAgeSec: number }> {
+  async create(
+    tenant: TenantContext,
+    userId: string,
+    meta: SessionMeta,
+    opts: { mfaAt?: Date; restricted?: boolean } = {},
+  ): Promise<{ token: string; maxAgeSec: number }> {
     const token = newSessionToken();
     const now = new Date();
     const maxAgeSec = await this.shards.tx(tenant.shardId, tenant.tenantId, async (tx) => {
@@ -60,6 +67,8 @@ export class SessionService {
           absoluteExpiresAt: new Date(now.getTime() + life.absoluteHours * 3_600_000),
           ip: meta.ip,
           userAgent: meta.userAgent?.slice(0, 512) ?? null,
+          mfaAt: opts.mfaAt ?? null,
+          restricted: opts.restricted ?? false,
         },
       });
       const active = await tx.session.findMany({
@@ -108,6 +117,7 @@ export class SessionService {
         username: session.user.username,
         displayName: session.user.displayName,
         mfaAt: session.mfaAt,
+        restricted: session.restricted,
         grants,
       };
     });
@@ -125,11 +135,15 @@ export function sessionCookie(token: string, maxAgeSec: number): string {
 
 export const clearedSessionCookie = (): string => `${SESSION_COOKIE}=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0`;
 
-export function readSessionCookie(header: string | undefined): string | null {
+export const challengeCookie = (token: string): string =>
+  `${CHALLENGE_COOKIE}=${token}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=300`;
+export const clearedChallengeCookie = (): string => `${CHALLENGE_COOKIE}=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0`;
+
+export function readSessionCookie(header: string | undefined, cookieName: string = SESSION_COOKIE): string | null {
   if (!header) return null;
   for (const part of header.split(';')) {
     const [name, ...rest] = part.trim().split('=');
-    if (name === SESSION_COOKIE) {
+    if (name === cookieName) {
       const value = rest.join('=');
       return /^[A-Za-z0-9_-]{43}$/.test(value) ? value : null;
     }

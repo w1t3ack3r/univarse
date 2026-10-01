@@ -141,3 +141,9 @@ Alternatives considered: option — why not.
 2. Where a framework pins a vulnerable transitive version, use **`pnpm.overrides`** to the version the framework's *next* major already ships (fastify 5.12.5, the same version NestJS 12 uses), and only after the full suite passes.
 3. CI runs `pnpm audit --audit-level high` right after install. A high or critical advisory fails the build.
 **Consequences:** Overrides must be revisited on every framework upgrade and removed once the framework catches up. The NestJS 12 upgrade (ADR-013) will retire the fastify override. The audit gate can block unrelated PRs when a new advisory lands. That's intended: fix or explicitly document an exception with an expiry.
+
+## ADR-018 — Field encryption for secrets at rest (Phase 0 key handling)
+**Status:** Accepted (2026-10-01). Partially implements [07 §8](07-data-and-database.md).
+**Context:** TOTP secrets must never be stored in plaintext (spec 0001 M1). The target design is envelope encryption: a per-tenant DEK wrapped by a KMS key. No KMS exists in Phase 0 (no cloud environment yet).
+**Decision:** AES-256-GCM with a 96-bit random IV, stored as a versioned string `v1:<keyId>:<iv>:<ct>:<tag>`. **AAD = `<tenantId>:<userId>:<purpose>`**, so a ciphertext copied to another row or tenant fails authentication. Phase 0 reads one key from `DATA_ENCRYPTION_KEY` / `DATA_ENCRYPTION_KEY_ID` (secret manager in deployed environments, `.env` locally, generated per run in CI). The keyring already supports multiple key IDs for rotation.
+**Consequences:** One platform-wide key until KMS exists: a leaked key exposes all tenants' TOTP secrets. Mitigations: the key lives only in the secret manager, never in the DB; AAD binding; rotation path ready. **Before staging:** move to KMS-wrapped per-tenant DEKs. The `v1` format keeps the key ID, so existing values remain decryptable during migration.
