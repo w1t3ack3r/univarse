@@ -9,9 +9,13 @@ const TTL_MS = 15 * 60_000;
 const MAX_ATTEMPTS = 5;
 
 /**
- * Emailed 6-digit codes shared by activation and password reset (spec 0001 R2–R4).
+ * Emailed 6-digit codes shared by activation and password reset (spec 0001 R2–R4, R12–R13).
  * Low entropy ⇒ peppered HMAC at rest, bound to (user, purpose), 15-minute TTL, 5 attempts,
  * single use, and issuing a new code kills all earlier unused ones.
+ *
+ * Concurrency: every check first RESERVES an attempt with a conditional UPDATE. That takes the
+ * row lock for the rest of the transaction, so concurrent checks of the same code serialise and
+ * each re-evaluates `attempts < 5 AND used_at IS NULL` after the previous one commits.
  */
 @Injectable()
 export class OneTimeCodeService {
@@ -35,30 +39,33 @@ export class OneTimeCodeService {
   }
 
   /**
-   * Checks a code. On a wrong code the attempt counter is incremented — the caller MUST let the
-   * transaction commit before failing, or the counter rolls back (R3).
-   * Returns the token id to consume on success.
+   * Checks a code. Each call spends one attempt, reserved atomically before comparing (R13).
+   * A wrong code returns (never throws) so the caller's transaction COMMITS the spent attempt (R3).
+   * On success the code is consumed atomically in the same transaction (R12).
    */
   async check(
     tx: TenantTx,
     userId: string,
     purpose: CodePurpose,
     code: string,
-  ): Promise<{ ok: true; tokenId: string } | { ok: false; reason: 'NO_CODE' | 'WRONG_CODE' }> {
+  ): Promise<{ ok: true } | { ok: false; reason: 'NO_CODE' | 'WRONG_CODE' }> {
+    const now = new Date();
     const token = await tx.oneTimeToken.findFirst({
-      where: { userId, purpose, usedAt: null, expiresAt: { gt: new Date() } },
+      where: { userId, purpose, usedAt: null, expiresAt: { gt: now } },
       orderBy: { createdAt: 'desc' },
     });
-    if (!token || token.attempts >= MAX_ATTEMPTS) return { ok: false, reason: 'NO_CODE' };
-    const expected = hashOneTimeCode(this.config.SESSION_PEPPER, userId, purpose, code);
-    if (!safeEqual(expected, token.tokenHash)) {
-      await tx.oneTimeToken.update({ where: { id: token.id }, data: { attempts: { increment: 1 } } });
-      return { ok: false, reason: 'WRONG_CODE' };
-    }
-    return { ok: true, tokenId: token.id };
-  }
+    if (!token) return { ok: false, reason: 'NO_CODE' };
 
-  async consume(tx: TenantTx, tokenId: string): Promise<void> {
-    await tx.oneTimeToken.update({ where: { id: tokenId }, data: { usedAt: new Date() } });
+    const reserved = await tx.oneTimeToken.updateMany({
+      where: { id: token.id, usedAt: null, expiresAt: { gt: now }, attempts: { lt: MAX_ATTEMPTS } },
+      data: { attempts: { increment: 1 } },
+    });
+    if (reserved.count === 0) return { ok: false, reason: 'NO_CODE' };
+
+    const expected = hashOneTimeCode(this.config.SESSION_PEPPER, userId, purpose, code);
+    if (!safeEqual(expected, token.tokenHash)) return { ok: false, reason: 'WRONG_CODE' };
+
+    const consumed = await tx.oneTimeToken.updateMany({ where: { id: token.id, usedAt: null }, data: { usedAt: now } });
+    return consumed.count === 1 ? { ok: true } : { ok: false, reason: 'NO_CODE' };
   }
 }
