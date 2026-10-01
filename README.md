@@ -20,12 +20,15 @@ Statuses are kept distinct: **implemented** → **tested locally** → **verifie
 | Grading / GPA engine (`packages/domain`) | ✅ | ✅ 41 tests, 100% lines | ✅ | n/a |
 | Tenant DB isolation (forced RLS, composite FKs, RLS gate) | ✅ | ✅ 8 tests + checker negative control | ✅ | n/a |
 | Host → tenant resolution, suspended → 423 | ✅ | ✅ | ✅ | ✅ via dev edge |
-| Activation → login → /me → logout | ✅ | ✅ | ✅ | ✅ HTTP on `*.localhost` · ❌ HTTPS not yet |
+| Activation → login → /me → logout | ✅ | ✅ | ✅ | ✅ HTTP on `*.localhost` |
+| **HTTPS: cookies + proxy config on deployed staging** | — | — | — | ❌ blocked: no staging yet |
 | Existing sessions blocked on disable / lock / role removal / suspension | ✅ | ✅ | ✅ | — |
 | Rate limits not bypassable via forwarding headers | ✅ | ✅ mutation-checked | ✅ | — |
 | CSRF (Fetch Metadata / Origin) | ✅ | ✅ | ✅ | ✅ same-origin path only |
 | Password reset (spec 0001 R1–R11) | ✅ | ✅ 14 tests, 3 mutations caught | ✅ (#3) | — |
-| TOTP MFA (M1–M10), step-up (S1–S5) | ❌ next | — | — | — |
+| Reset hardening R12–R15 (concurrency, eligibility, timing) | ✅ | ✅ 6 tests, R12/R13/R15 mutation-checked | ⏳ PR | — |
+| Reset flow in a real browser (dev edge, HTTP) | ❌ harness has no reset form yet | — | — | ❌ |
+| TOTP MFA (M1–M13 incl. R16), step-up (S1–S5) | ❌ next | — | — | — |
 
 Isolation-layer coverage and known gaps: [docs/12 §3.1](docs/12-testing-strategy.md).
 

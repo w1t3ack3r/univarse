@@ -49,6 +49,8 @@ export interface Harness {
   outbox: OutboundEmail[];
   run: string;
   mailsTo(address: string): OutboundEmail[];
+  /** Waits until `address` has more than `after` emails matching `subject`; returns the newest. Email is async. */
+  waitForMail(address: string, subject: RegExp, after: number): Promise<OutboundEmail>;
   call(
     method: 'GET' | 'POST',
     host: string,
@@ -63,7 +65,11 @@ export interface Harness {
   close(): Promise<void>;
 }
 
-export async function createHarness(): Promise<Harness> {
+/**
+ * @param opts.mailDelayMs simulated SMTP latency. The default in-memory mailer is instant, which hides
+ *   timing differences that real SMTP would expose; timing tests must set a realistic delay.
+ */
+export async function createHarness(opts: { mailDelayMs?: number } = {}): Promise<Harness> {
   const outbox: OutboundEmail[] = [];
   const platform = createPlatformClient(process.env.PLATFORM_DATABASE_URL!);
   const shard = createTenantShardClient(process.env.TENANT_POOL_01_DATABASE_URL!);
@@ -72,7 +78,12 @@ export async function createHarness(): Promise<Harness> {
     poly: (await platform.tenant.findUniqueOrThrow({ where: { slug: 'test-poly' } })).id,
   };
   const app = await createApp(loadConfig({ ...process.env, NODE_ENV: 'test' }), {
-    mailer: { send: async (m) => void outbox.push(m) },
+    mailer: {
+      send: async (m) => {
+        if (opts.mailDelayMs) await new Promise((r) => setTimeout(r, opts.mailDelayMs));
+        outbox.push(m);
+      },
+    },
   });
   const run = randomBytes(3).toString('hex').toUpperCase();
   const created: { tenantId: string; userId: string }[] = [];
@@ -99,6 +110,15 @@ export async function createHarness(): Promise<Harness> {
     outbox,
     run,
     mailsTo: (address) => outbox.filter((m) => m.to === address),
+    async waitForMail(address, subject, after) {
+      const deadline = Date.now() + 5_000;
+      for (;;) {
+        const matching = outbox.filter((m) => m.to === address && subject.test(m.subject));
+        if (matching.length > after) return matching.at(-1)!;
+        if (Date.now() > deadline) throw new Error(`No new ${subject} email for ${address} within 5s`);
+        await new Promise((r) => setTimeout(r, 25));
+      }
+    },
     call,
     login: (host, username, password = PASSWORD) =>
       call('POST', host, '/api/v1/auth/login', { body: { username, password } }),

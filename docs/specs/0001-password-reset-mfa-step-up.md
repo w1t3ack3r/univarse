@@ -24,6 +24,18 @@ Security baseline: [08 §3](../08-security.md).
 | R10 | *Rate limits.* Request: 20/15 min per IP and 3/15 min per identifier. Confirm: 30/15 min per IP. Exceeding → `429` + `Retry-After`. |
 | R11 | *Ineligible accounts.* Pending accounts must use activation. Disabled or locked-by-admin (`LOCKED`) accounts can't reset (the code is never sent). |
 
+### Added 2026-10-01 after review (R12–R16)
+
+These were missing from the first version of the spec. Two exposed real bugs (R12, R13) that the original 14 tests didn't catch.
+
+| ID | Acceptance criterion | Status |
+|----|----------------------|--------|
+| R12 | *Concurrent confirms.* N parallel confirmations with the same valid code yield **exactly one** success. | **Bug found**: 4 of 4 succeeded. Fixed with an atomic conditional consume. Test: `reset-hardening.int.spec.ts` |
+| R13 | *Concurrent guessing.* Parallel wrong codes can't exceed the 5-attempt budget: every check reserves an attempt with a conditional `UPDATE … WHERE attempts < 5` before comparing. | **Bug found**: 6 attempts were recorded. Fixed the same way. Both R12 and R13 fail when the fix is reverted (mutation-checked) |
+| R14 | *Eligibility re-checked at confirm.* An account that becomes `DISABLED` or `LOCKED` after the code was issued can't complete the reset, and its password is unchanged. | Behaviour was already correct; it's now tested |
+| R15 | *Timing.* Request and confirm take the same time whether or not the account exists: (a) code emails are sent without awaiting SMTP, (b) these endpoints have a 400 ms response floor (`withMinimumDuration`). Tested with 250 ms of simulated SMTP latency and median of 7 samples, difference under 40 ms. | **Leak found**: the awaited send created a 267 ms gap, which the test missed with the instant in-memory mailer. Fixed. Trade-off: a failed send is logged, not retried, until the outbox/queue slice |
+| R16 | *Reset invalidates pending MFA challenges.* A password reset revokes every outstanding MFA login challenge for the user. | **Tracked as M11** below. Can't be tested until challenges exist |
+
 ## Part M — TOTP multi-factor (PR 2)
 
 | ID | Acceptance criterion |
@@ -38,6 +50,9 @@ Security baseline: [08 §3](../08-security.md).
 | M8 | *Mandatory for privileged users.* A user holding any `privileged` permission without an active factor gets a session that can **only** reach enrolment and logout endpoints until they enrol (`403 auth.mfa_enrolment_required` elsewhere). |
 | M9 | *Factor changes revoke other sessions.* Disabling MFA or regenerating recovery codes requires step-up (Part S) and revokes all the user's *other* sessions. |
 | M10 | *Password reset + MFA.* A password reset (Part R) never removes or bypasses MFA: the next login still requires the second factor. |
+| M11 | *(= R16)* A password reset revokes all of the user's pending MFA challenges. A challenge issued before the reset can't be completed afterwards, even with a valid TOTP code. |
+| M12 | *Concurrency (applies the R12/R13 lesson).* Parallel verifies of one challenge yield at most one session. Parallel wrong codes can't exceed the challenge's attempt budget. Recovery codes are consumed atomically, so a code can't be used twice in parallel. |
+| M13 | *Timing.* Verify timing doesn't reveal whether a challenge or recovery code exists or is valid, beyond pass/fail. |
 
 ## Part S — Step-up (PR 3)
 

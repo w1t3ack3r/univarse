@@ -4,6 +4,7 @@ import { ShardRegistry } from '../../shared/db/db.module.js';
 import { ProblemError } from '../../shared/errors/problem.js';
 import { MAILER, type Mailer } from '../../shared/infra/mailer.js';
 import { RateLimiter } from '../../shared/infra/rate-limiter.js';
+import { withMinimumDuration } from '../../shared/http/timing.js';
 import type { TenantContext } from '../../shared/tenancy/tenant-resolver.service.js';
 import { OneTimeCodeService, type CodePurpose } from './one-time-code.service.js';
 import { hashPassword, needsRehash, passwordProblems, verifyAgainstDummy, verifyPassword } from './password.js';
@@ -12,6 +13,9 @@ import { normaliseIdentifier } from './tokens.js';
 
 const LOCK_AFTER_FAILURES = 10;
 const LOCK_MS = 15 * 60_000;
+/** Response-time floors for enumeration-sensitive endpoints (R15). Above the slowest non-success path. */
+const REQUEST_FLOOR_MS = 400;
+const CONFIRM_FLOOR_MS = 400;
 
 const invalidCredentials = () => new ProblemError(401, 'auth.invalid_credentials', 'Invalid username or password');
 const invalidCode = (purpose: CodePurpose) =>
@@ -86,11 +90,17 @@ export class AuthService {
     if (!issued) return;
 
     const what = purpose === 'ACTIVATION' ? 'activation' : 'password reset';
-    await this.mailer.send({
-      to: issued.email,
-      subject: `${tenant.shortName}: your UniVarse ${what} code`,
-      text: `Your ${what} code is ${issued.code}. It expires in 15 minutes.\n\nIf you did not request this, ignore this email — your account is unchanged.`,
-    });
+    // Not awaited: SMTP latency would otherwise reveal that the account exists (R15).
+    // Phase 0 trade-off: a failed send is logged, not retried — the outbox/queue slice fixes that.
+    void this.mailer
+      .send({
+        to: issued.email,
+        subject: `${tenant.shortName}: your UniVarse ${what} code`,
+        text: `Your ${what} code is ${issued.code}. It expires in 15 minutes.\n\nIf you did not request this, ignore this email — your account is unchanged.`,
+      })
+      .catch((err: unknown) =>
+        this.logger.error(`Code email failed tenant=${tenant.slug}: ${err instanceof Error ? err.message : String(err)}`),
+      );
   }
 
   /**
@@ -109,6 +119,7 @@ export class AuthService {
     const outcome = await this.shards.tx(tenant.shardId, tenant.tenantId, async (tx) => {
       const user = await findUserWithRoles(tx, input.username);
       if (!user || user.status !== ELIGIBLE_STATUS[purpose]) return { ok: false as const };
+      // Spends one attempt atomically and consumes the code on success (R12, R13).
       const check = await this.codes.check(tx, user.id, purpose, input.code);
       if (!check.ok) return { ok: false as const };
 
@@ -123,7 +134,6 @@ export class AuthService {
           lockedUntil: null,
         },
       });
-      await this.codes.consume(tx, check.tokenId);
       if (purpose === 'PASSWORD_RESET') {
         // R6: every session of the user dies, including any that asked for the reset.
         await tx.session.updateMany({
@@ -138,20 +148,22 @@ export class AuthService {
   }
 
   requestActivation(tenant: TenantContext, rawUsername: string, ip: string): Promise<void> {
-    return this.requestCode(tenant, 'ACTIVATION', rawUsername, ip);
+    return withMinimumDuration(REQUEST_FLOOR_MS, () => this.requestCode(tenant, 'ACTIVATION', rawUsername, ip));
   }
 
   async confirmActivation(tenant: TenantContext, input: { username: string; code: string; password: string }, ip: string) {
-    await this.confirmCode(tenant, 'ACTIVATION', input, ip);
+    await withMinimumDuration(CONFIRM_FLOOR_MS, () => this.confirmCode(tenant, 'ACTIVATION', input, ip));
   }
 
   requestPasswordReset(tenant: TenantContext, rawUsername: string, ip: string): Promise<void> {
-    return this.requestCode(tenant, 'PASSWORD_RESET', rawUsername, ip);
+    return withMinimumDuration(REQUEST_FLOOR_MS, () => this.requestCode(tenant, 'PASSWORD_RESET', rawUsername, ip));
   }
 
   /** R7: never creates a session — the user logs in (and later passes MFA) afterwards. */
   async confirmPasswordReset(tenant: TenantContext, input: { username: string; code: string; password: string }, ip: string) {
-    const { email } = await this.confirmCode(tenant, 'PASSWORD_RESET', input, ip);
+    const { email } = await withMinimumDuration(CONFIRM_FLOOR_MS, () =>
+      this.confirmCode(tenant, 'PASSWORD_RESET', input, ip),
+    );
     if (email) {
       // R9: notification only — no code, no link.
       await this.mailer.send({
