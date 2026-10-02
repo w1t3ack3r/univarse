@@ -61,7 +61,15 @@ export class AccessGuard implements CanActivate {
       this.logger.error(`Route without access declaration: ${req.method} ${req.routeOptions.url}`);
       throw new ProblemError(403, 'auth.forbidden', 'Forbidden');
     }
-    if (access.kind === 'public') return true;
+    const explicitStepUp = this.reflector.getAllAndOverride<boolean>(REQUIRE_STEP_UP, targets) === true;
+    if (access.kind === 'public') {
+      // Step-up on a public route can never be satisfied; refuse rather than silently skip it.
+      if (explicitStepUp) {
+        this.logger.error(`@RequireStepUp() on a public route: ${req.method} ${req.routeOptions.url}`);
+        throw new ProblemError(403, 'auth.forbidden', 'Forbidden');
+      }
+      return true;
+    }
 
     const token = readSessionCookie(req.headers.cookie);
     const actor = token && req.tenant ? await this.sessions.authenticate(req.tenant, token, req.id) : null;
@@ -82,9 +90,7 @@ export class AccessGuard implements CanActivate {
     }
 
     // S1 / S9: explicit @RequireStepUp() or a permission flagged stepUp in the catalog.
-    const stepUpNeeded =
-      this.reflector.getAllAndOverride<boolean>(REQUIRE_STEP_UP, targets) === true ||
-      (access.kind === 'permission' && requiresStepUp(access.permission));
+    const stepUpNeeded = explicitStepUp || (access.kind === 'permission' && requiresStepUp(access.permission));
     if (stepUpNeeded && !hasFreshStepUp(actor, new Date())) {
       throw new ProblemError(428, 'auth.step_up_required', 'Confirm your identity to continue');
     }
