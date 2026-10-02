@@ -9,12 +9,11 @@ import type { TenantContext } from '../../shared/tenancy/tenant-resolver.service
 import { needsMfa } from './actor.js';
 import { MfaService } from './mfa.service.js';
 import { OneTimeCodeService, type CodePurpose } from './one-time-code.service.js';
-import { hashPassword, needsRehash, passwordProblems, verifyAgainstDummy, verifyPassword } from './password.js';
+import { PasswordAttempts } from './password-attempts.service.js';
+import { hashPassword, needsRehash, passwordProblems, verifyAgainstDummy } from './password.js';
 import { SessionService, type SessionMeta } from './session.service.js';
 import { normaliseIdentifier } from './tokens.js';
 
-const LOCK_AFTER_FAILURES = 10;
-const LOCK_MS = 15 * 60_000;
 /** Response-time floors for enumeration-sensitive endpoints (R15). Above the slowest non-success path. */
 const REQUEST_FLOOR_MS = 400;
 const CONFIRM_FLOOR_MS = 400;
@@ -60,6 +59,7 @@ export class AuthService {
     private readonly sessions: SessionService,
     private readonly codes: OneTimeCodeService,
     private readonly mfa: MfaService,
+    private readonly passwords: PasswordAttempts,
     private readonly limiter: RateLimiter,
     @Inject(MAILER) private readonly mailer: Mailer,
   ) {}
@@ -211,27 +211,8 @@ export class AuthService {
       await verifyAgainstDummy(input.password);
       throw invalidCredentials();
     }
-    if (user.lockedUntil && user.lockedUntil > now) {
-      await verifyAgainstDummy(input.password);
-      throw invalidCredentials();
-    }
-
-    if (!(await verifyPassword(input.password, user.passwordHash))) {
-      // Atomic increment: parallel guesses can't under-count.
-      const { failedLoginCount } = await db.userAccount.update({
-        where: { id: user.id },
-        data: { failedLoginCount: { increment: 1 } },
-        select: { failedLoginCount: true },
-      });
-      if (failedLoginCount >= LOCK_AFTER_FAILURES) {
-        await db.userAccount.update({
-          where: { id: user.id },
-          data: { failedLoginCount: 0, lockedUntil: new Date(now.getTime() + LOCK_MS) },
-        });
-        this.logger.warn(`Account locked after repeated failures tenant=${tenant.slug} user=${user.id}`);
-      }
-      throw invalidCredentials();
-    }
+    // Shared with step-up: lockout check, verification and failure counting (S12).
+    if (!(await this.passwords.verify(tenant, user, input.password))) throw invalidCredentials();
 
     await db.userAccount.update({
       where: { id: user.id },

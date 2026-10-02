@@ -13,6 +13,12 @@ const MAX_ACTIVE_SESSIONS = 5;
 /** Don't write last_seen on every request; 60s granularity is enough for idle timeouts. */
 const TOUCH_INTERVAL_MS = 60_000;
 
+export interface SessionFlags {
+  mfaAt?: Date | null;
+  restricted?: boolean;
+  stepUpAt?: Date | null;
+}
+
 export interface SessionMeta {
   readonly ip: string;
   readonly userAgent: string | undefined;
@@ -51,7 +57,7 @@ export class SessionService {
     tenant: TenantContext,
     userId: string,
     meta: SessionMeta,
-    opts: { mfaAt?: Date; restricted?: boolean } = {},
+    opts: SessionFlags = {},
   ): Promise<{ token: string; maxAgeSec: number }> {
     const token = newSessionToken();
     const now = new Date();
@@ -69,6 +75,7 @@ export class SessionService {
           userAgent: meta.userAgent?.slice(0, 512) ?? null,
           mfaAt: opts.mfaAt ?? null,
           restricted: opts.restricted ?? false,
+          stepUpAt: opts.stepUpAt ?? null,
         },
       });
       const active = await tx.session.findMany({
@@ -118,9 +125,26 @@ export class SessionService {
         displayName: session.user.displayName,
         mfaAt: session.mfaAt,
         restricted: session.restricted,
+        stepUpAt: session.stepUpAt,
         grants,
       };
     });
+  }
+
+  /**
+   * Replaces the current session with a new token carrying new flags (S3, S6, M14, M9d).
+   * The old token is revoked first. Flags are set explicitly, never copied, so elevation can't leak.
+   */
+  async rotate(
+    tenant: TenantContext,
+    currentSessionId: string,
+    userId: string,
+    meta: SessionMeta,
+    reason: string,
+    flags: SessionFlags,
+  ): Promise<{ token: string; maxAgeSec: number }> {
+    await this.revoke(tenant, currentSessionId, reason);
+    return this.create(tenant, userId, meta, flags);
   }
 
   async revoke(tenant: TenantContext, sessionId: string, reason: string): Promise<void> {

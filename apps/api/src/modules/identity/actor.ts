@@ -17,6 +17,8 @@ export interface Actor {
   readonly mfaAt: Date | null;
   /** Enrolment-only session (spec 0001 M8): may reach only @AllowRestricted routes. */
   readonly restricted: boolean;
+  /** Last step-up on THIS session (spec 0001 S1/S6). */
+  readonly stepUpAt: Date | null;
   readonly grants: readonly Grant[];
 }
 
@@ -29,6 +31,15 @@ export const canInstitutionWide = (actor: Actor, permission: Permission): boolea
 
 export const isPrivileged = (permission: Permission): boolean =>
   (PERMISSIONS[permission] as { privileged?: boolean }).privileged === true;
+
+/** Step-up window (spec 0001 S1). */
+export const STEP_UP_WINDOW_MS = 5 * 60_000;
+
+export const requiresStepUp = (permission: Permission): boolean =>
+  (PERMISSIONS[permission] as { stepUp?: boolean }).stepUp === true;
+
+export const hasFreshStepUp = (actor: Pick<Actor, 'stepUpAt'>, now: Date): boolean =>
+  actor.stepUpAt !== null && now.getTime() - actor.stepUpAt.getTime() <= STEP_UP_WINDOW_MS && actor.stepUpAt <= now;
 
 export type SessionClass = 'STUDENT' | 'STAFF' | 'PRIVILEGED';
 

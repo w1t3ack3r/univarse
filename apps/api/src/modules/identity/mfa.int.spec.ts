@@ -93,12 +93,14 @@ describe('enrolment (M1-M3, M14, M15)', () => {
     expect((await me(newSession)).json()).toMatchObject({ mfa: true, restricted: false });
   });
 
-  it('[M15] MFA-management endpoints do not exist yet (404); re-enrolment over an active factor is refused (409)', async () => {
+  it("[M15′] management endpoints exist only behind step-up (428 without it); unknown ones 404; re-enrolment 409", async () => {
     const u = await h.makeUser('demo', { role: 'STUDENT' });
     const { newSession } = await enrolViaApi(u.username);
-    for (const path of ['/api/v1/auth/mfa/totp/disable', '/api/v1/auth/mfa/recovery-codes/regenerate', '/api/v1/auth/mfa/totp/remove']) {
-      expect((await h.call('POST', D, path, { cookie: newSession, body: {} })).statusCode).toBe(404);
+    for (const path of ['/api/v1/auth/mfa/totp/disable', '/api/v1/auth/mfa/recovery-codes/regenerate']) {
+      const res = await h.call('POST', D, path, { cookie: newSession, body: {} });
+      expect([res.statusCode, res.json().code]).toEqual([428, 'auth.step_up_required']);
     }
+    expect((await h.call('POST', D, '/api/v1/auth/mfa/totp/remove', { cookie: newSession, body: {} })).statusCode).toBe(404);
     const again = await h.call('POST', D, '/api/v1/auth/mfa/totp/enrol', { cookie: newSession, body: { password: PASSWORD } });
     expect(again.statusCode).toBe(409);
   });

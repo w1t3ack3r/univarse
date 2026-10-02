@@ -7,7 +7,7 @@ import { parse } from '../../shared/http/validate.js';
 import { RateLimiter } from '../../shared/infra/rate-limiter.js';
 import { CurrentTenant } from '../../shared/tenancy/tenant.guard.js';
 import type { TenantContext } from '../../shared/tenancy/tenant-resolver.service.js';
-import { AllowRestricted, Authenticated, CurrentActor, Public } from './access.guard.js';
+import { AllowRestricted, Authenticated, CurrentActor, Public, RequireStepUp } from './access.guard.js';
 import type { Actor } from './actor.js';
 import { MfaService } from './mfa.service.js';
 import { CHALLENGE_COOKIE, clearedChallengeCookie, readSessionCookie, sessionCookie } from './session.service.js';
@@ -18,6 +18,14 @@ const Verify = z.union([
 ]);
 const Enrol = z.object({ password: z.string().min(1).max(256) }).strict();
 const Confirm = z.object({ code: z.string().regex(/^\d{6}$/) }).strict();
+const StepUp = z
+  .object({
+    password: z.string().min(1).max(256),
+    code: z.string().regex(/^\d{6}$/).optional(),
+    recoveryCode: z.string().trim().min(10).max(20).optional(),
+  })
+  .strict()
+  .refine((v) => !(v.code && v.recoveryCode), 'Send either code or recoveryCode, not both');
 
 /** Response-time floor for verify (M13): unknown challenge vs wrong code vs bad recovery code. */
 const VERIFY_FLOOR_MS = 400;
@@ -25,8 +33,7 @@ const VERIFY_FLOOR_MS = 400;
 const meta = (req: FastifyRequest) => ({ ip: req.ip, userAgent: req.headers['user-agent'] });
 
 /**
- * Spec 0001 Part M. Deliberately NO disable / remove / regenerate endpoints (M15):
- * those weaken an active factor and arrive with step-up (Part S).
+ * Spec 0001 Parts M and S. MFA-management endpoints exist only behind @RequireStepUp() (M9a, M15′).
  */
 @Controller('api/v1/auth/mfa')
 export class MfaController {
@@ -62,6 +69,52 @@ export class MfaController {
     });
     void reply.header('set-cookie', [sessionCookie(result.token, result.maxAgeSec), clearedChallengeCookie()]);
     return { user: result.user };
+  }
+
+  /**
+   * S1–S8, S11, S12. NOT @AllowRestricted: an enrolment-only session can't step up (S8).
+   * Shares login's per-IP+user rate-limit bucket (S5).
+   */
+  @Post('step-up')
+  @Authenticated()
+  @HttpCode(200)
+  async stepUp(
+    @CurrentTenant() tenant: TenantContext,
+    @CurrentActor() actor: Actor,
+    @Body() body: unknown,
+    @Req() req: FastifyRequest,
+    @Res({ passthrough: true }) reply: FastifyReply,
+  ) {
+    const input = parse(StepUp, body);
+    await this.limit(`${tenant.tenantId}:login:ipid:${req.ip}:${actor.username}`, 5, 60);
+    const session = await withMinimumDuration(VERIFY_FLOOR_MS, () => this.mfa.stepUp(tenant, actor, input, meta(req)));
+    void reply.header('set-cookie', sessionCookie(session.token, session.maxAgeSec));
+    return { stepUp: true };
+  }
+
+  /** M9a/M9c/M9d. The response rotates the session; privileged users come back enrolment-only. */
+  @Post('totp/disable')
+  @Authenticated()
+  @RequireStepUp()
+  @HttpCode(200)
+  async disable(
+    @CurrentTenant() tenant: TenantContext,
+    @CurrentActor() actor: Actor,
+    @Req() req: FastifyRequest,
+    @Res({ passthrough: true }) reply: FastifyReply,
+  ) {
+    const result = await this.mfa.disable(tenant, actor, meta(req));
+    void reply.header('set-cookie', sessionCookie(result.token, result.maxAgeSec));
+    return { mfa: false, ...(result.mfaEnrolmentRequired ? { mfaEnrolmentRequired: true } : {}) };
+  }
+
+  /** M9a/M9b. */
+  @Post('recovery-codes/regenerate')
+  @Authenticated()
+  @RequireStepUp()
+  @HttpCode(200)
+  async regenerate(@CurrentTenant() tenant: TenantContext, @CurrentActor() actor: Actor) {
+    return { recoveryCodes: await this.mfa.regenerateRecoveryCodes(tenant, actor) };
   }
 
   @Post('totp/enrol')
