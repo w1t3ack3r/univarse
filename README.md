@@ -28,13 +28,14 @@ Statuses are kept distinct: **implemented** → **tested locally** → **verifie
 | Password reset (spec 0001 R1–R11) | ✅ | ✅ 14 tests, 3 mutations caught | ✅ (#3) | — |
 | Reset hardening R12–R15 (concurrency, eligibility, timing) | ✅ | ✅ 6 tests, R12/R13/R15 mutation-checked | ⏳ PR | — |
 | Reset flow in a real browser (dev edge, HTTP) | ❌ harness has no reset form yet | — | — | ❌ |
-| TOTP MFA (M2–M15 incl. R16) | ✅ | ✅ 24 tests + 24 unit; layered mutation-checked | ⏳ PR #6 | ❌ harness has no MFA flow yet |
+| TOTP MFA (M2–M15 incl. R16) | ✅ | ✅ 24 tests + 24 unit; layered mutation-checked | ✅ (#6) | ❌ harness has no MFA flow yet |
 | M1 secret at rest | 🟡 **direct AES-GCM, single key, AAD-bound. NOT envelope** (ADR-018 deviation) | ✅ | ⏳ | n/a |
 | Envelope encryption (KMS-wrapped per-tenant DEKs) | ❌ required before staging (ADR-018) | — | — | — |
 | MFA tables live isolation (app role) | ✅ | ✅ 6 tests; disabling RLS fails 4 | ⏳ | n/a |
 | All-table generic isolation sweep | ❌ Phase 0 task | — | — | — |
 | Durable email delivery (R15a) | ❌ outbox/worker slice | — | — | — |
-| Step-up (S1–S5) + MFA management (M9) | ❌ next | — | — | — |
+| Step-up (S1–S12) + MFA management (M9a–M9e, M15′) | ✅ | ✅ 29 tests + 13 guard unit; 13 mutations caught | ⏳ PR | ❌ harness has no step-up flow yet |
+| Permission-flagged step-up on a real route (S9) | 🟡 guard unit-tested only; no route uses a `stepUp` permission yet | — | — | — |
 
 Isolation-layer coverage and known gaps: [docs/12 §3.1](docs/12-testing-strategy.md).
 

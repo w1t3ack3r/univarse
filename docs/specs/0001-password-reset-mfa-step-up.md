@@ -49,7 +49,7 @@ These were missing from the first version of the spec. Two exposed real bugs (R1
 | M6 | *Attempt limit.* 5 wrong codes on a challenge kill it (the user must re-enter their password). A per-user rate limit also applies. |
 | M7 | *Recovery.* A recovery code can replace a TOTP code at verify time, exactly once. Using one emails the user and reports the remaining count. |
 | M8 | *Mandatory for privileged users.* A user holding any `privileged` permission without an active factor gets a session that can **only** reach enrolment and logout endpoints until they enrol (`403 auth.mfa_enrolment_required` elsewhere). |
-| M9 | *Factor changes revoke other sessions.* Disabling MFA or regenerating recovery codes requires step-up (Part S) and revokes all the user's *other* sessions. **Delivered with Part S** (see M15). |
+| M9 | *Factor changes revoke other sessions.* Disabling MFA or regenerating recovery codes requires step-up (Part S) and revokes all the user's *other* sessions. **Delivered with Part S** (M9a–M9e, M15′). |
 | M10 | *Password reset + MFA.* A password reset (Part R) never removes or bypasses MFA: the next login still requires the second factor. |
 | M11 | *(= R16)* A password reset revokes all of the user's pending MFA challenges. A challenge issued before the reset can't be completed afterwards, even with a valid TOTP code. |
 | M12 | *Concurrency (applies the R12/R13 lesson).* Parallel verifies of one challenge yield at most one session. Parallel wrong codes can't exceed the challenge's attempt budget. Recovery codes are consumed atomically, so a code can't be used twice in parallel. |
@@ -102,6 +102,18 @@ These were missing from the first version of the spec. Two exposed real bugs (R1
 | S10 | *Concurrency of management actions.* Parallel disables or regenerates by one session leave a consistent end state: exactly one set of 10 recovery codes after regenerate; no factor and no recovery codes after disable. |
 | S11 | *Timing.* `/auth/step-up` gets the same 400 ms floor as verify (scoped to tested conditions). |
 | S12 | *Lockout parity (S5 detail).* A wrong password at step-up increments the same `failed_login_count` as login. 10 failures lock the account, and the lock also blocks login. |
+
+### Part S verification notes (2026-10-02)
+
+- **Route:** `POST /api/v1/auth/step-up` (on the auth controller, not under `/auth/mfa/`: non-MFA users step up too). The first WIP mounted it at `/auth/mfa/step-up`; corrected to match S2.
+- **Atomic rotation (S3/S7, M9d) — bug found in the WIP:** the old token was revoked unconditionally and the new session created in a *separate* transaction after the second factor had already committed. A session revoked mid-request (logout, password reset, a disable on another device, a parallel step-up) could therefore be **resurrected as a new elevated session**, and a losing parallel step-up could burn a recovery code. Now the second-factor check, the counter reset, a **conditional** revoke of the current session (`revoked_at IS NULL` and unexpired, `count === 1` or the transaction rolls back) and the new session commit together. Disable rotates inside its locked transaction too, so M9d can't be left half-applied.
+- **S10 lock:** `SELECT … FROM user_account … FOR UPDATE` serialises disable/regenerate per user; regenerate also re-checks, under the lock, that the calling session is still live. Mutation: removing the lock fails the two-device parallel-regenerate test and the disable-vs-regenerate race.
+- **S5 parity:** the rate limiter counts per window, so sharing a key is not enough; step-up uses login's exact buckets and rules (50/min per IP; 5/min + 20/h per IP+identifier). **Added beyond the spec:** a per-user step-up bucket (10 / 15 min) so the second factor can't be guessed by rotating IPs. Step-up needs a live session, so this bucket can't be used to lock out someone else.
+- **S2 enforced, not just assumed:** a user granted a privileged role after logging in (normal session, no factor) gets `403 auth.mfa_enrolment_required` instead of a password-only step-up.
+- **S12:** a successful step-up resets `failed_login_count` (as login does), in the same transaction as the rotation. A correct password with a wrong second factor does not reset it.
+- **Guard:** `@RequireStepUp()` on a `@Public()` route is refused and logged as a bug (it could never be satisfied; silently skipping it would fail open). Order: 401 → restricted 403 → permission 403 → MFA 403 → 428, so nobody is invited to step up for something they aren't allowed to do.
+- **Tests:** 29 integration tests (`step-up.int.spec.ts`) + 13 guard/unit tests (`step-up.spec.ts`), every S/M9 ID in a test name. **13 mutations, each killed:** user lock, conditional rotation, regenerate liveness check, replay guard, the floor, the per-user and shared login buckets, M9d restriction, `step_up_at` cleared on disable, the S2 privileged check, the guard's step-up check, other-session revocation on disable, the S12 counter reset.
+- **S11 scope:** the test asserts the 400 ms floor holds on four failure paths (wrong password, missing code, wrong code, wrong password with a valid code). Same claim scope as R15/M13: tested conditions only.
 
 ---
 
