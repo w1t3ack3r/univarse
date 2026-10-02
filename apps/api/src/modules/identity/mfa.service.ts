@@ -106,7 +106,9 @@ export class MfaService {
 
   /**
    * S1–S8, S12: re-authenticate on the CURRENT session and rotate it into a new session with
-   * step_up_at = now. Wrong passwords count toward the shared lockout (S12).
+   * step_up_at = now. Wrong passwords count toward login's lockout (S12). The second-factor check,
+   * the counter reset and the rotation share one transaction: if the session died meanwhile, the
+   * rotation throws and no TOTP step or recovery code is spent (S7).
    */
   async stepUp(
     tenant: TenantContext,
@@ -114,6 +116,22 @@ export class MfaService {
     input: { password: string; code?: string | undefined; recoveryCode?: string | undefined },
     meta: SessionMeta,
   ) {
+    const hasFactor = await this.shards.tx(tenant.shardId, tenant.tenantId, (tx) => this.hasActiveFactor(tx, actor.userId));
+    // S2/M8: password-only step-up exists only for non-privileged users.
+    if (!hasFactor && needsMfa(actor.grants)) {
+      throw new ProblemError(403, 'auth.mfa_enrolment_required', 'Set up multi-factor authentication to continue');
+    }
+    const second: VerifyInput | null = !hasFactor
+      ? null
+      : input.code
+        ? { code: input.code }
+        : input.recoveryCode
+          ? { recoveryCode: input.recoveryCode }
+          : null;
+    if (hasFactor && !second) {
+      throw new ProblemError(400, 'auth.step_up_second_factor_required', 'Enter your authenticator code to continue');
+    }
+
     const db = await this.shards.forTenant(tenant.shardId, tenant.tenantId);
     const user = await db.userAccount.findUniqueOrThrow({ where: { id: actor.userId } });
     if (user.status !== 'ACTIVE' || !(await this.passwords.verify(tenant, user, input.password))) {
@@ -122,37 +140,44 @@ export class MfaService {
 
     const now = new Date();
     const outcome = await this.shards.tx(tenant.shardId, tenant.tenantId, async (tx) => {
-      if (!(await this.hasActiveFactor(tx, user.id))) return { ok: true as const, mfa: false, usedRecovery: false };
-      const second: VerifyInput | null = input.code
-        ? { code: input.code }
-        : input.recoveryCode
-          ? { recoveryCode: input.recoveryCode }
-          : null;
-      if (!second) return { ok: false as const, reason: 'missing' as const };
-      const checked = await this.checkSecondFactor(tx, tenant.tenantId, user.id, second, now);
-      return checked.ok ? { ok: true as const, mfa: true, usedRecovery: checked.usedRecovery } : { ok: false as const, reason: 'invalid' as const };
+      let remaining: number | null = null;
+      if (second) {
+        const checked = await this.checkSecondFactor(tx, tenant.tenantId, user.id, second, now);
+        if (!checked.ok) return { ok: false as const };
+        if (checked.usedRecovery) remaining = await tx.recoveryCode.count({ where: { userId: user.id, usedAt: null } });
+      } else if (await this.hasActiveFactor(tx, user.id)) {
+        return { ok: false as const }; // a factor was confirmed since the check above
+      }
+      await tx.userAccount.update({ where: { id: user.id }, data: { failedLoginCount: 0 } });
+      // S3/S6: new token; step-up recorded only on the new session; the old one must still be live.
+      const session = await this.sessions.rotate(tx, tenant.tenantId, actor, meta, 'step_up', {
+        mfaAt: second ? now : actor.mfaAt,
+        restricted: false,
+        stepUpAt: now,
+      });
+      return { ok: true as const, session, remaining };
     });
-    if (!outcome.ok) {
-      throw outcome.reason === 'missing'
-        ? new ProblemError(400, 'auth.step_up_second_factor_required', 'Enter your authenticator code to continue')
-        : invalidMfa();
+    if (!outcome.ok) throw invalidMfa();
+    if (outcome.remaining !== null) {
+      this.notify(
+        tenant,
+        user.email,
+        'a recovery code was used to confirm your identity',
+        `A recovery code was just used to confirm your identity in UniVarse. ${outcome.remaining} recovery code(s) remain.\n\nIf this was not you, contact your institution's ICT unit immediately.`,
+      );
     }
-    if (outcome.usedRecovery) {
-      this.notify(tenant, user.email, 'a recovery code was used to confirm your identity', 'A recovery code was just used to confirm your identity in UniVarse. If this was not you, contact your ICT unit immediately.');
-    }
-    // S3/S6: new token, step-up recorded only on the new session.
-    return this.sessions.rotate(tenant, actor.sessionId, user.id, meta, 'step_up', {
-      mfaAt: outcome.mfa ? now : actor.mfaAt,
-      restricted: false,
-      stepUpAt: now,
-    });
+    return outcome.session;
   }
 
-  /** M9b: 10 fresh recovery codes; every previous code dies; other sessions are revoked. */
+  /**
+   * M9b: 10 fresh recovery codes; every previous code dies; other sessions are revoked.
+   * Serialised per user (S10) and refused if the calling session died meanwhile.
+   */
   async regenerateRecoveryCodes(tenant: TenantContext, actor: Actor): Promise<string[]> {
     const codes = Array.from({ length: RECOVERY_CODE_COUNT }, newRecoveryCode);
     const email = await this.shards.tx(tenant.shardId, tenant.tenantId, async (tx) => {
       await this.lockUser(tx, actor.userId);
+      await this.sessions.assertLive(tx, actor.sessionId, null);
       if (!(await this.hasActiveFactor(tx, actor.userId))) {
         throw new ProblemError(409, 'auth.mfa_not_enrolled', 'MFA is not enabled');
       }
@@ -166,17 +191,18 @@ export class MfaService {
       });
       return (await tx.userAccount.findUniqueOrThrow({ where: { id: actor.userId } })).email;
     });
-    this.notify(tenant, email, 'your MFA recovery codes were regenerated', 'New recovery codes were generated for your UniVarse account. All previous codes no longer work, and your other sessions were signed out.');
+    this.notify(tenant, email, 'your MFA recovery codes were regenerated', 'New recovery codes were generated for your UniVarse account. All previous codes no longer work, and your other sessions were signed out.\n\nIf this was not you, contact your institution\'s ICT unit immediately.');
     return codes;
   }
 
   /**
-   * M9c/M9d: remove the factor and recovery codes, revoke other sessions and pending challenges.
-   * A privileged user's CURRENT session becomes enrolment-only in this same response (M9d).
+   * M9c/M9d: remove the factor and recovery codes, revoke other sessions and pending challenges,
+   * and rotate the CURRENT session — all in one transaction. A privileged user's new session is
+   * enrolment-only (M9d); nobody keeps mfa_at or step_up_at.
    */
   async disable(tenant: TenantContext, actor: Actor, meta: SessionMeta) {
     const now = new Date();
-    const { email, privileged } = await this.shards.tx(tenant.shardId, tenant.tenantId, async (tx) => {
+    const { email, privileged, session } = await this.shards.tx(tenant.shardId, tenant.tenantId, async (tx) => {
       await this.lockUser(tx, actor.userId);
       if (!(await this.hasActiveFactor(tx, actor.userId))) {
         throw new ProblemError(409, 'auth.mfa_not_enrolled', 'MFA is not enabled');
@@ -188,19 +214,15 @@ export class MfaService {
         where: { userId: actor.userId, revokedAt: null, id: { not: actor.sessionId } },
         data: { revokedAt: now, revokeReason: 'mfa_disabled' },
       });
-      const { grants } = await this.sessions.loadGrants(tx, actor.userId, now);
-      return {
-        email: (await tx.userAccount.findUniqueOrThrow({ where: { id: actor.userId } })).email,
-        privileged: needsMfa(grants),
-      };
+      const privileged = needsMfa((await this.sessions.loadGrants(tx, actor.userId, now)).grants);
+      const session = await this.sessions.rotate(tx, tenant.tenantId, actor, meta, 'mfa_disabled', {
+        mfaAt: null,
+        stepUpAt: null,
+        restricted: privileged,
+      });
+      return { email: (await tx.userAccount.findUniqueOrThrow({ where: { id: actor.userId } })).email, privileged, session };
     });
-    this.notify(tenant, email, 'MFA was turned off', 'Multi-factor authentication was just turned off for your UniVarse account, and your other sessions were signed out. If this was not you, contact your ICT unit immediately.');
-    // M9d: no lingering MFA/step-up state on the current device; privileged ⇒ enrolment-only.
-    const session = await this.sessions.rotate(tenant, actor.sessionId, actor.userId, meta, 'mfa_disabled', {
-      mfaAt: null,
-      stepUpAt: null,
-      restricted: privileged,
-    });
+    this.notify(tenant, email, 'MFA was turned off', 'Multi-factor authentication was just turned off for your UniVarse account, and your other sessions were signed out.\n\nIf this was not you, contact your institution\'s ICT unit immediately.');
     return { ...session, mfaEnrolmentRequired: privileged };
   }
 
@@ -289,7 +311,7 @@ export class MfaService {
         throw new ProblemError(401, 'auth.invalid_credentials', 'Invalid password');
       }
       if (await this.hasActiveFactor(tx, user.id)) {
-        throw new ProblemError(409, 'auth.mfa_already_enrolled', 'MFA is already enabled. Changing it requires step-up (not yet available).');
+        throw new ProblemError(409, 'auth.mfa_already_enrolled', 'MFA is already enabled. To replace it, disable it first (requires step-up).');
       }
       await tx.mfaFactor.deleteMany({ where: { userId: user.id, type: 'TOTP', confirmedAt: null } });
       const secret = newTotpSecret();

@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { isPermission } from '@univarse/contracts';
 import type { TenantTx } from '@univarse/db';
 import { ShardRegistry } from '../../shared/db/db.module.js';
+import { ProblemError } from '../../shared/errors/problem.js';
 import type { TenantContext } from '../../shared/tenancy/tenant-resolver.service.js';
 import { SESSION_LIFETIMES, sessionClassFor, type Actor, type Grant, type SessionClass } from './actor.js';
 import { newSessionToken, sha256 } from './tokens.js';
@@ -59,37 +60,45 @@ export class SessionService {
     meta: SessionMeta,
     opts: SessionFlags = {},
   ): Promise<{ token: string; maxAgeSec: number }> {
+    return this.shards.tx(tenant.shardId, tenant.tenantId, (tx) => this.insert(tx, tenant.tenantId, userId, meta, opts));
+  }
+
+  /** Inserts a session inside the caller's transaction. Flags are set explicitly, never copied. */
+  private async insert(
+    tx: TenantTx,
+    tenantId: string,
+    userId: string,
+    meta: SessionMeta,
+    opts: SessionFlags,
+  ): Promise<{ token: string; maxAgeSec: number }> {
     const token = newSessionToken();
     const now = new Date();
-    const maxAgeSec = await this.shards.tx(tenant.shardId, tenant.tenantId, async (tx) => {
-      const { grants, roleKeys } = await this.loadGrants(tx, userId, now);
-      const life = SESSION_LIFETIMES[sessionClassFor(roleKeys, grants)];
-      await tx.session.create({
-        data: {
-          tenantId: tenant.tenantId,
-          userId,
-          tokenHash: sha256(token),
-          idleExpiresAt: new Date(now.getTime() + life.idleMin * 60_000),
-          absoluteExpiresAt: new Date(now.getTime() + life.absoluteHours * 3_600_000),
-          ip: meta.ip,
-          userAgent: meta.userAgent?.slice(0, 512) ?? null,
-          mfaAt: opts.mfaAt ?? null,
-          restricted: opts.restricted ?? false,
-          stepUpAt: opts.stepUpAt ?? null,
-        },
-      });
-      const active = await tx.session.findMany({
-        where: { userId, revokedAt: null, absoluteExpiresAt: { gt: now } },
-        orderBy: { createdAt: 'desc' },
-        select: { id: true },
-      });
-      const excess = active.slice(MAX_ACTIVE_SESSIONS).map((s) => s.id);
-      if (excess.length > 0) {
-        await tx.session.updateMany({ where: { id: { in: excess } }, data: { revokedAt: now, revokeReason: 'max_sessions' } });
-      }
-      return life.absoluteHours * 3600;
+    const { grants, roleKeys } = await this.loadGrants(tx, userId, now);
+    const life = SESSION_LIFETIMES[sessionClassFor(roleKeys, grants)];
+    await tx.session.create({
+      data: {
+        tenantId,
+        userId,
+        tokenHash: sha256(token),
+        idleExpiresAt: new Date(now.getTime() + life.idleMin * 60_000),
+        absoluteExpiresAt: new Date(now.getTime() + life.absoluteHours * 3_600_000),
+        ip: meta.ip,
+        userAgent: meta.userAgent?.slice(0, 512) ?? null,
+        mfaAt: opts.mfaAt ?? null,
+        restricted: opts.restricted ?? false,
+        stepUpAt: opts.stepUpAt ?? null,
+      },
     });
-    return { token, maxAgeSec };
+    const active = await tx.session.findMany({
+      where: { userId, revokedAt: null, absoluteExpiresAt: { gt: now } },
+      orderBy: { createdAt: 'desc' },
+      select: { id: true },
+    });
+    const excess = active.slice(MAX_ACTIVE_SESSIONS).map((s) => s.id);
+    if (excess.length > 0) {
+      await tx.session.updateMany({ where: { id: { in: excess } }, data: { revokedAt: now, revokeReason: 'max_sessions' } });
+    }
+    return { token, maxAgeSec: life.absoluteHours * 3600 };
   }
 
   /**
@@ -132,19 +141,36 @@ export class SessionService {
   }
 
   /**
-   * Replaces the current session with a new token carrying new flags (S3, S6, M14, M9d).
-   * The old token is revoked first. Flags are set explicitly, never copied, so elevation can't leak.
+   * Revokes the current session and issues a new token with new flags, inside the CALLER's
+   * transaction (S3, S6, M9d) so the credential check, the revoke and the new session commit or
+   * roll back together. The revoke is conditional: if the session was revoked or expired meanwhile
+   * (logout, password reset, a disable on another device, a parallel rotation) this throws and the
+   * transaction rolls back, so a dead session can never be resurrected as an elevated one.
    */
   async rotate(
-    tenant: TenantContext,
-    currentSessionId: string,
-    userId: string,
+    tx: TenantTx,
+    tenantId: string,
+    current: { sessionId: string; userId: string },
     meta: SessionMeta,
     reason: string,
     flags: SessionFlags,
   ): Promise<{ token: string; maxAgeSec: number }> {
-    await this.revoke(tenant, currentSessionId, reason);
-    return this.create(tenant, userId, meta, flags);
+    await this.assertLive(tx, current.sessionId, reason);
+    return this.insert(tx, tenantId, current.userId, meta, flags);
+  }
+
+  /**
+   * Atomically retires the current session if it is still live; otherwise throws 401 so the
+   * caller's transaction rolls back. Pass `reason = null` to only lock and check it.
+   */
+  async assertLive(tx: TenantTx, sessionId: string, reason: string | null): Promise<void> {
+    const now = new Date();
+    const live = { id: sessionId, revokedAt: null, idleExpiresAt: { gt: now }, absoluteExpiresAt: { gt: now } };
+    const n =
+      reason === null
+        ? await tx.session.updateMany({ where: live, data: { lastSeenAt: now } }) // row lock + liveness check
+        : await tx.session.updateMany({ where: live, data: { revokedAt: now, revokeReason: reason } });
+    if (n.count !== 1) throw new ProblemError(401, 'auth.unauthenticated', 'Authentication required');
   }
 
   async revoke(tenant: TenantContext, sessionId: string, reason: string): Promise<void> {
