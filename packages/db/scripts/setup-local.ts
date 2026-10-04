@@ -64,8 +64,8 @@ async function main() {
   const superPassword = await promptHidden(`Password for PostgreSQL superuser "${superUser}": `);
 
   const admin = await connect('postgres', superPassword);
-  const version = (await admin.query<{ server_version_num: string }>('SHOW server_version_num')).rows[0]!;
-  if (Number(version.server_version_num) < 180000) {
+  const version = (await admin.query<{ server_version_num: string }>('SHOW server_version_num')).rows[0];
+  if (!version || Number(version.server_version_num) < 180000) {
     throw new Error('PostgreSQL 18+ is required (uuidv7()). Set PGPORT to your PG18 instance.');
   }
 

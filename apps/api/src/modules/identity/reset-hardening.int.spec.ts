@@ -70,7 +70,7 @@ describe('reset hardening (spec 0001 R12–R15)', () => {
       return ms.sort((a, b) => a - b)[3]!; // median
     };
     const known = await samples(async () => (await h.makeUser('demo', { role: 'STUDENT' })).username);
-    const unknown = await samples(async () => `GHOST-${h.run}-${Math.random().toString(36).slice(2, 8)}`.toUpperCase());
+    const unknown = await samples(() => Promise.resolve(`GHOST-${h.run}-${Math.random().toString(36).slice(2, 8)}`.toUpperCase()));
     expect(Math.abs(known - unknown)).toBeLessThan(40);
     // The floor itself must be in force: a 40 ms tolerance alone can't see a small leak (same as M13).
     expect(Math.min(known, unknown)).toBeGreaterThanOrEqual(395);
@@ -92,7 +92,7 @@ describe('reset hardening (spec 0001 R12–R15)', () => {
       await requestAndGetCode(u);
       return u.username;
     });
-    const unknown = await samples(async () => `GHOST-${h.run}-${Math.random().toString(36).slice(2, 8)}`.toUpperCase());
+    const unknown = await samples(() => Promise.resolve(`GHOST-${h.run}-${Math.random().toString(36).slice(2, 8)}`.toUpperCase()));
     expect(Math.abs(known - unknown)).toBeLessThan(40);
     // The floor itself must be in force: a 40 ms tolerance alone can't see a small leak (same as M13).
     expect(Math.min(known, unknown)).toBeGreaterThanOrEqual(395);

@@ -4,7 +4,7 @@
 
 - `strict: true`, `noUncheckedIndexedAccess: true`, `exactOptionalPropertyTypes: true`, `noImplicitOverride: true`. No `any` (use `unknown` + narrowing). `// @ts-expect-error` only with a reason.
 - ESM throughout. Node 24 LTS. Target ES2024.
-- Formatting: **Prettier** (2 spaces, single quotes, trailing commas, width 100). Linting: **ESLint** flat config from `packages/config` (typescript-eslint strict-type-checked, import order, unicorn subset, jsx-a11y, security rules).
+- Formatting: **Prettier** (2 spaces, single quotes, trailing commas, width 100). Linting: **ESLint** flat config at the repo root (`eslint.config.mjs`), run per package by `pnpm lint` and in CI: typescript-eslint strict-type-checked plus the §8 bans that are lint-enforceable (`console.*`, `Math.random`, `$queryRawUnsafe`/`$executeRawUnsafe` in production code). Tests relax non-null assertions and `no-unsafe-*` (untyped response bodies). Import order, unicorn subset, jsx-a11y and security rules are added when the web apps land. Suppress only per line, with a reason: `// eslint-disable-next-line <rule> -- <why>`.
 - **Branded types** for IDs and money to prevent mix-ups: `type StudentId = Brand<string, 'StudentId'>`, `type Kobo = Brand<bigint, 'Kobo'>`.
 - Prefer `readonly` data, pure functions, discriminated unions for states, and exhaustive `switch` with `assertNever`.
 - Dates: never do arithmetic on raw `Date` for calendar logic. Use `date-fns`/`date-fns-tz` with explicit `Africa/Lagos`. Time comes from the injected `Clock`.

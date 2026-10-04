@@ -14,11 +14,11 @@ export function base32Encode(buf: Uint8Array): string {
     value = (value << 8) | byte;
     bits += 8;
     while (bits >= 5) {
-      out += ALPHABET[(value >>> (bits - 5)) & 31];
+      out += ALPHABET.charAt((value >>> (bits - 5)) & 31);
       bits -= 5;
     }
   }
-  if (bits > 0) out += ALPHABET[(value << (5 - bits)) & 31];
+  if (bits > 0) out += ALPHABET.charAt((value << (5 - bits)) & 31);
   return out;
 }
 
@@ -50,9 +50,8 @@ export function hotp(secret: Uint8Array, counter: number, digits = TOTP_DIGITS):
   const msg = Buffer.alloc(8);
   msg.writeBigUInt64BE(BigInt(counter));
   const mac = createHmac('sha1', secret).update(msg).digest();
-  const offset = mac[mac.length - 1]! & 0x0f;
-  const bin =
-    ((mac[offset]! & 0x7f) << 24) | ((mac[offset + 1]! & 0xff) << 16) | ((mac[offset + 2]! & 0xff) << 8) | (mac[offset + 3]! & 0xff);
+  const offset = mac.readUInt8(mac.length - 1) & 0x0f;
+  const bin = mac.readUInt32BE(offset) & 0x7fffffff;
   return (bin % 10 ** digits).toString().padStart(digits, '0');
 }
 

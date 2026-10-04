@@ -8,7 +8,10 @@
     "typecheck": {
       "dependsOn": ["^build"]
     },
-    "lint": {},
+    "lint": {
+      "dependsOn": ["^build"],
+      "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/eslint.config.mjs"]
+    },
     "test": {
       "dependsOn": ["^build"],
       "outputs": ["coverage/**"]

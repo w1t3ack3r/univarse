@@ -59,10 +59,11 @@ class Routes {
 }
 
 function run(handler: keyof Routes, active: readonly ProductKey[], tenant: { tenantId: string } | null = { tenantId: 't1' }) {
-  const isActive = vi.fn(async (_t: string, p: ProductKey) => p === 'core' || active.includes(p));
+  const isActive = vi.fn((_t: string, p: ProductKey) => Promise.resolve(p === 'core' || active.includes(p)));
   const guard = new ProductGuard(new Reflector(), { isActive } as unknown as ProductService);
   const req = { tenant: tenant ?? undefined, method: 'GET', routeOptions: { url: '/x' } };
   const ctx = {
+    // eslint-disable-next-line @typescript-eslint/unbound-method -- Reflector reads metadata off the handler reference; it is never called
     getHandler: () => Routes.prototype[handler],
     getClass: () => Routes,
     switchToHttp: () => ({ getRequest: () => req }),

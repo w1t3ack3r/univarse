@@ -25,12 +25,10 @@ import { Outbox } from './shared/outbox/outbox.js';
 import { TenantGuard } from './shared/tenancy/tenant.guard.js';
 import { TenantResolver } from './shared/tenancy/tenant-resolver.service.js';
 
-/** Test seams for the HTTP app. Email has none: the HTTP app has no mailer at all (spec 0002 B7). */
-export type AppOverrides = Record<string, never>;
-
 @Module({})
 export class AppModule {
-  static forRoot(config: AppConfig, overrides: AppOverrides = {}): DynamicModule {
+  /** No email seam: the HTTP app has no mailer at all (spec 0002 B7). */
+  static forRoot(config: AppConfig): DynamicModule {
     return {
       module: AppModule,
       global: true,

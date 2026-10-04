@@ -1,4 +1,4 @@
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import type { TenantTx } from '@univarse/db';
 import { AuditWriter } from '../../shared/audit/audit-writer.js';
 import { ShardRegistry } from '../../shared/db/db.module.js';

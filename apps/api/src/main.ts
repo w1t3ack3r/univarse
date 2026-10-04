@@ -1,4 +1,5 @@
 import { existsSync } from 'node:fs';
+import { Logger } from '@nestjs/common';
 import { createApp } from './bootstrap.js';
 import { loadConfig } from './config/config.js';
 
@@ -9,4 +10,4 @@ if (process.env.NODE_ENV !== 'production' && existsSync(rootEnv)) process.loadEn
 const config = loadConfig();
 const app = await createApp(config);
 await app.listen(config.PORT, config.HOST);
-console.log(`UniVarse API listening on http://${config.HOST}:${config.PORT} (${config.NODE_ENV})`);
+new Logger('Main').log(`UniVarse API listening on http://${config.HOST}:${config.PORT} (${config.NODE_ENV})`);

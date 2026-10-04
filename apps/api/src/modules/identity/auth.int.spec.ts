@@ -28,7 +28,12 @@ const PASSWORD = 'Correct-Horse-Battery-9';
 const run = randomBytes(3).toString('hex').toUpperCase(); // unique usernames per run
 
 const outbox: OutboundEmail[] = [];
-const captureMailer: Mailer = { send: async (m) => void outbox.push(m) };
+const captureMailer: Mailer = {
+  send: (m) => {
+    outbox.push(m);
+    return Promise.resolve();
+  },
+};
 
 let app: NestFastifyApplication;
 let workerCtx: INestApplicationContext;

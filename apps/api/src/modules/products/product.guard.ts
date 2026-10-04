@@ -56,7 +56,7 @@ export function findUndeclaredRoutes(controllers: readonly (new (...args: never[
       const handler = proto[name];
       if (name === 'constructor' || typeof handler !== 'function') continue;
       if (Reflect.getMetadata(PATH_METADATA, handler) === undefined) continue; // not a route
-      const declared = (key: string) => Reflect.getMetadata(key, handler) ?? Reflect.getMetadata(key, controller);
+      const declared = (key: string): unknown => Reflect.getMetadata(key, handler) ?? Reflect.getMetadata(key, controller);
       if (declared(NO_TENANT) === true || declared(PRODUCT)) continue;
       missing.push(`${controller.name}.${name}`);
     }

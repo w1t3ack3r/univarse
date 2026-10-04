@@ -79,10 +79,11 @@ function actor(o: Partial<Actor> = {}): Actor {
 
 /** Runs the real guard for one route with the given session; returns 'ok' or [status, code]. */
 async function run(route: keyof Routes, a: Actor | null): Promise<'ok' | [number, string]> {
-  const sessions = { authenticate: async () => a } as unknown as SessionService;
+  const sessions = { authenticate: () => Promise.resolve(a) } as unknown as SessionService;
   const guard = new AccessGuard(new Reflector(), sessions);
   const req = { headers: { cookie: `__Host-uv_sid=${TOKEN}` }, tenant: {}, id: 'r', method: 'POST', routeOptions: { url: '/x' } };
   const ctx = {
+    // eslint-disable-next-line @typescript-eslint/unbound-method -- Reflector reads metadata off the handler reference; it is never called
     getHandler: () => Routes.prototype[route],
     getClass: () => Routes,
     switchToHttp: () => ({ getRequest: () => req }),

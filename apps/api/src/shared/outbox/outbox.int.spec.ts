@@ -127,9 +127,8 @@ describe('[B4] retries', () => {
   it('[B4] failures back off with jitter, record no PII, and go DEAD after 8 attempts', async () => {
     const to = `ada-${h.run.toLowerCase()}@student.example`;
     const failing: Mailer = {
-      send: async (m) => {
-        throw Object.assign(new Error(`550 5.1.1 <${m.to}> mailbox unavailable`), { code: 'EENVELOPE', responseCode: 550 });
-      },
+      send: (m) =>
+        Promise.reject(Object.assign(new Error(`550 5.1.1 <${m.to}> mailbox unavailable`), { code: 'EENVELOPE', responseCode: 550 })),
     };
     const w = await workerWith(failing);
     const id = await enqueue({ to });
@@ -164,7 +163,7 @@ describe('[B5] durability', () => {
     const id = await enqueue({ text: 'written while the worker was down' });
     expect((await event(id)).status).toBe('PENDING');
 
-    const fresh = await workerWith({ send: async (m) => void seen.push(m) }); // "restart"
+    const fresh = await workerWith({ send: (m) => { seen.push(m); return Promise.resolve(); } }); // "restart"
     await fresh.runOnce();
     expect(seen.map((m) => m.text)).toContain('written while the worker was down');
     expect((await event(id)).status).toBe('SENT');

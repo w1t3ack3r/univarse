@@ -61,7 +61,7 @@ export class AccessGuard implements CanActivate {
       this.logger.error(`Route without access declaration: ${req.method} ${req.routeOptions.url}`);
       throw new ProblemError(403, 'auth.forbidden', 'Forbidden');
     }
-    const explicitStepUp = this.reflector.getAllAndOverride<boolean>(REQUIRE_STEP_UP, targets) === true;
+    const explicitStepUp = this.reflector.getAllAndOverride<boolean | undefined>(REQUIRE_STEP_UP, targets) === true;
     if (access.kind === 'public') {
       // Step-up on a public route can never be satisfied; refuse rather than silently skip it.
       if (explicitStepUp) {

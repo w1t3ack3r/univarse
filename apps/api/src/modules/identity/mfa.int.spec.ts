@@ -4,7 +4,7 @@
  */
 import { forTenant } from '@univarse/db';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { codeIn, cookieFrom, createHarness, HOSTS, PASSWORD, type Harness, type InjectResult } from '../../testing/int-harness.js';
+import { codeIn, createHarness, HOSTS, PASSWORD, type Harness, type InjectResult } from '../../testing/int-harness.js';
 import { enrolTestTotp, resetReplayGuard, totpCode, waitForFreshTotpStep } from '../../testing/mfa-helpers.js';
 import { base32Decode, hotp, timeStep } from './totp.js';
 

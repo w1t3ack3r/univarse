@@ -135,7 +135,7 @@ describe('hash-chained audit log (spec 0002 Part A)', () => {
     );
     const result = await verify(t);
     expect(result.ok).toBe(false);
-    expect(result.ok === false && result.brokenAtSeq).toBe(2n);
+    expect(!result.ok && result.brokenAtSeq).toBe(2n);
   });
 
   it('[A5] detects reordered events', async () => {
