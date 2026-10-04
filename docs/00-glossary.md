@@ -69,3 +69,20 @@ Shared vocabulary for code, UI and docs. **Use these exact terms in code identif
 | **Scope** | The org boundary a role applies to: institution, faculty, department, programme, course offering, hostel |
 | **Step-up** | Re-authentication (password + MFA) needed before a sensitive action |
 | **Outbox** | Table where domain events are written in the same transaction as the change, then published asynchronously |
+
+## Product, teaching and assessment terms
+
+| Term | Meaning | Code identifier |
+|------|---------|-----------------|
+| **CA** | Continuous assessment: tests, assignments and other in-semester work that make up part of a course's total score (the rest is the exam) | `assessmentScheme` CA components |
+| **CBT** | Computer-based testing. In scope for **CA tests only**. CBT for examinations is deferred | `assessment` module |
+| **CA test** | A timed, auto- or manually-marked continuous-assessment test taken on UniVarse | `CaTest`, `TestAttempt` |
+| **Question bank** | A course's versioned pool of questions from which CA test papers are drawn | `QuestionBank`, `Question` |
+| **Paper** | The concrete, seeded set of questions one candidate receives for one attempt | `GeneratedPaper` |
+| **Integrity event** | A logged signal during an attempt (device/IP change, focus loss, paste, timing anomaly). For human review, never an automatic penalty | `IntegrityEvent` |
+| **Course space** | The Teaching & Learning area for one course offering: materials, announcements, assignments, live sessions | `CourseSpace` |
+| **Live session** | A lecture's real-time engagement session: attendance check-in, polls, Q&A | `LiveSession` |
+| **Product** | One independently enabled part of the UniVarse suite (Core, Admissions, Bursary, Academics, Teaching & Learning, Assessment, Student Affairs, Helpdesk & Comms, Reporting) | `@Product('…')` |
+| **Entitlement** | A product being enabled for a tenant within its plan | `tenant_product` |
+| **Runtime role** | A process type started with `PRODUCTS=…` (api, api-learning, realtime, worker) | `PRODUCTS` env |
+| **Campus embassy** | Future: a UniVarse institution hosting classes or tests for students of another UniVarse institution, under a federation agreement (ADR-021) | — (deferred) |

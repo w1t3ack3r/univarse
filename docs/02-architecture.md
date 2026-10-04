@@ -9,7 +9,10 @@
 | Spiky load (registration opening, result release, admission list) | Stateless horizontally-scaled API, Redis caching, queues for heavy work, pre-computed results, CDN for static assets |
 | Solo developer + AI assistance | One language (TypeScript) end to end, strong typing across the API boundary, conventions over cleverness |
 | Long-lived records (transcripts are forever) | Immutable published results, append-only ledgers, hash-chained audit, careful migrations |
-| Nigerian network conditions | Server-rendered pages, small JS bundles, printable outputs, idempotent retries |
+| Nigerian network conditions | Server-rendered pages, small JS bundles, printable outputs, idempotent retries, resumable test sessions |
+| **Product suite that works independently and together** ([01 §5](01-product-brief.md)) | Products are first-class: per-tenant entitlements, runtime roles, bulkheads, cross-product contracts only ([§6.1](#61-products-runtime-roles-and-isolation-adr-020), ADR-020) |
+| **CIA first**: integrity of results, assessments, finance and authentication | Same-transaction audit for consequential changes, immutable records, step-up, and integrity logs for CA tests |
+| Real-time peaks (2,000 students starting a CA test in one minute; live lecture polls/Q&A) | A dedicated `realtime` runtime for WebSocket/SSE, test papers pre-generated at publish time, answers written idempotently with resume-after-disconnect |
 
 ## 2. Technology stack
 
@@ -68,24 +71,26 @@ flowchart TB
   CDN[Cloudflare CDN/WAF] --> EDGE[Edge proxy<br/>Caddy / Gateway]
   EDGE -->|"*.univarse.ng, custom domains"| WEB[apps/web<br/>Next.js SSR]
   EDGE -->|console.univarse.ng + IP allowlist| CON[apps/console<br/>Next.js SSR]
-  EDGE -->|/api/*| API[apps/api<br/>NestJS HTTP]
+  EDGE -->|/api/* core products| API[api role<br/>PRODUCTS=core,admissions,bursary,academics,…]
+  EDGE -->|/api/v1/learning/*, /api/v1/assessment/*| LRN[api-learning role<br/>PRODUCTS=teaching,assessment]
+  EDGE -->|/rt/* WebSocket/SSE| RT[realtime role<br/>live engagement · CBT heartbeats]
   WEB -->|server-side fetch, forwards cookie| API
   CON --> API
-  API --> PGB[PgBouncer]
-  WRK[apps/api worker entrypoint<br/>BullMQ consumers + schedulers] --> PGB
+  API & LRN & RT --> PGB[PgBouncer<br/>separate pool per role]
+  WRK[worker role<br/>outbox · per-product queues · schedulers] --> PGB
   PGB --> PDB[(platform DB)]
   PGB --> POOL[(tenant pool DB 01..n)]
   PGB --> SILO[(dedicated tenant DBs)]
-  API & WRK --> R[(Valkey/Redis<br/>cache · sessions · queues · rate limits)]
-  API & WRK --> S3[(Object storage)]
+  API & LRN & RT & WRK --> R[(Valkey/Redis<br/>cache · rate limits · realtime pub/sub)]
+  API & LRN & WRK --> S3[(Object storage)]
   WRK --> GOT[Gotenberg PDF]
-  API & WRK --> AV[ClamAV]
+  API & LRN & WRK --> AV[ClamAV]
   WRK --> EXT[Payment · Email · SMS providers]
   EXT -->|webhooks| EDGE
 ```
 
-- **Same-origin API.** The browser always talks to `https://<tenant-host>/api/v1/...`. The edge routes `/api/*` to the API and everything else to Next.js. There's no CORS and cookies stay first-party.
-- **API and worker share one codebase and one image**, with different entrypoints (`node dist/main.js` vs `node dist/worker.js`). They scale independently.
+- **Same-origin API.** The browser always talks to `https://<tenant-host>/api/v1/...`. The edge routes by path prefix to the right runtime role, and everything else to Next.js. There's no CORS and cookies stay first-party.
+- **One codebase, one image, several runtime roles** (ADR-020). Each process starts with `PRODUCTS=…` and mounts only those products. `worker` and `realtime` are separate entrypoints. Roles scale and fail independently. In dev, `PRODUCTS=all` runs everything in one process.
 - The console is a separate app on a separate host with its own session cookie. Platform identities never exist in tenant databases.
 
 ## 5. Repository layout
@@ -120,28 +125,45 @@ univarse/
 
 ## 6. Bounded contexts (modules)
 
-| Module (`apps/api/src/modules/…`) | Owns | Depends on (via public service/events only) |
-|---|---|---|
-| `identity` | users, credentials, MFA, sessions, roles, role assignments, permissions | org |
-| `org` | org units (colleges/faculties/departments/admin units), staff profiles | — |
-| `curriculum` | programmes, courses, curriculum versions, prerequisites | org |
-| `calendar` | sessions, semesters, windows (registration, score entry…) | — |
-| `admissions` | cycles, applications, O'level, screening, merit lists, offers | curriculum, finance, identity, records |
-| `records` | students, status history, transfers, matric numbers | curriculum, identity |
-| `finance` | fee items, schedules, invoices, ledger, payments, waivers, refunds, reconciliation | records, admissions |
-| `registration` | course offerings, course registrations, add/drop, adviser approval | curriculum, calendar, records, finance |
-| `exams` | exam periods, venues, timetable, invigilation, eligibility, dockets, malpractice | registration |
-| `results` | assessment schemes, score sheets, workflow, published results, GPA snapshots, amendments | registration, records, domain engines |
-| `graduation` | clearance, degree audit, graduation lists, transcripts, certificates, NYSC | results, finance, records, hostel |
-| `hostel` | hostels, rooms, bed spaces, applications, allocations | records, finance |
-| `comms` | templates, notifications, announcements, outbound email/SMS | everyone (consumer of events) |
-| `helpdesk` | tenant-internal tickets | identity |
-| `reporting` | read models, dashboards, exports, NUC returns | reads replicas/read models |
-| `files` | file objects, scanning, presigned URLs | — |
-| `audit` | append-only audit events, hash chain | — (called by all) |
-| `settings` | typed tenant configuration (`[CONFIG]` keys) | — |
+| Module (`apps/api/src/modules/…`) | Product | Owns | Depends on (via public service/events only) |
+|---|---|---|---|
+| `identity` | Core | users, credentials, MFA, sessions, roles, role assignments, permissions | org |
+| `org` | Core | org units (colleges/faculties/departments/admin units), staff profiles | — |
+| `calendar` | Core | sessions, semesters, windows (registration, score entry, CA tests…), session rollover (carryovers, spillovers) | — |
+| `audit` | Core | append-only audit events, hash chain | — (called by all) |
+| `settings` | Core | typed tenant configuration (`[CONFIG]` keys) | — |
+| `files` | Core | file objects, scanning, presigned URLs | — |
+| `comms` | Helpdesk & Comms | templates, notifications, announcements, outbound email/SMS (via outbox) | everyone (consumer of events) |
+| `helpdesk` | Helpdesk & Comms | tenant-internal tickets, escalation to platform support | identity |
+| `admissions` | Admissions | cycles, applications, O'level, screening, merit lists, offers | curriculum, finance, identity, records |
+| `finance` | Bursary | fee items, schedules, invoices, ledger, payments, waivers, refunds, reconciliation | records, admissions |
+| `curriculum` | Academics | programmes, courses, curriculum versions, prerequisites | org |
+| `records` | Academics | students, status history, transfers, matric numbers | curriculum, identity |
+| `registration` | Academics | course offerings, course registrations, add/drop, adviser approval | curriculum, calendar, records, finance |
+| `exams` | Academics | exam periods, venues, timetable, invigilation, eligibility, dockets, malpractice | registration |
+| `results` | Academics | assessment schemes, score sheets, workflow, published results, GPA snapshots, amendments | registration, records, domain engines, **assessment (CA scores via event)** |
+| `graduation` | Academics | clearance, degree audit, graduation lists, transcripts, certificates, NYSC | results, finance, records, hostel |
+| `teaching` | Teaching & Learning | course spaces, materials, announcements, live engagement sessions (attendance check-in, polls, Q&A), assignments, submissions, feedback | registration (class lists), files, calendar |
+| `assessment` | Assessment (CA CBT) | question banks, CA test definitions, generated papers, attempts, answers, integrity events, marking | registration (eligible candidates), calendar (windows), files; **publishes** `assessment.ca_scores_released` → results |
+| `hostel` | Student Affairs | hostels, rooms, bed spaces, applications, allocations | records, finance |
+| `reporting` | Reporting | read models, dashboards, exports, NUC returns | reads replicas/read models |
 
 Platform modules (`apps/api/src/platform/…`): `tenants`, `provisioning`, `shards`, `billing`, `platform-identity`, `platform-support`, `announcements`, `feature-flags`, `platform-audit`, `migrations-runner`.
+
+### 6.1 Products, runtime roles and isolation (ADR-020)
+
+| Concern | Mechanism |
+|---|---|
+| **Enable per tenant** | `tenant_product` entitlements (platform DB, cached). Every controller and job consumer declares `@Product('…')`. Requests to a disabled product get **404** server-side, and its jobs are skipped |
+| **Run independently** | Runtime roles chosen by `PRODUCTS=…` (api, api-learning, realtime, worker). A product's controllers and consumers mount only in its role |
+| **Fail independently** | Per-role PgBouncer pools and connection budgets, per-product queues with concurrency caps, per-product rate-limit buckets, timeouts and circuit breakers on cross-product calls |
+| **Depend safely** | Cross-product data flows through **events** (e.g. `assessment.ca_scores_released` → `results`) or a product's published service contract, never another product's tables. Dependency-cruiser enforces product boundaries in CI |
+| **Observe** | Per-product SLO dashboards and alerts. The GA gate includes a cross-product isolation load test (saturate Assessment, Bursary p95 stays within SLO) |
+
+**Degradation examples:**
+- If Assessment is down, everything else works, and in-progress tests resume when it returns (answers already saved are durable).
+- If Bursary's payment gateway is down, registration shows "payment pending" instead of failing.
+- If `realtime` is down, live polls fall back to polling HTTP, and CBT heartbeats queue client-side.
 
 ### Module rules (MUST)
 1. A module **owns its tables**. No other module queries them directly. It calls the owning module's exported **application service** or reacts to its **events**.
@@ -149,6 +171,7 @@ Platform modules (`apps/api/src/platform/…`): `tenants`, `provisioning`, `shar
 3. Cross-module writes that must be atomic call services inside the same transaction (`TenantTx` passed explicitly). Otherwise they use **events via the outbox**.
 4. Business calculations (grades, GPA, fees, standings) live in `packages/domain` as **pure functions** with no IO. Modules load data, call the engine and persist results.
 5. No circular module dependencies. The dependency graph is checked in CI.
+6. Every module declares its **product** (ADR-020). A module may depend on another product's module only through that product's exported contract or its events.
 
 ### Internal layering inside a module
 ```

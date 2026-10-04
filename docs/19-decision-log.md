@@ -154,3 +154,34 @@ Alternatives considered: option — why not.
 **Context:** ADR-008 plans outbox rows relayed to BullMQ. Phase 0 has one side effect (email) and must make it durable now (spec 0001 R15a). BullMQ adds a second persistence layer (Valkey) and relay code before there's any fan-out need.
 **Decision:** A worker entrypoint claims due `outbox_event` rows directly with `SELECT … FOR UPDATE SKIP LOCKED` under each tenant's RLS context, with exponential backoff and a dead state after 8 attempts (spec 0002 Part B). Payloads are field-encrypted and wiped after delivery.
 **Consequences:** Postgres is the only system of record for side effects, and claiming is transactional. Polling adds latency (seconds) and load proportional to the poll interval times the number of tenants. **Revisit trigger:** more than one job type that needs priorities, fan-out or rate-limited queues, or polling load that becomes visible in DB metrics.
+
+## ADR-020 — Product-suite architecture: independently enabled, isolated products in one codebase
+**Status:** Accepted (2026-10-04). Refines ADR-003 (modular monolith) and ADR-012 (one staff workspace).
+**Context:** UniVarse is an ecosystem of products (Core, Admissions, Bursary, Academics, Teaching & Learning, Assessment/CA CBT, Student Affairs, Helpdesk & Comms, Reporting; [01 §5.1](01-product-brief.md)). Like a workspace suite, each must work **on its own and with the others**: institutions enable products independently, and a spike or failure in one (e.g. 2,000 students starting a CA test at once) must not degrade another (e.g. fee payment). A single undifferentiated process can't guarantee that.
+**Decision:**
+1. **Products are first-class in the code.** Every NestJS module declares the product it belongs to. Cross-product interaction goes only through that product's published service contract or its domain events (outbox). No product reads another product's tables (already ADR-003 rule 1; now also enforced across products by dependency-cruiser).
+2. **Entitlements are enforced server-side.** A platform-managed `tenant_product` registry (cached) plus a route-level `@Product('assessment')` declaration. Requests to a disabled product get `404` (it doesn't exist for that tenant), and jobs for disabled products are skipped. Hiding it in the UI alone isn't enough.
+3. **Runtime roles, configured not coded.** One image. Each process starts with `PRODUCTS=…` and mounts only those products' controllers and consumers:
+   - `api` (Core + Admissions + Bursary + Academics + Student Affairs + Helpdesk + Reporting)
+   - `api-learning` (Teaching & Learning + Assessment HTTP)
+   - `realtime` (WebSocket/SSE for live lecture engagement and CBT session heartbeats)
+   - `worker` (per-product queues)
+
+   The edge routes by path prefix. In dev everything can run in one process (`PRODUCTS=all`).
+4. **Bulkheads per product:** separate DB connection-pool budgets (PgBouncer pools per runtime role), separate job queues with their own concurrency caps, per-product rate-limit buckets, timeouts and circuit breakers on any cross-product call, and per-product SLO dashboards.
+5. **Shared foundations stay shared:** identity, permissions, audit, tenancy and the design system are Core and used by every product.
+
+**Consequences:** Products can be scaled, deployed (same image, different role) and degraded independently. The extra discipline required is contracts and events over direct calls, and product declarations on every module and route. Cost: more processes to operate in prod. The split is by configuration, so it can start as one process and divide when load demands. **Test obligation:** a cross-product isolation load test (saturate Assessment, assert Bursary p95 within SLO) is a GA gate ([01 §7](01-product-brief.md)).
+**Alternatives:** Microservices per product (distributed transactions and an ops burden for one team). A single process (no isolation guarantee).
+
+## ADR-021 — Federation principles for future inter-institution access ("campus embassies")
+**Status:** Accepted as **design principles only** (2026-10-04). Nothing is built yet ([01 §5.5](01-product-brief.md)).
+**Context:** The long-term vision is that a student of one UniVarse institution can attend classes or take tests at a nearby UniVarse institution, so each campus acts as an "embassy" for the others. This must never be achieved by weakening tenant isolation (ADR-004).
+**Decision (constraints any future design must satisfy):**
+1. **Each institution remains the data controller of its own students** (NDPA). There are no shared tables or cross-tenant reads. All cross-institution interaction is **platform-mediated**, through the control plane.
+2. **Explicit bilateral federation agreements** (home ↔ host), scoped to named offerings or tests, time-bound, revocable, and audited on both sides. No agreement, no access.
+3. **Guest access, not membership.** The host sees a minimal, purpose-limited guest projection (name, home matric, photo for identity checks). The student's account and record stay at home. Identities remain per tenant. An optional platform-level "UniVarse ID" linking accounts would need the student's explicit consent and its own ADR.
+4. **Results flow home as signed records** (host-signed, verifiable). The home institution's grading and approval rules apply. The host never writes to the home tenant directly.
+5. **Lawful transfer between controllers** (DPA between institutions and a documented lawful basis) before any personal data crosses tenants.
+
+**Consequences:** Today's code must not assume a person belongs to two tenants, and must not add cross-tenant joins. Both are already prevented by RLS and composite FKs. A future "federation" control-plane module will own agreements and signed record exchange.

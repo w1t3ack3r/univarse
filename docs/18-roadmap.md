@@ -1,6 +1,6 @@
 # 18 — Roadmap
 
-Nine phases from an empty repo to GA. Each phase ships **working, deployed, tested vertical slices**: backend + UI + tests + docs together. No module is "done" on mock data.
+Nine phases (plus Phase 4b, Teaching & Learning + CA CBT) from an empty repo to GA. Each phase ships **working, deployed, tested vertical slices**: backend + UI + tests + docs together. No module is "done" on mock data.
 
 Sizes are rough effort estimates for **one developer working with AI assistance**. They're for sequencing, not promises. Re-estimate at each phase start.
 
@@ -14,14 +14,15 @@ gantt
   P2 Institution setup      :p2, after p1, 5
   P3 Admissions + Bursary   :p3, after p2, 8
   P4 Records + Registration :p4, after p3, 6
-  P5 Exams + Results        :p5, after p4, 8
+  P4b Teaching + CA CBT     :p4b, after p4, 7
+  P5 Exams + Results        :p5, after p4b, 8
   section Pilot
   Pilot tenant go-live (returning students) :milestone, after p5, 0
   P6 Graduation + Transcripts :p6, after p5, 6
   P7 Hostel, Comms, Helpdesk, Reporting :p7, after p6, 6
   P8 Hardening + GA         :p8, after p7, 5
 ```
-*(Units are weeks. Total ≈ 54 weeks. Phases 6–8 overlap with pilot support.)*
+*(Units are weeks. Total ≈ 61 weeks. Phases 6–8 overlap with pilot support. Because products are enabled independently (ADR-020), the pilot can go live on Core + Bursary + Academics even if Phase 4b slips. Results accept manually entered CA scores.)*
 
 ---
 
@@ -86,6 +87,23 @@ gantt
 
 **Exit:** J4 E2E green. The registration-opening load test passes. The pilot's legacy data imports with reconciliation reports (counts, CGPA re-computation match ≥ 99.9%, and every mismatch explained).
 
+## Phase 4b — Teaching & Learning + Assessment (CA CBT) (~7 wks)
+
+Spec first (spec 0003 for Teaching & Learning, spec 0004 for Assessment) from [05 §18–19](05-modules-and-features.md).
+
+- **Product plumbing (ADR-020):** `tenant_product` entitlements, `@Product()` route/job guard, `PRODUCTS=…` runtime roles (`api-learning`, `realtime`), per-role PgBouncer pools, per-product queues and rate limits
+- Course spaces from registration events. Materials, announcements, assignments with submission, marking and release
+- **Live lecture engagement** on the `realtime` role: rotating-code attendance check-in, polls, moderated Q&A, with HTTP-polling fallback
+- **CA CBT:** question banks with versioning, test definitions, pre-generated seeded papers, server-authoritative timer, autosave and resume, exactly-once submission, integrity logging (no auto-penalties), auto- and manual marking, regrade on key correction
+- **CA → results contract:** `assessment.ca_scores_released` event → score-sheet CA component (only while the sheet is editable)
+
+**Exit:**
+- CBT peak load test: **2,000 candidates start within 60 s, zero lost answers**, start p95 ≤ 2 s, errors < 0.1%
+- **Cross-product isolation test:** Assessment saturated while Bursary p95 stays within SLO
+- Crash/reconnect tests: no acknowledged answer lost. Submission is exactly-once under parallel submits
+- Integrity: attempt logs are append-only and audited. Score changes after release only via the amendment path
+- Live engagement: 500 concurrent participants with poll/Q&A round-trip p95 ≤ 1 s
+
 ## Phase 5 — Examinations & Results (~8 wks)
 
 - Venues, exam timetable with conflict detection, invigilators, eligibility, dockets
@@ -133,13 +151,23 @@ Private university, returning students first (fees → registration → results 
 
 **GA exit criteria:**
 - All SLOs met for 30 days on the pilot
+- Cross-product isolation load test passes (ADR-020)
 - 0 open critical/high security findings
 - DR drill passed within targets
 - A second tenant onboarded in ≤ 10 working days using only the console and imports
 
+## Deferred by product decision ([01 §5.5](01-product-brief.md))
+
+| Item | Prerequisite |
+|---|---|
+| **CBT for examinations** (and Post-UTME) | CA CBT proven in production for at least a full session. Exam-grade lockdown and venue workflow, legal review |
+| **Native mobile apps** for students and lecturers | Stable public API. Token-based auth for native clients (new ADR, superseding the ADR-005 note) |
+| **3D virtual labs** for practical-heavy courses | Teaching & Learning embeddable-content sandbox. Content partnerships |
+| **Inter-institution access ("campus embassies")** | Federation module per ADR-021: bilateral agreements, guest projections, signed result exchange, inter-institution DPAs |
+
 ## Post-GA backlog (prioritise with customers)
 
-Postgraduate school · polytechnic (ND/HND) & college of education (NCE) structures · LMS integration (LTI) · student email provisioning · mobile app / offline PWA · digital signatures (PAdES) on transcripts · alumni portal · parent/guardian access · attendance capture · library integration · outbound webhooks/public API · ISO 27001 readiness · Hausa/Yoruba/Igbo UI.
+Postgraduate school · polytechnic (ND/HND) & college of education (NCE) structures · external LMS interoperability (LTI) · student email provisioning · offline-first PWA · digital signatures (PAdES) on transcripts · alumni portal · parent/guardian access · library integration · outbound webhooks/public API · ISO 27001 readiness · Hausa/Yoruba/Igbo UI.
 
 ---
 
