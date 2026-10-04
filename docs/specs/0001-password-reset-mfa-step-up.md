@@ -117,6 +117,15 @@ These were missing from the first version of the spec. Two exposed real bugs (R1
 
 ---
 
+### Part S integration notes (2026-10-04)
+
+Part S was implemented twice in parallel (an interrupted local session and a cloud session). The cloud session's version was adopted because it fixed defects the local version had: non-atomic session rotation (a revoked session could be resurrected as elevated), a recovery code burned by a losing step-up, half-applied M9d on failure, and `@RequireStepUp()` failing open on `@Public` routes. The local version is preserved on branch `backup/step-up-local`. Ported from it:
+
+- **M9c re-enrol test:** the only test that fails when challenge revocation on disable is removed (verified on the adopted code: the old challenge logged in, 200). The existing M9c test is masked because deleting the factor already kills the challenge.
+- **M13 interleaved timing samples:** a robustness fix; the floor mutant still fails.
+- **M5 step-boundary flake fixed:** the skew test failed when a 30 s TOTP boundary passed mid-test (shifting every offset by one). It now waits for a fresh step (`waitForFreshTotpStep`).
+- **Fail-fast test prerequisites:** a `globalSetup` checks Valkey and Postgres. Without it, a stopped Valkey made the fail-open rate limiter look broken (both S5 tests returned 200, not 429).
+
 ## Out of scope for these PRs (tracked, with milestones)
 
 | Gap | Milestone |

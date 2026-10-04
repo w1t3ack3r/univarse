@@ -5,7 +5,7 @@
 import { forTenant } from '@univarse/db';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { codeIn, cookieFrom, createHarness, HOSTS, PASSWORD, type Harness, type InjectResult } from '../../testing/int-harness.js';
-import { enrolTestTotp, resetReplayGuard, totpCode } from '../../testing/mfa-helpers.js';
+import { enrolTestTotp, resetReplayGuard, totpCode, waitForFreshTotpStep } from '../../testing/mfa-helpers.js';
 import { base32Decode, hotp, timeStep } from './totp.js';
 
 let h: Harness;
@@ -178,6 +178,7 @@ describe('login with MFA (M4–M7, M10)', () => {
 
   it('[M5] ±1 step of clock skew is tolerated; ±2 is not', async () => {
     const u = await mfaUser();
+    await waitForFreshTotpStep(); // flaked ~1-in-20: a step boundary mid-test shifts every offset by one
     const step = timeStep(Date.now());
     expect((await verify(challengeOf(await h.login(D, u.username)), { code: hotp(u.secret, step + 2) })).statusCode).toBe(401);
     expect((await verify(challengeOf(await h.login(D, u.username)), { code: hotp(u.secret, step - 1) })).statusCode).toBe(200);
@@ -276,19 +277,33 @@ describe('concurrency (M12) and timing (M13)', () => {
     const u = await h.makeUser('demo', { role: 'STUDENT' });
     const secret = await enrolTestTotp(h.shard, h.tenants.demo, u.id);
     // Prepare real challenges first so only the verify call itself is timed.
+    const SAMPLES = 9;
     const real: string[] = [];
-    for (let i = 0; i < 7; i++) real.push(challengeOf(await h.login(D, u.username)));
-    const timeEach = async (calls: (() => Promise<unknown>)[]) => {
-      const ms: number[] = [];
-      for (const call of calls) {
-        const t0 = performance.now();
-        await call();
-        ms.push(performance.now() - t0);
-      }
-      return ms.sort((a, b) => a - b)[3]!; // median of 7
+    for (let i = 0; i < SAMPLES; i++) real.push(challengeOf(await h.login(D, u.username)));
+
+    // INTERLEAVED, order alternating each round: a burst of machine-level noise lands on both paths
+    // instead of masquerading as a leak. (Sequential blocks failed on a noisy machine with
+    // 452–603 ms medians on one path while per-sample processing was <60 ms on both.)
+    const time = async (call: () => Promise<unknown>) => {
+      const t0 = performance.now();
+      await call();
+      return performance.now() - t0;
     };
-    const unknown = await timeEach(Array.from({ length: 7 }, () => () => verify(`__Host-uv_mfa=${'A'.repeat(43)}`, { code: '123456' })));
-    const wrong = await timeEach(real.map((c) => () => verify(c, { code: totpCode(secret, 9) })));
+    const unknownMs: number[] = [];
+    const wrongMs: number[] = [];
+    for (let i = 0; i < SAMPLES; i++) {
+      const u1 = () => verify(`__Host-uv_mfa=${'A'.repeat(43)}`, { code: '123456' });
+      const w1 = () => verify(real[i]!, { code: totpCode(secret, 9) });
+      if (i % 2 === 0) {
+        unknownMs.push(await time(u1));
+        wrongMs.push(await time(w1));
+      } else {
+        wrongMs.push(await time(w1));
+        unknownMs.push(await time(u1));
+      }
+    }
+    const median = (xs: number[]) => [...xs].sort((a, b) => a - b)[Math.floor(xs.length / 2)]!;
+    const [unknown, wrong] = [median(unknownMs), median(wrongMs)];
     // Without the floor, wrong-code verifies were measured ~3–4 ms slower, consistently (DB + decrypt).
     // A 40 ms tolerance cannot see that, so also assert the floor itself is in force on both paths.
     expect(Math.min(unknown, wrong)).toBeGreaterThanOrEqual(395);

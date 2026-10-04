@@ -340,6 +340,23 @@ describe('MFA management behind step-up (M9a–M9e, S10)', () => {
     expect((await h.login(D, u.username)).json()).not.toHaveProperty('mfaRequired');
   });
 
+  it('[M9c] a challenge issued before disable stays dead even after the user re-enrols a new factor', async () => {
+    // The test above can't tell whether challenges were revoked: deleting the factor alone makes the
+    // old challenge unusable. Re-enrolling a NEW factor removes that mask — without revocation the
+    // pre-disable challenge accepted the new factor's code and logged in (mutation-tested 2026-10-02).
+    const u = await mfaUser();
+    const pending = challengeOf(await h.login(D, u.username)); // started under the OLD factor
+    const res = await disable(await steppedUp(u));
+    expect(res.statusCode).toBe(200);
+    const current = sessionOf(res);
+    const begin = await h.call('POST', D, '/api/v1/auth/mfa/totp/enrol', { cookie: current, body: { password: PASSWORD } });
+    const newSecret = base32Decode(begin.json().secret);
+    const confirm = await h.call('POST', D, '/api/v1/auth/mfa/totp/confirm', { cookie: current, body: { code: totpCode(newSecret) } });
+    expect(confirm.statusCode).toBe(200);
+    await resetReplayGuard(h.shard, h.tenants.demo, u.id);
+    expect((await verify(pending, { code: totpCode(newSecret) })).statusCode).toBe(401);
+  });
+
   it('[M9d] non-privileged: the current session rotates to a normal one with mfa_at and step_up_at cleared', async () => {
     const u = await mfaUser();
     const fresh = await steppedUp(u);
