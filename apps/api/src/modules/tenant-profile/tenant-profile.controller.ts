@@ -2,9 +2,11 @@ import { Controller, Get } from '@nestjs/common';
 import { Public } from '../identity/access.guard.js';
 import { CurrentTenant } from '../../shared/tenancy/tenant.guard.js';
 import type { TenantContext } from '../../shared/tenancy/tenant-resolver.service.js';
+import { Product } from '../products/product.guard.js';
 
 /** Public branding/profile for the tenant serving this host (docs/11 §1). No personal data. */
 @Controller('api/v1/tenant')
+@Product('core')
 export class TenantProfileController {
   @Get('public-profile')
   @Public()

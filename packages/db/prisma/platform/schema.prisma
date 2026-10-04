@@ -78,8 +78,9 @@ model Tenant {
   updatedAt            DateTime        @updatedAt @map("updated_at") @db.Timestamptz(3)
   version              Int             @default(0)
 
-  shard   Shard          @relation(fields: [shardId], references: [id], onDelete: Restrict)
-  domains TenantDomain[]
+  shard    Shard           @relation(fields: [shardId], references: [id], onDelete: Restrict)
+  domains  TenantDomain[]
+  products TenantProduct[]
 
   @@map("tenant")
 }
@@ -162,4 +163,24 @@ model PlatformAuditEvent {
 
   @@index([tenantId, occurredAt])
   @@map("platform_audit_event")
+}
+
+/// Product entitlements per tenant (ADR-020, spec 0003). Active = entitled AND enabled; `core` always active.
+model TenantProduct {
+  id        String   @id @default(dbgenerated("uuidv7()")) @db.Uuid
+  tenantId  String   @map("tenant_id") @db.Uuid
+  /// One of packages/contracts PRODUCTS.
+  product   String
+  /// Granted by UniVarse (plan). Only platform code writes this.
+  entitled  Boolean  @default(false)
+  /// Switched on by the institution's IT Admin, within the entitlement.
+  enabled   Boolean  @default(false)
+  updatedBy String?  @map("updated_by") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, product])
+  @@map("tenant_product")
 }

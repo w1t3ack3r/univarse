@@ -8,6 +8,7 @@ import { AllowRestricted, Authenticated, CurrentActor, Public } from './access.g
 import type { Actor } from './actor.js';
 import { AuthService } from './auth.service.js';
 import { challengeCookie, clearedSessionCookie, sessionCookie, SessionService } from './session.service.js';
+import { Product } from '../products/product.guard.js';
 
 const Identifier = z.string().trim().min(1).max(254);
 /** Shared by activation and reset: both take an identifier, then identifier + code + new password. */
@@ -29,6 +30,7 @@ const StepUp = z
 const meta = (req: FastifyRequest) => ({ ip: req.ip, userAgent: req.headers['user-agent'], requestId: req.id });
 
 @Controller('api/v1/auth')
+@Product('core')
 export class AuthController {
   constructor(
     private readonly auth: AuthService,

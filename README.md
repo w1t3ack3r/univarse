@@ -34,8 +34,11 @@ Statuses are kept distinct: **implemented** → **tested locally** → **verifie
 | MFA tables live isolation (app role) | ✅ | ✅ 6 tests; disabling RLS fails 4 | ⏳ | n/a |
 | All-table generic isolation sweep | ❌ Phase 0 task | — | — | — |
 | Step-up (S1–S12) + MFA management (M9a–M9e, M15′) | ✅ | ✅ 30 tests + 13 guard unit; mutation-checked | ✅ (#7) | ❌ harness has no step-up flow yet |
-| Permission-flagged step-up on a real route (S9) | 🟡 guard unit-tested only; no route uses a `stepUp` permission yet | — | — | — |
-| Hash-chained audit log + identity events (spec 0002 Part A) | ✅ | ✅ 19 tests + 5 unit; 6/6 mutations caught | ⏳ PR | n/a |
+| Permission-flagged step-up on a real route (S9) | ✅ `PUT /admin/products/{product}` (`settings.product.manage`) | ✅ 428 without step-up | ⏳ PR | — |
+| Hash-chained audit log + identity events (spec 0002 Part A) | ✅ | ✅ 19 tests + 5 unit; 6/6 mutations caught | ✅ (#8) | n/a |
+| Product entitlements + product guard (spec 0003 P1–P9) | ✅ | ✅ 16 tests + 9 unit; 8/8 mutations caught | ⏳ PR | n/a (no UI yet) |
+| Inactive product → 404 through a real non-core route (P3 end-to-end) | 🟡 guard unit-tested + guard order asserted; no non-core route yet | — | — | — |
+| Cross-instance product/tenant cache invalidation (P7) | ❌ before multi-instance production | — | — | — |
 | Audit chain anchoring outside the DB (A5 limit) | ❌ before GA | — | — | — |
 | Outbox + worker + durable email (spec 0002 Part B, R15a) | ❌ next | — | — | — |
 

@@ -1,5 +1,5 @@
 import { Module, type DynamicModule } from '@nestjs/common';
-import { APP_FILTER, APP_GUARD } from '@nestjs/core';
+import { APP_FILTER, APP_GUARD, DiscoveryModule } from '@nestjs/core';
 import { Redis } from 'ioredis';
 import { APP_CONFIG, type AppConfig } from './config/config.js';
 import { HealthController } from './modules/health/health.controller.js';
@@ -12,6 +12,10 @@ import { OneTimeCodeService } from './modules/identity/one-time-code.service.js'
 import { PasswordAttempts } from './modules/identity/password-attempts.service.js';
 import { SessionService } from './modules/identity/session.service.js';
 import { UsersController } from './modules/identity/users.controller.js';
+import { ProductDeclarationCheck } from './modules/products/product-declaration.check.js';
+import { ProductGuard } from './modules/products/product.guard.js';
+import { ProductService } from './modules/products/product.service.js';
+import { ProductsController } from './modules/products/products.controller.js';
 import { TenantProfileController } from './modules/tenant-profile/tenant-profile.controller.js';
 import { AuditWriter } from './shared/audit/audit-writer.js';
 import { DbModule } from './shared/db/db.module.js';
@@ -32,8 +36,8 @@ export class AppModule {
     return {
       module: AppModule,
       global: true,
-      imports: [DbModule],
-      controllers: [HealthController, TenantProfileController, AuthController, MfaController, UsersController],
+      imports: [DbModule, DiscoveryModule],
+      controllers: [HealthController, TenantProfileController, AuthController, MfaController, UsersController, ProductsController],
       providers: [
         { provide: APP_CONFIG, useValue: config },
         {
@@ -50,8 +54,11 @@ export class AppModule {
         PasswordAttempts,
         MfaService,
         AuthService,
-        // Guard order matters: resolve the tenant first, then authenticate against it.
+        ProductService,
+        ProductDeclarationCheck,
+        // Guard order matters: resolve the tenant, hide inactive products (spec 0003 P3), then authenticate.
         { provide: APP_GUARD, useClass: TenantGuard },
+        { provide: APP_GUARD, useClass: ProductGuard },
         { provide: APP_GUARD, useClass: AccessGuard },
         { provide: APP_FILTER, useClass: ProblemFilter },
       ],
