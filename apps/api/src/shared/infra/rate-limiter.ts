@@ -37,7 +37,7 @@ export class RateLimiter implements OnApplicationShutdown {
     }
   }
 
-  async onApplicationShutdown(): Promise<void> {
+  onApplicationShutdown(): void {
     this.redis.disconnect();
   }
 }

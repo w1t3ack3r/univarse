@@ -100,7 +100,8 @@ async function main() {
             displayName: u.displayName,
           },
         });
-        const roleId = roleIds.get(u.role)!;
+        const roleId = roleIds.get(u.role);
+        if (!roleId) throw new Error(`Seed role ${u.role} was not created`);
         const exists = await tx.roleAssignment.findFirst({ where: { userId: user.id, roleId, revokedAt: null } });
         if (!exists) {
           await tx.roleAssignment.create({

@@ -23,9 +23,10 @@ export async function hashPassword(password: string): Promise<string> {
 
 export async function verifyPassword(password: string, phc: string): Promise<boolean> {
   const m = PHC.exec(phc);
-  if (!m) return false;
-  const expected = Buffer.from(m[5]!, 'base64');
-  const actual = await derive(password, Buffer.from(m[4]!, 'base64'), {
+  const [salt, hash] = [m?.[4], m?.[5]];
+  if (!m || !salt || !hash) return false;
+  const expected = Buffer.from(hash, 'base64');
+  const actual = await derive(password, Buffer.from(salt, 'base64'), {
     memory: Number(m[1]),
     passes: Number(m[2]),
     parallelism: Number(m[3]),
@@ -60,8 +61,10 @@ export type PasswordProblem = 'too_short' | 'too_long' | 'too_common' | 'contain
 export function passwordProblems(password: string, opts: { minLength: 8 | 12; context: string[] }): PasswordProblem[] {
   const pw = password.normalize('NFKC');
   const problems: PasswordProblem[] = [];
-  if ([...pw].length < opts.minLength) problems.push('too_short');
-  if ([...pw].length > 128) problems.push('too_long');
+  // eslint-disable-next-line @typescript-eslint/no-misused-spread -- NIST 800-63B counts code points, which is what spread yields
+  const length = [...pw].length;
+  if (length < opts.minLength) problems.push('too_short');
+  if (length > 128) problems.push('too_long');
   if (COMMON.has(pw.toLowerCase())) problems.push('too_common');
   const lower = pw.toLowerCase();
   if (

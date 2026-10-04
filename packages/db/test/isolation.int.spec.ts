@@ -19,6 +19,7 @@ let raw: pg.Client;
 let userA: string;
 let unitB: string;
 
+// eslint-disable-next-line @typescript-eslint/no-unnecessary-type-parameters -- callers name the row shape at the call site
 async function asTenant<T>(tenantId: string | null, sql: string, params: unknown[] = []) {
   await raw.query('BEGIN');
   try {

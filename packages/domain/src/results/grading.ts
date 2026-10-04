@@ -30,11 +30,13 @@ export function assertValidScheme(scheme: GradingScheme): void {
     }
   }
   const sorted = sortBandsDesc(scheme.bands);
-  for (let i = 1; i < sorted.length; i++) {
+  let higher: GradeBand | undefined;
+  for (const band of sorted) {
     // Higher scores must never earn fewer grade points.
-    if (sorted[i]!.gradePoint > sorted[i - 1]!.gradePoint) {
+    if (higher && band.gradePoint > higher.gradePoint) {
       throw new DomainError('results.invalid_grading_scheme', 'Grade points must not decrease as scores rise');
     }
+    higher = band;
   }
   if (!scheme.bands.some((b) => b.grade === scheme.failGrade && !b.isPass)) {
     throw new DomainError('results.invalid_grading_scheme', 'failGrade must be a failing band');
@@ -75,7 +77,8 @@ export function gradeScore(input: ScoreInput, scheme: GradingScheme, policy: Res
     if (treatment === 'EXCLUDE') {
       return { score: null, grade: null, gradePoint: null, isPass: false, countsInGpa: false, remark };
     }
-    const fail = scheme.bands.find((b) => b.grade === scheme.failGrade)!;
+    const fail = scheme.bands.find((b) => b.grade === scheme.failGrade);
+    if (!fail) throw new DomainError('results.invalid_grading_scheme', 'failGrade must be a failing band');
     return { score: '0.00', grade: fail.grade, gradePoint: fail.gradePoint, isPass: false, countsInGpa: true, remark };
   }
 

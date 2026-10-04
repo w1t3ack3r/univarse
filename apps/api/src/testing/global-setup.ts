@@ -21,6 +21,7 @@ export default async function setup(): Promise<void> {
   valkey.on('error', () => undefined); // reported once below, not as an unhandled event
   try {
     await valkey.connect();
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- typed as 'PONG'; this checks what the server actually sent
     if ((await valkey.ping()) !== 'PONG') problems.push('Valkey did not answer PING');
   } catch (err) {
     problems.push(`Valkey unreachable at VALKEY_URL (${err instanceof Error ? err.message : String(err)}). Start it: pnpm dev:infra`);

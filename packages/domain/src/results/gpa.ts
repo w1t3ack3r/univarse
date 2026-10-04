@@ -10,16 +10,18 @@ export function roundGpa(value: Decimal, mode: GpaRounding): string {
   return value.toDecimalPlaces(2, rm).toFixed(2);
 }
 
-function isGpaBearing(a: CourseAttempt): boolean {
+export type GpaBearingAttempt = CourseAttempt & { readonly gradePoint: number };
+
+function isGpaBearing(a: CourseAttempt): a is GpaBearingAttempt {
   return a.countsInGpa && !a.excludeFromGpa && a.gradePoint !== null;
 }
 
-function totals(attempts: readonly CourseAttempt[]): { tcu: number; tcp: Decimal } {
+function totals(attempts: readonly GpaBearingAttempt[]): { tcu: number; tcp: Decimal } {
   let tcu = 0;
   let tcp = new Decimal(0);
   for (const a of attempts) {
     tcu += a.creditUnits;
-    tcp = tcp.plus(new Decimal(a.gradePoint!).times(a.creditUnits));
+    tcp = tcp.plus(new Decimal(a.gradePoint).times(a.creditUnits));
   }
   return { tcu, tcp };
 }
@@ -28,11 +30,11 @@ function totals(attempts: readonly CourseAttempt[]): { tcu: number; tcp: Decimal
 export function selectCountedAttempts(
   attempts: readonly CourseAttempt[],
   policy: RepeatPolicy,
-): CourseAttempt[] {
+): GpaBearingAttempt[] {
   const bearing = attempts.filter(isGpaBearing);
   if (policy === 'ALL_ATTEMPTS_COUNT') return bearing;
 
-  const byCourse = new Map<string, CourseAttempt>();
+  const byCourse = new Map<string, GpaBearingAttempt>();
   for (const a of bearing) {
     const cur = byCourse.get(a.courseId);
     if (!cur) {
@@ -42,7 +44,7 @@ export function selectCountedAttempts(
     const better =
       policy === 'LATEST_ATTEMPT'
         ? a.semesterSeq > cur.semesterSeq
-        : a.gradePoint! > cur.gradePoint! ||
+        : a.gradePoint > cur.gradePoint ||
           (a.gradePoint === cur.gradePoint && a.semesterSeq > cur.semesterSeq);
     if (better) byCourse.set(a.courseId, a);
   }

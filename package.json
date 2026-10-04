@@ -8,7 +8,7 @@
   "scripts": {
     "build": "turbo run build",
     "typecheck": "turbo run typecheck",
-    "lint": "turbo run lint",
+    "lint": "turbo run lint && eslint tools",
     "test": "turbo run test",
     "test:int": "turbo run test:int",
     "dev": "turbo run dev",
@@ -24,10 +24,14 @@
     "dev:infra:down": "docker compose -f infra/compose/compose.dev.yml --env-file .env down"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@types/node": "^24.0.0",
+    "eslint": "^10.11.0",
+    "globals": "^17.13.0",
     "prettier": "^3.6.0",
     "turbo": "^2.5.0",
-    "typescript": "~5.9.3"
+    "typescript": "~5.9.3",
+    "typescript-eslint": "^8.71.0"
   },
   "pnpm": {
     "overrides": {
