@@ -34,7 +34,7 @@ Statuses are kept distinct: **implemented** → **tested locally** → **verifie
 | MFA tables live isolation (app role) | ✅ | ✅ 6 tests; disabling RLS fails 4 | ⏳ | n/a |
 | All-table generic isolation sweep | ❌ Phase 0 task | — | — | — |
 | Durable email delivery (R15a) | ❌ outbox/worker slice | — | — | — |
-| Step-up (S1–S12) + MFA management (M9a–M9e, M15′) | ✅ | ✅ 29 tests + 13 guard unit; 13 mutations caught | ⏳ PR | ❌ harness has no step-up flow yet |
+| Step-up (S1–S12) + MFA management (M9a–M9e, M15′) | ✅ | ✅ 30 tests + 13 guard unit; mutation-checked | ✅ (#7) | ❌ harness has no step-up flow yet |
 | Permission-flagged step-up on a real route (S9) | 🟡 guard unit-tested only; no route uses a `stepUp` permission yet | — | — | — |
 
 Isolation-layer coverage and known gaps: [docs/12 §3.1](docs/12-testing-strategy.md).
