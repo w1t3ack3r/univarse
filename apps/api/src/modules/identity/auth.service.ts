@@ -1,5 +1,6 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import type { TenantTx } from '@univarse/db';
+import { AuditWriter } from '../../shared/audit/audit-writer.js';
 import { ShardRegistry } from '../../shared/db/db.module.js';
 import { ProblemError } from '../../shared/errors/problem.js';
 import { MAILER, type Mailer } from '../../shared/infra/mailer.js';
@@ -63,6 +64,7 @@ export class AuthService {
     private readonly mfa: MfaService,
     private readonly passwords: PasswordAttempts,
     private readonly limiter: RateLimiter,
+    private readonly audit: AuditWriter,
     @Inject(MAILER) private readonly mailer: Mailer,
   ) {}
 
@@ -167,6 +169,16 @@ export class AuthService {
         // M11 / R16: a challenge started before the reset can never be completed after it.
         await tx.mfaChallenge.updateMany({ where: { userId: user.id, usedAt: null, revokedAt: null }, data: { revokedAt: now } });
       }
+      // Spec 0002 A1/A7: recorded in the same transaction as the password change.
+      await this.audit.write(tx, tenant.tenantId, {
+        actorType: 'USER',
+        actorId: user.id,
+        action: purpose === 'ACTIVATION' ? 'auth.activation.completed' : 'auth.password_reset.completed',
+        entityType: 'user_account',
+        entityId: user.id,
+        after: { status: 'ACTIVE', sessionsRevoked: purpose === 'PASSWORD_RESET' },
+        ip,
+      });
       return { ok: true as const, email: user.email };
     });
     if (!outcome.ok) throw invalidCode(purpose);
@@ -219,7 +231,7 @@ export class AuthService {
       throw invalidCredentials();
     }
     // Shared with step-up: lockout check, verification and failure counting (S12).
-    if (!(await this.passwords.verify(tenant, user, input.password))) throw invalidCredentials();
+    if (!(await this.passwords.verify(tenant, user, input.password, meta, 'login'))) throw invalidCredentials();
 
     await db.userAccount.update({
       where: { id: user.id },
@@ -241,7 +253,7 @@ export class AuthService {
       return { kind: 'mfa_challenge', challengeToken: await this.mfa.startChallenge(tenant, user.id, meta.ip) };
     }
     // Privileged without a factor ⇒ enrolment-only session until M14 upgrades it.
-    const { token, maxAgeSec } = await this.sessions.create(tenant, user.id, meta, { restricted: privileged });
+    const { token, maxAgeSec } = await this.sessions.create(tenant, user.id, meta, { restricted: privileged }, 'auth.login.succeeded');
     return { kind: 'session', token, maxAgeSec, user: publicUser, mfaEnrolmentRequired: privileged };
   }
 

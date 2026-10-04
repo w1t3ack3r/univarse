@@ -14,10 +14,19 @@ Every AC ID appears in at least one test name. Background: [07 §7](../07-data-a
 | A3 | *Serialised appends.* Concurrent writers in one tenant never fork the chain. Appends take `pg_advisory_xact_lock` keyed on the tenant. N parallel transactions produce seq 1…N with every link valid. Other tenants aren't blocked. |
 | A4 | *Append-only.* The app role can't `UPDATE`, `DELETE` or `TRUNCATE` `audit_event` (grants; already in place, re-tested). |
 | A5 | *Verification.* `verifyAuditChain(tenantId)` recomputes every hash and reports the first broken `seq`. It detects (as the schema owner, simulating an insider): a modified field, a deleted event, an inserted event, and a reordered `seq`. |
+| A5 limit | **Scope of the claim:** the chain detects tampering that doesn't recompute every later hash (verified: modify, delete, insert, reorder). An insider with owner access who rewrites an event **and recomputes the rest of the chain** is undetectable until the chain head is anchored outside the database (tracked: external anchoring, before GA). |
 | A6 | *No secrets.* `before`/`after`/`metadata` pass through a redactor. Keys matching password, code, token, secret, recovery, hash or pepper are replaced with `"[REDACTED]"`, recursively. A test proves a password reset's audit row contains no password, code or hash. |
 | A7 | *Identity events.* These are written: `auth.login.succeeded`, `auth.login.failed` (known accounts only), `auth.account.locked`, `auth.logout`, `auth.activation.completed`, `auth.password_reset.completed`, `auth.mfa.enrolled`, `auth.mfa.disabled`, `auth.mfa.recovery_codes_regenerated`, `auth.mfa.recovery_code_used`, `auth.step_up.succeeded`. Each has actor, tenant, `ip`, `user_agent`, `request_id`. |
 | A8 | *Isolation.* The audit chain is per tenant under forced RLS. One tenant's events never appear in another's chain or verification (live test as the app role). |
 | A9 | *Canonical JSON.* Object keys are sorted recursively and dates are ISO-8601 UTC, so the same event always hashes the same regardless of key order (unit-tested). |
+
+### Part A verification notes (2026-10-04)
+
+- **19 integration tests** (12 writer/verifier in `shared/audit/audit.int.spec.ts`, 7 identity-flow in `identity-audit.int.spec.ts`) plus 5 unit (canonical JSON, redaction).
+- **Mutation checks, 6 of 6 caught:** removing the advisory lock (A3, parallel appends fork), skipping hash comparison (A5, 3 tests), disabling redaction (A6), leaving the JSON payload out of the hash (A5), and dropping the logout and disable audit writes (A7).
+- **Migration** `20261004000000_audit_seq` is hand-written: Prisma refuses a required column on a non-empty table non-interactively. It lifts FORCE RLS only inside its own transaction to backfill legacy test rows. Verified: zero schema drift, FORCE restored, RLS gate green.
+- **Failed logins share one transaction** with the lockout counter (`PasswordAttempts`), so the counter, lock and both audit events commit together.
+- Unknown-username login failures aren't audited (there's no actor to attribute them to). They're visible in rate-limit and security logs.
 
 ## Part B — Outbox, worker, durable email (PR B)
 

@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { isPermission } from '@univarse/contracts';
 import type { TenantTx } from '@univarse/db';
+import { AuditWriter } from '../../shared/audit/audit-writer.js';
 import { ShardRegistry } from '../../shared/db/db.module.js';
 import { ProblemError } from '../../shared/errors/problem.js';
 import type { TenantContext } from '../../shared/tenancy/tenant-resolver.service.js';
@@ -23,13 +24,23 @@ export interface SessionFlags {
 export interface SessionMeta {
   readonly ip: string;
   readonly userAgent: string | undefined;
+  /** Correlates audit events with request logs (spec 0002 A7). */
+  readonly requestId?: string;
 }
 
 @Injectable()
 export class SessionService {
   private readonly logger = new Logger('Sessions');
 
-  constructor(private readonly shards: ShardRegistry) {}
+  constructor(
+    private readonly shards: ShardRegistry,
+    private readonly audit: AuditWriter,
+  ) {}
+
+  /** Audit fields shared by session-related events. */
+  static auditMeta(meta: SessionMeta | undefined) {
+    return { ip: meta?.ip ?? null, userAgent: meta?.userAgent ?? null, requestId: meta?.requestId ?? null };
+  }
 
   /** Grants currently in force for a user (role assignments within their validity window). */
   async loadGrants(tx: TenantTx, userId: string, now = new Date()): Promise<{ grants: Grant[]; roleKeys: string[] }> {
@@ -59,8 +70,24 @@ export class SessionService {
     userId: string,
     meta: SessionMeta,
     opts: SessionFlags = {},
+    /** If set, an audit event with this action is written in the same transaction (spec 0002 A1/A7). */
+    auditAction?: string,
   ): Promise<{ token: string; maxAgeSec: number }> {
-    return this.shards.tx(tenant.shardId, tenant.tenantId, (tx) => this.insert(tx, tenant.tenantId, userId, meta, opts));
+    return this.shards.tx(tenant.shardId, tenant.tenantId, async (tx) => {
+      const created = await this.insert(tx, tenant.tenantId, userId, meta, opts);
+      if (auditAction) {
+        await this.audit.write(tx, tenant.tenantId, {
+          actorType: 'USER',
+          actorId: userId,
+          action: auditAction,
+          entityType: 'session',
+          entityId: created.sessionId,
+          after: { mfa: opts.mfaAt != null, restricted: opts.restricted ?? false },
+          ...SessionService.auditMeta(meta),
+        });
+      }
+      return { token: created.token, maxAgeSec: created.maxAgeSec };
+    });
   }
 
   /** Inserts a session inside the caller's transaction. Flags are set explicitly, never copied. */
@@ -70,12 +97,13 @@ export class SessionService {
     userId: string,
     meta: SessionMeta,
     opts: SessionFlags,
-  ): Promise<{ token: string; maxAgeSec: number }> {
+  ): Promise<{ token: string; maxAgeSec: number; sessionId: string }> {
     const token = newSessionToken();
     const now = new Date();
     const { grants, roleKeys } = await this.loadGrants(tx, userId, now);
     const life = SESSION_LIFETIMES[sessionClassFor(roleKeys, grants)];
-    await tx.session.create({
+    const { id: sessionId } = await tx.session.create({
+      select: { id: true },
       data: {
         tenantId,
         userId,
@@ -98,7 +126,7 @@ export class SessionService {
     if (excess.length > 0) {
       await tx.session.updateMany({ where: { id: { in: excess } }, data: { revokedAt: now, revokeReason: 'max_sessions' } });
     }
-    return { token, maxAgeSec: life.absoluteHours * 3600 };
+    return { token, maxAgeSec: life.absoluteHours * 3600, sessionId };
   }
 
   /**
@@ -173,9 +201,29 @@ export class SessionService {
     if (n.count !== 1) throw new ProblemError(401, 'auth.unauthenticated', 'Authentication required');
   }
 
-  async revoke(tenant: TenantContext, sessionId: string, reason: string): Promise<void> {
-    const db = await this.shards.forTenant(tenant.shardId, tenant.tenantId);
-    await db.session.updateMany({ where: { id: sessionId, revokedAt: null }, data: { revokedAt: new Date(), revokeReason: reason } });
+  async revoke(
+    tenant: TenantContext,
+    sessionId: string,
+    reason: string,
+    audit?: { actorId: string; action: string; meta?: SessionMeta },
+  ): Promise<void> {
+    await this.shards.tx(tenant.shardId, tenant.tenantId, async (tx) => {
+      const revoked = await tx.session.updateMany({
+        where: { id: sessionId, revokedAt: null },
+        data: { revokedAt: new Date(), revokeReason: reason },
+      });
+      if (audit && revoked.count === 1) {
+        await this.audit.write(tx, tenant.tenantId, {
+          actorType: 'USER',
+          actorId: audit.actorId,
+          action: audit.action,
+          entityType: 'session',
+          entityId: sessionId,
+          reason,
+          ...SessionService.auditMeta(audit.meta),
+        });
+      }
+    });
   }
 }
 

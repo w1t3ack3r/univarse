@@ -13,6 +13,7 @@ import { PasswordAttempts } from './modules/identity/password-attempts.service.j
 import { SessionService } from './modules/identity/session.service.js';
 import { UsersController } from './modules/identity/users.controller.js';
 import { TenantProfileController } from './modules/tenant-profile/tenant-profile.controller.js';
+import { AuditWriter } from './shared/audit/audit-writer.js';
 import { DbModule } from './shared/db/db.module.js';
 import { ProblemFilter } from './shared/errors/problem.filter.js';
 import { MAILER, SmtpMailer, type Mailer } from './shared/infra/mailer.js';
@@ -42,6 +43,7 @@ export class AppModule {
         },
         { provide: MAILER, useValue: overrides.mailer ?? new SmtpMailer(config.SMTP_URL, config.MAIL_FROM) },
         TenantResolver,
+        AuditWriter,
         RateLimiter,
         SessionService,
         OneTimeCodeService,

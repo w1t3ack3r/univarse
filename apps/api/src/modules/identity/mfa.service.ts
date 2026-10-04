@@ -3,6 +3,7 @@ import type { TenantTx } from '@univarse/db';
 import { createHmac, randomBytes } from 'node:crypto';
 import { APP_CONFIG, type AppConfig } from '../../config/config.js';
 import { decryptField, encryptField, keyringFromEnv, type FieldKeyring } from '../../shared/crypto/field-encryption.js';
+import { AuditWriter } from '../../shared/audit/audit-writer.js';
 import { ShardRegistry } from '../../shared/db/db.module.js';
 import { ProblemError } from '../../shared/errors/problem.js';
 import { MAILER, type Mailer } from '../../shared/infra/mailer.js';
@@ -47,10 +48,24 @@ export class MfaService {
     private readonly shards: ShardRegistry,
     private readonly sessions: SessionService,
     private readonly passwords: PasswordAttempts,
+    private readonly auditWriter: AuditWriter,
     @Inject(MAILER) private readonly mailer: Mailer,
     @Inject(APP_CONFIG) private readonly config: AppConfig,
   ) {
     this.ring = keyringFromEnv(config.DATA_ENCRYPTION_KEY_ID, config.DATA_ENCRYPTION_KEY);
+  }
+
+  /** Identity audit event for `userId`, inside the caller's transaction (spec 0002 A1/A7). */
+  private audit(tx: TenantTx, tenantId: string, userId: string, action: string, meta: SessionMeta | undefined, after?: unknown) {
+    return this.auditWriter.write(tx, tenantId, {
+      actorType: 'USER',
+      actorId: userId,
+      action,
+      entityType: 'user_account',
+      entityId: userId,
+      ...(after === undefined ? {} : { after }),
+      ...SessionService.auditMeta(meta),
+    });
   }
 
   private aad(tenantId: string, userId: string) {
@@ -134,7 +149,7 @@ export class MfaService {
 
     const db = await this.shards.forTenant(tenant.shardId, tenant.tenantId);
     const user = await db.userAccount.findUniqueOrThrow({ where: { id: actor.userId } });
-    if (user.status !== 'ACTIVE' || !(await this.passwords.verify(tenant, user, input.password))) {
+    if (user.status !== 'ACTIVE' || !(await this.passwords.verify(tenant, user, input.password, meta, 'step_up'))) {
       throw new ProblemError(401, 'auth.invalid_credentials', 'Invalid password');
     }
 
@@ -155,6 +170,8 @@ export class MfaService {
         restricted: false,
         stepUpAt: now,
       });
+      if (remaining !== null) await this.audit(tx, tenant.tenantId, user.id, 'auth.mfa.recovery_code_used', meta, { remaining, context: 'step_up' });
+      await this.audit(tx, tenant.tenantId, user.id, 'auth.step_up.succeeded', meta, { secondFactor: second ? ('code' in second ? 'totp' : 'recovery_code') : 'none' });
       return { ok: true as const, session, remaining };
     });
     if (!outcome.ok) throw invalidMfa();
@@ -173,7 +190,7 @@ export class MfaService {
    * M9b: 10 fresh recovery codes; every previous code dies; other sessions are revoked.
    * Serialised per user (S10) and refused if the calling session died meanwhile.
    */
-  async regenerateRecoveryCodes(tenant: TenantContext, actor: Actor): Promise<string[]> {
+  async regenerateRecoveryCodes(tenant: TenantContext, actor: Actor, meta?: SessionMeta): Promise<string[]> {
     const codes = Array.from({ length: RECOVERY_CODE_COUNT }, newRecoveryCode);
     const email = await this.shards.tx(tenant.shardId, tenant.tenantId, async (tx) => {
       await this.lockUser(tx, actor.userId);
@@ -189,6 +206,7 @@ export class MfaService {
         where: { userId: actor.userId, revokedAt: null, id: { not: actor.sessionId } },
         data: { revokedAt: new Date(), revokeReason: 'recovery_codes_regenerated' },
       });
+      await this.audit(tx, tenant.tenantId, actor.userId, 'auth.mfa.recovery_codes_regenerated', meta, { count: RECOVERY_CODE_COUNT });
       return (await tx.userAccount.findUniqueOrThrow({ where: { id: actor.userId } })).email;
     });
     this.notify(tenant, email, 'your MFA recovery codes were regenerated', 'New recovery codes were generated for your UniVarse account. All previous codes no longer work, and your other sessions were signed out.\n\nIf this was not you, contact your institution\'s ICT unit immediately.');
@@ -220,6 +238,7 @@ export class MfaService {
         stepUpAt: null,
         restricted: privileged,
       });
+      await this.audit(tx, tenant.tenantId, actor.userId, 'auth.mfa.disabled', meta, { currentSessionRestricted: privileged });
       return { email: (await tx.userAccount.findUniqueOrThrow({ where: { id: actor.userId } })).email, privileged, session };
     });
     this.notify(tenant, email, 'MFA was turned off', 'Multi-factor authentication was just turned off for your UniVarse account, and your other sessions were signed out.\n\nIf this was not you, contact your institution\'s ICT unit immediately.');
@@ -242,7 +261,7 @@ export class MfaService {
 
   /** M4–M7, M12: exchanges a challenge + second factor for a full session (mfa_at set). */
   async verify(tenant: TenantContext, challengeToken: string, input: VerifyInput, meta: SessionMeta) {
-    const outcome = await this.verifyTx(tenant, challengeToken, input).catch((err: unknown) => {
+    const outcome = await this.verifyTx(tenant, challengeToken, input, meta).catch((err: unknown) => {
       if (err instanceof ChallengeConsumeConflict) return { ok: false as const };
       throw err;
     });
@@ -251,7 +270,7 @@ export class MfaService {
     return this.completeLogin(tenant, outcome, meta);
   }
 
-  private verifyTx(tenant: TenantContext, challengeToken: string, input: VerifyInput) {
+  private verifyTx(tenant: TenantContext, challengeToken: string, input: VerifyInput, meta: SessionMeta) {
     return this.shards.tx(tenant.shardId, tenant.tenantId, async (tx) => {
       const now = new Date();
       const challenge = await tx.mfaChallenge.findUnique({
@@ -280,6 +299,7 @@ export class MfaService {
       if (consumed.count === 0) throw new ChallengeConsumeConflict();
 
       const remaining = usedRecovery ? await tx.recoveryCode.count({ where: { userId: user.id, usedAt: null } }) : null;
+      if (remaining !== null) await this.audit(tx, tenant.tenantId, user.id, 'auth.mfa.recovery_code_used', meta, { remaining, context: 'login' });
       return { ok: true as const, user, remaining };
     });
   }
@@ -299,7 +319,7 @@ export class MfaService {
         })
         .catch((err: unknown) => this.logger.error(`Recovery notice failed: ${err instanceof Error ? err.message : String(err)}`));
     }
-    const session = await this.sessions.create(tenant, user.id, meta, { mfaAt: new Date() });
+    const session = await this.sessions.create(tenant, user.id, meta, { mfaAt: new Date() }, 'auth.login.succeeded');
     return { ...session, user: { id: user.id, username: user.username, displayName: user.displayName } };
   }
 
@@ -355,6 +375,7 @@ export class MfaService {
       });
       // M14: no token reuse across privilege levels — the enrolling session is retired.
       await tx.session.updateMany({ where: { id: actor.sessionId, revokedAt: null }, data: { revokedAt: now, revokeReason: 'mfa_enrolled' } });
+      await this.audit(tx, tenant.tenantId, actor.userId, 'auth.mfa.enrolled', meta, { factor: 'TOTP', backupSetSize: RECOVERY_CODE_COUNT });
     });
     const session = await this.sessions.create(tenant, actor.userId, meta, { mfaAt: new Date() });
     return { ...session, recoveryCodes };
