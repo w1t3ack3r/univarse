@@ -26,11 +26,11 @@ Statuses are kept distinct: **implemented** → **tested locally** → **verifie
 | Rate limits not bypassable via forwarding headers | ✅ | ✅ mutation-checked | ✅ | — |
 | CSRF (Fetch Metadata / Origin) | ✅ | ✅ | ✅ | ✅ same-origin path only |
 | Password reset (spec 0001 R1–R11) | ✅ | ✅ 14 tests, 3 mutations caught | ✅ (#3) | — |
-| Reset hardening R12–R15 (concurrency, eligibility, timing) | ✅ | ✅ 6 tests, R12/R13/R15 mutation-checked | ⏳ PR | — |
+| Reset hardening R12–R15 (concurrency, eligibility, timing) | ✅ | ✅ 6 tests, R12/R13/R15 mutation-checked; R15 floors asserted (2026-10-05) | ✅ | — |
 | Reset flow in a real browser (dev edge, HTTP) | ❌ harness has no reset form yet | — | — | ❌ |
 | TOTP MFA (M2–M15 incl. R16) | ✅ | ✅ 24 tests + 24 unit; layered mutation-checked | ✅ (#6) | ❌ harness has no MFA flow yet |
 | M1 secret at rest | 🟡 **direct AES-GCM, single key, AAD-bound. NOT envelope** (ADR-018 deviation) | ✅ | ⏳ | n/a |
-| Envelope encryption (KMS-wrapped per-tenant DEKs) | ❌ required before staging (ADR-018) | — | — | — |
+| Envelope encryption (KMS-wrapped per-tenant DEKs; covers MFA secrets and outbox payloads) | ❌ required before staging (ADR-018) | — | — | — |
 | MFA tables live isolation (app role) | ✅ | ✅ 6 tests; disabling RLS fails 4 | ⏳ | n/a |
 | All-table generic isolation sweep | ❌ Phase 0 task | — | — | — |
 | Step-up (S1–S12) + MFA management (M9a–M9e, M15′) | ✅ | ✅ 30 tests + 13 guard unit; mutation-checked | ✅ (#7) | ❌ harness has no step-up flow yet |
@@ -40,7 +40,8 @@ Statuses are kept distinct: **implemented** → **tested locally** → **verifie
 | Inactive product → 404 through a real non-core route (P3 end-to-end) | 🟡 guard unit-tested + guard order asserted; no non-core route yet | — | — | — |
 | Cross-instance product/tenant cache invalidation (P7) | ❌ before multi-instance production | — | — | — |
 | Audit chain anchoring outside the DB (A5 limit) | ❌ before GA | — | — | — |
-| Outbox + worker + durable email (spec 0002 Part B, R15a) | ❌ next | — | — | — |
+| Outbox + worker + durable email (spec 0002 Part B B1–B10, R15a) | ✅ | ✅ 12 tests + 5 unit; 10/10 mutations caught; end to end via Mailpit | ⏳ PR | n/a |
+| Timestamps as true instants on non-UTC servers (UTC sessions) | ✅ | ✅ 2 tests; fails without the fix | ⏳ PR (CI Postgres in Africa/Lagos) | n/a |
 
 Isolation-layer coverage and known gaps: [docs/12 §3.1](docs/12-testing-strategy.md).
 
@@ -66,3 +67,7 @@ pnpm --filter @univarse/db test:int   # cross-tenant isolation tests against the
 Browser check without the web app: start `api` and `edge-demo-uni` from `.claude/launch.json` (or `node tools/dev-edge/start-api.mjs` + `node tools/dev-edge/server.mjs`) and open http://demo-uni.univarse.localhost:4180.
 
 Use `PGPORT=5433 pnpm db:setup` if your PostgreSQL 18 runs on another port.
+
+`pnpm dev` runs the outbox worker next to the API, so activation and reset codes arrive in Mailpit. Requests never send email themselves (spec 0002 B7).
+
+**Local databases from before 2026-10-05 on a non-UTC server** (for example Windows set to West Africa Time) hold timestamps shifted by the server offset, so their audit chains don't verify ([spec 0002 notes](docs/specs/0002-audit-and-outbox.md)). Reset the tenant database once: drop `univarse_pool_01` as the postgres superuser, then run `pnpm db:setup && pnpm db:migrate && pnpm db:seed`.

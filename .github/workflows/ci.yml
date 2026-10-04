@@ -39,6 +39,9 @@ jobs:
         image: postgres:18
         env:
           POSTGRES_PASSWORD: ci-superuser-only
+          # A non-UTC server, like a real install in Nigeria: catches timestamp-encoding bugs
+          # that a UTC server hides (packages/db/test/timezone.int.spec.ts).
+          TZ: Africa/Lagos
         ports: ['5432:5432']
         options: >-
           --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 20

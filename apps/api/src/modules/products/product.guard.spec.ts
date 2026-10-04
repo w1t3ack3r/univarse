@@ -105,7 +105,7 @@ describe('[P3] guard order: tenant → product → access', () => {
     const { AppModule } = await import('../../app.module.js');
     const { TenantGuard } = await import('../../shared/tenancy/tenant.guard.js');
     const { AccessGuard } = await import('../identity/access.guard.js');
-    const mod = AppModule.forRoot({} as never, { mailer: { send: async () => {} } });
+    const mod = AppModule.forRoot({} as never);
     const guards = (mod.providers ?? [])
       .filter((p) => typeof p === 'object' && 'provide' in p && p.provide === APP_GUARD)
       .map((p) => (p as { useClass: unknown }).useClass);

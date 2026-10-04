@@ -3,8 +3,8 @@ import type { TenantTx } from '@univarse/db';
 import { AuditWriter } from '../../shared/audit/audit-writer.js';
 import { ShardRegistry } from '../../shared/db/db.module.js';
 import { ProblemError } from '../../shared/errors/problem.js';
-import { MAILER, type Mailer } from '../../shared/infra/mailer.js';
 import { RateLimiter } from '../../shared/infra/rate-limiter.js';
+import { Outbox } from '../../shared/outbox/outbox.js';
 import { withMinimumDuration } from '../../shared/http/timing.js';
 import type { TenantContext } from '../../shared/tenancy/tenant-resolver.service.js';
 import { needsMfa, type Actor } from './actor.js';
@@ -46,12 +46,12 @@ function findUserWithRoles(tx: TenantTx, raw: string) {
 export type LoginResult =
   | { kind: 'mfa_challenge'; challengeToken: string }
   | {
-      kind: 'session';
-      token: string;
-      maxAgeSec: number;
-      user: { id: string; username: string; displayName: string };
-      mfaEnrolmentRequired: boolean;
-    };
+    kind: 'session';
+    token: string;
+    maxAgeSec: number;
+    user: { id: string; username: string; displayName: string };
+    mfaEnrolmentRequired: boolean;
+  };
 
 @Injectable()
 export class AuthService {
@@ -65,8 +65,8 @@ export class AuthService {
     private readonly passwords: PasswordAttempts,
     private readonly limiter: RateLimiter,
     private readonly audit: AuditWriter,
-    @Inject(MAILER) private readonly mailer: Mailer,
-  ) {}
+    private readonly outbox: Outbox,
+  ) { }
 
   private async limit(key: string, rules: { limit: number; windowSec: number }[]): Promise<void> {
     const r = await this.limiter.hit(key, rules);
@@ -108,25 +108,18 @@ export class AuthService {
     await this.limit(`${tenant.tenantId}:${k}-req:ip:${ip}`, [{ limit: 20, windowSec: 900 }]);
     await this.limit(`${tenant.tenantId}:${k}-req:id:${id.value}`, [{ limit: 3, windowSec: 900 }]);
 
-    const issued = await this.shards.tx(tenant.shardId, tenant.tenantId, async (tx) => {
-      const user = await findUserWithRoles(tx, rawUsername);
-      if (!user || user.status !== ELIGIBLE_STATUS[purpose] || !user.email) return null;
-      return { email: user.email, code: await this.codes.issue(tx, tenant.tenantId, user.id, purpose) };
-    });
-    if (!issued) return;
-
     const what = purpose === 'ACTIVATION' ? 'activation' : 'password reset';
-    // Not awaited: SMTP latency would otherwise reveal that the account exists (R15).
-    // Phase 0 trade-off: a failed send is logged, not retried — the outbox/queue slice fixes that.
-    void this.mailer
-      .send({
-        to: issued.email,
+    await this.shards.tx(tenant.shardId, tenant.tenantId, async (tx) => {
+      const user = await findUserWithRoles(tx, rawUsername);
+      if (!user || user.status !== ELIGIBLE_STATUS[purpose] || !user.email) return;
+      const code = await this.codes.issue(tx, tenant.tenantId, user.id, purpose);
+      // Spec 0002 B1/B7: enqueued with the code and delivered by the worker. No SMTP on this path (R15).
+      await this.outbox.enqueueEmail(tx, tenant.tenantId, {
+        to: user.email,
         subject: `${tenant.shortName}: your UniVarse ${what} code`,
-        text: `Your ${what} code is ${issued.code}. It expires in 15 minutes.\n\nIf you did not request this, ignore this email — your account is unchanged.`,
-      })
-      .catch((err: unknown) =>
-        this.logger.error(`Code email failed tenant=${tenant.slug}: ${err instanceof Error ? err.message : String(err)}`),
-      );
+        text: `Your ${what} code is ${code}. It expires in 15 minutes.\n\nIf you did not request this, ignore this email — your account is unchanged.`,
+      });
+    });
   }
 
   /**
@@ -138,7 +131,7 @@ export class AuthService {
     purpose: CodePurpose,
     input: { username: string; code: string; password: string },
     ip: string,
-  ): Promise<{ email: string | null }> {
+  ): Promise<void> {
     const k = purpose === 'ACTIVATION' ? 'act' : 'reset';
     await this.limit(`${tenant.tenantId}:${k}-confirm:ip:${ip}`, [{ limit: 30, windowSec: 900 }]);
 
@@ -179,10 +172,19 @@ export class AuthService {
         after: { status: 'ACTIVE', sessionsRevoked: purpose === 'PASSWORD_RESET' },
         ip,
       });
-      return { ok: true as const, email: user.email };
+      if (purpose === 'PASSWORD_RESET' && user.email) {
+        // R9: notification only — no code, no link. Enqueued with the change (spec 0002 B1).
+        await this.outbox.enqueueEmail(tx, tenant.tenantId, {
+          to: user.email,
+          subject: `${tenant.shortName}: your UniVarse password was changed`,
+          text:
+            'The password for your UniVarse account was just changed and all your sessions were signed out.\n\n' +
+            'If this was not you, contact your institution’s ICT unit immediately.',
+        });
+      }
+      return { ok: true as const };
     });
     if (!outcome.ok) throw invalidCode(purpose);
-    return { email: outcome.email };
   }
 
   requestActivation(tenant: TenantContext, rawUsername: string, ip: string): Promise<void> {
@@ -199,19 +201,7 @@ export class AuthService {
 
   /** R7: never creates a session — the user logs in (and later passes MFA) afterwards. */
   async confirmPasswordReset(tenant: TenantContext, input: { username: string; code: string; password: string }, ip: string) {
-    const { email } = await withMinimumDuration(CONFIRM_FLOOR_MS, () =>
-      this.confirmCode(tenant, 'PASSWORD_RESET', input, ip),
-    );
-    if (email) {
-      // R9: notification only — no code, no link.
-      await this.mailer.send({
-        to: email,
-        subject: `${tenant.shortName}: your UniVarse password was changed`,
-        text:
-          'The password for your UniVarse account was just changed and all your sessions were signed out.\n\n' +
-          'If this was not you, contact your institution’s ICT unit immediately.',
-      });
-    }
+    await withMinimumDuration(CONFIRM_FLOOR_MS, () => this.confirmCode(tenant, 'PASSWORD_RESET', input, ip));
   }
 
   async login(

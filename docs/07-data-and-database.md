@@ -29,6 +29,7 @@
 - Primary keys: `id uuid DEFAULT uuidv7()` (time-ordered, index-friendly, not guessable in sequence).
 - Every tenant table: `tenant_id uuid NOT NULL` as the **first column of every composite index and unique constraint**, plus `UNIQUE (tenant_id, id)`.
 - **Every foreign key is composite on `(tenant_id, …)`** and references `(tenant_id, id)`. PostgreSQL validates FKs *without* applying RLS, so a single-column FK would let a row reference another tenant's row by UUID. The RLS checker fails any FK that doesn't include `tenant_id`.
+- **Every connection runs in UTC** (`packages/db/src/pool.ts`: `-c TimeZone=UTC`). Prisma's pg adapter exchanges `timestamptz` values as zone-less UTC strings, so a session in another zone (a local install in `Africa/Lagos`, say) would store every timestamp shifted by its offset and break comparisons with SQL `now()`. Found by the outbox retry test on 2026-10-05. CI's Postgres runs in `Africa/Lagos` so that a regression fails `packages/db/test/timezone.int.spec.ts`.
 - Standard columns: `created_at timestamptz NOT NULL DEFAULT now()`, `updated_at`, `created_by uuid`, `updated_by uuid`, and `version int NOT NULL DEFAULT 0` for optimistically locked entities.
 - Money: `bigint` kobo, with column names ending in `_kobo`. Scores: `numeric(5,2)`. GPA: `numeric(4,2)`. Never `float`/`real`/`double`.
 - Enums: PostgreSQL enums via Prisma for stable sets. Lookup tables for tenant-configurable sets (remark codes, fee categories).
@@ -139,7 +140,7 @@ CREATE TABLE audit_event (
 ## 8. Encryption of sensitive fields
 
 - **Envelope encryption:** a per-tenant data key (DEK), wrapped by a KMS key (KEK), cached in memory for ≤ 1h. AES-256-GCM with a random 96-bit IV. The stored format is `v1:{keyId}:{iv}:{ciphertext}:{tag}`.
-- Encrypted fields: NIN, TOTP secrets, gateway secret keys, webhook secrets, bank details for refunds, medical notes.
+- Encrypted fields: NIN, TOTP secrets, outbox payloads (email bodies carry codes; AAD = tenant + event id, wiped after delivery), gateway secret keys, webhook secrets, bank details for refunds, medical notes.
 - Searchable encrypted fields (e.g. NIN uniqueness) additionally store an HMAC-SHA256 **blind index** with a separate key.
 - Key rotation: new DEK version for new writes, with background re-encryption. Old key IDs stay decryptable until re-encryption completes.
 
