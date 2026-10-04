@@ -57,6 +57,8 @@ Rules:
 | `--uv-surface` | `#F4F6F0` (light sage) | App background |
 | Semantic | success / warning / danger / info | Status badges |
 
+- **Brand source:** `docs/brand doc/` (logo lockups, palette, mockups) and the Figma landing page. Typeface: **Poppins**, self-hosted.
+- **Lime is never text, an icon or a focus ring on a light surface** (1.37:1 on white). Use it as a fill under deep-green text (5.70:1), or as an accent on deep green. Focus rings: deep green on light surfaces, lime on deep green. Measured contrasts: [spec 0005](specs/0005-web-skeleton-and-auth-ui.md).
 - Tenant theme overrides only `--tenant-primary`/logo, validated for contrast (≥ 4.5:1 against text) when saved.
 - Dark mode: supported via tokens (`prefers-color-scheme` + toggle).
 - **Patterns** (documented in Storybook):
