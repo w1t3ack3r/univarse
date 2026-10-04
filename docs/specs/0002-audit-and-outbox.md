@@ -59,6 +59,13 @@ Every AC ID appears in at least one test name. Background: [07 §7](../07-data-a
 - **Outbox columns:** `status` (`PENDING`/`SENT`/`DEAD`), `product`, `next_attempt_at`, `payload_enc` (nullable). The old `payload jsonb` becomes nullable and unused for emails. App-role grants are widened only to these bookkeeping columns.
 - **No BullMQ in Phase 0** (ADR-019): a polling worker over the outbox gives durability and retries without a second system. Revisit when job types need fan-out, priorities or rate-limited queues.
 
+## Part B implementation notes
+- **Found while testing: timestamps were stored shifted by the server's timezone.** On a server whose TimeZone isn't UTC, every Prisma-written `timestamptz` was stored off by the offset (1 h in `Africa/Lagos`), so `next_attempt_at <= now()` made a backed-off event due immediately. All connections now run in UTC ([07 §2](../07-data-and-database.md)). CI's Postgres runs in `Africa/Lagos`, and a regression test fails without the fix (mutation-checked).
+- **The audit chain caught it independently.** Local audit rows written before the fix don't verify: the hash covers the true instant, and the stored value was shifted. Seq 1 verifies only with the hour added back, and rows written after the fix verify as stored. CI and fresh databases are unaffected. A local database with pre-fix data needs a reset of its tenant data (see README).
+- **Message-ID** is `<event id@mail domain>` (B6). Verified end to end against Mailpit with the compiled worker.
+- `last_error` uses an allow-list: the error name, an upper-case SMTP code and a numeric response code. Anything else is dropped rather than stripped (an address with its symbols removed is still an address).
+- **R15 floor gap (spec 0001) closed:** both R15 tests now assert the 400 ms floor.
+
 ## Out of scope (tracked)
 
 | Gap | Milestone |

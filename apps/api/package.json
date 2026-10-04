@@ -2,13 +2,14 @@
   "name": "@univarse/api",
   "version": "0.0.0",
   "private": true,
-  "description": "UniVarse API (NestJS on Fastify). Entrypoints: dist/main.js (HTTP), dist/worker.js (jobs, later).",
+  "description": "UniVarse API (NestJS on Fastify). Entrypoints: dist/main.js (HTTP), dist/worker.js (outbox worker).",
   "type": "module",
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "dev": "tsc-watch -p tsconfig.build.json --onSuccess \"node --enable-source-maps dist/main.js\"",
+    "dev": "tsc-watch -p tsconfig.build.json --onSuccess \"node scripts/dev-run.mjs\"",
     "start": "node --enable-source-maps dist/main.js",
+    "start:worker": "node --enable-source-maps dist/worker.js",
     "test": "vitest run",
     "test:int": "vitest run --config vitest.int.config.ts"
   },

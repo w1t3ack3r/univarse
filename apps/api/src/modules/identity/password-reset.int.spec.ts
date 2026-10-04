@@ -9,10 +9,16 @@ import { codeIn, cookieFrom, createHarness, HOSTS, PASSWORD, randomIp, type Harn
 const NEW_PASSWORD = 'Brand-New-Harmattan-42';
 let h: Harness;
 
+/** Each helper runs the outbox worker afterwards, so emails are in `h.outbox` when the test looks (spec 0002 B7). */
+const delivered = async <T>(res: Promise<T>): Promise<T> => {
+  const r = await res;
+  await h.deliver();
+  return r;
+};
 const requestReset = (username: string, host: string = HOSTS.demo, ip?: string) =>
-  h.call('POST', host, '/api/v1/auth/password-reset/request', { body: { username }, ...(ip ? { ip } : {}) });
+  delivered(h.call('POST', host, '/api/v1/auth/password-reset/request', { body: { username }, ...(ip ? { ip } : {}) }));
 const confirmReset = (username: string, code: string, password = NEW_PASSWORD, host: string = HOSTS.demo) =>
-  h.call('POST', host, '/api/v1/auth/password-reset/confirm', { body: { username, code, password } });
+  delivered(h.call('POST', host, '/api/v1/auth/password-reset/confirm', { body: { username, code, password } }));
 const lastCodeFor = (email: string) => codeIn(h.mailsTo(email).filter((m) => /reset code/.test(m.subject)).at(-1));
 
 beforeAll(async () => {
@@ -28,6 +34,7 @@ describe('password reset (spec 0001 Part R)', () => {
     const pending = await h.makeUser('demo', { role: 'STUDENT', status: 'PENDING_ACTIVATION' });
     const disabled = await h.makeUser('demo', { role: 'STUDENT', status: 'DISABLED' });
     const noEmail = await h.makeUser('demo', { role: 'STUDENT', email: null });
+    await h.deliver();
     const before = h.outbox.length;
 
     const bodies = [];

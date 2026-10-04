@@ -6,7 +6,7 @@ import { decryptField, encryptField, keyringFromEnv, type FieldKeyring } from '.
 import { AuditWriter } from '../../shared/audit/audit-writer.js';
 import { ShardRegistry } from '../../shared/db/db.module.js';
 import { ProblemError } from '../../shared/errors/problem.js';
-import { MAILER, type Mailer } from '../../shared/infra/mailer.js';
+import { Outbox } from '../../shared/outbox/outbox.js';
 import type { TenantContext } from '../../shared/tenancy/tenant-resolver.service.js';
 import { needsMfa, type Actor } from './actor.js';
 import { PasswordAttempts } from './password-attempts.service.js';
@@ -49,7 +49,7 @@ export class MfaService {
     private readonly sessions: SessionService,
     private readonly passwords: PasswordAttempts,
     private readonly auditWriter: AuditWriter,
-    @Inject(MAILER) private readonly mailer: Mailer,
+    private readonly outbox: Outbox,
     @Inject(APP_CONFIG) private readonly config: AppConfig,
   ) {
     this.ring = keyringFromEnv(config.DATA_ENCRYPTION_KEY_ID, config.DATA_ENCRYPTION_KEY);
@@ -112,11 +112,10 @@ export class MfaService {
     await tx.$queryRaw`SELECT id FROM user_account WHERE id = ${userId}::uuid FOR UPDATE`;
   }
 
-  private notify(tenant: TenantContext, email: string | null, subject: string, text: string): void {
+  /** Security notice, enqueued in the transaction that made the change (spec 0002 B1/B7). */
+  private async notify(tx: TenantTx, tenant: TenantContext, email: string | null, subject: string, text: string): Promise<void> {
     if (!email) return;
-    void this.mailer
-      .send({ to: email, subject: `${tenant.shortName}: ${subject}`, text })
-      .catch((err: unknown) => this.logger.error(`Notice failed: ${err instanceof Error ? err.message : String(err)}`));
+    await this.outbox.enqueueEmail(tx, tenant.tenantId, { to: email, subject: `${tenant.shortName}: ${subject}`, text });
   }
 
   /**
@@ -170,19 +169,20 @@ export class MfaService {
         restricted: false,
         stepUpAt: now,
       });
-      if (remaining !== null) await this.audit(tx, tenant.tenantId, user.id, 'auth.mfa.recovery_code_used', meta, { remaining, context: 'step_up' });
+      if (remaining !== null) {
+        await this.audit(tx, tenant.tenantId, user.id, 'auth.mfa.recovery_code_used', meta, { remaining, context: 'step_up' });
+        await this.notify(
+          tx,
+          tenant,
+          user.email,
+          'a recovery code was used to confirm your identity',
+          `A recovery code was just used to confirm your identity in UniVarse. ${remaining} recovery code(s) remain.\n\nIf this was not you, contact your institution's ICT unit immediately.`,
+        );
+      }
       await this.audit(tx, tenant.tenantId, user.id, 'auth.step_up.succeeded', meta, { secondFactor: second ? ('code' in second ? 'totp' : 'recovery_code') : 'none' });
-      return { ok: true as const, session, remaining };
+      return { ok: true as const, session };
     });
     if (!outcome.ok) throw invalidMfa();
-    if (outcome.remaining !== null) {
-      this.notify(
-        tenant,
-        user.email,
-        'a recovery code was used to confirm your identity',
-        `A recovery code was just used to confirm your identity in UniVarse. ${outcome.remaining} recovery code(s) remain.\n\nIf this was not you, contact your institution's ICT unit immediately.`,
-      );
-    }
     return outcome.session;
   }
 
@@ -192,7 +192,7 @@ export class MfaService {
    */
   async regenerateRecoveryCodes(tenant: TenantContext, actor: Actor, meta?: SessionMeta): Promise<string[]> {
     const codes = Array.from({ length: RECOVERY_CODE_COUNT }, newRecoveryCode);
-    const email = await this.shards.tx(tenant.shardId, tenant.tenantId, async (tx) => {
+    await this.shards.tx(tenant.shardId, tenant.tenantId, async (tx) => {
       await this.lockUser(tx, actor.userId);
       await this.sessions.assertLive(tx, actor.sessionId, null);
       if (!(await this.hasActiveFactor(tx, actor.userId))) {
@@ -207,9 +207,9 @@ export class MfaService {
         data: { revokedAt: new Date(), revokeReason: 'recovery_codes_regenerated' },
       });
       await this.audit(tx, tenant.tenantId, actor.userId, 'auth.mfa.recovery_codes_regenerated', meta, { count: RECOVERY_CODE_COUNT });
-      return (await tx.userAccount.findUniqueOrThrow({ where: { id: actor.userId } })).email;
+      const { email } = await tx.userAccount.findUniqueOrThrow({ where: { id: actor.userId } });
+      await this.notify(tx, tenant, email, 'your MFA recovery codes were regenerated', 'New recovery codes were generated for your UniVarse account. All previous codes no longer work, and your other sessions were signed out.\n\nIf this was not you, contact your institution\'s ICT unit immediately.');
     });
-    this.notify(tenant, email, 'your MFA recovery codes were regenerated', 'New recovery codes were generated for your UniVarse account. All previous codes no longer work, and your other sessions were signed out.\n\nIf this was not you, contact your institution\'s ICT unit immediately.');
     return codes;
   }
 
@@ -220,7 +220,7 @@ export class MfaService {
    */
   async disable(tenant: TenantContext, actor: Actor, meta: SessionMeta) {
     const now = new Date();
-    const { email, privileged, session } = await this.shards.tx(tenant.shardId, tenant.tenantId, async (tx) => {
+    const { privileged, session } = await this.shards.tx(tenant.shardId, tenant.tenantId, async (tx) => {
       await this.lockUser(tx, actor.userId);
       if (!(await this.hasActiveFactor(tx, actor.userId))) {
         throw new ProblemError(409, 'auth.mfa_not_enrolled', 'MFA is not enabled');
@@ -239,9 +239,10 @@ export class MfaService {
         restricted: privileged,
       });
       await this.audit(tx, tenant.tenantId, actor.userId, 'auth.mfa.disabled', meta, { currentSessionRestricted: privileged });
-      return { email: (await tx.userAccount.findUniqueOrThrow({ where: { id: actor.userId } })).email, privileged, session };
+      const { email } = await tx.userAccount.findUniqueOrThrow({ where: { id: actor.userId } });
+      await this.notify(tx, tenant, email, 'MFA was turned off', 'Multi-factor authentication was just turned off for your UniVarse account, and your other sessions were signed out.\n\nIf this was not you, contact your institution\'s ICT unit immediately.');
+      return { privileged, session };
     });
-    this.notify(tenant, email, 'MFA was turned off', 'Multi-factor authentication was just turned off for your UniVarse account, and your other sessions were signed out.\n\nIf this was not you, contact your institution\'s ICT unit immediately.');
     return { ...session, mfaEnrolmentRequired: privileged };
   }
 
@@ -299,26 +300,26 @@ export class MfaService {
       if (consumed.count === 0) throw new ChallengeConsumeConflict();
 
       const remaining = usedRecovery ? await tx.recoveryCode.count({ where: { userId: user.id, usedAt: null } }) : null;
-      if (remaining !== null) await this.audit(tx, tenant.tenantId, user.id, 'auth.mfa.recovery_code_used', meta, { remaining, context: 'login' });
+      if (remaining !== null) {
+        await this.audit(tx, tenant.tenantId, user.id, 'auth.mfa.recovery_code_used', meta, { remaining, context: 'login' });
+        // M7: tell the user a recovery code was used and how many are left.
+        await this.notify(
+          tx,
+          tenant,
+          user.email,
+          'a recovery code was used to sign in',
+          `A recovery code was just used to sign in to your UniVarse account. ${remaining} recovery code(s) remain.\n\nIf this was not you, contact your institution's ICT unit immediately.`,
+        );
+      }
       return { ok: true as const, user, remaining };
     });
   }
 
   private async completeLogin(
     tenant: TenantContext,
-    { user, remaining }: { user: { id: string; username: string; displayName: string; email: string | null }; remaining: number | null },
+    { user }: { user: { id: string; username: string; displayName: string } },
     meta: SessionMeta,
   ) {
-    if (remaining !== null && user.email) {
-      // M7: tell the user a recovery code was used and how many are left.
-      void this.mailer
-        .send({
-          to: user.email,
-          subject: `${tenant.shortName}: a recovery code was used to sign in`,
-          text: `A recovery code was just used to sign in to your UniVarse account. ${remaining} recovery code(s) remain.\n\nIf this was not you, contact your institution's ICT unit immediately.`,
-        })
-        .catch((err: unknown) => this.logger.error(`Recovery notice failed: ${err instanceof Error ? err.message : String(err)}`));
-    }
     const session = await this.sessions.create(tenant, user.id, meta, { mfaAt: new Date() }, 'auth.login.succeeded');
     return { ...session, user: { id: user.id, username: user.username, displayName: user.displayName } };
   }

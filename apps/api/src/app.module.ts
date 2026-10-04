@@ -20,15 +20,13 @@ import { TenantProfileController } from './modules/tenant-profile/tenant-profile
 import { AuditWriter } from './shared/audit/audit-writer.js';
 import { DbModule } from './shared/db/db.module.js';
 import { ProblemFilter } from './shared/errors/problem.filter.js';
-import { MAILER, SmtpMailer, type Mailer } from './shared/infra/mailer.js';
 import { RateLimiter, VALKEY } from './shared/infra/rate-limiter.js';
+import { Outbox } from './shared/outbox/outbox.js';
 import { TenantGuard } from './shared/tenancy/tenant.guard.js';
 import { TenantResolver } from './shared/tenancy/tenant-resolver.service.js';
 
-export interface AppOverrides {
-  /** Tests capture outbound email instead of sending via SMTP. */
-  readonly mailer?: Mailer;
-}
+/** Test seams for the HTTP app. Email has none: the HTTP app has no mailer at all (spec 0002 B7). */
+export type AppOverrides = Record<string, never>;
 
 @Module({})
 export class AppModule {
@@ -45,9 +43,9 @@ export class AppModule {
           useFactory: () =>
             new Redis(config.VALKEY_URL, { maxRetriesPerRequest: 1, enableOfflineQueue: false, connectTimeout: 2_000 }),
         },
-        { provide: MAILER, useValue: overrides.mailer ?? new SmtpMailer(config.SMTP_URL, config.MAIL_FROM) },
         TenantResolver,
         AuditWriter,
+        Outbox,
         RateLimiter,
         SessionService,
         OneTimeCodeService,
