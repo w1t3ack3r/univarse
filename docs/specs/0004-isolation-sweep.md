@@ -26,6 +26,16 @@ Layer 2 currently has hand-written cases on four tables. Every table added later
 - Rows of the random test tenants that the app role can't delete (`audit_event`, `outbox_event` are append-only) remain. They belong to no real tenant and RLS hides them from everyone else.
 - **Negative control** (run manually, recorded in the PR): disabling forced RLS on one table makes the sweep fail for that table.
 
+## Implementation notes
+- **Negative controls run (2026-10-05)**, each against the local DB as the migrator, then restored, with the RLS checker green afterwards:
+  1. RLS disabled on `setting`: I3–I8 fail (6 tests).
+  2. `setting` policy with `WITH CHECK (true)`: I7 and I8 fail. I5 (move) still passes, correctly. For an `UPDATE`, Postgres also checks the new row against the policy's `USING`, so moving a row out of the tenant is refused while `USING` holds. A move needs **both** clauses broken, and a weak `WITH CHECK` alone is caught by the insert checks.
+  3. A new table `sweep_probe (id, tenant_id)` without a fixture: I1 fails, so a new table can't slip past.
+- Grants vs RLS per table, asserted by the sweep:
+  - `audit_event` is fully append-only for the app role, so update, move and delete are refused by grants.
+  - `outbox_event` lets the app update only its delivery columns. RLS confines those updates (I4), and grants refuse moving and deleting.
+  - The other 12 tables rely on RLS for every operation.
+
 ## Out of scope (tracked)
 
 | Gap | Milestone |

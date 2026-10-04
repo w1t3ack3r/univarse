@@ -44,9 +44,9 @@ Any failure here is a release blocker.
 | Layer | Status | Where | Gap to close |
 |-------|--------|-------|--------------|
 | 1. Static (RLS checker) | ✅ Complete for current tables. Negative control verified (flags missing RLS, FORCE, policy, non-tenant unique, non-tenant FK) | `packages/db/scripts/rls-check.ts` (CI gate) | — |
-| 2. Dynamic DB | 🟡 **Partial.** Hand-written cases on `user_account`, `org_unit`, `session` (FK), `audit_event` (grants), plus the no-context and cannot-bypass-RLS checks | `packages/db/test/isolation.int.spec.ts` | Generic sweep: iterate *every* tenant table from `pg_catalog` and assert read/update/delete/insert isolation automatically |
+| 2. Dynamic DB | ✅ **Complete.** Generic sweep over every tenant table discovered from `pg_catalog`, in two fresh tenants: read, update, move, delete, insert and no-context checks ([spec 0004](specs/0004-isolation-sweep.md)). A tenant table without a fixture fails the build. Hand-written FK and grant cases remain | `packages/db/test/isolation-sweep.int.spec.ts`, `isolation.int.spec.ts` | — (new tables are covered automatically, or the sweep fails) |
 | 3. API | 🟡 **Partial.** Host → tenant resolution; tenant session rejected on another tenant's host (`/me`, `/users`); same username across tenants; admin list excludes other tenant's users | `apps/api/src/app.int.spec.ts`, `modules/identity/auth.int.spec.ts` | Route-table sweep: for every resource route, request tenant B's IDs with tenant A's session → 404 |
-| 4. Jobs | ⏳ Not applicable yet (no queues) | — | Arrives with the outbox/BullMQ slice |
+| 4. Jobs | ✅ for the outbox worker: a pass for tenant A never claims B's events, and B's rows are invisible under A's context (live RLS). Inactive products' events wait | `apps/api/src/shared/outbox/outbox.int.spec.ts` (B8, B10) | Repeat for each new job type |
 | 5. Caches / files | 🟡 Rate-limit keys are tenant-prefixed. No file storage yet | `shared/infra/rate-limiter.ts` | Presigned-URL and cache-key tests with the files module |
 
 Mutation checks were run on the auth slice (2026-09-30). Disabling the permission check, CSRF, session expiry, or Host-based tenant resolution each made the suite fail.
