@@ -110,15 +110,16 @@ Spec first (spec 0004 for Teaching & Learning, spec 0005 for Assessment; spec 00
 Per ADR-022. It starts with a **cost and bandwidth spike** (1 week): SFU egress per participant at audio+slides vs video, TURN usage, recording storage. Then:
 - Self-hosted LiveKit (SFU + TURN + egress) in the infra plan. Join tokens minted by the API for registered members only
 - Lecturer publishes, students request to speak. Presence-based attendance. Polls/Q&A from Phase 4b inside the call
-- Audio + slides default, simulcast, low-data mode. Recordings → scanned course materials
+- Audio + slides default. **Video implemented and optional**: lecturer camera and screen share, student cameras allowed per course, simulcast layers, per-participant audio-only receive (low-data mode). Recordings → scanned course materials, plus an audio + slides rendition of video sessions
 - Audit of joins, leaves, role changes and recordings. Egress cost per tenant
 
-**Exit:** 300 participants per room on a constrained-bandwidth load test, with audio continuity ≥ 99%. Recordings appear in the course space. Isolation: a Live spike leaves other products within SLO.
+**Exit:** 300 participants per room on a constrained-bandwidth load test, with audio continuity ≥ 99%. The test is run in both modes: audio + slides, and lecturer video on with most students on audio-only receive. Recordings appear in the course space. Isolation: a Live spike leaves other products within SLO.
 
 ## Phase 5 — Examinations & Results (~8 wks)
 
 - Venues, exam timetable with conflict detection, invigilators, eligibility, dockets
 - Assessment schemes, score entry grid + CSV upload, **approval workflow with SoD**, broadsheets/mastersheets, statistics, Senate recording, publication, student result view, statement of result
+- CA components **always** accept typed or CSV-uploaded scores, so institutions without CA CBT (not entitled, or not live yet) run paper CA as today. Where CBT is used, released CBT scores arrive through `assessment.ca_scores_released` (Phase 4b contract) into the same CA component
 - **GPA/CGPA/standing engine** with golden fixtures from the pilot institution, amendments, probation/withdrawal recommendations
 - Anomaly detection jobs on score changes
 
