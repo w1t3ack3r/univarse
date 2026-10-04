@@ -3,8 +3,10 @@ import { ShardRegistry } from '../../shared/db/db.module.js';
 import { CurrentTenant } from '../../shared/tenancy/tenant.guard.js';
 import type { TenantContext } from '../../shared/tenancy/tenant-resolver.service.js';
 import { RequirePermission } from './access.guard.js';
+import { Product } from '../products/product.guard.js';
 
 @Controller('api/v1/users')
+@Product('core')
 export class UsersController {
   constructor(private readonly shards: ShardRegistry) {}
 

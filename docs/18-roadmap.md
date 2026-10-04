@@ -15,6 +15,7 @@ gantt
   P3 Admissions + Bursary   :p3, after p2, 8
   P4 Records + Registration :p4, after p3, 6
   P4b Teaching + CA CBT     :p4b, after p4, 7
+  P4c UniVarse Live (media) :p4c, after p4b, 5
   P5 Exams + Results        :p5, after p4b, 8
   section Pilot
   Pilot tenant go-live (returning students) :milestone, after p5, 0
@@ -89,7 +90,7 @@ gantt
 
 ## Phase 4b — Teaching & Learning + Assessment (CA CBT) (~7 wks)
 
-Spec first (spec 0003 for Teaching & Learning, spec 0004 for Assessment) from [05 §18–19](05-modules-and-features.md).
+Spec first (spec 0004 for Teaching & Learning, spec 0005 for Assessment; spec 0003 is product entitlements) from [05 §18–19](05-modules-and-features.md).
 
 - **Product plumbing (ADR-020):** `tenant_product` entitlements, `@Product()` route/job guard, `PRODUCTS=…` runtime roles (`api-learning`, `realtime`), per-role PgBouncer pools, per-product queues and rate limits
 - Course spaces from registration events. Materials, announcements, assignments with submission, marking and release
@@ -103,6 +104,16 @@ Spec first (spec 0003 for Teaching & Learning, spec 0004 for Assessment) from [0
 - Crash/reconnect tests: no acknowledged answer lost. Submission is exactly-once under parallel submits
 - Integrity: attempt logs are append-only and audited. Score changes after release only via the amendment path
 - Live engagement: 500 concurrent participants with poll/Q&A round-trip p95 ≤ 1 s
+
+## Phase 4c — UniVarse Live (media) (~5 wks, parallel with Phase 5)
+
+Per ADR-022. It starts with a **cost and bandwidth spike** (1 week): SFU egress per participant at audio+slides vs video, TURN usage, recording storage. Then:
+- Self-hosted LiveKit (SFU + TURN + egress) in the infra plan. Join tokens minted by the API for registered members only
+- Lecturer publishes, students request to speak. Presence-based attendance. Polls/Q&A from Phase 4b inside the call
+- Audio + slides default, simulcast, low-data mode. Recordings → scanned course materials
+- Audit of joins, leaves, role changes and recordings. Egress cost per tenant
+
+**Exit:** 300 participants per room on a constrained-bandwidth load test, with audio continuity ≥ 99%. Recordings appear in the course space. Isolation: a Live spike leaves other products within SLO.
 
 ## Phase 5 — Examinations & Results (~8 wks)
 

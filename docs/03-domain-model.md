@@ -16,6 +16,7 @@ Entities per bounded context, their key fields, invariants and lifecycles. This 
 | `Plan`, `Subscription`, `PlatformInvoice` | pricePerStudentKobo, billingCycle, studentCountSnapshot | Platform revenue only |
 | `PlatformUser`, `PlatformSession`, `PlatformMfaFactor` | email, role (`OWNER`/`SUPER_ADMIN`/`SUPPORT`/`FINANCE`/`READ_ONLY`), ipAllowlist | Never stored in tenant DBs |
 | `ProvisioningJob`, `MigrationRun` | tenantId/shardId, step, status, log | Resumable, idempotent |
+| `TenantProduct` | tenantId, product, entitled, enabled, updatedBy | Product suite (ADR-020, [spec 0003](specs/0003-product-entitlements.md)). Active = entitled AND enabled. `core` is always active. The platform writes `entitled` and the institution's IT Admin switches `enabled`. A DB CHECK enforces enabled ⇒ entitled |
 | `TenantFeature` | tenantId, flag, enabled | |
 | `PlatformAnnouncement`, `PlatformTicket`, `PlatformTicketMessage` | | Tenant admins ↔ UniVarse support |
 | `PlatformAuditEvent` | actor, action, tenantId?, metadata, ip, prevHash, hash | Hash-chained |

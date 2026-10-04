@@ -137,7 +137,7 @@ Part S was implemented twice in parallel (an interrupted local session and a clo
 | Browser verification of reset / MFA / step-up over HTTP | Harness extension at the close of spec 0001 |
 | Generic all-table isolation sweep | Phase 0 (before Phase 0 exit) |
 | R15 test would not detect removal of the reset floor alone | The next change to reset code |
-| Permission-flagged step-up integration test (S9) | The first route using a `stepUp` permission (role assignment, Phase 2) |
+| ~~Permission-flagged step-up integration test (S9)~~ | **Closed** by spec 0003: `PUT /api/v1/admin/products/{product}` uses `settings.product.manage` (stepUp) and is tested for 428 |
 | WebAuthn/passkeys | Phase 8. SMS as a second factor is **not** allowed for privileged users ([08 §3.2](../08-security.md)) |
 
 Until the audit slice lands, security-relevant events are logged via the `Auth`/`Sessions`/`Mfa` loggers.

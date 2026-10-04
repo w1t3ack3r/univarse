@@ -11,6 +11,7 @@ import { AllowRestricted, Authenticated, CurrentActor, Public, RequireStepUp } f
 import type { Actor } from './actor.js';
 import { MfaService } from './mfa.service.js';
 import { CHALLENGE_COOKIE, clearedChallengeCookie, readSessionCookie, sessionCookie } from './session.service.js';
+import { Product } from '../products/product.guard.js';
 
 const Verify = z.union([
   z.object({ code: z.string().regex(/^\d{6}$/) }).strict(),
@@ -28,6 +29,7 @@ const meta = (req: FastifyRequest) => ({ ip: req.ip, userAgent: req.headers['use
  * (M9a, M15′). Step-up itself is POST /auth/step-up (AuthController): it serves non-MFA users too.
  */
 @Controller('api/v1/auth/mfa')
+@Product('core')
 export class MfaController {
   constructor(
     private readonly mfa: MfaService,

@@ -28,7 +28,7 @@ describe('[S1] step-up window', () => {
 describe('[S9] permission-flagged step-up', () => {
   it('flags exactly the catalog permissions marked stepUp', () => {
     const flagged = (Object.keys(PERMISSIONS) as Permission[]).filter(requiresStepUp).sort();
-    expect(flagged).toEqual(['identity.role.assign', 'settings.tenant.manage']);
+    expect(flagged).toEqual(['identity.role.assign', 'settings.product.manage', 'settings.tenant.manage']);
   });
 
   it('does not flag ordinary permissions', () => {
