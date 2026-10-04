@@ -185,3 +185,18 @@ Alternatives considered: option — why not.
 5. **Lawful transfer between controllers** (DPA between institutions and a documented lawful basis) before any personal data crosses tenants.
 
 **Consequences:** Today's code must not assume a person belongs to two tenants, and must not add cross-tenant joins. Both are already prevented by RLS and composite FKs. A future "federation" control-plane module will own agreements and signed record exchange.
+
+## ADR-022 — UniVarse Live: our own live-lecture experience on a self-hosted open-source media server
+**Status:** Accepted (2026-10-05). Supersedes the "integrate Meet/Zoom/Jitsi" row in [05 §18](05-modules-and-features.md).
+**Context:** Live lectures should feel built for UniVarse: joined from the course page, access by registration, automatic attendance, our polls and Q&A in the call, recordings in the course space, all under our audit and tenant isolation. Building a real-time media engine (WebRTC SFU, TURN, simulcast, recording) from scratch is years of specialist work and not where UniVarse differentiates.
+**Decision:** **Own the experience, not the codec.** Self-host an open-source SFU (**LiveKit**, preferred: Apache-2.0, server SDKs, recording/egress). Everything around it is UniVarse:
+- room creation per live session,
+- short-lived join tokens minted by our API only for registered members (permissions by role: lecturer publishes, students subscribe and request to speak),
+- attendance from presence plus the existing check-in,
+- polls/Q&A on the `realtime` role,
+- recordings stored as course materials (scanned, presigned),
+- every join, leave, role change and recording action audited.
+
+**Designed for Nigerian networks:** audio + slides by default, video optional, simulcast with low layers, adaptive bitrate, low-data mode, and short downloadable recordings for students who missed it.
+**Consequences:** We run media infrastructure: SFU nodes, TURN, egress bandwidth (cost-tracked per tenant) and recording storage. It's a separate product capability within Teaching & Learning (entitlement `teaching`, sub-feature flag `teaching.live`). It needs its own load test (target: 300 participants per room on constrained bandwidth). **Phasing:** in-lecture engagement (attendance/polls/Q&A for in-person lectures) ships in Phase 4b. UniVarse Live (media) follows as Phase 4c, after a cost and bandwidth spike.
+**Alternatives:** Pure integration with Meet/Zoom (fast, but outside our identity, audit and data control). Building an SFU from scratch (excessive effort and risk).

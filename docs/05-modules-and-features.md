@@ -241,7 +241,7 @@ A product of its own ([01 §5.1](01-product-brief.md)). It can be enabled withou
 | **Assignments**: instructions, due date, late policy, file/text submissions, plagiarism-check hook (`[VERIFY]` provider later) | M | Submissions are immutable once submitted (resubmission creates a new version while the window is open). Server time decides lateness |
 | Marking: rubric or score, feedback, release of marks | M | Released assignment marks can feed a score-sheet CA component (same contract as CA tests). Changes after release are audited |
 | Discussion forum per course | L | |
-| Video lectures: **integrate** (Google Meet/Zoom/Jitsi links + recordings as materials), not build | S | |
+| **UniVarse Live** (ADR-022, `[PHASE 4c]`): our own live lectures on a self-hosted LiveKit SFU. Join from the course page, registration-based access, lecturer publishes and students request to speak, presence-based attendance, our polls/Q&A in the call, recordings saved as materials. **Audio + slides by default**, video optional, low-data mode | S | Join tokens are minted only for registered members and expire in ≤ 10 min. Every join/leave/role change/recording is audited. Load test: 300 participants per room on constrained bandwidth. Egress cost tracked per tenant |
 | 3D virtual labs for practical-heavy courses | **Deferred** | Embeddable sandboxed content keeps the door open ([01 §5.5](01-product-brief.md)) |
 
 ## 19. Assessment — CA CBT (St, W) — `[PHASE 4b]`
