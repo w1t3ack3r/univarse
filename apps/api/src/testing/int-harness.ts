@@ -1,6 +1,8 @@
 // Shared integration-test harness: real DBs + Valkey, captured email, per-run unique users.
 import { randomBytes, randomInt } from 'node:crypto';
 import { existsSync } from 'node:fs';
+import type { INestApplicationContext } from '@nestjs/common';
+import { NestFactory } from '@nestjs/core';
 import type { NestFastifyApplication } from '@nestjs/platform-fastify';
 import {
   createPlatformClient,
@@ -13,6 +15,8 @@ import { createApp } from '../bootstrap.js';
 import { loadConfig } from '../config/config.js';
 import { hashPassword } from '../modules/identity/password.js';
 import type { OutboundEmail } from '../shared/infra/mailer.js';
+import { OutboxWorker, type BatchCounts } from '../shared/outbox/outbox-worker.js';
+import { WorkerModule } from '../worker.module.js';
 
 const rootEnv = new URL('../../../../.env', import.meta.url);
 if (existsSync(rootEnv)) process.loadEnvFile(rootEnv);
@@ -46,7 +50,14 @@ export interface Harness {
   shard: TenantShardClient;
   platform: PlatformClient;
   tenants: { demo: string; poly: string };
+  /** Emails the worker delivered (the capture mailer's inbox). */
   outbox: OutboundEmail[];
+  /** The outbox worker, in-process, sending to the capture mailer. */
+  worker: OutboxWorker;
+  /** The worker's Nest context (its own ProductService cache, like the real worker process). */
+  workerCtx: INestApplicationContext;
+  /** Runs the worker until nothing is due. Email is delivered by the worker, never by requests (spec 0002 B7). */
+  deliver(): Promise<BatchCounts>;
   run: string;
   mailsTo(address: string): OutboundEmail[];
   /** Waits until `address` has more than `after` emails matching `subject`; returns the newest. Email is async. */
@@ -77,14 +88,28 @@ export async function createHarness(opts: { mailDelayMs?: number } = {}): Promis
     demo: (await platform.tenant.findUniqueOrThrow({ where: { slug: 'demo-uni' } })).id,
     poly: (await platform.tenant.findUniqueOrThrow({ where: { slug: 'test-poly' } })).id,
   };
-  const app = await createApp(loadConfig({ ...process.env, NODE_ENV: 'test' }), {
-    mailer: {
-      send: async (m) => {
-        if (opts.mailDelayMs) await new Promise((r) => setTimeout(r, opts.mailDelayMs));
-        outbox.push(m);
+  const config = loadConfig({ ...process.env, NODE_ENV: 'test' });
+  const app = await createApp(config);
+  const workerCtx: INestApplicationContext = await NestFactory.createApplicationContext(
+    WorkerModule.forRoot(config, {
+      mailer: {
+        send: async (m) => {
+          if (opts.mailDelayMs) await new Promise((r) => setTimeout(r, opts.mailDelayMs));
+          outbox.push(m);
+        },
       },
-    },
-  });
+    }),
+    { logger: false },
+  );
+  const worker = workerCtx.get(OutboxWorker);
+  const deliver = async (): Promise<BatchCounts> => {
+    const total: BatchCounts = { claimed: 0, sent: 0, retried: 0, dead: 0 };
+    for (;;) {
+      const c = await worker.runOnce();
+      for (const k of Object.keys(total) as (keyof BatchCounts)[]) total[k] += c[k];
+      if (c.claimed === 0) return total;
+    }
+  };
   const run = randomBytes(3).toString('hex').toUpperCase();
   const created: { tenantId: string; userId: string }[] = [];
 
@@ -108,6 +133,9 @@ export async function createHarness(opts: { mailDelayMs?: number } = {}): Promis
     platform,
     tenants,
     outbox,
+    worker,
+    workerCtx,
+    deliver,
     run,
     mailsTo: (address) => outbox.filter((m) => m.to === address),
     async waitForMail(address, subject, after) {
@@ -115,6 +143,7 @@ export async function createHarness(opts: { mailDelayMs?: number } = {}): Promis
       for (;;) {
         const matching = outbox.filter((m) => m.to === address && subject.test(m.subject));
         if (matching.length > after) return matching.at(-1)!;
+        await deliver();
         if (Date.now() > deadline) throw new Error(`No new ${subject} email for ${address} within 5s`);
         await new Promise((r) => setTimeout(r, 25));
       }
@@ -148,6 +177,7 @@ export async function createHarness(opts: { mailDelayMs?: number } = {}): Promis
       await shard.$disconnect();
       await platform.$disconnect();
       await app.close();
+      await workerCtx.close();
     },
   };
 }

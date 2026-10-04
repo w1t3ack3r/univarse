@@ -5,6 +5,8 @@
  */
 import { randomBytes, randomInt } from 'node:crypto';
 import { existsSync } from 'node:fs';
+import type { INestApplicationContext } from '@nestjs/common';
+import { NestFactory } from '@nestjs/core';
 import type { NestFastifyApplication } from '@nestjs/platform-fastify';
 import { createPlatformClient, createTenantShardClient, forTenant, type PlatformClient, type TenantShardClient } from '@univarse/db';
 import { TenantResolver } from '../../shared/tenancy/tenant-resolver.service.js';
@@ -12,7 +14,9 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createApp } from '../../bootstrap.js';
 import { loadConfig } from '../../config/config.js';
 import type { Mailer, OutboundEmail } from '../../shared/infra/mailer.js';
+import { OutboxWorker } from '../../shared/outbox/outbox-worker.js';
 import { enrolTestTotp, totpCode } from '../../testing/mfa-helpers.js';
+import { WorkerModule } from '../../worker.module.js';
 import { hashPassword } from './password.js';
 
 const rootEnv = new URL('../../../../../.env', import.meta.url);
@@ -32,6 +36,11 @@ const captureMailer: Mailer = {
 };
 
 let app: NestFastifyApplication;
+let workerCtx: INestApplicationContext;
+/** Email goes through the outbox (spec 0002 B7): run the worker before looking at captured mail. */
+const deliver = async () => {
+  while ((await workerCtx.get(OutboxWorker).runOnce()).claimed > 0);
+};
 let shard: TenantShardClient;
 const tenants: { demo: string; poly: string; [slug: string]: string } = { demo: '', poly: '' };
 let platform: PlatformClient;
@@ -111,10 +120,10 @@ beforeAll(async () => {
     tenants[k] = (await platform.tenant.findUniqueOrThrow({ where: { slug } })).id;
   }
   shard = createTenantShardClient(process.env.TENANT_POOL_01_DATABASE_URL!);
-  app = await createApp(loadConfig({ ...process.env, NODE_ENV: 'test' }), { mailer: captureMailer });
-  appBehindEdge = await createApp(loadConfig({ ...process.env, NODE_ENV: 'test', TRUSTED_PROXIES: '127.0.0.1' }), {
-    mailer: captureMailer,
-  });
+  const config = loadConfig({ ...process.env, NODE_ENV: 'test' });
+  app = await createApp(config);
+  appBehindEdge = await createApp(loadConfig({ ...process.env, NODE_ENV: 'test', TRUSTED_PROXIES: '127.0.0.1' }));
+  workerCtx = await NestFactory.createApplicationContext(WorkerModule.forRoot(config, { mailer: captureMailer }), { logger: false });
 });
 
 afterAll(async () => {
@@ -123,17 +132,20 @@ afterAll(async () => {
   await platform.$disconnect();
   await app.close();
   await appBehindEdge.close();
+  await workerCtx.close();
 });
 
 describe('activation', () => {
   it('emails a code to a pending account and answers identically for unknown accounts', async () => {
     const u = await makeUser('demo', { role: 'STUDENT', active: false });
+    await deliver();
     const before = outbox.length;
     const known = await call('POST', DEMO, '/api/v1/auth/activation/request', { body: { username: u.username } });
     const unknown = await call('POST', DEMO, '/api/v1/auth/activation/request', { body: { username: `NOPE-${run}` } });
     expect(known.statusCode).toBe(202);
     expect(unknown.statusCode).toBe(202);
     expect(unknown.json()).toEqual(known.json());
+    await deliver();
     expect(outbox.length).toBe(before + 1);
     expect(outbox.at(-1)!.to).toBe(`${u.username.toLowerCase()}@test.local`);
     expect(outbox.at(-1)!.text).toMatch(/\b\d{6}\b/);
@@ -142,7 +154,8 @@ describe('activation', () => {
   it('activates with the right code, rejects weak passwords, and codes are single-use', async () => {
     const u = await makeUser('demo', { role: 'STUDENT', active: false });
     await call('POST', DEMO, '/api/v1/auth/activation/request', { body: { username: u.username } });
-    const code = /\b(\d{6})\b/.exec(outbox.at(-1)!.text)![1]!;
+    await deliver();
+    const code =/\b(\d{6})\b/.exec(outbox.at(-1)!.text)![1]!;
 
     const weak = await call('POST', DEMO, '/api/v1/auth/activation/confirm', { body: { username: u.username, code, password: 'password123' } });
     expect(weak.statusCode).toBe(422);
@@ -164,7 +177,8 @@ describe('activation', () => {
   it('locks a code after 5 wrong attempts, even if the 6th is correct', async () => {
     const u = await makeUser('demo', { role: 'STUDENT', active: false });
     await call('POST', DEMO, '/api/v1/auth/activation/request', { body: { username: u.username } });
-    const code = /\b(\d{6})\b/.exec(outbox.at(-1)!.text)![1]!;
+    await deliver();
+    const code =/\b(\d{6})\b/.exec(outbox.at(-1)!.text)![1]!;
     const wrong = code === '000000' ? '111111' : '000000';
     for (let i = 0; i < 5; i++) {
       const r = await call('POST', DEMO, '/api/v1/auth/activation/confirm', { body: { username: u.username, code: wrong, password: PASSWORD } });

@@ -19,6 +19,8 @@ const schema = z.object({
     .refine((list) => list.every((s) => /^[0-9a-fA-F:.]+(\/\d{1,3})?$/.test(s)), 'must be IPs or CIDRs'),
   /** How long a resolved host→tenant mapping is cached in memory. */
   TENANT_CACHE_TTL_MS: z.coerce.number().int().min(0).default(30_000),
+  // Outbox worker poll interval (spec 0002 Part B).
+  WORKER_POLL_MS: z.coerce.number().int().min(100).default(2_000),
   /** Valkey/Redis for rate limiting (later: sessions cache, queues). */
   VALKEY_URL: z.string().startsWith('redis://'),
   /** Server-side secret mixed into one-time-code hashes so a DB leak can't brute-force 6-digit codes. */

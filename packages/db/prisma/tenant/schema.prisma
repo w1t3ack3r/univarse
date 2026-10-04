@@ -310,18 +310,35 @@ model AuditEvent {
 }
 
 /// Transactional outbox (ADR-008). Only publish bookkeeping columns are updatable by the app.
+enum OutboxStatus {
+  PENDING
+  SENT
+  DEAD
+}
+
+/// Transactional outbox (spec 0002 Part B). Written in the business transaction; delivered by the worker.
 model OutboxEvent {
-  id          String    @id @default(dbgenerated("uuidv7()")) @db.Uuid
-  tenantId    String    @map("tenant_id") @db.Uuid
-  type        String
-  payload     Json
-  occurredAt  DateTime  @default(now()) @map("occurred_at") @db.Timestamptz(3)
-  publishedAt DateTime? @map("published_at") @db.Timestamptz(3)
-  attempts    Int       @default(0)
-  lastError   String?   @map("last_error")
+  id            String       @id @default(dbgenerated("uuidv7()")) @db.Uuid
+  tenantId      String       @map("tenant_id") @db.Uuid
+  type          String
+  /// Owning product (spec 0003 P10): events of inactive products wait.
+  product       String       @default("core")
+  /// Legacy plaintext payload; unused for email (secrets). Kept nullable (expand/contract).
+  payload       Json?
+  /// Field-encrypted payload (AAD = tenant:id). Wiped after delivery.
+  payloadEnc    String?      @map("payload_enc")
+  status        OutboxStatus @default(PENDING)
+  nextAttemptAt DateTime     @default(now()) @map("next_attempt_at") @db.Timestamptz(3)
+  occurredAt    DateTime     @default(now()) @map("occurred_at") @db.Timestamptz(3)
+  /// Delivery time.
+  publishedAt   DateTime?    @map("published_at") @db.Timestamptz(3)
+  attempts      Int          @default(0)
+  /// Error class and codes only — never the message (may contain addresses).
+  lastError     String?      @map("last_error")
 
   @@unique([tenantId, id])
   @@index([tenantId, publishedAt])
+  @@index([tenantId, status, nextAttemptAt])
   @@map("outbox_event")
 }
 

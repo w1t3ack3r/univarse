@@ -67,8 +67,8 @@ export class ShardRegistry implements OnApplicationBootstrap, OnApplicationShutd
   }
 
   /** Multi-statement use cases: one transaction, RLS context set first. */
-  async tx<T>(shardId: string, tenantId: string, fn: (tx: TenantTx) => Promise<T>): Promise<T> {
-    return withTenantTx(await this.client(shardId), tenantId, fn);
+  async tx<T>(shardId: string, tenantId: string, fn: (tx: TenantTx) => Promise<T>, options?: { timeoutMs?: number }): Promise<T> {
+    return withTenantTx(await this.client(shardId), tenantId, fn, options);
   }
 
   /** For readiness checks only — never for data access. */

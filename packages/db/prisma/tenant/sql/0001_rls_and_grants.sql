@@ -32,4 +32,4 @@ SELECT univarse_enable_tenant_rls(t::regclass) FROM unnest(ARRAY[
 -- Append-only tables: enforced by grants, not convention (docs/07 §1).
 REVOKE UPDATE, DELETE, TRUNCATE ON audit_event FROM univarse_app;
 REVOKE UPDATE, DELETE, TRUNCATE ON outbox_event FROM univarse_app;
-GRANT UPDATE (published_at, attempts, last_error) ON outbox_event TO univarse_app;
+GRANT UPDATE (published_at, attempts, last_error, status, next_attempt_at, payload_enc) ON outbox_event TO univarse_app;

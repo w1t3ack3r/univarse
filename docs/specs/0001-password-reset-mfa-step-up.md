@@ -33,8 +33,8 @@ These were missing from the first version of the spec. Two exposed real bugs (R1
 | R12 | *Concurrent confirms.* N parallel confirmations with the same valid code yield **exactly one** success. | **Bug found**: 4 of 4 succeeded. Fixed with an atomic conditional consume. Test: `reset-hardening.int.spec.ts` |
 | R13 | *Concurrent guessing.* Parallel wrong codes can't exceed the 5-attempt budget: every check reserves an attempt with a conditional `UPDATE … WHERE attempts < 5` before comparing. | **Bug found**: 6 attempts were recorded. Fixed the same way. Both R12 and R13 fail when the fix is reverted (mutation-checked) |
 | R14 | *Eligibility re-checked at confirm.* An account that becomes `DISABLED` or `LOCKED` after the code was issued can't complete the reset, and its password is unchanged. | Behaviour was already correct; it's now tested |
-| R15 | *Timing.* Request and confirm aim for consistent response timing whether or not the account exists (OWASP Forgot Password cheat sheet): (a) code emails are sent without awaiting SMTP, (b) these endpoints have a 400 ms response floor (`withMinimumDuration`). | **Scope of the claim:** the *SMTP timing leak is fixed under the tested conditions*: 250 ms simulated SMTP, median of 7 samples, difference under 40 ms. This is a specific improvement, **not** complete protection against enumeration. A floor hides nothing once processing exceeds 400 ms (DB contention, cold connections, load), and the test doesn't cover those. Residual risk is accepted for Phase 0. Revisit with load-test timing data |
-| R15a | *Durable delivery.* Code and notification emails survive process restarts and are retried. | **Not done.** The send is in-process and unawaited, so a message pending at shutdown is lost and failures are only logged. Owned by the outbox/worker slice (roadmap Phase 0) |
+| R15 | *Timing.* Request and confirm aim for consistent response timing whether or not the account exists (OWASP Forgot Password cheat sheet): (a) code emails are never sent from the request: they are enqueued in the outbox in the same transaction and delivered by the worker (spec 0002 B7; until then: sent without awaiting SMTP), (b) these endpoints have a 400 ms response floor (`withMinimumDuration`). | **Scope of the claim:** the *SMTP timing leak is fixed under the tested conditions*: 250 ms simulated SMTP, median of 7 samples, difference under 40 ms. This is a specific improvement, **not** complete protection against enumeration. A floor hides nothing once processing exceeds 400 ms (DB contention, cold connections, load), and the test doesn't cover those. Residual risk is accepted for Phase 0. Revisit with load-test timing data |
+| R15a | *Durable delivery.* Code and notification emails survive process restarts and are retried. | **Done** by spec 0002 Part B: transactional outbox, encrypted payload, retries with backoff, `DEAD` after 8 attempts, delivery after a restart (B1–B5) |
 | R16 | *Reset invalidates pending MFA challenges.* A password reset revokes every outstanding MFA login challenge for the user. | **Tracked as M11** below. Can't be tested until challenges exist |
 
 ## Part M — TOTP multi-factor (PR 2)
@@ -66,7 +66,7 @@ These were missing from the first version of the spec. Two exposed real bugs (R1
 - **22 tests, one or more per M-criterion.** Mutation checks: disabling the replay guard (M5), session rotation (M14), challenge revocation on reset (M11), the restricted-session guard (M8), or the verify floor (M13) each fails at least one test.
 - **~~Accepted equivalent mutant (M12)~~ superseded by the layered analysis above.** The first claim was incomplete: the backstop was not side-effect free.
 - **M13 measurement:** without the floor, wrong-code verifies were **~3–4 ms slower, consistently** than unknown-challenge verifies (3 runs). With the 400 ms floor the gap was noise (−5.5 ms). The test therefore also asserts that the floor is in force; a 40 ms tolerance alone cannot see a 3 ms leak. Claim scope: *tested conditions only*, as for R15.
-- **Known test gap (reset slice, not reopened):** the R15 test detects the SMTP gap but would not detect removal of the reset floor alone. Fix it the same way when the reset code is next touched.
+- **Known test gap (closed 2026-10-05):** the R15 test detected the SMTP gap but not removal of the reset floor alone. Both R15 tests now also assert the floor, as M13 does.
 
 ### Part M design decisions (decided before implementation)
 
@@ -130,13 +130,13 @@ Part S was implemented twice in parallel (an interrupted local session and a clo
 
 | Gap | Milestone |
 |-----|-----------|
-| Durable, retried email delivery (R15a) | Outbox/worker slice: next Phase 0 slice after spec 0001 |
+| ~~Durable, retried email delivery (R15a)~~ | **Closed** by spec 0002 Part B |
 | Hash-chained audit events for reset/MFA/step-up | Audit slice: Phase 0, alongside the outbox |
 | Envelope encryption: KMS-wrapped per-tenant DEKs (ADR-018) | **Gate before the staging environment** |
 | HTTPS browser verification (cookies + proxy on real TLS) | Staging environment (Phase 0 exit) |
 | Browser verification of reset / MFA / step-up over HTTP | Harness extension at the close of spec 0001 |
 | Generic all-table isolation sweep | Phase 0 (before Phase 0 exit) |
-| R15 test would not detect removal of the reset floor alone | The next change to reset code |
+| ~~R15 test would not detect removal of the reset floor alone~~ | **Closed** in spec 0002 Part B: both R15 tests also assert the 400 ms floor; removing either floor fails them (mutation-checked) |
 | ~~Permission-flagged step-up integration test (S9)~~ | **Closed** by spec 0003: `PUT /api/v1/admin/products/{product}` uses `settings.product.manage` (stepUp) and is tested for 428 |
 | WebAuthn/passkeys | Phase 8. SMS as a second factor is **not** allowed for privileged users ([08 §3.2](../08-security.md)) |
 
