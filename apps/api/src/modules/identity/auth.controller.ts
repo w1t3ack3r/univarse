@@ -16,6 +16,15 @@ const ConfirmActivation = z
   .object({ username: Identifier, code: z.string().regex(/^\d{6}$/), password: z.string().min(1).max(256) })
   .strict();
 const Login = z.object({ username: Identifier, password: z.string().min(1).max(256) }).strict();
+/** S2: password, plus a TOTP code or a recovery code for MFA users (never both). */
+const StepUp = z
+  .object({
+    password: z.string().min(1).max(256),
+    code: z.string().regex(/^\d{6}$/).optional(),
+    recoveryCode: z.string().trim().min(10).max(20).optional(),
+  })
+  .strict()
+  .refine((v) => !(v.code && v.recoveryCode), 'Send either code or recoveryCode, not both');
 
 const meta = (req: FastifyRequest) => ({ ip: req.ip, userAgent: req.headers['user-agent'] });
 
@@ -75,6 +84,23 @@ export class AuthController {
     }
     void reply.header('set-cookie', sessionCookie(result.token, result.maxAgeSec));
     return { user: result.user, ...(result.mfaEnrolmentRequired ? { mfaEnrolmentRequired: true } : {}) };
+  }
+
+  /** S1–S8, S11, S12. NOT @AllowRestricted: an enrolment-only session can't step up (S8). */
+  @Post('step-up')
+  @Authenticated()
+  @HttpCode(200)
+  async stepUp(
+    @CurrentTenant() tenant: TenantContext,
+    @CurrentActor() actor: Actor,
+    @Body() body: unknown,
+    @Req() req: FastifyRequest,
+    @Res({ passthrough: true }) reply: FastifyReply,
+  ) {
+    const session = await this.auth.stepUp(tenant, actor, parse(StepUp, body), meta(req));
+    // S3: the old token is already revoked; this cookie replaces it.
+    void reply.header('set-cookie', sessionCookie(session.token, session.maxAgeSec));
+    return { stepUp: true };
   }
 
   @Post('logout')

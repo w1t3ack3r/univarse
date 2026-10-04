@@ -6,18 +6,19 @@ import { MAILER, type Mailer } from '../../shared/infra/mailer.js';
 import { RateLimiter } from '../../shared/infra/rate-limiter.js';
 import { withMinimumDuration } from '../../shared/http/timing.js';
 import type { TenantContext } from '../../shared/tenancy/tenant-resolver.service.js';
-import { needsMfa } from './actor.js';
+import { needsMfa, type Actor } from './actor.js';
 import { MfaService } from './mfa.service.js';
 import { OneTimeCodeService, type CodePurpose } from './one-time-code.service.js';
-import { hashPassword, needsRehash, passwordProblems, verifyAgainstDummy, verifyPassword } from './password.js';
+import { PasswordAttempts } from './password-attempts.service.js';
+import { hashPassword, needsRehash, passwordProblems, verifyAgainstDummy } from './password.js';
 import { SessionService, type SessionMeta } from './session.service.js';
 import { normaliseIdentifier } from './tokens.js';
 
-const LOCK_AFTER_FAILURES = 10;
-const LOCK_MS = 15 * 60_000;
 /** Response-time floors for enumeration-sensitive endpoints (R15). Above the slowest non-success path. */
 const REQUEST_FLOOR_MS = 400;
 const CONFIRM_FLOOR_MS = 400;
+/** Same floor as MFA verify (S11). */
+const STEP_UP_FLOOR_MS = 400;
 
 const invalidCredentials = () => new ProblemError(401, 'auth.invalid_credentials', 'Invalid username or password');
 const invalidCode = (purpose: CodePurpose) =>
@@ -60,6 +61,7 @@ export class AuthService {
     private readonly sessions: SessionService,
     private readonly codes: OneTimeCodeService,
     private readonly mfa: MfaService,
+    private readonly passwords: PasswordAttempts,
     private readonly limiter: RateLimiter,
     @Inject(MAILER) private readonly mailer: Mailer,
   ) {}
@@ -71,6 +73,15 @@ export class AuthService {
         retryAfterSec: r.retryAfterSec,
       });
     }
+  }
+
+  /** Login's buckets, shared by step-up (S5): the same keys AND the same rules (counters are per window). */
+  private async limitPasswordAttempt(tenant: TenantContext, ip: string, identifier: string): Promise<void> {
+    await this.limit(`${tenant.tenantId}:login:ip:${ip}`, [{ limit: 50, windowSec: 60 }]);
+    await this.limit(`${tenant.tenantId}:login:ipid:${ip}:${identifier}`, [
+      { limit: 5, windowSec: 60 },
+      { limit: 20, windowSec: 3600 },
+    ]);
   }
 
   private assertPasswordPolicy(tenant: TenantContext, user: NonNullable<UserWithRoles>, password: string): void {
@@ -197,11 +208,7 @@ export class AuthService {
     meta: SessionMeta,
   ): Promise<LoginResult> {
     const id = normaliseIdentifier(input.username);
-    await this.limit(`${tenant.tenantId}:login:ip:${meta.ip}`, [{ limit: 50, windowSec: 60 }]);
-    await this.limit(`${tenant.tenantId}:login:ipid:${meta.ip}:${id.value}`, [
-      { limit: 5, windowSec: 60 },
-      { limit: 20, windowSec: 3600 },
-    ]);
+    await this.limitPasswordAttempt(tenant, meta.ip, id.value);
 
     const db = await this.shards.forTenant(tenant.shardId, tenant.tenantId);
     const user = await db.userAccount.findFirst({ where: id.kind === 'email' ? { email: id.value } : { username: id.value } });
@@ -211,27 +218,8 @@ export class AuthService {
       await verifyAgainstDummy(input.password);
       throw invalidCredentials();
     }
-    if (user.lockedUntil && user.lockedUntil > now) {
-      await verifyAgainstDummy(input.password);
-      throw invalidCredentials();
-    }
-
-    if (!(await verifyPassword(input.password, user.passwordHash))) {
-      // Atomic increment: parallel guesses can't under-count.
-      const { failedLoginCount } = await db.userAccount.update({
-        where: { id: user.id },
-        data: { failedLoginCount: { increment: 1 } },
-        select: { failedLoginCount: true },
-      });
-      if (failedLoginCount >= LOCK_AFTER_FAILURES) {
-        await db.userAccount.update({
-          where: { id: user.id },
-          data: { failedLoginCount: 0, lockedUntil: new Date(now.getTime() + LOCK_MS) },
-        });
-        this.logger.warn(`Account locked after repeated failures tenant=${tenant.slug} user=${user.id}`);
-      }
-      throw invalidCredentials();
-    }
+    // Shared with step-up: lockout check, verification and failure counting (S12).
+    if (!(await this.passwords.verify(tenant, user, input.password))) throw invalidCredentials();
 
     await db.userAccount.update({
       where: { id: user.id },
@@ -255,5 +243,20 @@ export class AuthService {
     // Privileged without a factor ⇒ enrolment-only session until M14 upgrades it.
     const { token, maxAgeSec } = await this.sessions.create(tenant, user.id, meta, { restricted: privileged });
     return { kind: 'session', token, maxAgeSec, user: publicUser, mfaEnrolmentRequired: privileged };
+  }
+
+  /**
+   * Spec 0001 Part S. Shares login's rate-limit buckets and lockout counter (S5, S12). The extra
+   * per-user bucket bounds second-factor guessing even across rotating IPs.
+   */
+  async stepUp(
+    tenant: TenantContext,
+    actor: Actor,
+    input: { password: string; code?: string | undefined; recoveryCode?: string | undefined },
+    meta: SessionMeta,
+  ) {
+    await this.limitPasswordAttempt(tenant, meta.ip, normaliseIdentifier(actor.username).value);
+    await this.limit(`${tenant.tenantId}:step-up:user:${actor.userId}`, [{ limit: 10, windowSec: 900 }]);
+    return withMinimumDuration(STEP_UP_FLOOR_MS, () => this.mfa.stepUp(tenant, actor, input, meta));
   }
 }

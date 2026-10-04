@@ -9,6 +9,7 @@ import { AuthService } from './modules/identity/auth.service.js';
 import { MfaController } from './modules/identity/mfa.controller.js';
 import { MfaService } from './modules/identity/mfa.service.js';
 import { OneTimeCodeService } from './modules/identity/one-time-code.service.js';
+import { PasswordAttempts } from './modules/identity/password-attempts.service.js';
 import { SessionService } from './modules/identity/session.service.js';
 import { UsersController } from './modules/identity/users.controller.js';
 import { TenantProfileController } from './modules/tenant-profile/tenant-profile.controller.js';
@@ -44,6 +45,7 @@ export class AppModule {
         RateLimiter,
         SessionService,
         OneTimeCodeService,
+        PasswordAttempts,
         MfaService,
         AuthService,
         // Guard order matters: resolve the tenant first, then authenticate against it.
