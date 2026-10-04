@@ -21,7 +21,7 @@ const Confirm = z.object({ code: z.string().regex(/^\d{6}$/) }).strict();
 /** Response-time floor for verify (M13): unknown challenge vs wrong code vs bad recovery code. */
 const VERIFY_FLOOR_MS = 400;
 
-const meta = (req: FastifyRequest) => ({ ip: req.ip, userAgent: req.headers['user-agent'] });
+const meta = (req: FastifyRequest) => ({ ip: req.ip, userAgent: req.headers['user-agent'], requestId: req.id });
 
 /**
  * Spec 0001 Part M, plus the MFA-management endpoints that exist only behind @RequireStepUp()
@@ -84,8 +84,8 @@ export class MfaController {
   @Authenticated()
   @RequireStepUp()
   @HttpCode(200)
-  async regenerate(@CurrentTenant() tenant: TenantContext, @CurrentActor() actor: Actor) {
-    return { recoveryCodes: await this.mfa.regenerateRecoveryCodes(tenant, actor) };
+  async regenerate(@CurrentTenant() tenant: TenantContext, @CurrentActor() actor: Actor, @Req() req: FastifyRequest) {
+    return { recoveryCodes: await this.mfa.regenerateRecoveryCodes(tenant, actor, meta(req)) };
   }
 
   @Post('totp/enrol')

@@ -33,9 +33,11 @@ Statuses are kept distinct: **implemented** → **tested locally** → **verifie
 | Envelope encryption (KMS-wrapped per-tenant DEKs) | ❌ required before staging (ADR-018) | — | — | — |
 | MFA tables live isolation (app role) | ✅ | ✅ 6 tests; disabling RLS fails 4 | ⏳ | n/a |
 | All-table generic isolation sweep | ❌ Phase 0 task | — | — | — |
-| Durable email delivery (R15a) | ❌ outbox/worker slice | — | — | — |
-| Step-up (S1–S12) + MFA management (M9a–M9e, M15′) | ✅ | ✅ 29 tests + 13 guard unit; 13 mutations caught | ⏳ PR | ❌ harness has no step-up flow yet |
+| Step-up (S1–S12) + MFA management (M9a–M9e, M15′) | ✅ | ✅ 30 tests + 13 guard unit; mutation-checked | ✅ (#7) | ❌ harness has no step-up flow yet |
 | Permission-flagged step-up on a real route (S9) | 🟡 guard unit-tested only; no route uses a `stepUp` permission yet | — | — | — |
+| Hash-chained audit log + identity events (spec 0002 Part A) | ✅ | ✅ 19 tests + 5 unit; 6/6 mutations caught | ⏳ PR | n/a |
+| Audit chain anchoring outside the DB (A5 limit) | ❌ before GA | — | — | — |
+| Outbox + worker + durable email (spec 0002 Part B, R15a) | ❌ next | — | — | — |
 
 Isolation-layer coverage and known gaps: [docs/12 §3.1](docs/12-testing-strategy.md).
 

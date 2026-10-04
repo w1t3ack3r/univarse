@@ -106,7 +106,7 @@ describe('tenant isolation (RLS, forced)', () => {
   it('audit_event is append-only for the app role', async () => {
     await withTenantTx(shard, A, (tx) =>
       tx.auditEvent.create({
-        data: { tenantId: A, actorType: 'SYSTEM', action: 'test.isolation', entityType: 'test', prevHash: Buffer.alloc(32), hash: Buffer.alloc(32, 7) },
+        data: { tenantId: A, seq: 1n, actorType: 'SYSTEM', action: 'test.isolation', entityType: 'test', prevHash: Buffer.alloc(32), hash: Buffer.alloc(32, 7) },
       }),
     );
     await expect(asTenant(A, `UPDATE audit_event SET action = 'tampered'`)).rejects.toThrow(/permission denied/);

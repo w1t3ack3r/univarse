@@ -26,7 +26,7 @@ const StepUp = z
   .strict()
   .refine((v) => !(v.code && v.recoveryCode), 'Send either code or recoveryCode, not both');
 
-const meta = (req: FastifyRequest) => ({ ip: req.ip, userAgent: req.headers['user-agent'] });
+const meta = (req: FastifyRequest) => ({ ip: req.ip, userAgent: req.headers['user-agent'], requestId: req.id });
 
 @Controller('api/v1/auth')
 export class AuthController {
@@ -110,9 +110,10 @@ export class AuthController {
   async logout(
     @CurrentTenant() tenant: TenantContext,
     @CurrentActor() actor: Actor,
+    @Req() req: FastifyRequest,
     @Res({ passthrough: true }) reply: FastifyReply,
   ) {
-    await this.sessions.revoke(tenant, actor.sessionId, 'logout');
+    await this.sessions.revoke(tenant, actor.sessionId, 'logout', { actorId: actor.userId, action: 'auth.logout', meta: meta(req) });
     void reply.header('set-cookie', clearedSessionCookie());
   }
 

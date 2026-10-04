@@ -285,6 +285,8 @@ model RoleAssignment {
 model AuditEvent {
   id         String   @id @default(dbgenerated("uuidv7()")) @db.Uuid
   tenantId   String   @map("tenant_id") @db.Uuid
+  /// Gap-free position in this tenant's hash chain (spec 0002 A2). Assigned under an advisory lock.
+  seq        BigInt
   occurredAt DateTime @default(now()) @map("occurred_at") @db.Timestamptz(3)
   actorType  String   @map("actor_type")
   actorId    String?  @map("actor_id") @db.Uuid
@@ -301,6 +303,7 @@ model AuditEvent {
   hash       Bytes
 
   @@unique([tenantId, id])
+  @@unique([tenantId, seq])
   @@index([tenantId, entityType, entityId, occurredAt(sort: Desc)])
   @@index([tenantId, occurredAt])
   @@map("audit_event")
