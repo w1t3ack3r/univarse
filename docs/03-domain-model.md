@@ -308,3 +308,49 @@ erDiagram
 | `identity.role_assigned` / `.revoked` | identity | audit, session invalidation |
 
 Event payloads carry IDs and minimal data, never full personal records. Schemas are versioned in `packages/contracts/events`.
+
+## 17. Teaching & Learning (product: Teaching & Learning)
+
+| Entity | Key fields | Invariants |
+|--------|-----------|-----------|
+| `CourseSpace` | offeringId, title, visibility, status | One per course offering. Membership is **derived** from approved registrations (event-driven), never edited by hand |
+| `CourseMaterial` | spaceId, kind (`FILE`/`LINK`/`EMBED`), fileId?, url?, week/topic, visibleFrom, order | Files only via `files` (scanned, presigned). Embeds are sandboxed |
+| `LiveSession` | spaceId, startsAt, endsAt, status, attendanceCodeSeed | Attendance codes derive from the seed and rotate every ≤ 30 s |
+| `AttendanceRecord` | liveSessionId, studentId, checkedInAt, method (`CODE`/`QR`/`MANUAL`), ip | One per student per session. Manual entries need a lecturer and a reason |
+| `Poll`, `PollResponse` | sessionId, question, options · pollId, studentId, choice | One response per student per poll |
+| `QaQuestion` | sessionId, authorId, text, status (`PENDING`/`APPROVED`/`ANSWERED`/`HIDDEN`), upvotes | Moderation actions are audited |
+| `Assignment` | spaceId, title, instructions, opensAt, dueAt, latePolicy, maxScore, caComponentKey? | `caComponentKey` links released marks to a score-sheet CA component |
+| `Submission` | assignmentId, studentId, version, fileIds[], text?, submittedAt, late | Immutable per version. The latest version inside the window counts |
+| `SubmissionMark` | submissionId, score, rubric (json), feedback, markedBy, releasedAt | Changes after release are audited |
+
+## 18. Assessment — CA CBT (product: Assessment)
+
+| Entity | Key fields | Invariants |
+|--------|-----------|-----------|
+| `QuestionBank` | courseId, name | Per course |
+| `Question` | bankId, version, type (`MCQ_SINGLE`/`MCQ_MULTI`/`TRUE_FALSE`/`NUMERIC`/`SHORT_TEXT`/`ESSAY`), stem, options (json), answerKey (json, **never sent to clients**), tolerance?, tags[], difficulty, marks | Edits create a new version. Versions used in attempts are immutable |
+| `CaTest` | offeringId, title, opensAt, closesAt, durationMin, attemptsAllowed, poolRules (json), shuffle, resultsPolicy, caComponentKey, status (`DRAFT`/`PUBLISHED`/`CLOSED`/`RELEASED`) | Publishing freezes the rules and pre-generates papers |
+| `GeneratedPaper` | testId, studentId, seed, questionRefs[] (questionId + version + option order) | One per eligible candidate per attempt slot. Deterministic from the seed |
+| `TestAttempt` | paperId, studentId, startedAt, deadlineAt (server), submittedAt?, status (`IN_PROGRESS`/`SUBMITTED`/`AUTO_SUBMITTED`/`INVALIDATED`), activeSessionId, extraTimeMin | `deadlineAt` is computed by the server. Submission is exactly-once |
+| `AttemptAnswer` | attemptId, questionRef, response (json), revision, savedAt | Idempotent upsert by (attempt, question, revision). Rejected after `deadlineAt` |
+| `IntegrityEvent` | attemptId, type (`DEVICE_CHANGE`/`IP_CHANGE`/`FOCUS_LOST`/`PASTE`/`TIMING_ANOMALY`/`SESSION_TAKEOVER`), at, details (json) | **Append-only** (grants, like `audit_event`). No automatic penalty |
+| `AttemptMark` | attemptId, autoScore, manualScore?, totalScore, markedBy?, keyVersion | Re-marking on key correction creates a new mark, with the old one kept and audited |
+| `CaRelease` | testId, scoreSheetId, releasedBy, releasedAt, version | Emits `assessment.ca_scores_released`. Allowed only while the score sheet is `DRAFT`/`RETURNED` |
+
+```mermaid
+stateDiagram-v2
+  [*] --> DRAFT
+  DRAFT --> PUBLISHED: publish (papers pre-generated)
+  PUBLISHED --> CLOSED: window ends (attempts auto-submitted)
+  CLOSED --> RELEASED: lecturer releases CA scores → results
+  RELEASED --> RELEASED: key correction → re-mark → re-release (audited)
+```
+
+### Domain events added
+
+| Event | Producer | Consumers |
+|-------|----------|-----------|
+| `registration.membership_changed` | registration | teaching (course-space membership), assessment (eligibility) |
+| `teaching.assignment_marks_released` | teaching | results (CA component), comms |
+| `assessment.ca_scores_released` | assessment | results (CA component), comms |
+| `assessment.attempt_submitted` | assessment | comms (receipt), reporting |

@@ -9,7 +9,16 @@ Every design decision, rule and standard the codebase must follow lives here. If
 
 ## What UniVarse is (one paragraph)
 
-UniVarse is a **multi-tenant SaaS platform that runs the academic and administrative life of Nigerian tertiary institutions**. It covers admissions (JAMB/Post-UTME), fees and payments (Paystack/Flutterwave/Remita), course registration, examinations, result processing with the HOD → Dean → Senate approval chain, GPA/CGPA and degree classification, clearance, graduation, transcripts, NYSC lists and hostels. One platform serves many institutions. Each institution's data is strictly isolated, and each institution can have its own subdomain or custom domain.
+UniVarse is **the multi-tenant operating platform for Nigerian tertiary institutions**: one central system an institution adopts instead of building its own, starting with private universities. It's a **suite of independent products that also work together** (ADR-020):
+- **Core:** identity, structure, calendar, audit
+- **Admissions:** JAMB/Post-UTME
+- **Bursary:** Paystack/Flutterwave/Remita
+- **Academics:** registration, results with the HOD → Dean → Senate chain, GPA/CGPA, graduation, transcripts, NYSC
+- **Teaching & Learning:** course spaces, live lecture engagement, assignments
+- **Assessment:** CA CBT; exams excluded
+- **Student Affairs**, **Helpdesk & Comms**, **Reporting**
+
+Its first design constraint is **CIA (confidentiality, integrity, availability)**: every consequential action is logged and attributable, and results and payments are tamper-evident. Each institution's data is strictly isolated. Institution users get support from their **IT Admin**, who works directly with UniVarse. Full vision, scope and deferred items: [01-product-brief.md](01-product-brief.md).
 
 ---
 

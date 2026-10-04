@@ -36,6 +36,12 @@
 | T13 | **Supply-chain attack** | Malicious npm package, poisoned image | Lockfile, pnpm `minimumReleaseAge`, build-script allowlist, SCA scanning, pinned image digests, signed images ([09](09-container-security.md)) |
 | T14 | **Secrets exposure** | Committed `.env`, logs, error pages | Secret manager, gitleaks pre-commit + CI, log redaction, generic errors |
 | T15 | **Result leak before publication** | API returning unpublished results | Students can only read `course_result` (published). Score entries aren't exposed on student endpoints |
+| T16 | **CA test question leakage** | Questions or answer keys fetched before the window, shared between candidates, or scraped | Papers are served only inside the window and only to the eligible candidate. The answer key is never sent to the client. Shuffled per-candidate papers from banks. Item exposure stats help retire leaked items |
+| T17 | **Test impersonation / collusion** | Someone else sits the test; one person drives several attempts; answers shared live | One active session per attempt (takeover logged, needs lecturer unlock). Optional start photo check. Integrity events (device/IP change, focus loss, paste, timing anomalies) logged append-only for **human** review, with no automatic penalties |
+| T18 | **Timer or score manipulation** | Client clock tampering, replaying answers after time-out, editing scores after release | Server-authoritative timer and deadlines. Answers after the deadline are rejected. Idempotent answer writes. Released CA scores change only via the amendment path. Every change is audited (spec 0002) |
+| T19 | **One product degrading another** | CA-test or live-lecture spike exhausting shared DB connections or CPU; a noisy tenant | Runtime roles, per-role pools, per-product queues and rate limits, circuit breakers (ADR-020). The cross-product isolation load test is a GA gate |
+| T20 | **Live-session abuse** | Attendance code shared off-site; spam or abusive Q&A; poll stuffing | Attendance codes rotate every ≤ 30 s and are bound to the live session. One response per student per poll. Moderated Q&A with per-user rate limits. Every attendance and moderation action is logged |
+| T21 | **Over-powerful tenant admin** | A compromised or malicious IT Admin disabling controls | IT Admin guardrails ([01 §5.4](01-product-brief.md)): can't read secrets, alter audit, weaken platform security baselines, or reach other tenants. Privileged + step-up + audited |
 
 Revisit the threat model at the start of every roadmap phase. New modules add rows.
 

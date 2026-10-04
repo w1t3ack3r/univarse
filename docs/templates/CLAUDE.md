@@ -3,7 +3,7 @@
 > Copy this file to the repository root. It's the operating manual for AI-assisted development on UniVarse.
 
 ## What this is
-UniVarse: a multi-tenant SaaS for Nigerian tertiary institutions (admissions, fees, registration, exams, results, graduation, transcripts, hostels). The full blueprint is in `docs/`. **Read the relevant doc before changing a module.** Start at `docs/README.md`.
+UniVarse: the multi-tenant operating platform for Nigerian tertiary institutions — a suite of independent products (Core, Admissions, Bursary, Academics, Teaching & Learning, Assessment/CA CBT, Student Affairs, Helpdesk & Comms, Reporting) with CIA (confidentiality, integrity, availability) as the first design constraint. The full blueprint is in `docs/`. **Read the relevant doc before changing a module.** Start at `docs/README.md`.
 
 ## Stack
 TypeScript everywhere · pnpm + Turborepo · Next.js 16 (`apps/web`, `apps/console`) · NestJS 11/Fastify (`apps/api`: `main.ts` HTTP, `worker.ts` jobs) · Prisma + PostgreSQL 18 with RLS · Valkey/Redis + BullMQ · S3/MinIO · Gotenberg · ClamAV.
@@ -34,6 +34,8 @@ Local tenant URL: `http://demo-uni.univarse.localhost:3000`
 8. **No secrets or PII in code, logs, errors, URLs or fixtures.** No tokens in localStorage. No mock data in production code paths.
 9. **Migrations:** expand → migrate → contract. No destructive change in the same release as the code change.
 10. Use glossary terms (`docs/00-glossary.md`) in code.
+11. **Products are independent** (ADR-020): every module and route declares `@Product()`; cross-product interaction only via the other product's published contract or its events — never its tables. A product's spike or failure must not degrade another.
+12. **CIA first** (docs/01 §6): every consequential action (results, CA attempts/scores, payments, auth, roles, sensitive-data access) is audited in the same transaction; integrity signals are logged for humans, never auto-punished.
 
 ## How to work
 - Build **vertical slices**: contract (zod) → migration → domain → use case → controller → UI → tests → docs.

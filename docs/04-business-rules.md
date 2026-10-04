@@ -206,3 +206,28 @@ Age rule: minimum age at admission (16 `[VERIFY]`) is a warning, not a hard bloc
 - All timestamps are stored in **UTC** (`timestamptz`). All deadlines are **defined and displayed in `Africa/Lagos`** (UTC+1, no DST).
 - A window "closes at 23:59 on 15 March" means `2026-03-15T23:59:59+01:00`.
 - Session names follow `YYYY/YYYY`, and there's only one ACTIVE session and semester per tenant.
+
+## 14. Continuous assessment (CA tests and assignments)
+
+| Rule | Default `[CONFIG]` |
+|------|--------------------|
+| CA weight | CA components sum to the scheme's CA total (default 30). Each CA test or assignment maps to **one** named component (`caComponentKey`) with its own maximum |
+| Scaling | A test's raw score is scaled linearly to its component maximum: `component = raw / rawMax × componentMax`. Stored as `numeric(5,2)` with the same rounding rule as score entry (§1.2) |
+| Multiple items per component | `BEST` / `AVERAGE` / `SUM_CAPPED` (default **AVERAGE**) when several tests or assignments feed one component |
+| Attempts | 1 per test (default). If more are allowed, the score policy is `BEST` or `LATEST` (default **BEST**) |
+| Missed CA test | Scores **0** unless the lecturer grants a make-up (audited, reason required). Medical/approved absence → make-up paper from the same bank |
+| Late assignment | Window closes at `dueAt` (Africa/Lagos). Late policy: `REJECT` / `ACCEPT_WITH_PENALTY` (default penalty **10% per day, max 3 days**) / `ACCEPT` |
+| Timer | Server-authoritative. Disconnection doesn't pause the clock (default). Approved accommodations add `extraTimeMin` per student |
+| Release | CA scores can be released to the score sheet only while it is `DRAFT`/`RETURNED`. After submission, changes follow the result amendment path (§8) |
+| Integrity findings | Never change a score automatically. The lecturer reviews the evidence, and any sanction (e.g. invalidating an attempt) needs a reason, is audited, and can be escalated to a malpractice case |
+| Student visibility | Students see their own CA scores once released `[CONFIG]` (default: immediately for objective tests, after manual marking otherwise). Answer keys are shown only if the lecturer enables review after the window closes |
+
+## 15. Sessions, carryovers and spillovers (summary)
+
+Already defined in §5–§6. The operational expectation (from [01 §1](01-product-brief.md)) is that **session rollover is a guided, previewable, idempotent operation** ([05 §5](05-modules-and-features.md)). It:
+- promotes levels,
+- carries forward outstanding courses as carryovers,
+- flags spillover students against their maximum duration,
+- opens the new session's windows,
+
+all with a dry-run report before commit, and all audited.

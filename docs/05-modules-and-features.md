@@ -31,9 +31,9 @@ Surfaces: **C** = platform console · **A** = `/apply` · **St** = `/student` ·
 | Shard management & pool → dedicated promotion | S | |
 | Migrations runner dashboard (per shard status) | M | |
 | Plans, subscriptions, platform invoices, usage (active students) | S | |
-| Feature flags per tenant | M | |
-| Platform announcements (banner in tenant apps) | S | |
-| Support inbox for tenant tickets, with SLA timers | S | |
+| **Product entitlements per tenant** (ADR-020) + feature flags | M | Disabling a product makes its routes 404 and skips its jobs for that tenant, server-side. Changes are audited |
+| Platform announcements, incident and maintenance notices **to IT Admins** (in-app banner + email) | M | Targeted per tenant or all. Delivery is logged |
+| **IT Admin ↔ UniVarse support channel**: tenant tickets with SLA timers, two-way messages, attachments | M | Only IT Admins (and roles they delegate) can raise platform tickets. Every message is logged on both sides |
 | Platform health overview (links to Grafana), per-tenant usage | S | |
 | **Support access ("break-glass")**: time-boxed, reason-logged, tenant-visible read-only access | S | Access expires in ≤ 4h. Tenant admin is notified. Every action is audited as `platform:{user}` |
 
@@ -62,6 +62,8 @@ Surfaces: **C** = platform console · **A** = `/apply` · **St** = `/student` ·
 | Settings UI for every `[CONFIG]` key, grouped, with defaults and help text | M | Changes are audited. Changes to grading/approval settings need step-up |
 | Integrations: payment gateways (keys encrypted, test/live), SMS sender ID, email from-address | M | Secrets are never shown back after save (write-only) |
 | Branding: logo, colors, institution letterhead for documents | M | |
+| **Product enablement** by the IT Admin within the institution's plan | M | Only products in the plan can be enabled. Enabling or disabling is audited and takes effect on the next request |
+| **IT Admin guardrails** ([01 §5.4](01-product-brief.md)) | M | Tests prove IT Admins can't read secrets, edit/disable audit, weaken platform security baselines (e.g. MFA for privileged roles) or reach other tenants |
 | Setup checklist/wizard (go-live readiness) | S | |
 
 ## 4. Curriculum — `[PHASE 2]`
@@ -203,9 +205,9 @@ Surfaces: **C** = platform console · **A** = `/apply` · **St** = `/student` ·
 
 | Feature | Pri | AC |
 |---------|-----|----|
-| Tickets by category routed to units (ICT, bursary, exams & records) | M | |
+| Tickets by category routed to units. **Technical issues route to the institution's IT Admin** ([01 §5.3](01-product-brief.md)) | M | End users can't open platform tickets directly |
 | SLA, assignment, canned responses, attachments | S | |
-| Escalation to UniVarse support (creates a platform ticket) | S | |
+| **Escalation by the IT Admin to UniVarse** (creates a linked platform ticket; replies sync back) | M | The link and every message are logged on both sides |
 
 ## 16. Reporting & analytics (W, C) — `[PHASE 7]`
 
@@ -224,3 +226,38 @@ Surfaces: **C** = platform console · **A** = `/apply` · **St** = `/student` ·
 | Audit hash-chain verification tool | M | Detects any modified/deleted row |
 | Data subject request handling (access export, rectification) | M | [16](16-compliance-ndpa.md) |
 | Retention jobs per data class | M | |
+
+## 18. Teaching & Learning (St, W) — `[PHASE 4b]`
+
+A product of its own ([01 §5.1](01-product-brief.md)). It can be enabled without Assessment, and vice versa. Class lists come from `registration` (events/contract), never by reading its tables.
+
+| Feature | Pri | AC |
+|---------|-----|----|
+| **Course space** per course offering: overview, schedule, lecturers, enrolled students (from the approved registration) | M | Membership follows registration add/drop within minutes (event-driven). Dropped students lose access |
+| Materials: files (virus-scanned), links, embeddable content, ordered by week/topic, visible from a date | M | Files are served via short-lived presigned URLs, only to members. Downloads are logged for sensitive materials |
+| Course announcements (email/SMS/in-app via `comms`) | M | |
+| **Live lecture engagement** ([PHASE 4b], `realtime` role): QR / short-code **attendance check-in**, **live polls**, moderated **Q&A** | M | Attendance codes rotate every ≤ 30 s and are bound to the live session (anti-sharing). 500 concurrent participants: poll/Q&A round-trip p95 ≤ 1 s. Falls back to HTTP polling if WebSocket is unavailable |
+| Attendance records feed exam eligibility (docs/04 §5 attendance rule) | S | |
+| **Assignments**: instructions, due date, late policy, file/text submissions, plagiarism-check hook (`[VERIFY]` provider later) | M | Submissions are immutable once submitted (resubmission creates a new version while the window is open). Server time decides lateness |
+| Marking: rubric or score, feedback, release of marks | M | Released assignment marks can feed a score-sheet CA component (same contract as CA tests). Changes after release are audited |
+| Discussion forum per course | L | |
+| Video lectures: **integrate** (Google Meet/Zoom/Jitsi links + recordings as materials), not build | S | |
+| 3D virtual labs for practical-heavy courses | **Deferred** | Embeddable sandboxed content keeps the door open ([01 §5.5](01-product-brief.md)) |
+
+## 19. Assessment — CA CBT (St, W) — `[PHASE 4b]`
+
+Continuous assessment only. **Examinations are out of scope** (deferred; [01 §5.5](01-product-brief.md)). Scores reach `results` only through the `assessment.ca_scores_released` event, mapped to an `AssessmentScheme` CA component.
+
+| Feature | Pri | AC |
+|---------|-----|----|
+| **Question bank** per course: MCQ (single/multiple), true/false, numeric (tolerance), short text, essay; tags, difficulty, versioning | M | Editing a question used in a published test creates a new version. Past attempts keep the version they saw |
+| **CA test definition**: window, duration, attempts (default 1), pool rules (N from tag/difficulty), shuffle questions and options, show-results policy, accommodations (extra time per student) | M | Publishing **pre-generates** each candidate's paper (seeded), so start-time load is a read, not a computation |
+| Eligibility: registered for the offering (and optional fee/attendance gates) | M | Ineligible students see why. Gates are `[CONFIG]` |
+| **Taking a test**: server-authoritative timer, autosave per answer, **resume after disconnect** with the remaining time, auto-submit at time-out | M | No answer acknowledged by the server is ever lost (crash/reconnect tests). Answers are idempotent (`attemptId` + `questionId` + revision). Submission is exactly-once |
+| **Integrity logging** (not automatic punishment): device/IP changes, focus loss / tab switches, paste events, abnormal answer timing, concurrent sessions | M | Events are recorded in an append-only attempt log and summarised for the lecturer. **No automatic penalties.** Humans decide, and decisions are audited |
+| Anti-impersonation: one active session per attempt, optional photo check at start (lecturer compares to the profile photo) | S | A second device taking over the attempt is logged and requires lecturer unlock |
+| **Marking**: objective items auto-marked at submit. Essays/short text manually marked with a rubric. Regrade on answer-key correction | M | A key correction re-marks all affected attempts, with old and new scores audited |
+| **Release to results**: lecturer releases CA scores → `assessment.ca_scores_released` → score-sheet CA component | M | Only while the score sheet is editable (`DRAFT`/`RETURNED`). Released scores are versioned. Changes after release follow the amendment path |
+| Item analysis (difficulty, discrimination, distractor stats) | S | |
+| Peak load: **2,000 candidates starting within 60 s** | M | Load test is a release gate: zero lost answers, start p95 ≤ 2 s, error rate < 0.1%, and other products' p95 within SLO (ADR-020) |
+| CBT for examinations, venue lockdown browser | **Deferred** | The engine is built exam-capable (sessions, venues, integrity logs) |
