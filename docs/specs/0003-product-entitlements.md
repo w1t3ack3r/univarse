@@ -25,6 +25,16 @@ Every AC ID appears in at least one test name.
 ## Design note: two databases
 Entitlements live in the **platform DB** (`tenant_product`). Audit events live in the **tenant shard**. They can't share one transaction. The update writes the platform row first, then the tenant audit event. If the audit write fails, the platform change is **compensated** (reverted) and the request fails. A test proves no unaudited change remains.
 
+## Implementation notes (decided while building)
+- **Database backstops.** `tenant_product` has two CHECK constraints: the product must be in the catalog, and `enabled` requires `entitled`. A regression in application code still can't produce an active product outside the plan.
+- **No-ops.** Setting a product to its current value returns 200 with the state and writes **no** audit event, because nothing changed. Disabling a product that isn't entitled is also a no-op, not an error.
+- **Concurrency.** The update is conditional on the value that was read, and when enabling, on `entitled = true`. A lost race with another admin, or with a platform revoking the entitlement, gets `409 product.changed`.
+- **Compensation residual risk.** If the audit write fails *and* the compensating platform update also fails, the error is logged loudly (`Compensation failed: product change is unaudited`) for reconciliation. This needs two independent databases to fail in sequence. Durable reconciliation arrives with the outbox (spec 0002 Part B).
+- **Step-up on the overview.** `settings.product.manage` is step-up flagged, so `GET /api/v1/admin/products` needs a fresh step-up too. This is the same "sudo mode for settings pages" trade-off as GitHub's. It also closes the spec 0001 S9 gap, since this is the first real route with a `stepUp` permission.
+- **No ETag / `If-Match`** on the PUT. The body is an absolute value, so the request is idempotent, and the conditional update covers races. The [06 §5](../06-api-guidelines.md) rule targets multi-field settings edits, where a lost update is possible.
+- **Guard order is asserted** by a unit test on the registered `APP_GUARD` providers (tenant → product → access), so removing or reordering the product guard fails CI. This holds even before a non-core route exists.
+- **Seed plans.** `demo-uni` is entitled to admissions, bursary, academics and helpdesk. `test-poly` is entitled to admissions. None are enabled. Re-seeding resets entitlements and never the institution's switches, except that revoking an entitlement also disables the product, as the CHECK constraint requires.
+
 ## Out of scope (tracked)
 
 | Gap | Milestone |

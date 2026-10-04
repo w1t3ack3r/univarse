@@ -16,6 +16,7 @@ export const PERMISSIONS = {
   'org.unit.view': { description: 'View the organisation structure' },
   'org.unit.manage': { description: 'Create and edit org units', privileged: true },
   'settings.tenant.manage': { description: 'Change institution settings', privileged: true, stepUp: true },
+  'settings.product.manage': { description: 'Enable or disable products within the plan', privileged: true, stepUp: true },
   'audit.event.view': { description: 'View the audit log', privileged: true, sensitiveData: true },
 } as const satisfies Record<string, PermissionDef>;
 
@@ -32,6 +33,7 @@ export const SYSTEM_ROLE_PERMISSIONS: Readonly<Record<string, readonly Permissio
     'org.unit.view',
     'org.unit.manage',
     'settings.tenant.manage',
+    'settings.product.manage',
     'audit.event.view',
   ],
   REGISTRAR: ['identity.user.view', 'org.unit.view', 'audit.event.view'],

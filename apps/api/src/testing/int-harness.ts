@@ -52,7 +52,7 @@ export interface Harness {
   /** Waits until `address` has more than `after` emails matching `subject`; returns the newest. Email is async. */
   waitForMail(address: string, subject: RegExp, after: number): Promise<OutboundEmail>;
   call(
-    method: 'GET' | 'POST',
+    method: 'GET' | 'POST' | 'PUT',
     host: string,
     url: string,
     o?: { cookie?: string; ip?: string; body?: unknown; headers?: Record<string, string> },
@@ -95,7 +95,7 @@ export async function createHarness(opts: { mailDelayMs?: number } = {}): Promis
       remoteAddress: o.ip ?? randomIp(),
       headers: {
         host,
-        ...(method === 'POST' ? { 'sec-fetch-site': 'same-origin' } : {}),
+        ...(method !== 'GET' ? { 'sec-fetch-site': 'same-origin' } : {}),
         ...(o.cookie ? { cookie: o.cookie } : {}),
         ...o.headers,
       },

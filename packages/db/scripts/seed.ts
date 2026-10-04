@@ -3,7 +3,7 @@
  *   pnpm db:seed
  * Uses the APP roles (not the migrator), so it goes through RLS like the real app.
  */
-import { SYSTEM_ROLE_PERMISSIONS } from '@univarse/contracts';
+import { SYSTEM_ROLE_PERMISSIONS, type ProductKey } from '@univarse/contracts';
 import { createPlatformClient } from '../src/platform.js';
 import { createTenantShardClient, withTenantTx } from '../src/tenant.js';
 import { loadRootEnv, requireEnv } from './env.js';
@@ -15,6 +15,13 @@ const TENANTS = [
   { slug: 'test-poly', legalName: 'Test State Polytechnic', shortName: 'TESTPOLY', type: 'POLYTECHNIC', ownership: 'STATE', status: 'ACTIVE' },
   { slug: 'paused-uni', legalName: 'Paused University', shortName: 'PAUSED', type: 'UNIVERSITY', ownership: 'FEDERAL', status: 'SUSPENDED' },
 ] as const;
+
+// Demo plans (spec 0003): demo-uni has a broader plan than test-poly, so product gating is visible locally.
+const PLANS: Record<(typeof TENANTS)[number]['slug'], Partial<Record<ProductKey, boolean>>> = {
+  'demo-uni': { core: true, admissions: true, bursary: true, academics: true, helpdesk: true },
+  'test-poly': { core: true, admissions: true },
+  'paused-uni': { core: true },
+};
 
 // System roles seeded per tenant (docs/03 §2). Permissions are attached as modules land.
 const SYSTEM_ROLES: [string, string][] = [
@@ -61,6 +68,14 @@ async function main() {
       update: { status: t.status },
       create: { ...t, shardId: shard.id },
     });
+    // Entitlements are platform-owned (spec 0003 P9): re-seeding resets the plan, never the institution's switches.
+    for (const [product, entitled] of Object.entries(PLANS[t.slug])) {
+      await platform.tenantProduct.upsert({
+        where: { tenantId_product: { tenantId: tenant.id, product } },
+        update: { entitled, ...(entitled ? {} : { enabled: false }) },
+        create: { tenantId: tenant.id, product, entitled, enabled: entitled && product === 'core' },
+      });
+    }
     const hostname = `${t.slug}.${DEV_DOMAIN}`;
     await platform.tenantDomain.upsert({
       where: { hostname },
