@@ -32,7 +32,7 @@ Statuses are kept distinct: **implemented** → **tested locally** → **verifie
 | M1 secret at rest | 🟡 **direct AES-GCM, single key, AAD-bound. NOT envelope** (ADR-018 deviation) | ✅ | ⏳ | n/a |
 | Envelope encryption (KMS-wrapped per-tenant DEKs; covers MFA secrets and outbox payloads) | ❌ required before staging (ADR-018) | — | — | — |
 | MFA tables live isolation (app role) | ✅ | ✅ 6 tests; disabling RLS fails 4 | ⏳ | n/a |
-| All-table generic isolation sweep | ❌ Phase 0 task | — | — | — |
+| All-table generic isolation sweep (spec 0004 I1–I9) | ✅ every tenant table, discovered from the catalog | ✅ 9 tests × 14 tables; 3 negative controls fail it | ⏳ PR | n/a |
 | Step-up (S1–S12) + MFA management (M9a–M9e, M15′) | ✅ | ✅ 30 tests + 13 guard unit; mutation-checked | ✅ (#7) | ❌ harness has no step-up flow yet |
 | Permission-flagged step-up on a real route (S9) | ✅ `PUT /admin/products/{product}` (`settings.product.manage`) | ✅ 428 without step-up | ⏳ PR | — |
 | Hash-chained audit log + identity events (spec 0002 Part A) | ✅ | ✅ 19 tests + 5 unit; 6/6 mutations caught | ✅ (#8) | n/a |
@@ -40,8 +40,8 @@ Statuses are kept distinct: **implemented** → **tested locally** → **verifie
 | Inactive product → 404 through a real non-core route (P3 end-to-end) | 🟡 guard unit-tested + guard order asserted; no non-core route yet | — | — | — |
 | Cross-instance product/tenant cache invalidation (P7) | ❌ before multi-instance production | — | — | — |
 | Audit chain anchoring outside the DB (A5 limit) | ❌ before GA | — | — | — |
-| Outbox + worker + durable email (spec 0002 Part B B1–B10, R15a) | ✅ | ✅ 12 tests + 5 unit; 10/10 mutations caught; end to end via Mailpit | ⏳ PR | n/a |
-| Timestamps as true instants on non-UTC servers (UTC sessions) | ✅ | ✅ 2 tests; fails without the fix | ⏳ PR (CI Postgres in Africa/Lagos) | n/a |
+| Outbox + worker + durable email (spec 0002 Part B B1–B10, R15a) | ✅ | ✅ 12 tests + 5 unit; 10/10 mutations caught; end to end via Mailpit | ✅ (#12) | n/a |
+| Timestamps as true instants on non-UTC servers (UTC sessions) | ✅ | ✅ 2 tests; fails without the fix | ✅ (#12, CI Postgres in Africa/Lagos) | n/a |
 
 Isolation-layer coverage and known gaps: [docs/12 §3.1](docs/12-testing-strategy.md).
 

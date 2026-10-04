@@ -135,7 +135,7 @@ Part S was implemented twice in parallel (an interrupted local session and a clo
 | Envelope encryption: KMS-wrapped per-tenant DEKs (ADR-018) | **Gate before the staging environment** |
 | HTTPS browser verification (cookies + proxy on real TLS) | Staging environment (Phase 0 exit) |
 | Browser verification of reset / MFA / step-up over HTTP | Harness extension at the close of spec 0001 |
-| Generic all-table isolation sweep | Phase 0 (before Phase 0 exit) |
+| ~~Generic all-table isolation sweep~~ | **Closed** by spec 0004 |
 | ~~R15 test would not detect removal of the reset floor alone~~ | **Closed** in spec 0002 Part B: both R15 tests also assert the 400 ms floor; removing either floor fails them (mutation-checked) |
 | ~~Permission-flagged step-up integration test (S9)~~ | **Closed** by spec 0003: `PUT /api/v1/admin/products/{product}` uses `settings.product.manage` (stepUp) and is tested for 428 |
 | WebAuthn/passkeys | Phase 8. SMS as a second factor is **not** allowed for privileged users ([08 §3.2](../08-security.md)) |
