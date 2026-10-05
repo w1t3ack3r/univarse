@@ -21,6 +21,7 @@ import { AuditWriter } from './shared/audit/audit-writer.js';
 import { DbModule } from './shared/db/db.module.js';
 import { ProblemFilter } from './shared/errors/problem.filter.js';
 import { RateLimiter, VALKEY } from './shared/infra/rate-limiter.js';
+import { fieldCryptoProvider } from './shared/crypto/envelope.js';
 import { Outbox } from './shared/outbox/outbox.js';
 import { TenantGuard } from './shared/tenancy/tenant.guard.js';
 import { TenantResolver } from './shared/tenancy/tenant-resolver.service.js';
@@ -43,6 +44,7 @@ export class AppModule {
         },
         TenantResolver,
         AuditWriter,
+        fieldCryptoProvider,
         Outbox,
         RateLimiter,
         SessionService,

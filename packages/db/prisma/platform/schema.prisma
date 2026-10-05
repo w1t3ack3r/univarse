@@ -81,6 +81,7 @@ model Tenant {
   shard    Shard           @relation(fields: [shardId], references: [id], onDelete: Restrict)
   domains  TenantDomain[]
   products TenantProduct[]
+  dataKeys TenantDataKey[]
 
   @@map("tenant")
 }
@@ -152,6 +153,8 @@ model PlatformSession {
 
 model PlatformAuditEvent {
   id         String   @id @default(dbgenerated("uuidv7()")) @db.Uuid
+  /// Position in the single platform hash chain (written under an advisory lock).
+  seq        BigInt   @unique
   occurredAt DateTime @default(now()) @map("occurred_at") @db.Timestamptz(3)
   actorId    String?  @map("actor_id") @db.Uuid
   action     String
@@ -183,4 +186,31 @@ model TenantProduct {
 
   @@unique([tenantId, product])
   @@map("tenant_product")
+}
+
+enum DataKeyStatus {
+  ACTIVE
+  RETIRED
+  DESTROYED
+}
+
+/// Per-tenant data encryption keys, stored only wrapped by the KEK (spec 0006, ADR-023).
+/// Kept in the platform DB, apart from tenant data (E2). Never hard-deleted: DESTROYED erases the wrap.
+model TenantDataKey {
+  id          String        @id @default(dbgenerated("uuidv7()")) @db.Uuid
+  tenantId    String        @map("tenant_id") @db.Uuid
+  version     Int
+  status      DataKeyStatus @default(ACTIVE)
+  /// Which KEK wrapped it, e.g. "vault:transit/univarse-kek".
+  kekId       String        @map("kek_id")
+  /// Provider ciphertext of the DEK (e.g. "vault:v1:…"). NULL once DESTROYED (crypto-shredding, E10).
+  wrappedDek  String?       @map("wrapped_dek")
+  createdAt   DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
+  retiredAt   DateTime?     @map("retired_at") @db.Timestamptz(3)
+  destroyedAt DateTime?     @map("destroyed_at") @db.Timestamptz(3)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+
+  @@unique([tenantId, version])
+  @@map("tenant_data_key")
 }

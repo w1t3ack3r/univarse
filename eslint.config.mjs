@@ -37,6 +37,7 @@ export default tseslint.config(
             '*/*/*.config.ts',
             'packages/db/scripts/*.ts',
             'packages/db/test/*.ts',
+            'packages/crypto/scripts/*.ts',
           ],
           defaultProject: 'tsconfig.base.json',
           maximumDefaultProjectFileMatchCount_THIS_WILL_SLOW_DOWN_LINTING: 16,

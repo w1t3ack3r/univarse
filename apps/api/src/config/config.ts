@@ -25,9 +25,24 @@ const schema = z.object({
   VALKEY_URL: z.string().startsWith('redis://'),
   /** Server-side secret mixed into one-time-code hashes so a DB leak can't brute-force 6-digit codes. */
   SESSION_PEPPER: z.string().min(32),
-  /** Field-encryption key for secrets at rest (TOTP secrets). 32 bytes base64. ADR-018. */
-  DATA_ENCRYPTION_KEY: z.string().min(40),
-  DATA_ENCRYPTION_KEY_ID: z.string().regex(/^[a-z0-9-]{1,32}$/),
+  /**
+   * Legacy single field key (ADR-018). Since spec 0006 it only DECRYPTS existing v1 values until the
+   * v1 → v2 migration (E9) completes; a later release removes it (expand → migrate → contract).
+   */
+  DATA_ENCRYPTION_KEY: z.string().min(40).optional(),
+  DATA_ENCRYPTION_KEY_ID: z.string().regex(/^[a-z0-9-]{1,32}$/).optional(),
+  /**
+   * Envelope encryption (spec 0006, ADR-023): per-tenant DEKs wrapped by a KEK in Vault Transit.
+   * `local` is an in-process KEK for unit tests only and is refused in production.
+   */
+  KEY_PROVIDER: z.enum(['vault', 'local']).default('vault'),
+  VAULT_ADDR: z.url().optional(),
+  VAULT_TOKEN: z.string().min(8).optional(),
+  VAULT_TRANSIT_MOUNT: z.string().regex(/^[a-z0-9_-]{1,64}$/).default('transit'),
+  VAULT_TRANSIT_KEY: z.string().regex(/^[a-z0-9_-]{1,64}$/).default('univarse-kek'),
+  LOCAL_KEK: z.string().min(40).optional(),
+  /** Unwrapped-DEK cache TTL (≤ 1 h, docs/07 §8). */
+  DEK_CACHE_TTL_MS: z.coerce.number().int().min(1_000).max(3_600_000).default(3_600_000),
   SMTP_URL: z.string().startsWith('smtp').default('smtp://127.0.0.1:1025'),
   MAIL_FROM: z.string().default('UniVarse <no-reply@univarse.localhost>'),
 });

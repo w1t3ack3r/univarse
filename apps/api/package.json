@@ -26,7 +26,8 @@
     "nodemailer": "^10.0.11",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.2",
-    "zod": "^4.1.0"
+    "zod": "^4.1.0",
+    "@univarse/crypto": "workspace:*"
   },
   "devDependencies": {
     "@swc/core": "^1.13.0",

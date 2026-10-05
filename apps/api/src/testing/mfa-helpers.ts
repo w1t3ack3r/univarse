@@ -1,9 +1,27 @@
 // Test-only helpers for MFA: enrol a known TOTP factor directly and compute current codes.
-import { forTenant, type TenantShardClient } from '@univarse/db';
-import { encryptField, keyringFromEnv } from '../shared/crypto/field-encryption.js';
+import { FieldCrypto, TenantKeyring, keyProviderFrom, legacyKeyringFromEnv } from '@univarse/crypto';
+import { createPlatformClient, forTenant, type TenantShardClient } from '@univarse/db';
 import { hotp, newTotpSecret, timeStep } from '../modules/identity/totp.js';
 
-const ring = () => keyringFromEnv(process.env.DATA_ENCRYPTION_KEY_ID!, process.env.DATA_ENCRYPTION_KEY!);
+/** The same envelope path as the app (spec 0006): the tenant's DEK from the configured provider. */
+let fieldCrypto: FieldCrypto | undefined;
+export function testFieldCrypto(): FieldCrypto {
+  fieldCrypto ??= new FieldCrypto(
+    new TenantKeyring(
+      createPlatformClient(process.env.PLATFORM_DATABASE_URL!),
+      keyProviderFrom({
+        KEY_PROVIDER: process.env.KEY_PROVIDER === 'local' ? 'local' : 'vault',
+        VAULT_ADDR: process.env.VAULT_ADDR,
+        VAULT_TOKEN: process.env.VAULT_TOKEN,
+        VAULT_TRANSIT_MOUNT: process.env.VAULT_TRANSIT_MOUNT,
+        VAULT_TRANSIT_KEY: process.env.VAULT_TRANSIT_KEY,
+        LOCAL_KEK: process.env.LOCAL_KEK,
+      }),
+    ),
+    legacyKeyringFromEnv(process.env.DATA_ENCRYPTION_KEY_ID, process.env.DATA_ENCRYPTION_KEY),
+  );
+  return fieldCrypto;
+}
 
 /** Inserts a CONFIRMED TOTP factor with a known secret (same AAD as MfaService). */
 export async function enrolTestTotp(shard: TenantShardClient, tenantId: string, userId: string): Promise<Buffer> {
@@ -13,7 +31,7 @@ export async function enrolTestTotp(shard: TenantShardClient, tenantId: string, 
       tenantId,
       userId,
       type: 'TOTP',
-      secretEnc: encryptField(ring(), secret, `${tenantId}:${userId}:totp`),
+      secretEnc: await testFieldCrypto().encrypt(tenantId, secret, `${tenantId}:${userId}:totp`),
       confirmedAt: new Date(),
     },
   });

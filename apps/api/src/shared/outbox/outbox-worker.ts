@@ -2,9 +2,9 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import type { PlatformClient, TenantTx } from '@univarse/db';
 import { z } from 'zod';
+import { FieldCrypto } from '@univarse/crypto';
 import { APP_CONFIG, type AppConfig } from '../../config/config.js';
 import { ProductService } from '../../modules/products/product.service.js';
-import { decryptField, keyringFromEnv, type FieldKeyring } from '../crypto/field-encryption.js';
 import { PLATFORM_DB, ShardRegistry } from '../db/db.module.js';
 import { MAILER, type Mailer } from '../infra/mailer.js';
 import { backoffMs, errorSummary, MAX_ATTEMPTS } from './delivery-policy.js';
@@ -40,7 +40,6 @@ interface ClaimedRow {
 @Injectable()
 export class OutboxWorker {
   private readonly logger = new Logger('Outbox');
-  private readonly ring: FieldKeyring;
   private readonly mailDomain: string;
   private timer: NodeJS.Timeout | null = null;
   private running: Promise<unknown> | null = null;
@@ -51,8 +50,8 @@ export class OutboxWorker {
     @Inject(MAILER) private readonly mailer: Mailer,
     private readonly shards: ShardRegistry,
     private readonly products: ProductService,
+    private readonly fieldCrypto: FieldCrypto,
   ) {
-    this.ring = keyringFromEnv(config.DATA_ENCRYPTION_KEY_ID, config.DATA_ENCRYPTION_KEY);
     this.mailDomain = /@([^>\s]+)/.exec(config.MAIL_FROM)?.[1] ?? 'univarse.localhost';
   }
 
@@ -107,7 +106,7 @@ export class OutboxWorker {
     try {
       if (row.type !== EMAIL_EVENT) throw Object.assign(new Error('unsupported'), { name: 'UnsupportedEventType' });
       if (!row.payload_enc) throw Object.assign(new Error('missing'), { name: 'MissingPayload' });
-      const mail = EmailPayload.parse(JSON.parse(decryptField(this.ring, row.payload_enc, outboxAad(tenantId, row.id)).toString('utf8')));
+      const mail = EmailPayload.parse(JSON.parse((await this.fieldCrypto.decrypt(tenantId, row.payload_enc, outboxAad(tenantId, row.id))).toString('utf8')));
       // B6: stable Message-ID, so a re-send after a crash can be de-duplicated by the receiver.
       await this.mailer.send({ ...mail, messageId: `<${row.id}@${this.mailDomain}>` });
     } catch (err) {

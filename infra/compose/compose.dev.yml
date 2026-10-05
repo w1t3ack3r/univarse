@@ -1,5 +1,5 @@
 # Local development dependencies — docs/10-infrastructure-and-deployment.md §4
-#   pnpm dev:infra            → valkey + mailpit
+#   pnpm dev:infra            → valkey + mailpit + vault (then unseals and configures Vault)
 #   pnpm dev:infra:docs       → + gotenberg + clamav (large images)
 # PostgreSQL 18 runs natively on the host (see `pnpm db:setup`).
 #
@@ -41,6 +41,21 @@ services:
     # Mailpit keeps its message DB in /tmp; the root FS stays read-only.
     tmpfs: ['/tmp:size=128m']
 
+  # KEK for envelope encryption (spec 0006, ADR-023). Persistent file storage; unsealed and
+  # configured by tools/vault-dev.mjs (pnpm dev:infra runs it).
+  vault:
+    image: hashicorp/vault:2.1.1
+    <<: *hardening
+    # The image entrypoint drops to the vault user and fixes volume ownership; it needs these.
+    cap_add: [CHOWN, SETUID, SETGID, DAC_OVERRIDE, FOWNER]
+    # The entrypoint's `server` already loads every file in /vault/config; adding -config twice binds twice.
+    command: ['server']
+    ports: ['127.0.0.1:8200:8200']
+    volumes:
+      - vault-data:/vault/file
+      - ./vault/dev.hcl:/vault/config/dev.hcl:ro
+    environment: { VAULT_ADDR: 'http://127.0.0.1:8200' }
+
   gotenberg:
     image: gotenberg/gotenberg:8
     profiles: [docs]
@@ -55,3 +70,6 @@ services:
     restart: unless-stopped
     security_opt: ['no-new-privileges:true']
     ports: ['127.0.0.1:3310:3310']
+
+volumes:
+  vault-data:

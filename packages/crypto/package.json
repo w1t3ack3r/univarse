@@ -1,0 +1,28 @@
+{
+  "name": "@univarse/crypto",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Envelope encryption (spec 0006, ADR-023): per-tenant DEKs wrapped by a KEK in Vault Transit; field cipher format; platform audit.",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "eslint .",
+    "test": "vitest run",
+    "provision": "tsx scripts/provision-keys.ts",
+    "test:int": "vitest run --config vitest.int.config.ts"
+  },
+  "dependencies": {
+    "@univarse/db": "workspace:*"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.11",
+    "tsx": "^4.20.0"
+  }
+}
