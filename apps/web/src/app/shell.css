@@ -1,0 +1,676 @@
+/* App composition (sign-in shell, workspace shell). Components: @univarse/ui. Direction:
+   .impeccable/surfaces/src-app.md. Kept as named classes so the layout reads as a layout. */
+
+/* ---------- Sign-in shell: the institution leads, UniVarse is the trust mark ---------- */
+.auth {
+  position: relative;
+  min-height: 100dvh;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  overflow: hidden;
+  isolation: isolate;
+}
+.auth__top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--uv-space-3);
+  padding: var(--uv-space-4) clamp(16px, 4vw, 40px);
+}
+.auth__trust img {
+  width: 18px;
+  height: 18px;
+}
+.auth__body {
+  display: grid;
+  align-content: start;
+  gap: var(--uv-space-6);
+  width: min(100%, 1120px);
+  margin: 0 auto;
+  padding: var(--uv-space-4) clamp(16px, 4vw, 40px) var(--uv-space-10);
+}
+@media (min-width: 960px) {
+  .auth__body {
+    grid-template-columns: 1fr minmax(0, 460px);
+    align-content: center;
+    gap: clamp(40px, 6vw, 96px);
+    padding-bottom: var(--uv-space-12);
+  }
+}
+.auth__hero {
+  display: grid;
+  align-content: center; /* name and lede stay together beside a tall card */
+  gap: var(--uv-space-4);
+  max-width: 34rem;
+}
+.auth__institution {
+  margin: 0;
+  font-size: var(--uv-display);
+  font-weight: 600;
+  line-height: 1.04;
+  letter-spacing: -0.03em;
+  text-wrap: balance;
+}
+.auth__lede {
+  margin: 0;
+  font-size: var(--uv-text-md);
+  line-height: 1.55;
+  color: var(--uv-text-muted);
+  max-width: 30rem;
+}
+@media (max-width: 959px) {
+  .auth__institution {
+    font-size: clamp(1.75rem, 1.2rem + 3vw, 2.5rem);
+  }
+  .auth__lede {
+    display: none;
+  }
+}
+.auth__panel {
+  display: grid;
+  gap: var(--uv-space-5);
+}
+.auth__card {
+  display: grid;
+  gap: var(--uv-space-5);
+}
+.auth__heading {
+  margin: 0;
+  font-size: var(--uv-text-xl);
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: -0.015em;
+  text-wrap: balance;
+}
+.auth__sub {
+  margin: -8px 0 0;
+  font-size: var(--uv-text-sm);
+  line-height: 1.55;
+  color: var(--uv-text-muted);
+}
+.auth__form {
+  display: grid;
+  gap: var(--uv-space-4);
+}
+.auth__actions {
+  display: grid;
+  gap: var(--uv-space-2);
+  margin-top: var(--uv-space-1);
+}
+.auth__more {
+  display: grid;
+  gap: var(--uv-space-2);
+  padding: 0 var(--uv-space-2);
+  font-size: var(--uv-text-sm);
+  color: var(--uv-text-muted);
+}
+.auth__more p {
+  margin: 0;
+}
+.auth__foot {
+  padding: var(--uv-space-4) clamp(16px, 4vw, 40px) var(--uv-space-6);
+  font-size: var(--uv-text-xs);
+  color: var(--uv-text-muted);
+}
+
+/* Done / success moment inside a flow */
+.done {
+  display: grid;
+  justify-items: start;
+  gap: var(--uv-space-4);
+}
+.done__mark {
+  display: grid;
+  place-items: center;
+  width: 64px;
+  height: 64px;
+  border-radius: 20px;
+  background: var(--uv-lime-wash);
+  color: var(--uv-deep);
+  animation: uv-pop 520ms var(--uv-ease-out) both;
+}
+@keyframes uv-pop {
+  from {
+    transform: scale(0.6);
+    opacity: 0;
+  }
+}
+
+/* Two-step setup pieces */
+.qr {
+  display: grid;
+  place-items: center;
+  padding: var(--uv-space-4);
+  border-radius: var(--uv-radius);
+  background: var(--uv-white);
+  box-shadow: inset 0 0 0 1.5px var(--uv-border);
+  width: min(100%, 248px);
+  justify-self: center;
+}
+.qr svg {
+  width: 100%;
+  height: auto;
+}
+.secret,
+.codes {
+  font-family: ui-monospace, 'Cascadia Mono', 'Roboto Mono', 'Droid Sans Mono', Menlo, Consolas, monospace;
+}
+.secret {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  font-size: var(--uv-text-md);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  font-variant-numeric: tabular-nums;
+}
+.codes {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 6px;
+  margin: 0;
+  padding: 8px;
+  list-style: none;
+  border-radius: var(--uv-radius);
+  background: var(--uv-offwhite);
+  font-size: 0.9375rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  font-variant-numeric: tabular-nums;
+}
+.codes li {
+  padding: 8px 4px;
+  border-radius: 8px;
+  background: var(--uv-white);
+  text-align: center;
+  white-space: nowrap; /* a recovery code is read and written down whole, never split */
+}
+.row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--uv-space-2);
+}
+.row-actions > * {
+  flex: 1 1 auto;
+}
+.check {
+  display: flex;
+  gap: var(--uv-space-3);
+  align-items: flex-start;
+  padding: var(--uv-space-3) var(--uv-space-4);
+  border-radius: var(--uv-radius);
+  background: var(--uv-offwhite);
+  font-size: var(--uv-text-sm);
+  line-height: 1.45;
+  cursor: pointer;
+}
+.check input {
+  width: 22px;
+  height: 22px;
+  margin: 0;
+  flex: none;
+}
+
+/* ---------- Step-up dialog ---------- */
+.dialog {
+  margin: auto; /* the CSS reset zeroes margins; <dialog> centres with auto margins */
+  width: min(calc(100% - 32px), 440px);
+  padding: 0;
+  border: 0;
+  border-radius: var(--uv-radius-card);
+  background: var(--uv-surface);
+  color: var(--uv-text);
+  box-shadow: var(--uv-shadow-raised);
+}
+.dialog::backdrop {
+  background: rgb(54 64 60 / 0.55);
+}
+.dialog[open] {
+  animation: uv-rise 280ms var(--uv-ease-out);
+}
+@keyframes uv-rise {
+  from {
+    transform: translateY(16px);
+    opacity: 0;
+  }
+}
+.dialog__body {
+  display: grid;
+  gap: var(--uv-space-4);
+  padding: var(--uv-space-6);
+}
+
+/* ---------- Workspace shell ---------- */
+.ws {
+  min-height: 100dvh;
+}
+.ws > div,
+.page > * {
+  min-width: 0; /* let wide content (tables) scroll inside its card, never the page */
+}
+.ws__rail {
+  display: none;
+}
+.ws__top {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--uv-space-3);
+  padding: var(--uv-space-3) var(--uv-space-4);
+  background: rgb(244 246 240 / 0.92);
+  backdrop-filter: saturate(1.4) blur(10px);
+}
+.ws__inst {
+  min-width: 0;
+  font-size: var(--uv-text-sm);
+  font-weight: 600;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.plate {
+  display: flex;
+  align-items: center;
+  gap: var(--uv-space-3);
+  min-width: 0;
+}
+.plate__initials {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  flex: none;
+  border-radius: 14px;
+  background: var(--uv-deep);
+  color: var(--uv-lime);
+  font-size: var(--uv-text-sm);
+  font-weight: 600;
+}
+.plate__text {
+  display: grid;
+  min-width: 0;
+  line-height: 1.25;
+}
+.plate__name {
+  font-size: var(--uv-text-sm);
+  font-weight: 600;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.plate__id {
+  font-size: var(--uv-text-xs);
+  color: var(--uv-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+.ws__signout {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.ws__main {
+  padding: var(--uv-space-4) var(--uv-space-4) calc(96px + env(safe-area-inset-bottom));
+}
+.ws__inst--desk {
+  display: none;
+}
+/* Thumb bar: navigation stays within reach on phones (warm consumer world). */
+.ws__thumb {
+  position: fixed;
+  inset: auto 12px calc(12px + env(safe-area-inset-bottom)) 12px;
+  z-index: 20;
+  border-radius: 22px;
+  background: var(--uv-surface);
+  box-shadow: var(--uv-shadow-raised);
+}
+.ws__thumb ul {
+  display: flex;
+  justify-content: space-around;
+  margin: 0;
+  padding: 6px;
+  list-style: none;
+}
+.navlink {
+  display: grid;
+  justify-items: center;
+  gap: 2px;
+  min-width: 64px;
+  min-height: 52px;
+  padding: 6px 10px;
+  border-radius: 16px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--uv-text-muted);
+  text-decoration: none;
+}
+.navlink[aria-current='page'] {
+  background: var(--uv-lime);
+  color: var(--uv-deep);
+  font-weight: 600;
+}
+@media (min-width: 900px) {
+  .ws {
+    display: grid;
+    grid-template-columns: 248px 1fr;
+  }
+  .ws__thumb {
+    display: none;
+  }
+  .ws__rail {
+    position: sticky;
+    top: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--uv-space-6);
+    height: 100dvh;
+    padding: var(--uv-space-6) var(--uv-space-4);
+  }
+  .ws__rail ul {
+    display: grid;
+    gap: 4px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  .ws__rail .navlink {
+    display: flex;
+    justify-items: start;
+    align-items: center;
+    gap: var(--uv-space-3);
+    min-height: 48px;
+    padding: 0 var(--uv-space-4);
+    font-size: var(--uv-text-sm);
+    color: var(--uv-text-muted);
+  }
+  @media (hover: hover) {
+    .ws__rail .navlink:hover {
+      background: rgb(255 255 255 / 0.08);
+      color: var(--uv-text);
+    }
+  }
+  .ws__rail .navlink[aria-current='page'] {
+    background: var(--uv-lime);
+    color: var(--uv-deep);
+  }
+  .ws__rail-foot {
+    margin-top: auto;
+    font-size: var(--uv-text-xs);
+    color: var(--uv-text-muted);
+  }
+  .ws__top {
+    padding: var(--uv-space-4) var(--uv-space-8);
+  }
+  .ws__main {
+    padding: var(--uv-space-4) var(--uv-space-8) var(--uv-space-12);
+  }
+  .ws__inst--phone {
+    display: none;
+  }
+  .ws__inst--desk {
+    display: block;
+  }
+}
+
+/* Page content inside the workspace */
+.page {
+  display: grid;
+  gap: var(--uv-space-6);
+  max-width: 980px;
+}
+.page__title {
+  margin: 0;
+  font-size: var(--uv-display);
+  font-weight: 600;
+  line-height: 1.05;
+  letter-spacing: -0.03em;
+  text-wrap: balance;
+}
+.page__lede {
+  margin: -12px 0 0;
+  max-width: 38rem;
+  color: var(--uv-text-muted);
+  line-height: 1.55;
+}
+.section-title {
+  margin: 0;
+  font-size: var(--uv-text-lg);
+  font-weight: 600;
+}
+.list {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.list__row {
+  display: flex;
+  align-items: center;
+  gap: var(--uv-space-4);
+  min-height: 72px;
+  padding: var(--uv-space-3) 0;
+  border-bottom: 1px solid var(--uv-border);
+  color: inherit;
+  text-decoration: none;
+}
+.list__row:last-child {
+  border-bottom: 0;
+}
+@media (hover: hover) {
+  a.list__row:hover .list__title {
+    text-decoration: underline;
+    text-underline-offset: 4px;
+  }
+}
+.list__text {
+  display: grid;
+  flex: 1;
+  min-width: 0;
+  gap: 2px;
+}
+.list__title {
+  font-weight: 600;
+}
+.list__meta {
+  font-size: var(--uv-text-sm);
+  color: var(--uv-text-muted);
+}
+.status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: var(--uv-radius-pill);
+  font-size: var(--uv-text-xs);
+  font-weight: 600;
+  white-space: nowrap;
+}
+.status--on {
+  background: var(--uv-lime-wash);
+  color: var(--uv-deep);
+}
+.status--off {
+  background: var(--uv-deep-soft);
+  color: var(--uv-text-muted);
+}
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--uv-text-sm);
+}
+.table th {
+  padding: 0 var(--uv-space-3) var(--uv-space-3);
+  text-align: left;
+  font-weight: 600;
+  color: var(--uv-text-muted);
+  font-size: var(--uv-text-xs);
+}
+.table td {
+  padding: var(--uv-space-4) var(--uv-space-3);
+  border-top: 1px solid var(--uv-border);
+  font-variant-numeric: tabular-nums;
+}
+.list__row--flat {
+  min-height: 0;
+  padding: 0;
+  border-bottom: 0;
+  flex-wrap: wrap;
+}
+.scroll-x {
+  overflow-x: auto;
+}
+
+/* Disclosure with a drawn chevron (no native marker) */
+.disclosure > summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 44px;
+  list-style: none;
+  cursor: pointer;
+}
+.disclosure > summary::-webkit-details-marker {
+  display: none;
+}
+.disclosure > summary svg {
+  transition: transform 180ms var(--uv-ease-out);
+}
+.disclosure[open] > summary svg {
+  transform: rotate(180deg);
+}
+.disclosure__body {
+  display: grid;
+  gap: var(--uv-space-3);
+  margin-top: var(--uv-space-2);
+}
+.codes-note {
+  margin: 0;
+  font-size: var(--uv-text-xs);
+  color: var(--uv-text-muted);
+}
+
+/* Rail: the institution leads; UniVarse is the foot mark */
+.ws__identity {
+  margin: 0;
+  font-size: var(--uv-text-lg);
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+  text-wrap: balance;
+}
+.ws__secured {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.ws__secured img {
+  width: 18px;
+  height: 18px;
+}
+
+/* Activation's completion moment: the institution welcomes the new member */
+.welcome {
+  display: grid;
+  gap: var(--uv-space-5);
+}
+.welcome__seal {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 88px;
+  height: 88px;
+  border-radius: 50%;
+  background: var(--uv-lime-wash);
+  color: var(--uv-deep);
+  animation: uv-pop 560ms var(--uv-ease-out) both;
+}
+.welcome__seal {
+  box-shadow: inset 0 0 0 6px var(--uv-white), inset 0 0 0 7.5px rgb(72 85 80 / 0.18);
+}
+.welcome__name {
+  margin: 0;
+  font-size: var(--uv-text-xl);
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: -0.015em;
+  text-wrap: balance;
+}
+.welcome__next {
+  display: grid;
+  gap: var(--uv-space-3);
+  margin: 0;
+  padding: var(--uv-space-4);
+  list-style: none;
+  border-radius: var(--uv-radius);
+  background: var(--uv-offwhite);
+  font-size: var(--uv-text-sm);
+}
+.welcome__next li {
+  display: flex;
+  gap: var(--uv-space-3);
+  align-items: flex-start;
+}
+.welcome__step {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--uv-white);
+  font-size: var(--uv-text-xs);
+  font-weight: 600;
+}
+.plate {
+  margin-left: auto;
+}
+.plate__id {
+  white-space: nowrap;
+}
+@media (max-width: 479px) {
+  /* Narrow phones: initials + sign out; the name greets the person on Home. */
+  .plate__text {
+    display: none;
+  }
+}
+
+/* Users on phones: each row stacks name, number and status, so status is never clipped. */
+@media (max-width: 599px) {
+  .table thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+  }
+  .table tr {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 2px var(--uv-space-3);
+    align-items: center;
+    padding: var(--uv-space-3) 0;
+    border-top: 1px solid var(--uv-border);
+  }
+  .table tbody tr:first-child {
+    border-top: 0;
+  }
+  .table td {
+    padding: 0;
+    border-top: 0;
+  }
+  .table td:nth-child(1) {
+    grid-column: 1;
+    font-weight: 600;
+  }
+  .table td:nth-child(2) {
+    grid-column: 1;
+    color: var(--uv-text-muted);
+    font-size: var(--uv-text-xs);
+  }
+  .table td:nth-child(3) {
+    grid-column: 2;
+    grid-row: 1 / span 2;
+  }
+}

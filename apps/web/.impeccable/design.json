@@ -1,0 +1,178 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-10-05T13:03:36Z",
+  "title": "Design System: UniVarse Web",
+  "extensions": {
+    "colorMeta": {
+      "deep": { "role": "primary", "displayName": "Library Deep Green", "canonical": "#485550", "cssVar": "--uv-deep", "tonalRamp": ["#1c2220", "#2a322f", "#36403c", "#485550", "#66736d", "#8a958f", "#c3cbc6", "#eef1ee"] },
+      "lime": { "role": "primary", "displayName": "Press-Me Lime", "canonical": "#C0EB6A", "cssVar": "--uv-lime", "tonalRamp": ["#2f4210", "#4a661b", "#6f9628", "#93c13e", "#addb52", "#c0eb6a", "#dcf4ab", "#f4fbe4"] },
+      "lime-strong": { "role": "primary", "displayName": "Pressed Lime", "canonical": "#ADDB52", "cssVar": "--uv-lime-strong", "tonalRamp": ["#2f4210", "#4a661b", "#6f9628", "#93c13e", "#addb52", "#c0eb6a", "#dcf4ab", "#f4fbe4"] },
+      "deep-soft": { "role": "secondary", "displayName": "Sage Leaf", "canonical": "#E3E9E1", "cssVar": "--uv-deep-soft", "tonalRamp": ["#2a322f", "#4c5752", "#76817b", "#a3ada6", "#c9d1c7", "#d5ddd3", "#e3e9e1", "#f2f5f1"] },
+      "lime-wash": { "role": "secondary", "displayName": "Lime Wash", "canonical": "#EEF8D9", "cssVar": "--uv-lime-wash", "tonalRamp": ["#3a4a1e", "#5d7333", "#86a04f", "#b2cc7d", "#d3e8a8", "#e3f2c3", "#eef8d9", "#f8fcef"] },
+      "offwhite": { "role": "neutral", "displayName": "Sage Off-White", "canonical": "#F4F6F0", "cssVar": "--uv-offwhite", "tonalRamp": ["#262823", "#44473f", "#686c61", "#8f9487", "#b6bbae", "#d9ddd2", "#eceee7", "#f4f6f0"] },
+      "white": { "role": "neutral", "displayName": "Card White", "canonical": "#FFFFFF", "cssVar": "--uv-white", "tonalRamp": ["#262626", "#444444", "#666666", "#8c8c8c", "#b3b3b3", "#d9d9d9", "#f0f0f0", "#ffffff"] },
+      "text-muted": { "role": "neutral", "displayName": "Muted Moss", "canonical": "#5D6964", "cssVar": "--uv-text-muted", "tonalRamp": ["#1d2220", "#2f3633", "#45504b", "#5d6964", "#7b8781", "#a0aaa5", "#c8cfcb", "#eef1ef"] },
+      "on-deep-muted": { "role": "neutral", "displayName": "Rail Mist", "canonical": "#DFE5DC", "cssVar": "--uv-text-muted (inside .uv-on-deep)", "tonalRamp": ["#2a3028", "#495246", "#6f796b", "#97a193", "#bcc5b8", "#dfe5dc", "#ebefe9", "#f6f8f5"] },
+      "border": { "role": "neutral", "displayName": "Hairline", "canonical": "#D7DDD4", "cssVar": "--uv-border", "tonalRamp": ["#282c27", "#474d45", "#6c7369", "#949b90", "#bac1b6", "#d7ddd4", "#e7ebe5", "#f5f7f4"] },
+      "input-border": { "role": "neutral", "displayName": "Field Outline", "canonical": "#8A958F", "cssVar": "--uv-input-border", "tonalRamp": ["#222624", "#3a413d", "#56605b", "#717c76", "#8a958f", "#a9b2ad", "#cdd3cf", "#eff1f0"] },
+      "danger": { "role": "status", "displayName": "Danger", "canonical": "#B42318", "cssVar": "--uv-danger", "tonalRamp": ["#3d0b07", "#62120c", "#8b1a12", "#b42318", "#d9493e", "#ec8a82", "#f7c4bf", "#fdecea"] },
+      "danger-bg": { "role": "status", "displayName": "Danger Tint", "canonical": "#FDECEA", "cssVar": "--uv-danger-bg", "tonalRamp": ["#3d0b07", "#62120c", "#8b1a12", "#b42318", "#d9493e", "#ec8a82", "#f7c4bf", "#fdecea"] },
+      "success": { "role": "status", "displayName": "Success", "canonical": "#2F6B2F", "cssVar": "--uv-success", "tonalRamp": ["#0f230f", "#1a3c1a", "#245424", "#2f6b2f", "#4b8f4b", "#7db57d", "#b9d9b5", "#e8f3e4"] },
+      "success-bg": { "role": "status", "displayName": "Success Tint", "canonical": "#E8F3E4", "cssVar": "--uv-success-bg", "tonalRamp": ["#0f230f", "#1a3c1a", "#245424", "#2f6b2f", "#4b8f4b", "#7db57d", "#b9d9b5", "#e8f3e4"] },
+      "info": { "role": "status", "displayName": "Info", "canonical": "#275A8A", "cssVar": "--uv-info", "tonalRamp": ["#0c1d2d", "#14304a", "#1d4568", "#275a8a", "#4579ab", "#7ea5cb", "#bdd2e7", "#e6eff8"] },
+      "info-bg": { "role": "status", "displayName": "Info Tint", "canonical": "#E6EFF8", "cssVar": "--uv-info-bg", "tonalRamp": ["#0c1d2d", "#14304a", "#1d4568", "#275a8a", "#4579ab", "#7ea5cb", "#bdd2e7", "#e6eff8"] }
+    },
+    "typographyMeta": {
+      "display": { "displayName": "Display", "purpose": "Institution name on sign-in screens; workspace page titles. Drops to clamp(1.75rem, 1.2rem + 3vw, 2.5rem) for the institution name under 960px." },
+      "headline": { "displayName": "Headline", "purpose": "The task heading (h1) inside each card; activation welcome name." },
+      "title": { "displayName": "Title", "purpose": "Workspace section titles; institution name in the desktop rail." },
+      "body": { "displayName": "Body", "purpose": "Default reading text and all typed input (16px floor)." },
+      "body-sm": { "displayName": "Body small", "purpose": "Card sub-lines, list metadata, notices, table cells." },
+      "label": { "displayName": "Label", "purpose": "Field labels and plain links (500)." },
+      "caption": { "displayName": "Caption", "purpose": "Hints, errors, step labels, expiry label, footers, status chips." },
+      "code-digit": { "displayName": "Code digit", "purpose": "One digit per code cell, tabular." },
+      "mono": { "displayName": "Mono", "purpose": "Two-step setup secret and recovery codes only." }
+    },
+    "shadows": [
+      { "name": "card", "value": "0 1px 2px rgb(72 85 80 / 0.06), 0 8px 24px -12px rgb(72 85 80 / 0.18)", "purpose": "Resting cards and the trust pill." },
+      { "name": "raised", "value": "0 2px 4px rgb(72 85 80 / 0.08), 0 18px 40px -16px rgb(72 85 80 / 0.28)", "purpose": "Overlays: step-up dialog and the phone thumb bar." },
+      { "name": "action-lift", "value": "0 1px 0 rgb(72 85 80 / 0.12), 0 6px 16px -8px rgb(120 160 40 / 0.55)", "purpose": "Under the lime action button only." },
+      { "name": "focus-field", "value": "0 0 0 3px rgb(72 85 80 / 0.22)", "purpose": "Ring around a focused input (border also turns deep)." },
+      { "name": "focus-outline", "value": "outline: 3px solid var(--uv-focus); outline-offset: 3px", "purpose": "Global focus-visible style: deep on light, lime on the deep rail." }
+    ],
+    "motion": [
+      { "name": "ease-out", "value": "cubic-bezier(0.16, 1, 0.3, 1)", "purpose": "The single easing for all state transitions (140–280ms)." },
+      { "name": "press", "value": "transform: scale(0.98) over 160ms", "purpose": "Button active state." },
+      { "name": "pop", "value": "scale 0.6 → 1, opacity 0 → 1, 520–560ms ease-out", "purpose": "Done mark and welcome seal." },
+      { "name": "rise", "value": "translateY(16px) → 0, opacity 0 → 1, 280ms ease-out", "purpose": "Step-up dialog opening." },
+      { "name": "drain", "value": "scaleX(from) → 0, linear, duration = exact time left", "purpose": "Expiry bar fill." },
+      { "name": "reduced-motion", "value": "durations collapse to 0.01ms; expiry drain and caret blink stop", "purpose": "prefers-reduced-motion: reduce." }
+    ],
+    "breakpoints": [
+      { "name": "narrow-phone", "value": "max-width: 479px", "purpose": "Name plate collapses to initials." },
+      { "name": "table-stack", "value": "max-width: 599px", "purpose": "Tables restack into two-column rows." },
+      { "name": "card-roomy", "value": "min-width: 640px", "purpose": "Card padding 24px → 32px." },
+      { "name": "workspace-rail", "value": "min-width: 900px", "purpose": "Thumb bar becomes the 248px deep rail." },
+      { "name": "auth-split", "value": "min-width: 960px", "purpose": "Sign-in becomes hero-left, card-right; lede appears." }
+    ]
+  },
+  "components": [
+    {
+      "name": "Action Button",
+      "kind": "button",
+      "refersTo": "button-action",
+      "description": "The one lime thing to press on a screen; deep-green label.",
+      "html": "<button class=\"ds-btn ds-btn-action\">Sign in</button>",
+      "css": ".ds-btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 48px; padding: 0 24px; border: 0; border-radius: 14px; font: 600 1rem/1 Poppins, system-ui, sans-serif; letter-spacing: 0.005em; cursor: pointer; transition: background-color 160ms cubic-bezier(0.16,1,0.3,1), transform 160ms cubic-bezier(0.16,1,0.3,1); } .ds-btn-action { background: var(--uv-lime, #c0eb6a); color: var(--uv-deep, #485550); box-shadow: 0 1px 0 rgb(72 85 80 / 0.12), 0 6px 16px -8px rgb(120 160 40 / 0.55); } .ds-btn-action:hover { background: var(--uv-lime-strong, #addb52); } .ds-btn:active { transform: scale(0.98); } .ds-btn:focus-visible { outline: 3px solid var(--uv-deep, #485550); outline-offset: 3px; } .ds-btn-action:disabled { background: #f4f6f0; color: #8a958f; box-shadow: inset 0 0 0 1.5px #d7ddd4; cursor: not-allowed; transform: none; }"
+    },
+    {
+      "name": "Quiet Button",
+      "kind": "button",
+      "refersTo": "button-quiet",
+      "description": "Secondary actions: copy, sign out.",
+      "html": "<button class=\"ds-btn-quiet\"><svg width=\"20\" height=\"20\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><rect x=\"9\" y=\"9\" width=\"11\" height=\"11\" rx=\"2\"/><path d=\"M5 15V6a2 2 0 0 1 2-2h8\"/></svg>Copy</button>",
+      "css": ".ds-btn-quiet { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 48px; padding: 0 24px; border: 0; border-radius: 14px; background: var(--uv-deep-soft, #e3e9e1); color: var(--uv-deep, #485550); font: 600 1rem/1 Poppins, system-ui, sans-serif; cursor: pointer; transition: background-color 160ms cubic-bezier(0.16,1,0.3,1), transform 160ms cubic-bezier(0.16,1,0.3,1); } .ds-btn-quiet:hover { background: #d5ddd3; } .ds-btn-quiet:active { transform: scale(0.98); } .ds-btn-quiet:focus-visible { outline: 3px solid var(--uv-deep, #485550); outline-offset: 3px; }"
+    },
+    {
+      "name": "Plain Link Button",
+      "kind": "button",
+      "refersTo": "button-plain",
+      "description": "Underlined text action for minor steps (change account, resend).",
+      "html": "<button class=\"ds-btn-plain\">Change account</button>",
+      "css": ".ds-btn-plain { min-height: 44px; padding: 0 8px; border: 0; background: transparent; color: var(--uv-deep, #485550); font: 500 0.9375rem/1 Poppins, system-ui, sans-serif; text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 4px; cursor: pointer; } .ds-btn-plain:hover { text-decoration-thickness: 2px; } .ds-btn-plain:focus-visible { outline: 3px solid var(--uv-deep, #485550); outline-offset: 3px; }"
+    },
+    {
+      "name": "Text Field",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "Labelled 52px field with a 3:1 outline; deep border and soft ring on focus.",
+      "html": "<label class=\"ds-field\"><span class=\"ds-field-label\">Matric number, staff number or email</span><input class=\"ds-input\" /><span class=\"ds-field-hint\">The one your institution gave you.</span></label>",
+      "css": ".ds-field { display: grid; gap: 6px; font-family: Poppins, system-ui, sans-serif; color: var(--uv-deep, #485550); } .ds-field-label { font: 500 0.9375rem/1.3 Poppins, system-ui, sans-serif; } .ds-field-hint { font-size: 0.8125rem; line-height: 1.45; color: var(--uv-text-muted, #5d6964); } .ds-input { min-height: 52px; padding: 0 16px; border: 1.5px solid var(--uv-input-border, #8a958f); border-radius: 14px; background: #fff; color: var(--uv-deep, #485550); font: 400 1rem/1.4 Poppins, system-ui, sans-serif; transition: border-color 140ms cubic-bezier(0.16,1,0.3,1), box-shadow 140ms cubic-bezier(0.16,1,0.3,1); } .ds-input:hover { border-color: #5d6964; } .ds-input:focus-visible { outline: none; border-color: #485550; box-shadow: 0 0 0 3px rgb(72 85 80 / 0.22); }"
+    },
+    {
+      "name": "Task Card",
+      "kind": "card",
+      "refersTo": "card",
+      "description": "One task per borderless white card on the sage ground.",
+      "html": "<div class=\"ds-ground\"><div class=\"ds-card\"><h2 class=\"ds-card-h\">Welcome back</h2><p class=\"ds-card-sub\">Sign in with your matric number, staff number or email.</p></div></div>",
+      "css": ".ds-ground { background: var(--uv-offwhite, #f4f6f0); padding: 24px; } .ds-card { background: #fff; border-radius: 22px; box-shadow: 0 1px 2px rgb(72 85 80 / 0.06), 0 8px 24px -12px rgb(72 85 80 / 0.18); padding: 32px; display: grid; gap: 20px; font-family: Poppins, system-ui, sans-serif; color: var(--uv-deep, #485550); } .ds-card-h { margin: 0; font-size: clamp(1.5rem, 1.2rem + 1.2vw, 2rem); font-weight: 600; line-height: 1.2; letter-spacing: -0.015em; } .ds-card-sub { margin: -8px 0 0; font-size: 0.9375rem; line-height: 1.55; color: var(--uv-text-muted, #5d6964); }"
+    },
+    {
+      "name": "Code Cells",
+      "kind": "custom",
+      "refersTo": "code-cell",
+      "description": "Signature: six fixed one-digit cells over one real input; active cell rings in deep green.",
+      "html": "<div class=\"ds-code\"><span class=\"ds-cell is-filled\">2</span><span class=\"ds-cell is-filled\">9</span><span class=\"ds-cell is-filled\">7</span><span class=\"ds-cell is-filled\">7</span><span class=\"ds-cell is-active\"></span><span class=\"ds-cell\"></span></div>",
+      "css": ".ds-code { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; width: min(100%, 360px); } .ds-cell { display: grid; place-items: center; aspect-ratio: 4 / 5; border-radius: 14px; background: var(--uv-offwhite, #f4f6f0); box-shadow: inset 0 0 0 1.5px var(--uv-input-border, #8a958f); font: 600 1.5rem/1 Poppins, system-ui, sans-serif; font-variant-numeric: tabular-nums; color: var(--uv-deep, #485550); transition: box-shadow 140ms cubic-bezier(0.16,1,0.3,1), background-color 140ms cubic-bezier(0.16,1,0.3,1); } .ds-cell.is-filled { background: #fff; } .ds-cell.is-active { background: #fff; box-shadow: inset 0 0 0 2px #485550, 0 0 0 3px rgb(72 85 80 / 0.18); } .ds-cell.is-active:empty::after { content: ''; width: 2px; height: 1.4rem; background: #485550; animation: ds-blink 1s steps(1) infinite; } @keyframes ds-blink { 50% { opacity: 0; } }"
+    },
+    {
+      "name": "Expiry Bar",
+      "kind": "custom",
+      "refersTo": "expiry-fill",
+      "description": "Signature: a deep-green bar whose length is the exact time left, with words.",
+      "html": "<div class=\"ds-expiry\"><div class=\"ds-expiry-track\"><div class=\"ds-expiry-fill\"></div></div><span class=\"ds-expiry-label\"><svg width=\"14\" height=\"14\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><circle cx=\"12\" cy=\"12\" r=\"9\"/><path d=\"M12 7v5l3 2\"/></svg>Valid for 15 more minutes</span></div>",
+      "css": ".ds-expiry { display: grid; gap: 6px; width: min(100%, 360px); font-family: Poppins, system-ui, sans-serif; } .ds-expiry-track { height: 6px; border-radius: 999px; background: var(--uv-deep-soft, #e3e9e1); overflow: hidden; } .ds-expiry-fill { height: 100%; width: 100%; border-radius: inherit; background: var(--uv-deep, #485550); transform-origin: left center; transform: scaleX(0.8); } .ds-expiry-label { display: flex; gap: 6px; align-items: center; font-size: 0.8125rem; color: var(--uv-text-muted, #5d6964); }"
+    },
+    {
+      "name": "Thumb Bar",
+      "kind": "nav",
+      "refersTo": "navlink-active",
+      "description": "Phone navigation within thumb reach; current item is a lime block.",
+      "html": "<nav class=\"ds-thumb\"><a class=\"ds-navlink is-current\" href=\"#\"><svg width=\"20\" height=\"20\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M4 11l8-7 8 7v8a1 1 0 0 1-1 1h-4v-6H9v6H5a1 1 0 0 1-1-1z\"/></svg>Home</a><a class=\"ds-navlink\" href=\"#\"><svg width=\"20\" height=\"20\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><circle cx=\"9\" cy=\"8\" r=\"3.5\"/><path d=\"M3 20c.8-3.4 3.2-5 6-5s5.2 1.6 6 5M16 4.5a3.5 3.5 0 0 1 0 7M18 15c1.6.6 2.6 2.2 3 5\"/></svg>Users</a></nav>",
+      "css": ".ds-thumb { display: flex; justify-content: space-around; padding: 6px; border-radius: 22px; background: #fff; box-shadow: 0 2px 4px rgb(72 85 80 / 0.08), 0 18px 40px -16px rgb(72 85 80 / 0.28); font-family: Poppins, system-ui, sans-serif; } .ds-navlink { display: grid; justify-items: center; gap: 2px; min-width: 64px; min-height: 52px; padding: 6px 10px; border-radius: 16px; font-size: 0.75rem; font-weight: 500; color: var(--uv-text-muted, #5d6964); text-decoration: none; } .ds-navlink.is-current { background: var(--uv-lime, #c0eb6a); color: var(--uv-deep, #485550); font-weight: 600; } .ds-navlink:focus-visible { outline: 3px solid #485550; outline-offset: 3px; }"
+    },
+    {
+      "name": "Status Chip and Icon Tile",
+      "kind": "chip",
+      "refersTo": "status-on",
+      "description": "Lime-wash marks done/on states and icon tiles; never pressable.",
+      "html": "<div class=\"ds-row\"><span class=\"ds-tile\"><svg width=\"20\" height=\"20\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M12 3l7 3v5c0 4.5-3 8.5-7 10-4-1.5-7-5.5-7-10V6z\"/><path d=\"M9 12l2 2 4-4\"/></svg></span><span class=\"ds-status ds-status-on\">On</span><span class=\"ds-status ds-status-off\">Not in plan</span></div>",
+      "css": ".ds-row { display: flex; gap: 12px; align-items: center; font-family: Poppins, system-ui, sans-serif; } .ds-tile { display: grid; place-items: center; width: 44px; height: 44px; border-radius: 50%; background: var(--uv-lime-wash, #eef8d9); color: var(--uv-deep, #485550); } .ds-status { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px; font-size: 0.8125rem; font-weight: 600; white-space: nowrap; } .ds-status-on { background: var(--uv-lime-wash, #eef8d9); color: var(--uv-deep, #485550); } .ds-status-off { background: var(--uv-deep-soft, #e3e9e1); color: var(--uv-text-muted, #5d6964); }"
+    },
+    {
+      "name": "Error Notice",
+      "kind": "custom",
+      "refersTo": "notice-danger",
+      "description": "Tinted status panel with icon and a support reference; no side stripe.",
+      "html": "<div class=\"ds-notice\" role=\"alert\"><svg width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><circle cx=\"12\" cy=\"12\" r=\"9\"/><path d=\"M12 8v5M12 16h.01\"/></svg><div>That code has expired. Ask for a new one.<span class=\"ds-notice-ref\">Support reference: req_8f2c41</span></div></div>",
+      "css": ".ds-notice { display: grid; grid-template-columns: auto 1fr; gap: 12px; align-items: start; padding: 16px; border-radius: 14px; background: var(--uv-danger-bg, #fdecea); color: var(--uv-danger, #b42318); font: 400 0.9375rem/1.5 Poppins, system-ui, sans-serif; } .ds-notice svg { margin-top: 2px; } .ds-notice-ref { display: block; margin-top: 2px; font-size: 0.8125rem; font-variant-numeric: tabular-nums; opacity: 0.92; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Friendly Front Desk",
+    "overview": "The tenant web app is the institution's own front desk, staffed by an app you already trust. The institution's name is the biggest thing on the screen; UniVarse sits in a small white pill or a rail footer as the trust mark. Every screen holds one task on one borderless white card resting on a sage off-white ground, written in plain words with exactly one lime thing to press.\n\nThe world is a warm consumer app, not a bank and not a SaaS template: Poppins at real, generous sizes in deep-green ink, soft 22px card corners, round pale-green icon tiles, 48px touch targets, and a floating thumb bar on phones that becomes a deep-green rail on desktop. Security moments (codes, two-step setup, step-up) stay calm: fixed one-digit code cells, a step strip that shows where you are in a flow, and a bar whose length is the exact time left.\n\nDensity is low and phone-first. Depth is a single soft, offset shadow under cards; nothing glows, nothing has a hard border except fields that need a 3:1 outline.",
+    "keyCharacteristics": [
+      "Sage off-white ground, borderless white cards, soft offset shadow.",
+      "Deep green (#485550) for all ink, focus and progress; lime only as the fill of pressable things.",
+      "Institution name as hero (display size); UniVarse as a small trust mark.",
+      "One task per card; flows keep one fixed card frame with a step strip.",
+      "Signature: six fixed code cells plus a draining expiry bar.",
+      "Phone: floating thumb bar. Desktop (≥900px): 248px deep-green rail."
+    ],
+    "rules": [
+      { "name": "The Lime Is a Button Rule", "body": "Lime fills only things you can press, and its label is always deep green. Lime is never text, an icon or a focus ring on a light surface (1.37:1 on white). A disabled action loses lime entirely and drops to off-white with a hairline inset — lime always means \"you can press this now\".", "section": "colors" },
+      { "name": "The Wash Is Not Lime Rule", "body": "States that are finished or on (done marks, icon tiles, \"On\" chips) use lime-wash, not lime, so they never read as pressable.", "section": "colors" },
+      { "name": "The Never Colour Alone Rule", "body": "Every status carries words and an icon; colour is the third signal, not the first.", "section": "colors" },
+      { "name": "The Sixteen Floor Rule", "body": "Anything you type into is 16px (1rem) or larger.", "section": "typography" },
+      { "name": "The Name Is the Hero Rule", "body": "On a tenant address the institution's name is the largest type on the page; UniVarse never out-scales it.", "section": "typography" },
+      { "name": "The Two Heights Rule", "body": "Content rests (card); overlays float (raised). Nothing else gets its own elevation.", "section": "elevation" }
+    ],
+    "dos": [
+      "Do put the institution's name at display size above or beside the task card, and UniVarse only in the trust pill or the rail foot.",
+      "Do give every screen exactly one lime action, with a deep-green label.",
+      "Do use lime-wash, not lime, for done, on and icon-tile states.",
+      "Do keep every touch target at 48px (44px minimum for plain and icon controls).",
+      "Do pair every status colour with words and an icon; give every error notice a support reference.",
+      "Do use the ease-out curve (cubic-bezier(0.16, 1, 0.3, 1)) at 140–280ms for state changes, and honour reduced motion.",
+      "Do show time limits as the expiry bar plus words, never a countdown alone."
+    ],
+    "donts": [
+      "Don't use lime as text, an icon or a focus ring on a light surface (1.37:1 on white).",
+      "Don't put a border on cards or a zero-offset glow on anything.",
+      "Don't set any input text below 16px.",
+      "Don't fake an institution crest or let UniVarse out-scale the institution's name.",
+      "Don't use jargon (\"MFA\", \"TOTP\", \"tenant\") in user-facing copy.",
+      "Don't use colour alone to carry status."
+    ]
+  }
+}

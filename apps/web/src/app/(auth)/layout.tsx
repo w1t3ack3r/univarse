@@ -1,25 +1,46 @@
 import { messageFor } from '@univarse/contracts';
-import { Alert } from '@univarse/ui';
+import { Card, Notice } from '@univarse/ui';
 import type { ReactNode } from 'react';
-import { Logo } from '@/components/Logo';
 import { tenantProfile } from '@/lib/tenant';
 
+const KIND: Record<string, string> = {
+  UNIVERSITY: 'university',
+  POLYTECHNIC: 'polytechnic',
+  COLLEGE_OF_EDUCATION: 'college of education',
+};
+
+/**
+ * Sign-in shell (direction contract: .impeccable/surfaces/src-app.md). The institution leads; UniVarse
+ * is the trust mark. Each page renders its own task card as `children`.
+ */
 export default async function AuthLayout({ children }: { children: ReactNode }) {
   const { profile, code } = await tenantProfile();
   return (
-    <main id="main" className="mx-auto flex min-h-dvh w-full max-w-md flex-col justify-center gap-6 px-4 py-10">
-      <Logo tone="deep" height={34} />
-      <section className="rounded-2xl bg-surface p-6 shadow-sm sm:p-8" aria-labelledby="auth-heading">
+    <div className="auth">
+      <header className="auth__top">
+        <span className="uv-pill auth__trust">
+          <img src="/brand/icon-deep.svg" alt="" width={18} height={18} />
+          Secured by UniVarse
+        </span>
+      </header>
+      <main id="main" className="auth__body">
         {profile ? (
           <>
-            <p className="mb-1 text-sm text-muted">{profile.legalName}</p>
-            {children}
+            <div className="auth__hero">
+              <p className="auth__institution">{profile.legalName}</p>
+              <p className="auth__lede">
+                Your {KIND[profile.type] ?? 'institution'} account for courses, fees, results and everything in between.
+              </p>
+            </div>
+            <div className="auth__panel">{children}</div>
           </>
         ) : (
-          <Alert>{messageFor(code)}</Alert>
+          <Card>
+            <Notice>{messageFor(code)}</Notice>
+          </Card>
         )}
-      </section>
-      <p className="text-center text-xs text-muted">UniVarse · Secure sign-in</p>
-    </main>
+      </main>
+      <footer className="auth__foot">UniVarse keeps your account safe with encrypted sessions and two-step sign-in.</footer>
+    </div>
   );
 }

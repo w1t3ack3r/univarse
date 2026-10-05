@@ -1,67 +1,50 @@
-// UniVarse base components (docs/11 §3). Styles: tokens.css + components.css.
-import { useId, type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode } from 'react';
+// UniVarse base components, server-safe (no hooks). Interactive ones live in `@univarse/ui/client`.
+// Styles: tokens.css + components.css. World: apps/web/.impeccable/surfaces/src-app.md.
+import type { ComponentProps, ReactNode } from 'react';
+import { AlertCircle, Check, InfoCircle } from './icons';
 
-type Variant = 'accent' | 'primary' | 'ghost';
+export * from './icons';
 
+type Variant = 'action' | 'quiet' | 'plain';
+
+/** The one action colour (lime) marks the one thing to press; `quiet` and `plain` for the rest. */
 export function Button({
-  variant = 'accent',
+  variant = 'action',
   block = false,
   pending = false,
   className,
   children,
   disabled,
   ...rest
-}: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: Variant; block?: boolean; pending?: boolean }) {
+}: ComponentProps<'button'> & { variant?: Variant; block?: boolean; pending?: boolean }) {
   const classes = ['uv-btn', `uv-btn--${variant}`, block ? 'uv-btn--block' : '', className ?? ''].filter(Boolean).join(' ');
   return (
     <button className={classes} disabled={disabled === true || pending} aria-busy={pending || undefined} {...rest}>
+      {pending ? <span className="uv-btn__spinner" aria-hidden="true" /> : null}
       {children}
     </button>
   );
 }
 
-/**
- * A labelled input. Hint and error are linked with aria-describedby, and an error sets aria-invalid
- * (spec 0005 W9).
- */
-export function TextField({
-  label,
-  hint,
-  error,
-  ...input
-}: InputHTMLAttributes<HTMLInputElement> & { label: string; hint?: ReactNode; error?: string | undefined }) {
-  const id = useId();
-  const hintId = hint ? `${id}-hint` : undefined;
-  const errorId = error ? `${id}-error` : undefined;
-  const describedBy = [hintId, errorId].filter(Boolean).join(' ') || undefined;
+/** Class names for links styled as buttons (Next's Link lives in the app, not here). */
+export const buttonClass = (variant: Variant = 'action', block = false) =>
+  ['uv-btn', `uv-btn--${variant}`, block ? 'uv-btn--block' : ''].filter(Boolean).join(' ');
+
+export function Card({ children, className, ...rest }: { children: ReactNode; className?: string } & Record<`data-${string}`, string>) {
   return (
-    <div className="uv-field">
-      <label className="uv-field__label" htmlFor={id}>
-        {label}
-      </label>
-      {hint ? (
-        <span className="uv-field__hint" id={hintId}>
-          {hint}
-        </span>
-      ) : null}
-      <input
-        id={id}
-        className="uv-field__input"
-        aria-invalid={error ? true : undefined}
-        aria-describedby={describedBy}
-        {...input}
-      />
-      {error ? (
-        <span className="uv-field__error" id={errorId}>
-          {error}
-        </span>
-      ) : null}
+    <div className={['uv-card', className ?? ''].filter(Boolean).join(' ')} {...rest}>
+      {children}
     </div>
   );
 }
 
-/** Problem or status message. Errors always show the request id for support (docs/11 §2). */
-export function Alert({
+const TONE_ICON = { danger: AlertCircle, info: InfoCircle, success: Check } as const;
+
+/**
+ * Status message. Errors always carry the request id for support (docs/11 §2). Tinted panel with an
+ * icon; never a coloured side stripe (craft floor).
+ */
+export function Notice({
   tone = 'danger',
   requestId,
   children,
@@ -70,10 +53,31 @@ export function Alert({
   requestId?: string | undefined;
   children: ReactNode;
 }) {
+  const Icon = TONE_ICON[tone];
   return (
-    <div className={`uv-alert uv-alert--${tone}`} role={tone === 'danger' ? 'alert' : 'status'}>
-      {children}
-      {requestId ? <span className="uv-alert__ref">Reference: {requestId}</span> : null}
+    <div className={`uv-notice uv-notice--${tone}`} role={tone === 'danger' ? 'alert' : 'status'}>
+      <Icon size={18} />
+      <div>
+        {children}
+        {requestId ? <span className="uv-notice__ref">Support reference: {requestId}</span> : null}
+      </div>
     </div>
+  );
+}
+
+/** One fixed frame per flow; the strip shows where you are (spec 0005 W11–W13). */
+export function Steps({ steps, current }: { steps: readonly string[]; current: number }) {
+  return (
+    <ol className="uv-steps" aria-label={`Step ${current + 1} of ${steps.length}`}>
+      {steps.map((label, i) => {
+        const state = i < current ? 'done' : i === current ? 'current' : 'todo';
+        return (
+          <li key={label} className="uv-steps__item" data-state={state} aria-current={state === 'current' ? 'step' : undefined}>
+            <span className="uv-steps__bar" />
+            <span>{label}</span>
+          </li>
+        );
+      })}
+    </ol>
   );
 }

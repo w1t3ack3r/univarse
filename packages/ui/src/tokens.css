@@ -1,33 +1,35 @@
 /*
- * UniVarse design tokens (docs/11 §3, spec 0005 W3).
- * Brand source: docs/brand doc/ (palette, Poppins) — measured contrasts in spec 0005.
+ * UniVarse design tokens (docs/11 §3, spec 0005 W3). World: warm consumer app surface
+ * (apps/web/.impeccable/surfaces/src-app.md): sage ground, borderless white cards, one action colour.
+ * Brand source: docs/brand-doc/ (palette, Poppins). Measured contrasts are in spec 0005.
  * RULE: lime is never text, an icon or a focus ring on a light surface (1.37:1 on white).
- *       Use it as a fill under deep-green text (5.70:1) or as an accent on deep green.
+ *       It is the action colour: a fill under deep-green text (5.70:1), only on things you can press.
  */
 :root {
   /* Brand */
   --uv-deep: #485550;
-  --uv-deep-strong: #36403c; /* hover/pressed on deep */
+  --uv-deep-strong: #36403c; /* pressed / hover on deep */
+  --uv-deep-soft: #e3e9e1; /* icon tiles, quiet fills on light ground: deep text 6.32:1 */
   --uv-lime: #c0eb6a;
-  --uv-lime-strong: #addb52; /* hover/pressed on lime: deep text 4.84:1 */
+  --uv-lime-strong: #addb52; /* hover on lime: deep text 4.84:1 */
+  --uv-lime-wash: #eef8d9; /* selected/done states on light ground: deep text 7.09:1 */
   --uv-offwhite: #f4f6f0;
   --uv-white: #ffffff;
 
-  /* Semantic roles (light theme) */
+  /* Roles (light) */
   --uv-bg: var(--uv-offwhite);
   --uv-surface: var(--uv-white);
   --uv-text: var(--uv-deep);
   --uv-text-muted: #5d6964; /* 5.72:1 on white, 5.26:1 on off-white */
   --uv-border: #d7ddd4; /* decorative dividers only (1.38:1) */
-  --uv-input-border: #5d6964; /* form-field outlines need ≥ 3:1 (WCAG 1.4.11): 5.72:1 */
-  --uv-primary: var(--uv-deep);
-  --uv-on-primary: var(--uv-white);
-  --uv-accent: var(--uv-lime);
-  --uv-on-accent: var(--uv-deep);
+  --uv-input-border: #8a958f; /* resting field outline: 3.1:1 on white (WCAG 1.4.11) */
+  --uv-input-border-strong: #5d6964;
+  --uv-action: var(--uv-lime);
+  --uv-on-action: var(--uv-deep);
   --uv-focus: var(--uv-deep);
 
-  /* Status (docs/11 §3: colour is never the only signal — always with text) */
-  --uv-danger: #b42318; /* 6.5:1 on white */
+  /* Status: always with words and an icon, never colour alone */
+  --uv-danger: #b42318; /* 6.57:1 on white */
   --uv-danger-bg: #fdecea;
   --uv-success: #2f6b2f;
   --uv-success-bg: #e8f3e4;
@@ -36,27 +38,56 @@
   --uv-info: #275a8a;
   --uv-info-bg: #e6eff8;
 
-  /* Type, space, shape */
+  /* Type */
   --uv-font: 'Poppins', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
-  --uv-radius-sm: 6px;
-  --uv-radius: 10px;
-  --uv-radius-lg: 16px;
+  --uv-text-xs: 0.8125rem; /* 13 */
+  --uv-text-sm: 0.9375rem; /* 15 */
+  --uv-text-md: 1rem; /* 16: inputs never smaller (no zoom on focus) */
+  --uv-text-lg: 1.25rem;
+  --uv-text-xl: clamp(1.5rem, 1.2rem + 1.2vw, 2rem);
+  --uv-display: clamp(2rem, 1.35rem + 2.9vw, 3.5rem);
+
+  /* Shape and depth: soft, offset shadows (never a zero-offset halo) */
+  --uv-radius-sm: 10px;
+  --uv-radius: 14px;
+  --uv-radius-card: 22px;
+  --uv-radius-pill: 999px;
+  --uv-shadow-card: 0 1px 2px rgb(72 85 80 / 0.06), 0 8px 24px -12px rgb(72 85 80 / 0.18);
+  --uv-shadow-raised: 0 2px 4px rgb(72 85 80 / 0.08), 0 18px 40px -16px rgb(72 85 80 / 0.28);
+
+  /* Space (4pt) */
   --uv-space-1: 4px;
   --uv-space-2: 8px;
   --uv-space-3: 12px;
   --uv-space-4: 16px;
+  --uv-space-5: 20px;
   --uv-space-6: 24px;
   --uv-space-8: 32px;
-  --uv-tap: 44px; /* comfortable touch target; ≥ 24px is the WCAG minimum */
+  --uv-space-10: 40px;
+  --uv-space-12: 48px;
+  --uv-tap: 48px;
+
+  --uv-ease-out: cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-/* On deep-green surfaces (header, sidebar): lime becomes the accent and focus colour. */
+/* On deep-green surfaces lime becomes ink and focus colour; the action stays lime-on-deep text. */
 .uv-on-deep {
   --uv-text: var(--uv-offwhite);
-  --uv-text-muted: #dfe5dc;
+  --uv-text-muted: #dfe5dc; /* 6.09:1 on deep */
   --uv-focus: var(--uv-lime);
   background: var(--uv-deep);
   color: var(--uv-text);
+}
+
+/* Browser surfaces carry the design too (craft floor). */
+::selection {
+  background: var(--uv-lime);
+  color: var(--uv-deep);
+}
+:root {
+  caret-color: var(--uv-deep);
+  accent-color: var(--uv-deep);
+  scrollbar-color: #b9c2bc transparent;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -64,6 +95,7 @@
   *::before,
   *::after {
     animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
 }

@@ -32,3 +32,13 @@ describe('[W4] error messages', () => {
     expect(ERROR_MESSAGES['auth.invalid_credentials']).not.toMatch(/exist|found|unknown|no such/i);
   });
 });
+
+describe('[W11][W12] password problems have plain messages', () => {
+  it('covers every code password.ts can report', async () => {
+    const { PASSWORD_PROBLEM_MESSAGES } = await import('@univarse/contracts');
+    const text = readFileSync(join(SRC, 'modules/identity/password.ts'), 'utf8');
+    const codes = [...text.matchAll(/problems\.push\('([a-z_]+)'\)/g)].map((m) => m[1]!);
+    expect(codes.length).toBeGreaterThanOrEqual(4);
+    expect(codes.filter((c) => !Object.hasOwn(PASSWORD_PROBLEM_MESSAGES, c))).toEqual([]);
+  });
+});

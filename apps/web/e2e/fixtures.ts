@@ -6,6 +6,7 @@ import { createPlatformClient, createTenantShardClient, forTenant } from '@univa
 // API source (not dist): plain functions, no decorators; keeps hashing and TOTP identical to the server.
 import { hashPassword } from '../../api/src/modules/identity/password.js';
 import { enrolTestTotp, resetReplayGuard, totpCode } from '../../api/src/testing/mfa-helpers.js';
+import { base32Decode, hotp, timeStep } from '../../api/src/modules/identity/totp.js';
 
 const rootEnv = new URL('../../../.env', import.meta.url);
 if (existsSync(rootEnv)) process.loadEnvFile(rootEnv);
@@ -45,8 +46,11 @@ const recoveryHash = (userId: string, code: string) =>
       .digest(),
   );
 
-/** An ACTIVE user with a known password, optionally with a confirmed TOTP factor. */
-export async function makeUser(slug: Slug, opts: { role: string; mfa?: boolean; recoveryCode?: boolean }): Promise<TestUser> {
+/** An ACTIVE user with a known password (or PENDING_ACTIVATION with none), optionally with TOTP. */
+export async function makeUser(
+  slug: Slug,
+  opts: { role: string; mfa?: boolean; recoveryCode?: boolean; pending?: boolean },
+): Promise<TestUser & { email: string }> {
   const tid = await tenantId(slug);
   const db = forTenant(shard, tid);
   const tag = randomBytes(3).toString('hex').toUpperCase();
@@ -58,8 +62,8 @@ export async function makeUser(slug: Slug, opts: { role: string; mfa?: boolean; 
       username,
       displayName,
       email: `${username.toLowerCase()}@test.local`,
-      status: 'ACTIVE',
-      passwordHash: await hashPassword(PASSWORD),
+      status: opts.pending ? 'PENDING_ACTIVATION' : 'ACTIVE',
+      passwordHash: opts.pending ? null : await hashPassword(PASSWORD),
     },
   });
   const role = await db.role.findUniqueOrThrow({ where: { tenantId_key: { tenantId: tid, key: opts.role } } });
@@ -71,7 +75,7 @@ export async function makeUser(slug: Slug, opts: { role: string; mfa?: boolean; 
     recoveryCode = `${randomBase32(5)}-${randomBase32(5)}`; // the API's format: "ABCDE-FGHJK"
     await db.recoveryCode.create({ data: { tenantId: tid, userId: user.id, codeHash: recoveryHash(user.id, recoveryCode) } });
   }
-  return { id: user.id, username, displayName, ...(secret ? { secret } : {}), ...(recoveryCode ? { recoveryCode } : {}) };
+  return { id: user.id, username, displayName, email: user.email!, ...(secret ? { secret } : {}), ...(recoveryCode ? { recoveryCode } : {}) };
 }
 
 const B32 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
@@ -84,6 +88,38 @@ const randomBase32 = (n: number) => [...randomBytes(n)].map((b) => B32[b % 32]).
  * a client-supplied X-Forwarded-For is never believed. The API integration tests do the same.
  */
 export const randomClientIp = (): string => `10.${randomBytes(1)[0]!}.${randomBytes(1)[0]!}.${1 + (randomBytes(1)[0]! % 254)}`;
+
+/** A current code for a setup key as shown on screen (spaces ignored). */
+export const totpFromKey = (key: string): string => hotp(base32Decode(key.replace(/\s+/g, '')), timeStep(Date.now()));
+
+/** Clears the TOTP replay guard for a user found by username (tests only). */
+export async function clearReplayGuardFor(slug: Slug, username: string): Promise<void> {
+  const tid = await tenantId(slug);
+  const u = await forTenant(shard, tid).userAccount.findFirstOrThrow({ where: { username } });
+  await resetReplayGuard(shard, tid, u.id);
+}
+
+const MAILPIT = process.env.MAILPIT_URL ?? 'http://127.0.0.1:8025';
+
+/**
+ * The newest 6-digit code emailed to `to` after `since`, read from Mailpit (the worker delivers it,
+ * spec 0002 B7). Polls for up to 20 s.
+ */
+export async function emailedCode(to: string, since: Date): Promise<string> {
+  const deadline = Date.now() + 20_000;
+  for (;;) {
+    const res = await fetch(`${MAILPIT}/api/v1/search?query=${encodeURIComponent(`to:"${to}"`)}`);
+    const list = (await res.json()) as { messages: { ID: string; Created: string }[] };
+    const fresh = list.messages.find((m) => new Date(m.Created).getTime() >= since.getTime() - 1000);
+    if (fresh) {
+      const msg = (await (await fetch(`${MAILPIT}/api/v1/message/${fresh.ID}`)).json()) as { Text: string };
+      const m = /\b(\d{6})\b/.exec(msg.Text);
+      if (m) return m[1]!;
+    }
+    if (Date.now() > deadline) throw new Error(`No code emailed to ${to} within 20 s`);
+    await new Promise((r) => setTimeout(r, 500));
+  }
+}
 
 export const currentTotp = (u: TestUser): string => totpCode(u.secret!);
 

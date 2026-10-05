@@ -27,15 +27,15 @@ Statuses are kept distinct: **implemented** → **tested locally** → **verifie
 | CSRF (Fetch Metadata / Origin) | ✅ | ✅ | ✅ | ✅ same-origin path only |
 | Password reset (spec 0001 R1–R11) | ✅ | ✅ 14 tests, 3 mutations caught | ✅ (#3) | — |
 | Reset hardening R12–R15 (concurrency, eligibility, timing) | ✅ | ✅ 6 tests, R12/R13/R15 mutation-checked; R15 floors asserted (2026-10-05) | ✅ | — |
-| Web app skeleton + brand tokens + login / MFA verify / workspace (spec 0005 PR A) | ✅ | ✅ 10 unit; 9 E2E journeys × desktop + mobile (Edge); logout mutation caught | ⏳ PR (Chromium) | ✅ HTTP on `*.localhost` via the edge (screenshots in PR) |
+| Web app skeleton + brand tokens + login / MFA verify / workspace (spec 0005 PR A) | ✅ | ✅ 10 unit; 9 E2E journeys × desktop + mobile (Edge); logout mutation caught | ✅ (#14, Chromium) | ✅ HTTP on `*.localhost` via the edge (screenshots in PR) |
 | Login + TOTP + recovery-code login in a real browser | ✅ | ✅ E2E | ⏳ PR | ✅ HTTP (closes that part of the spec 0001 gap) |
-| Reset flow in a real browser (dev edge, HTTP) | ❌ spec 0005 PR B | — | — | ❌ |
-| TOTP MFA (M2–M15 incl. R16) | ✅ | ✅ 24 tests + 24 unit; layered mutation-checked | ✅ (#6) | ✅ verify flow (PR A); enrolment in spec 0005 PR B |
+| Activation, reset, two-step setup and step-up in a real browser (spec 0005 PR B, W11–W15) | ✅ | ✅ 5 journeys × desktop + mobile; codes read from Mailpit | ⏳ PR | ✅ HTTP via the edge (closes the spec 0001 browser gap over HTTP) |
+| TOTP MFA (M2–M15 incl. R16) | ✅ | ✅ 24 tests + 24 unit; layered mutation-checked | ✅ (#6) | ✅ verify + enrolment (spec 0005) |
 | M1 secret at rest | 🟡 **direct AES-GCM, single key, AAD-bound. NOT envelope** (ADR-018 deviation) | ✅ | ⏳ | n/a |
 | Envelope encryption (KMS-wrapped per-tenant DEKs; covers MFA secrets and outbox payloads) | ❌ required before staging (ADR-018) | — | — | — |
 | MFA tables live isolation (app role) | ✅ | ✅ 6 tests; disabling RLS fails 4 | ⏳ | n/a |
 | All-table generic isolation sweep (spec 0004 I1–I9) | ✅ every tenant table, discovered from the catalog | ✅ 9 tests × 14 tables; 3 negative controls fail it | ⏳ PR | n/a |
-| Step-up (S1–S12) + MFA management (M9a–M9e, M15′) | ✅ | ✅ 30 tests + 13 guard unit; mutation-checked | ✅ (#7) | ❌ spec 0005 PR B |
+| Step-up (S1–S12) + MFA management (M9a–M9e, M15′) | ✅ | ✅ 30 tests + 13 guard unit; mutation-checked | ✅ (#7) | ✅ step-up dialog on the Products page (spec 0005 PR B) |
 | Permission-flagged step-up on a real route (S9) | ✅ `PUT /admin/products/{product}` (`settings.product.manage`) | ✅ 428 without step-up | ⏳ PR | — |
 | Hash-chained audit log + identity events (spec 0002 Part A) | ✅ | ✅ 19 tests + 5 unit; 6/6 mutations caught | ✅ (#8) | n/a |
 | Product entitlements + product guard (spec 0003 P1–P9) | ✅ | ✅ 16 tests + 9 unit; 8/8 mutations caught | ⏳ PR | n/a (no UI yet) |

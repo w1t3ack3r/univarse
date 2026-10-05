@@ -50,6 +50,10 @@ jobs:
         ports: ['6379:6379']
         options: >-
           --health-cmd "valkey-cli ping" --health-interval 5s --health-timeout 5s --health-retries 20
+      # E2E reads emailed activation/reset codes from Mailpit (spec 0005 W15). Same image as local dev.
+      mailpit:
+        image: axllent/mailpit:v1.27
+        ports: ['1025:1025', '8025:8025']
     env:
       NODE_ENV: test
       PGHOST: 127.0.0.1
