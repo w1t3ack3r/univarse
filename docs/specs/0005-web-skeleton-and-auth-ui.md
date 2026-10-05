@@ -56,6 +56,24 @@ So lime is a **fill** (buttons, highlight bars behind deep-green text, badges) o
 - **Logos are SVG** (exported from the brand source, 2026-10-05): outlined paths, no embedded images, fonts or scripts, 1–8 KB each, in `apps/web/public/brand/` with kebab-case names (`logo-deep.svg` on light surfaces, `logo-lime.svg` on deep green, `icon-deep.svg` as favicon; two-tone lockups `logo-<a>-and-<b>.svg`). Served as static files, never through the image optimiser.
 - **Derived tokens**, all measured: muted text `#5D6964` (5.72:1 on white), hover lime `#ADDB52` (deep text 4.84:1), status colours ≥ 5.37:1 on their backgrounds. Form-field outlines use `--uv-input-border` (5.72:1); the light divider `#D7DDD4` (1.38:1) is decorative only.
 
+## Implementation notes (PR B)
+- **Design process.** Following the user's instruction (2026-10-05), the screens were designed with the impeccable skill.
+  - **Product record:** `apps/web/PRODUCT.md`, which fixes the institution-leads hierarchy and the warm, plain voice.
+  - **Direction contract:** `apps/web/.impeccable/surfaces/src-app.md`.
+  - **Chosen world:** "Warm Consumer App": borderless white cards on the sage ground, and lime only on pressable things (with deep-green text). Ideas kept from the declined directions:
+    - fixed one-digit code cells
+    - one card frame per flow with a step strip
+    - expiry shown as a draining bar
+    - a personal name plate
+- **The signature code field is one real `<input>` drawn as six cells,** so paste, `one-time-code` autofill and screen readers work. It submits itself at six digits on the verify and setup screens.
+- **No account enumeration in copy:** "If that account is waiting to be activated, we've emailed a code…". A wrong code at confirm returns the person to the code step. Password problems map to plain messages (`PASSWORD_PROBLEM_MESSAGES`, enforced by a test that scans `password.ts`).
+- **QR drawn client-side** with `qrcode` (loaded only on the setup page). The secret is also shown grouped in fours behind "Can't scan?", with Copy. Recovery codes are shown once, with Copy all, Download (.txt) and an "I've saved them" gate.
+- **Step-up is a native `<dialog>`** (browser-managed focus and Escape). `useStepUp()` retries the original action once after a 428. Its first real use is the IT Admin **Products** page, whose GET is itself step-up-gated.
+- **Workspace:** a deep-green rail on desktop, and a thumb bar on phones. The current page is a lime pill, since it's a pressable link.
+- **Craft-floor corrections to PR A:** no coloured side stripe on alerts (tinted panel with an icon instead). No label above the heading (the institution name is the hero). Browser surfaces themed (selection, caret, scrollbar, accent).
+- **E2E runs the outbox worker** (Playwright global setup) and reads the emailed codes from Mailpit's API. CI gained a Mailpit service.
+- **Review:** two inspection rounds (desktop and mobile), then the impeccable detector (no findings) and an independent finish review. The skill's own reviewer agent isn't installed here, so a fresh general-purpose agent ran its documented procedure.
+
 ## Out of scope (tracked)
 
 | Gap | Milestone |

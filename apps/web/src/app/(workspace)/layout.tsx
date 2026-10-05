@@ -1,51 +1,68 @@
-import Link from 'next/link';
 import type { ReactNode } from 'react';
-import { Logo } from '@/components/Logo';
 import { LogoutButton } from '@/components/LogoutButton';
+import { NavLinks } from '@/components/NavLinks';
+import { StepUpProvider } from '@/components/StepUp';
 import { buildNav, NAV } from '@/lib/nav';
 import { serverApi } from '@/lib/server-api';
 import { requireSession } from '@/lib/session';
 import { tenantProfile } from '@/lib/tenant';
 
-/** Spec 0005 W6: institution, user, logout, and navigation from permissions + active products. */
+const initials = (name: string) =>
+  name
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((w) => w[0]?.toUpperCase() ?? '')
+    .join('');
+
+/**
+ * Spec 0005 W6. Desktop: deep-green rail. Phone: thumb bar within reach (direction contract).
+ * Navigation from permissions + active products; the name plate is the person's fixed furniture.
+ */
 export default async function WorkspaceLayout({ children }: { children: ReactNode }) {
   const me = await requireSession();
   const [{ profile }, products] = await Promise.all([tenantProfile(), serverApi<{ data: string[] }>('/api/v1/products')]);
   const nav = buildNav(NAV, me.permissions, products.body?.data ?? ['core']);
 
   return (
-    <div className="min-h-dvh md:grid md:grid-cols-[15rem_1fr] md:grid-rows-[auto_1fr]">
-      <header className="uv-on-deep flex items-center justify-between gap-3 px-4 py-3 md:col-span-2">
-        <div className="flex min-w-0 items-center gap-3">
-          <Logo tone="lime" height={26} />
-          <span className="truncate text-sm" data-testid="institution">
-            {profile?.shortName}
-          </span>
+    <StepUpProvider hasMfa={me.mfa}>
+      <div className="ws">
+        <aside className="ws__rail uv-on-deep">
+          <p className="ws__identity" data-testid="institution">
+            {profile?.legalName}
+          </p>
+          <nav aria-label="Workspace">
+            <NavLinks items={nav} />
+          </nav>
+          <p className="ws__rail-foot ws__secured">
+            <img src="/brand/icon-lime.svg" alt="" width={18} height={18} />
+            Secured by UniVarse
+          </p>
+        </aside>
+        <div>
+          <header className="ws__top">
+            <span className="ws__inst ws__inst--phone">{profile?.legalName}</span>
+            <div className="plate">
+              <span className="plate__initials" aria-hidden="true">
+                {initials(me.displayName)}
+              </span>
+              <span className="plate__text">
+                <span className="plate__name" data-testid="user-name">
+                  {me.displayName}
+                </span>
+                <span className="plate__id">{me.username}</span>
+              </span>
+              <LogoutButton variant="quiet" compact />
+            </div>
+          </header>
+          <main id="main" className="ws__main">
+            {children}
+          </main>
         </div>
-        <div className="flex items-center gap-3">
-          <span className="hidden text-sm sm:inline" data-testid="user-name">
-            {me.displayName}
-          </span>
-          <LogoutButton />
-        </div>
-      </header>
-      <nav aria-label="Workspace" className="border-b border-border bg-surface md:border-b-0 md:border-r">
-        <ul className="flex gap-1 overflow-x-auto p-2 md:flex-col">
-          {nav.map((item) => (
-            <li key={item.href}>
-              <Link
-                href={item.href}
-                className="block min-h-11 whitespace-nowrap rounded-lg px-3 py-2.5 text-sm font-medium hover:bg-offwhite"
-              >
-                {item.label}
-              </Link>
-            </li>
-          ))}
-        </ul>
-      </nav>
-      <main id="main" className="p-4 md:p-8">
-        {children}
-      </main>
-    </div>
+        <nav aria-label="Workspace" className="ws__thumb">
+          <NavLinks items={nav} />
+        </nav>
+      </div>
+    </StepUpProvider>
   );
 }

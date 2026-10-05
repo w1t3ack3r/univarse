@@ -41,3 +41,19 @@ export const FALLBACK_ERROR_MESSAGE = 'Something went wrong. Please try again.';
 
 export const messageFor = (code: string | undefined): string =>
   code !== undefined && Object.hasOwn(ERROR_MESSAGES, code) ? ERROR_MESSAGES[code as ErrorCode] : FALLBACK_ERROR_MESSAGE;
+
+/**
+ * Field-level messages for `auth.password_rejected` (`errors[].code`, apps/api password.ts).
+ * Warm and plain (apps/web/PRODUCT.md): say what to change, never blame.
+ */
+export const PASSWORD_PROBLEM_MESSAGES = {
+  too_short: 'Make it longer: at least 8 characters, or 12 if your role approves results or manages people.',
+  too_long: 'That’s longer than we can accept. Keep it under 128 characters.',
+  too_common: 'That password is too easy to guess. Try a short sentence only you would think of.',
+  contains_personal_info: 'Leave your name and username out of your password.',
+} as const satisfies Record<string, string>;
+
+export const passwordProblemMessage = (code: string): string =>
+  Object.hasOwn(PASSWORD_PROBLEM_MESSAGES, code)
+    ? PASSWORD_PROBLEM_MESSAGES[code as keyof typeof PASSWORD_PROBLEM_MESSAGES]
+    : 'Choose a different password.';

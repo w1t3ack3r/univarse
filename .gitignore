@@ -46,3 +46,12 @@ playwright-report/
 .agents/
 .claude/skills/
 skills-lock.json
+
+# Impeccable working files: keep the product record and direction contract, not captures or downloads
+apps/web/.impeccable/review/
+apps/web/.impeccable/refs/
+apps/web/.impeccable/*.log
+apps/web/.impeccable/*.json
+apps/web/.impeccable/brief-body.md
+apps/web/.impeccable/questions/
+!apps/web/.impeccable/design.json

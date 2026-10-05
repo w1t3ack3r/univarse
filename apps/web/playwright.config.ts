@@ -11,6 +11,7 @@ const repo = new URL('../..', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/
 export default defineConfig({
   testDir: './e2e',
   testMatch: '**/*.e2e.ts',
+  globalSetup: './e2e/global-setup.ts', // starts the outbox worker so emailed codes reach Mailpit
   fullyParallel: false, // TOTP replay guard and rate limits are per user/IP; keep journeys sequential
   workers: 1,
   retries: process.env.CI ? 1 : 0,

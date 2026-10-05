@@ -2,9 +2,9 @@
 @import '@fontsource/poppins/400.css';
 @import '@fontsource/poppins/500.css';
 @import '@fontsource/poppins/600.css';
-@import '@fontsource/poppins/700.css';
 @import '@univarse/ui/tokens.css';
 @import '@univarse/ui/components.css';
+@import './shell.css';
 @import 'tailwindcss';
 
 @theme inline {
@@ -27,7 +27,19 @@ body {
   min-height: 100dvh;
   margin: 0;
 }
+body {
+  font-size: var(--uv-text-md);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
 a {
   color: inherit;
-  text-underline-offset: 3px;
+  text-underline-offset: 4px;
+}
+h1,
+h2,
+h3,
+p {
+  margin: 0;
 }

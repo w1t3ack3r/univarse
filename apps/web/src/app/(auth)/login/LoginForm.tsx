@@ -1,6 +1,8 @@
 'use client';
 
-import { Alert, Button, TextField } from '@univarse/ui';
+import { Button, Card, Notice } from '@univarse/ui';
+import { PasswordField, TextField } from '@univarse/ui/client';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState, type SubmitEvent } from 'react';
 import { api, ApiError } from '@/lib/client-api';
@@ -11,7 +13,7 @@ interface LoginResponse {
   readonly mfaEnrolmentRequired?: true;
 }
 
-/** Spec 0005 W4. Errors come from problem codes and always show the request id. */
+/** Spec 0005 W4. Errors come from problem codes and always show the support reference. */
 export function LoginForm() {
   const router = useRouter();
   const [pending, setPending] = useState(false);
@@ -36,16 +38,36 @@ export function LoginForm() {
   }
 
   return (
-    <form onSubmit={(e) => void onSubmit(e)} className="grid gap-4" noValidate>
-      <h1 id="auth-heading" className="text-2xl font-semibold">
-        Sign in
-      </h1>
-      {error ? <Alert requestId={error.requestId}>{error.message}</Alert> : null}
-      <TextField label="Username or email" name="username" autoComplete="username" required autoCapitalize="none" spellCheck={false} />
-      <TextField label="Password" name="password" type="password" autoComplete="current-password" required />
-      <Button type="submit" block pending={pending}>
-        {pending ? 'Signing in…' : 'Sign in'}
-      </Button>
-    </form>
+    <>
+      <Card className="auth__card">
+        <h1 id="auth-heading" className="auth__heading">
+          Welcome back
+        </h1>
+        <p className="auth__sub">Sign in with your matric number, staff number or email.</p>
+        {error ? <Notice requestId={error.requestId}>{error.message}</Notice> : null}
+        <form onSubmit={(e) => void onSubmit(e)} className="auth__form" noValidate>
+          <TextField label="Matric number, staff number or email" name="username" autoComplete="username" required autoCapitalize="none" spellCheck={false} />
+          <PasswordField label="Password" name="password" autoComplete="current-password" required />
+          <div className="auth__actions">
+            <Button type="submit" block pending={pending}>
+              {pending ? 'Signing in…' : 'Sign in'}
+            </Button>
+          </div>
+        </form>
+      </Card>
+      <div className="auth__more">
+        <p>
+          First time here?{' '}
+          <Link className="uv-link" href="/activate">
+            Activate your account
+          </Link>
+        </p>
+        <p>
+          <Link className="uv-link" href="/reset-password">
+            Forgot your password?
+          </Link>
+        </p>
+      </div>
+    </>
   );
 }

@@ -1,80 +1,103 @@
 'use client';
 
-import { Alert, Button, TextField } from '@univarse/ui';
+import { Button, Card, Notice, Smartphone, Key } from '@univarse/ui';
+import { CodeField, TextField } from '@univarse/ui/client';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState, type SubmitEvent } from 'react';
 import { api, ApiError } from '@/lib/client-api';
 import { textField } from '@/lib/form';
 
-/** Spec 0005 W5: authenticator code, or a recovery code. Wrong codes get one generic message. */
+/** Spec 0005 W5: authenticator code (submits itself at six digits), or a recovery code. */
 export function VerifyForm() {
   const router = useRouter();
   const [mode, setMode] = useState<'code' | 'recovery'>('code');
+  const [code, setCode] = useState('');
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<ApiError | null>(null);
 
-  async function onSubmit(e: SubmitEvent<HTMLFormElement>) {
-    e.preventDefault();
-    const value = textField(new FormData(e.currentTarget), 'value').trim();
+  async function verify(body: { code: string } | { recoveryCode: string }) {
     setPending(true);
     setError(null);
     try {
-      await api('POST', '/api/v1/auth/mfa/verify', mode === 'code' ? { code: value } : { recoveryCode: value });
+      await api('POST', '/api/v1/auth/mfa/verify', body);
       router.replace('/workspace');
       router.refresh();
     } catch (err) {
       setError(err instanceof ApiError ? err : new ApiError(0, undefined, undefined));
+      setCode('');
       setPending(false);
     }
   }
 
+  function onCodeChange(next: string) {
+    setCode(next);
+    if (next.length === 6 && !pending) void verify({ code: next });
+  }
+
+  function onSubmit(e: SubmitEvent<HTMLFormElement>) {
+    e.preventDefault();
+    if (mode === 'code') {
+      if (code.length === 6) void verify({ code });
+      return;
+    }
+    void verify({ recoveryCode: textField(new FormData(e.currentTarget), 'recovery').trim() });
+  }
+
   return (
-    <form onSubmit={(e) => void onSubmit(e)} className="grid gap-4" noValidate>
-      <h1 id="auth-heading" className="text-2xl font-semibold">
-        Confirm it&apos;s you
-      </h1>
-      {error ? <Alert requestId={error.requestId}>{error.message}</Alert> : null}
-      {mode === 'code' ? (
-        <TextField
-          key="code"
-          label="Authenticator code"
-          hint="The 6-digit code from your authenticator app."
-          name="value"
-          inputMode="numeric"
-          autoComplete="one-time-code"
-          pattern="[0-9]{6}"
-          maxLength={6}
-          required
-        />
-      ) : (
-        <TextField
-          key="recovery"
-          label="Recovery code"
-          hint="One of the recovery codes you saved when you set up MFA. Each works once."
-          name="value"
-          autoComplete="off"
-          autoCapitalize="characters"
-          spellCheck={false}
-          required
-        />
-      )}
-      <Button type="submit" block pending={pending}>
-        {pending ? 'Checking…' : 'Continue'}
-      </Button>
-      <button
-        type="button"
-        className="justify-self-start text-sm underline"
-        onClick={() => {
-          setMode(mode === 'code' ? 'recovery' : 'code');
-          setError(null);
-        }}
-      >
-        {mode === 'code' ? 'Use a recovery code instead' : 'Use my authenticator app'}
-      </button>
-      <Link href="/login" className="text-sm">
-        Start again
-      </Link>
-    </form>
+    <>
+      <Card className="auth__card">
+        <span className="uv-icon-tile">{mode === 'code' ? <Smartphone /> : <Key />}</span>
+        <h1 id="auth-heading" className="auth__heading">
+          {mode === 'code' ? 'Enter the code from your app' : 'Use a recovery code'}
+        </h1>
+        <p className="auth__sub">
+          {mode === 'code'
+            ? 'Open your authenticator app and type the 6-digit code it shows for UniVarse.'
+            : 'Type one of the recovery codes you saved when you set up two-step sign-in. Each code works once.'}
+        </p>
+        {error ? <Notice requestId={error.requestId}>{error.message}</Notice> : null}
+        <form onSubmit={onSubmit} className="auth__form" noValidate>
+          {mode === 'code' ? (
+            <CodeField label="6-digit code" value={code} onChange={onCodeChange} autoFocus />
+          ) : (
+            <TextField
+              key="recovery"
+              label="Recovery code"
+              hint="Looks like ABCDE-FGHJK. Capitals and the dash don’t matter."
+              name="recovery"
+              autoComplete="off"
+              autoCapitalize="characters"
+              spellCheck={false}
+              required
+            />
+          )}
+          <div className="auth__actions">
+            <Button type="submit" block pending={pending} disabled={mode === 'code' && code.length !== 6}>
+              {pending ? 'Checking…' : 'Continue'}
+            </Button>
+            <Button
+              type="button"
+              variant="plain"
+              onClick={() => {
+                setMode(mode === 'code' ? 'recovery' : 'code');
+                setError(null);
+                setCode('');
+              }}
+            >
+              {mode === 'code' ? 'Use a recovery code instead' : 'Use my authenticator app'}
+            </Button>
+          </div>
+        </form>
+      </Card>
+      <div className="auth__more">
+        <p>
+          Wrong account?{' '}
+          <Link className="uv-link" href="/login">
+            Start again
+          </Link>
+        </p>
+      </div>
+    </>
   );
 }

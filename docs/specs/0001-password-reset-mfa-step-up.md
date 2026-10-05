@@ -134,7 +134,7 @@ Part S was implemented twice in parallel (an interrupted local session and a clo
 | Hash-chained audit events for reset/MFA/step-up | Audit slice: Phase 0, alongside the outbox |
 | Envelope encryption: KMS-wrapped per-tenant DEKs (ADR-018) | **Gate before the staging environment** |
 | HTTPS browser verification (cookies + proxy on real TLS) | Staging environment (Phase 0 exit) |
-| Browser verification of reset / MFA / step-up over HTTP | Harness extension at the close of spec 0001 |
+| ~~Browser verification of reset / MFA / step-up over HTTP~~ | **Closed** by spec 0005 (PR A: login + verify; PR B: activation, reset, enrolment, step-up) |
 | ~~Generic all-table isolation sweep~~ | **Closed** by spec 0004 |
 | ~~R15 test would not detect removal of the reset floor alone~~ | **Closed** in spec 0002 Part B: both R15 tests also assert the 400 ms floor; removing either floor fails them (mutation-checked) |
 | ~~Permission-flagged step-up integration test (S9)~~ | **Closed** by spec 0003: `PUT /api/v1/admin/products/{product}` uses `settings.product.manage` (stepUp) and is tested for 428 |

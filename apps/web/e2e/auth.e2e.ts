@@ -19,13 +19,13 @@ test.afterAll(async () => {
 
 async function signIn(page: Page, base: string, username: string, password = PASSWORD): Promise<void> {
   await page.goto(`${base}/login`);
-  await page.getByLabel('Username or email').fill(username);
-  await page.getByLabel('Password').fill(password);
+  await page.getByLabel('Matric number, staff number or email').fill(username);
+  await page.getByLabel('Password', { exact: true }).fill(password);
   await page.getByRole('button', { name: 'Sign in' }).click();
 }
 
 /** Our problem alert. Next.js also renders a role="alert" route announcer, so filter by our class. */
-const problemAlert = (page: Page) => page.locator('.uv-alert[role="alert"]');
+const problemAlert = (page: Page) => page.locator('.uv-notice[role="alert"]');
 
 async function seriousA11yViolations(page: Page): Promise<string[]> {
   const r = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21aa', 'wcag22aa']).analyze();
@@ -38,10 +38,9 @@ test('[W10][W6][W7] login → workspace with permission-driven nav → logout', 
   await clearReplayGuard('demo-uni', u);
   await signIn(page, DEMO, u.username);
   await expect(page).toHaveURL(`${DEMO}/login/verify`);
-  await page.getByLabel('Authenticator code').fill(currentTotp(u));
-  await page.getByRole('button', { name: 'Continue' }).click();
+  await page.getByLabel('6-digit code').fill(currentTotp(u));
   await expect(page).toHaveURL(`${DEMO}/workspace`);
-  await expect(page.getByRole('heading', { name: /Welcome/ })).toContainText(u.displayName);
+  await expect(page.getByRole('heading', { level: 1 })).toContainText('Ada'); // "Good morning, Ada"
   const nav = page.getByRole('navigation', { name: 'Workspace' });
   await nav.getByRole('link', { name: 'Users' }).click();
   await expect(page.getByRole('heading', { name: 'Users' })).toBeVisible();
@@ -66,11 +65,9 @@ test('[W10][W5] login with an authenticator code; a wrong code gets the generic 
   await clearReplayGuard('demo-uni', u);
   await signIn(page, DEMO, u.username);
   await expect(page).toHaveURL(`${DEMO}/login/verify`);
-  await page.getByLabel('Authenticator code').fill('000000');
-  await page.getByRole('button', { name: 'Continue' }).click();
+  await page.getByLabel('6-digit code').fill('000000');
   await expect(problemAlert(page)).toContainText('not right');
-  await page.getByLabel('Authenticator code').fill(currentTotp(u));
-  await page.getByRole('button', { name: 'Continue' }).click();
+  await page.getByLabel('6-digit code').fill(currentTotp(u));
   await expect(page).toHaveURL(`${DEMO}/workspace`);
 });
 
@@ -96,7 +93,7 @@ test('[W10][W4] a wrong password shows the error with a support reference', asyn
   await signIn(page, DEMO, u.username, 'Not-The-Password-1');
   const alert = problemAlert(page);
   await expect(alert).toContainText('That username or password is not right.');
-  await expect(alert).toContainText(/Reference: \S+/);
+  await expect(alert).toContainText(/Support reference: \S+/);
   await expect(page).toHaveURL(`${DEMO}/login`);
 });
 
@@ -154,8 +151,7 @@ test('[W9] no serious or critical accessibility violations on login, MFA verify 
   await expect(page).toHaveURL(`${DEMO}/login/verify`);
   await expect(page).toHaveTitle('Confirm it’s you · UniVarse');
   expect(await seriousA11yViolations(page)).toEqual([]);
-  await page.getByLabel('Authenticator code').fill(currentTotp(u));
-  await page.getByRole('button', { name: 'Continue' }).click();
+  await page.getByLabel('6-digit code').fill(currentTotp(u));
   await expect(page).toHaveURL(`${DEMO}/workspace`);
   await expect(page).toHaveTitle('Home · UniVarse');
   expect(await seriousA11yViolations(page)).toEqual([]);
