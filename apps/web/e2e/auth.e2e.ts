@@ -143,15 +143,20 @@ test('[W8] pages carry the nonce CSP and security headers, with no CSP violation
 });
 
 test('[W9] no serious or critical accessibility violations on login, MFA verify and the workspace', async ({ page }) => {
+  // Wait for each page's own <title> before scanning: after a client-side navigation the URL changes
+  // a moment before Next sets the title, and a scan in that gap reports "document-title" (seen once in CI).
   await page.goto(`${DEMO}/login`);
+  await expect(page).toHaveTitle('Sign in · UniVarse');
   expect(await seriousA11yViolations(page)).toEqual([]);
   const u = await makeUser('demo-uni', { role: 'STUDENT', mfa: true });
   await clearReplayGuard('demo-uni', u);
   await signIn(page, DEMO, u.username);
   await expect(page).toHaveURL(`${DEMO}/login/verify`);
+  await expect(page).toHaveTitle('Confirm it’s you · UniVarse');
   expect(await seriousA11yViolations(page)).toEqual([]);
   await page.getByLabel('Authenticator code').fill(currentTotp(u));
   await page.getByRole('button', { name: 'Continue' }).click();
   await expect(page).toHaveURL(`${DEMO}/workspace`);
+  await expect(page).toHaveTitle('Home · UniVarse');
   expect(await seriousA11yViolations(page)).toEqual([]);
 });
