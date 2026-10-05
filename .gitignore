@@ -35,3 +35,9 @@ Thumbs.db
 # local data
 backups/
 storage/
+docs/brand-doc/
+
+# Next.js / Playwright output
+next-env.d.ts
+test-results/
+playwright-report/
