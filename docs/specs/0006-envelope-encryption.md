@@ -200,6 +200,12 @@ The code is provider-agnostic (E3). The options considered:
     - no sweep cursor (the test hangs);
     - rethrowing on unreadable values.
 
+## Implementation notes (E13 and the destruction boundary)
+- **Partial sweeps:** `key_reencryption.unreadable_remaining` is set by every completed sweep. `keys status` shows `partial (N unreadable; their key versions are kept)`.
+- **Old keys are kept:** retired versions were already protected, because `destroyRetiredKey` counts every value on a version, readable or not. E13 now has a test proving it: destroy is refused while one unreadable value remains, and allowed once an operator resolves it and re-requests the sweep.
+- **Mutation caught:** not recording `unreadable_remaining` fails the E13 and E9 tests.
+- **The destruction boundary above is documentation.** Its two follow-ups (the cross-instance forget broadcast, and the shred ledger with a restore runbook) are tracked below with milestones.
+
 ## Out of scope (tracked)
 | Gap | Milestone |
 |---|---|
