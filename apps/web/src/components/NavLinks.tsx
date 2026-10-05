@@ -1,11 +1,11 @@
 'use client';
 
-import { Grid, Home, Users } from '@univarse/ui';
+import { Grid, Home, Sliders, Users } from '@univarse/ui';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import type { NavIcon, NavItem } from '@/lib/nav';
 
-const ICONS: Record<NavIcon, typeof Home> = { home: Home, users: Users, products: Grid };
+const ICONS: Record<NavIcon, typeof Home> = { home: Home, users: Users, products: Grid, settings: Sliders };
 
 /** Current page marked with aria-current (lime pill: the one place lime marks "you are here"). */
 export function NavLinks({ items }: { items: readonly NavItem[] }) {

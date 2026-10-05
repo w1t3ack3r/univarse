@@ -63,7 +63,7 @@ export interface Harness {
   /** Waits until `address` has more than `after` emails matching `subject`; returns the newest. Email is async. */
   waitForMail(address: string, subject: RegExp, after: number): Promise<OutboundEmail>;
   call(
-    method: 'GET' | 'POST' | 'PUT',
+    method: 'GET' | 'POST' | 'PUT' | 'DELETE',
     host: string,
     url: string,
     o?: { cookie?: string; ip?: string; body?: unknown; headers?: Record<string, string> },

@@ -16,6 +16,9 @@ import { ProductDeclarationCheck } from './modules/products/product-declaration.
 import { ProductGuard } from './modules/products/product.guard.js';
 import { ProductService } from './modules/products/product.service.js';
 import { ProductsController } from './modules/products/products.controller.js';
+import { SettingsCache } from './modules/settings/settings-cache.js';
+import { SettingsController } from './modules/settings/settings.controller.js';
+import { SETTINGS_REGISTRY, SettingsService, settingsRegistryProvider, type SettingsRegistry } from './modules/settings/settings.service.js';
 import { TenantProfileController } from './modules/tenant-profile/tenant-profile.controller.js';
 import { AuditWriter } from './shared/audit/audit-writer.js';
 import { DbModule } from './shared/db/db.module.js';
@@ -26,15 +29,20 @@ import { Outbox } from './shared/outbox/outbox.js';
 import { TenantGuard } from './shared/tenancy/tenant.guard.js';
 import { TenantResolver } from './shared/tenancy/tenant-resolver.service.js';
 
+export interface AppOverrides {
+  /** Tests add setting keys to prove permission scoping (spec 0007 ST5). */
+  readonly settingsRegistry?: SettingsRegistry;
+}
+
 @Module({})
 export class AppModule {
   /** No email seam: the HTTP app has no mailer at all (spec 0002 B7). */
-  static forRoot(config: AppConfig): DynamicModule {
+  static forRoot(config: AppConfig, overrides: AppOverrides = {}): DynamicModule {
     return {
       module: AppModule,
       global: true,
       imports: [DbModule, DiscoveryModule],
-      controllers: [HealthController, TenantProfileController, AuthController, MfaController, UsersController, ProductsController],
+      controllers: [HealthController, TenantProfileController, AuthController, MfaController, UsersController, ProductsController, SettingsController],
       providers: [
         { provide: APP_CONFIG, useValue: config },
         {
@@ -54,6 +62,9 @@ export class AppModule {
         AuthService,
         ProductService,
         ProductDeclarationCheck,
+        SettingsCache,
+        SettingsService,
+        overrides.settingsRegistry ? { provide: SETTINGS_REGISTRY, useValue: overrides.settingsRegistry } : settingsRegistryProvider,
         // Guard order matters: resolve the tenant, hide inactive products (spec 0003 P3), then authenticate.
         { provide: APP_GUARD, useClass: TenantGuard },
         { provide: APP_GUARD, useClass: ProductGuard },

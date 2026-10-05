@@ -1,9 +1,10 @@
 'use client';
 // Interactive UniVarse components. Import from `@univarse/ui/client` in client components only.
-import { useEffect, useId, useRef, useState, type InputHTMLAttributes, type ReactNode } from 'react';
+import { useEffect, useId, useRef, useState, type ComponentProps, type ReactNode } from 'react';
 import { AlertCircle, Check, Clock, Copy, Eye, EyeOff } from './icons';
 
-type FieldProps = Omit<InputHTMLAttributes<HTMLInputElement>, 'id'> & {
+// ComponentProps (not InputHTMLAttributes) so callers can pass `ref` (React 19: ref is a prop).
+type FieldProps = Omit<ComponentProps<'input'>, 'id'> & {
   label: string;
   hint?: ReactNode;
   error?: string | undefined;

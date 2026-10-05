@@ -263,7 +263,7 @@ Invariant: a bed space has at most one `HELD`/`CONFIRMED` allocation per session
 | `ImportJob` | type, fileId, status (`UPLOADED`/`VALIDATING`/`PREVIEW_READY`/`COMMITTING`/`DONE`/`FAILED`), totals, errorReportFileId |
 | `AuditEvent` | actorType, actorId, action, entityType, entityId, before?, after?, reason?, ip, userAgent, requestId, prevHash, hash, occurredAt | Append-only, hash-chained per tenant |
 | `OutboxEvent` | type, payload, occurredAt, publishedAt, attempts |
-| `Setting` | key, scopeType, scopeId, value (jsonb), version, effectiveFrom |
+| `Setting` | key, scopeKey (`INSTITUTION` today), value (jsonb; NULL = reset to the registry default), version, updatedBy; effectiveFrom arrives with the first effective-dated key. Keys exist only in the registry (`packages/contracts`, [spec 0007](specs/0007-settings.md)); read through `SettingsService.get` only |
 | `Sequence` | name (`receipt`, `invoice`, `matric:{programme}:{year}`), nextValue | Incremented with `UPDATE … RETURNING` inside the business transaction |
 
 ## 15. Core relationships (academic spine)

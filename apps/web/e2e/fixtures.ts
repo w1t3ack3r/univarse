@@ -127,6 +127,12 @@ export async function clearReplayGuard(slug: Slug, u: TestUser): Promise<void> {
   await resetReplayGuard(shard, await tenantId(slug), u.id);
 }
 
+/** Sets a product's enabled flag directly (restoring seeded state after a test switched it in the UI). */
+export async function setProductEnabled(slug: Slug, product: string, enabled: boolean): Promise<void> {
+  const tid = await tenantId(slug);
+  await platform.tenantProduct.update({ where: { tenantId_product: { tenantId: tid, product } }, data: { enabled } });
+}
+
 export async function cleanup(): Promise<void> {
   for (const c of created.splice(0)) await forTenant(shard, c.tenantId).userAccount.deleteMany({ where: { id: c.userId } });
   await shard.$disconnect();

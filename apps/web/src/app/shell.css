@@ -698,3 +698,151 @@
     grid-row: 1 / span 2;
   }
 }
+
+/* Settings (spec 0007 ST13): one card per setting, figure first, then the form. */
+.settings-section {
+  display: grid;
+  gap: var(--uv-space-3);
+}
+.setting {
+  display: grid;
+  gap: var(--uv-space-5);
+}
+.setting__head {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--uv-space-4);
+}
+.setting__heading {
+  display: grid;
+  flex: 1;
+  min-width: 0;
+  gap: 2px;
+}
+.setting__titlerow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--uv-space-2) var(--uv-space-3);
+}
+.setting__title {
+  margin: 0;
+  font-size: var(--uv-text-lg);
+  font-weight: 600;
+  line-height: 1.2;
+}
+.setting__about {
+  margin: 0;
+  font-size: var(--uv-text-sm);
+  color: var(--uv-text-muted);
+  line-height: 1.55;
+  max-width: 34rem;
+}
+.setting__summary {
+  margin: var(--uv-space-2) 0 0;
+  color: var(--uv-text-muted);
+}
+.setting__figure {
+  color: var(--uv-deep);
+  font-size: var(--uv-text-xl);
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  font-variant-numeric: tabular-nums;
+}
+/* The allowed range on a 1–60 track: same 6px language as the expiry bar. Deep fill, never lime. */
+.band {
+  display: grid;
+  gap: 6px;
+  margin-top: calc(var(--uv-space-3) * -1);
+}
+.band__track {
+  position: relative;
+  height: 6px;
+  border-radius: var(--uv-radius-pill);
+  background: var(--uv-deep-soft);
+}
+.band__fill {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border-radius: var(--uv-radius-pill);
+  background: var(--uv-deep);
+  transition:
+    left 280ms var(--uv-ease-out),
+    width 280ms var(--uv-ease-out);
+}
+.band__scale {
+  display: flex;
+  justify-content: space-between;
+  font-size: var(--uv-text-xs);
+  color: var(--uv-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+@media (prefers-reduced-motion: reduce) {
+  .band__fill {
+    transition: none;
+  }
+}
+.setting__form {
+  display: grid;
+  gap: var(--uv-space-5);
+}
+.setting__fields {
+  display: grid;
+  gap: var(--uv-space-4);
+}
+@media (min-width: 480px) {
+  .setting__fields {
+    grid-template-columns: 1fr 1fr;
+    align-items: start;
+  }
+}
+.setting__fields .uv-field__input {
+  font-variant-numeric: tabular-nums;
+}
+.setting__actions,
+.setting__confirm {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--uv-space-3);
+}
+.setting__confirm {
+  padding: var(--uv-space-4);
+  border-radius: var(--uv-radius);
+  background: var(--uv-offwhite);
+}
+.setting__confirm p {
+  margin: 0;
+  flex: 1 1 16rem;
+  font-weight: 500;
+}
+.setting__readonly {
+  margin: 0;
+  padding: var(--uv-space-4);
+  border-radius: var(--uv-radius);
+  background: var(--uv-offwhite);
+  font-size: var(--uv-text-sm);
+}
+.setting__meta {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding-top: var(--uv-space-4);
+  border-top: 1px solid var(--uv-border);
+  font-size: var(--uv-text-xs);
+  color: var(--uv-text-muted);
+  line-height: 1.5;
+}
+.setting__meta p {
+  margin: 0;
+}
+.setting__empty {
+  display: flex;
+  align-items: center;
+  gap: var(--uv-space-4);
+}
+.setting__empty p {
+  margin: 0;
+  color: var(--uv-text-muted);
+}

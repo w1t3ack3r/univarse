@@ -271,7 +271,7 @@ Scale-out order: API/worker replicas → Redis sizing → read replica for repor
 ## 11. Configuration model
 
 - **Platform config:** env vars validated at boot with zod (the app refuses to start on invalid config). Secrets come from the secret manager.
-- **Tenant config:** the `settings` module holds typed keys (`grading.scheme`, `registration.maxUnitsPerSemester`, `results.approvalStages`, `matric.template`, …). Each key has a zod schema, a default, a scope (tenant / faculty / programme) and an effective date where relevant. Settings are versioned, and changes are audited.
+- **Tenant config:** the `settings` module holds typed keys (`grading.scheme`, `registration.unitLimits` (built, [spec 0007](specs/0007-settings.md)), `results.approvalStages`, `matric.template`, …). Each key has a zod schema, a default, a scope (tenant / faculty / programme) and an effective date where relevant. Settings are versioned, and changes are audited.
 - **Feature flags:** platform-managed per tenant (`feature.hostel`, `feature.remita`), cached in Redis.
 
 ## 12. Cross-cutting concerns checklist (every endpoint/use case)

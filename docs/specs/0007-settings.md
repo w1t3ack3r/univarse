@@ -68,6 +68,40 @@ Settings are tenant security, not just configuration. A cached value served to t
   - The permission is narrow: it never covers security or integration settings.
   - The INSTITUTION_ADMIN oversees through permissions (ST5): view, audit, and deciding who holds the permission.
 
+## Implementation notes (2026-10-06)
+- **Where the code lives:**
+  - registry: `packages/contracts/src/settings.ts` (the zod schemas are shared with the web form);
+  - API: `apps/api/src/modules/settings/` (`SettingsService`, `SettingsCache`, `SettingsController`, core product);
+  - concurrency helper: `shared/http/etag.ts`;
+  - web page: `apps/web/src/app/(workspace)/workspace/settings/`.
+- **Per-key permissions:** the guard's checks became `enforcePermission(actor, permission)` (`access.guard.ts`). The guard and the per-key check share it: permission held institution-wide, MFA if privileged, step-up if flagged. Every settings route also declares `settings.tenant.view`.
+- **Reset keeps the row** (`value` NULL, version + 1, tenant migration `20261006090000_setting_value_nullable`). Deleting would restart versions at 1, so an old `"v1"` ETag could match different content later (the ABA problem). The test proves an earlier ETag never matches again.
+- **Cache:** the in-process map uses tenant-scoped keys, a per-entry generation and a TTL (`SETTINGS_CACHE_TTL_MS`, max 30 s). Invalidations go over Valkey pub/sub on `uv:settings:invalidate`, through a dedicated subscriber connection that never blocks startup. Publish failures are logged, never thrown.
+- **The UI:**
+  - **Card:** one card per setting. The range comes first as a figure plus a band on a 1–60 track (the expiry bar's visual language, deep fill, never lime), then the form.
+  - **Saving and reset:** one lime "Save changes", disabled until something changes. Reset to default is confirmed inline, with no modal.
+  - **Concurrent edits:** a `412` reloads the latest values and says so.
+  - **Who sees what:** read-only users see the values, who changed them, and who can change them.
+  - **Honesty:** the copy says registration doesn't use the limits yet.
+  - **Design review:** two rounds, desktop and mobile. Round 1 found the mobile header squeezing the title, and a run-on footer sentence. Both were fixed and confirmed in round 2.
+- **Tests:**
+  - **API integration (22):** ST1–ST11, including **two API instances**:
+    - (a) the measured cross-instance update arrives in under 2 s;
+    - (b) with the subscription stopped, the update arrives within a 1.5 s test TTL;
+    - (c) a gated in-flight load proves no stale re-cache;
+    - (d) a Valkey-less instance still reads and commits.
+  - **Registry unit tests (3):** registration keys use only the narrow permission; every manage permission is privileged and needs step-up; defaults validate.
+  - **E2E** (desktop + mobile): admin enables Academics; the Registrar validates, saves with step-up, meets a concurrent edit, and resets; the admin sees read-only. axe passes at each stage.
+  - **Mutations caught (7):**
+    - a cache key without the tenant;
+    - no generation check;
+    - no publish;
+    - no per-key permission;
+    - no version check;
+    - stored values not validated;
+    - no product check.
+- **A finding along the way:** `jsonb` reorders object keys, so values must be compared by deep equality, never by `JSON.stringify`.
+
 ## Out of scope (tracked)
 | Gap | Milestone |
 |---|---|
