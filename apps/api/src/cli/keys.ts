@@ -48,7 +48,13 @@ try {
         const sweep = await platform.keyReencryption.findUnique({ where: { tenantId: t.id } });
         const usage = await keys.usage(t);
         const keyList = dataKeys.map((k) => `v${String(k.version)} ${k.status}`).join(', ') || 'none';
-        const sweepState = sweep ? (sweep.completedAt ? 'done' : 'pending') : '-';
+        const sweepState = !sweep
+          ? '-'
+          : !sweep.completedAt
+            ? 'pending'
+            : sweep.unreadableRemaining > 0n
+              ? `partial (${String(sweep.unreadableRemaining)} unreadable; their key versions are kept)`
+              : 'done';
         console.log(`${t.slug}: keys [${keyList}]  values ${JSON.stringify(usage)}  sweep ${sweepState}`);
       }
       break;

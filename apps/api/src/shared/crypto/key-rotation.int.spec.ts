@@ -317,9 +317,34 @@ describe('[E9] v1 → v2 migration', () => {
     expect(await stored(s, bad)).toBe('v1:unknown-key:aaaa:bbbb:cccc'); // left exactly as it was
     for (const v of s.values.filter((x) => x !== bad)) expect(await stored(s, v)).toMatch(/^v2:1:/);
     expect(await platform.platformAuditEvent.count({ where: { tenantId: s.id, action: 'crypto.legacy_v1.migrated' } })).toBe(0);
+    // [E13] recorded as partial, not done.
+    expect(await platform.keyReencryption.findUniqueOrThrow({ where: { tenantId: s.id } })).toMatchObject({ unreadableRemaining: 1n });
     expect(await keys.sweepTenant(s.ref)).toEqual({ reencrypted: 0, unreadable: 1 });
     // The app role can't delete outbox rows (append-only); clearing the payload is how it is resolved.
     await forTenant(shard, s.id).outboxEvent.update({ where: { id: bad.id }, data: { payloadEnc: null, status: 'DEAD' } });
+  });
+
+  it('[E13] a partial rotation sweep keeps the retired key until the unreadable value is resolved', async () => {
+    const s = await scratch('partial', { outbox: 1 });
+    const bad = s.values[1]!;
+    // Corrupt one v1-key value (wrong AAD: a payload copied from the TOTP row), then rotate.
+    await forTenant(shard, s.id).outboxEvent.update({ where: { id: bad.id }, data: { payloadEnc: await stored(s, s.values[0]!) } });
+    await rotateTenantKey(platform, provider, s.id, null);
+    await sweepUntilDone(s.id);
+    expect(await platform.keyReencryption.findUniqueOrThrow({ where: { tenantId: s.id } })).toMatchObject({ unreadableRemaining: 1n });
+    expect(await keys.usage(s.ref)).toEqual({ '1': 1, '2': 1 });
+
+    await backdateRetired(s.id, 1, HOUR + 1_000);
+    const count = async (v: number) => (await keys.usage(s.ref))[String(v)] ?? 0;
+    const destroy = () => destroyRetiredKey(platform, s.id, 1, count, { actorId: null, reason: 'test' });
+    await expect(destroy()).rejects.toMatchObject({ why: 'values_remain', remaining: 1 });
+
+    // Resolved by the operator, then re-requested: the sweep is done and v1 can go.
+    await forTenant(shard, s.id).outboxEvent.update({ where: { id: bad.id }, data: { payloadEnc: null, status: 'DEAD' } });
+    await requestReencryption(platform, s.id, 'ROTATION');
+    await sweepUntilDone(s.id);
+    expect(await platform.keyReencryption.findUniqueOrThrow({ where: { tenantId: s.id } })).toMatchObject({ unreadableRemaining: 0n });
+    await destroy();
   });
 
   it('[E9] more unreadable values than one batch never stall the sweep (it moves past them)', async () => {

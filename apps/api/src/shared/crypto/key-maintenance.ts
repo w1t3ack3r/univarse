@@ -135,7 +135,7 @@ export class KeyMaintenance {
         // Completed only if nobody re-requested meanwhile; a rotation during the sweep runs it again.
         const done = await tx.keyReencryption.updateMany({
           where: { tenantId: tenant.id, requestedAt: claimed.requested_at },
-          data: { completedAt: new Date(), leaseUntil: null, rowsReencrypted: { increment: n } },
+          data: { completedAt: new Date(), leaseUntil: null, rowsReencrypted: { increment: n }, unreadableRemaining: unreadable },
         });
         if (done.count === 0) {
           await tx.keyReencryption.update({ where: { tenantId: tenant.id }, data: { leaseUntil: null, rowsReencrypted: { increment: n } } });

@@ -230,6 +230,8 @@ model KeyReencryption {
   /// NULL while pending; a new request clears it.
   completedAt     DateTime?          @map("completed_at") @db.Timestamptz(3)
   rowsReencrypted BigInt             @default(0) @map("rows_reencrypted")
+  /// E13: unreadable values the last completed sweep left behind. > 0 ⇒ partial; their key versions are kept.
+  unreadableRemaining BigInt         @default(0) @map("unreadable_remaining")
   leaseUntil      DateTime?          @map("lease_until") @db.Timestamptz(3)
 
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
