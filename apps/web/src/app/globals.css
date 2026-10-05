@@ -1,0 +1,33 @@
+/* Poppins, self-hosted from the package: no runtime request to Google (spec 0005 W3). */
+@import '@fontsource/poppins/400.css';
+@import '@fontsource/poppins/500.css';
+@import '@fontsource/poppins/600.css';
+@import '@fontsource/poppins/700.css';
+@import '@univarse/ui/tokens.css';
+@import '@univarse/ui/components.css';
+@import 'tailwindcss';
+
+@theme inline {
+  --font-sans: var(--uv-font);
+  --color-deep: var(--uv-deep);
+  --color-lime: var(--uv-lime);
+  --color-offwhite: var(--uv-offwhite);
+  --color-surface: var(--uv-surface);
+  --color-muted: var(--uv-text-muted);
+  --color-border: var(--uv-border);
+}
+
+html {
+  background: var(--uv-bg);
+  color: var(--uv-text);
+  font-family: var(--uv-font);
+  -webkit-text-size-adjust: 100%;
+}
+body {
+  min-height: 100dvh;
+  margin: 0;
+}
+a {
+  color: inherit;
+  text-underline-offset: 3px;
+}

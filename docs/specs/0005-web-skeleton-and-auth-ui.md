@@ -29,7 +29,7 @@ So lime is a **fill** (buttons, highlight bars behind deep-green text, badges) o
 | ID | Acceptance criterion |
 |----|----------------------|
 | W1 | *App.* `apps/web` is Next.js 16 (App Router, TypeScript strict, ESLint), served on `:3000`. Tenant from the Host (`demo-uni.univarse.localhost:3000`), as everywhere else. |
-| W2 | *Same-origin API.* The browser calls `/api/*` on its own origin. The web app forwards it to the API with `X-Forwarded-Host`, so the API resolves the tenant and its CSRF check sees `same-origin`. No API URL or token reaches client code. Auth is only the `__Host-uv_sid` HttpOnly cookie, and nothing is stored in `localStorage`/`sessionStorage`. |
+| W2 | *Same-origin API.* The browser calls `/api/*` on its own origin. **The edge** (production Caddy; locally `tools/dev-edge`) routes `/api/*` to the API and everything else to the web app, overwriting `X-Forwarded-Host`/`-Proto`. So the API resolves the tenant and its CSRF check sees `same-origin`. Next.js never proxies `/api`. No API URL or token reaches client code. Auth is only the `__Host-uv_sid` HttpOnly cookie, and nothing is stored in `localStorage`/`sessionStorage`. |
 | W3 | *Tokens.* Brand colours, Poppins (self-hosted, no runtime request to Google), spacing and radius as CSS variables in `packages/ui`, with the contrast rules above. Light theme only in PR A. Dark mode is tracked. |
 | W4 | *Login.* Username or email + password. Errors come from `problem.code` and always show the `requestId`. If the API says `mfaRequired`, the user goes to the MFA step; if `mfaEnrolmentRequired`, to enrolment (PR B, a placeholder until then). |
 | W5 | *MFA verify.* A 6-digit code, or a recovery code via "use a recovery code". Wrong codes show a generic error. |
@@ -49,6 +49,13 @@ So lime is a **fill** (buttons, highlight bars behind deep-green text, badges) o
 | W14 | *Step-up.* When the API answers `428 auth.step_up_required`, a dialog asks for password + code and retries the original action once on success. |
 | W15 | *E2E.* Activation, reset, enrolment and step-up journeys, with the emails read from Mailpit. These close spec 0001's browser-verification gap over HTTP. |
 
+## Implementation notes (PR A)
+- **The edge routes, not Next.js.** Next's built-in rewrite proxy *appends* a client-supplied `X-Forwarded-Host` instead of overwriting it. The edge already overwrites it, so routing `/api` there keeps tenant resolution unspoofable and matches production. The edge's old auth harness page is retired; the web app replaces it.
+- **Server Components** call the API directly (`API_INTERNAL_URL`), passing on the incoming Host, the edge-built `X-Forwarded-For` and the user's cookie, so the API sees the same tenant, client IP and session.
+- **Error messages** live in `packages/contracts` (`ERROR_MESSAGES`). A test scans the API source and fails if any emitted problem code lacks a message (mutation-checked).
+- **Logos are SVG** (exported from the brand source, 2026-10-05): outlined paths, no embedded images, fonts or scripts, 1–8 KB each, in `apps/web/public/brand/` with kebab-case names (`logo-deep.svg` on light surfaces, `logo-lime.svg` on deep green, `icon-deep.svg` as favicon; two-tone lockups `logo-<a>-and-<b>.svg`). Served as static files, never through the image optimiser.
+- **Derived tokens**, all measured: muted text `#5D6964` (5.72:1 on white), hover lime `#ADDB52` (deep text 4.84:1), status colours ≥ 5.37:1 on their backgrounds. Form-field outlines use `--uv-input-border` (5.72:1); the light divider `#D7DDD4` (1.38:1) is decorative only.
+
 ## Out of scope (tracked)
 
 | Gap | Milestone |
@@ -56,6 +63,5 @@ So lime is a **fill** (buttons, highlight bars behind deep-green text, badges) o
 | HTTPS cookie/CSP verification on real TLS | Staging (Phase 0 exit) |
 | Dark mode | After PR B, before Phase 1 UI work |
 | Storybook + visual regression for `packages/ui` | With the first data-table pattern (Phase 1) |
-| Logo as SVG (only PNG lockups exist) | Export from the Figma source when available |
 | Tenant branding overrides (`--tenant-primary`, logo) | Phase 1 console |
 | Landing page (public marketing site from Figma) | Separate from the tenant app; not Phase 0 |

@@ -94,3 +94,7 @@ jobs:
         run: pnpm --filter @univarse/db test:int
       - name: API integration tests
         run: pnpm --filter @univarse/api test:int
+      - name: Install Playwright Chromium (spec 0005 W10)
+        run: pnpm --filter @univarse/web exec playwright install --with-deps chromium
+      - name: E2E — edge → web → API → DB, desktop + mobile (spec 0005 W10)
+        run: pnpm --filter @univarse/web test:e2e
