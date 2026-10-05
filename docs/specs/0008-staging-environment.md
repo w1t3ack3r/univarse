@@ -85,6 +85,58 @@ The pilot (Phases 3–6) is a different shape:
 
 It is sized from pilot user numbers in its own spec.
 
+## Monthly estimate (2026-10-05): partly verified, partly provisional
+**Sources:**
+- **Verified:** Cape Town EC2 on-demand prices, read from AWS's public price feed (the data behind the AWS calculator) on 2026-10-05.
+- **Provisional:** everything else. These are us-east-1 list prices scaled by the Cape Town premium measured on EC2 (**1.30–1.32×** for `t3.large` and `m6i.large`). They must be confirmed in the AWS calculator before D1 is decided.
+- **Basis:** USD, on-demand, 730 h/month, no commitments. Tax excluded.
+
+### Verified EC2 prices, `af-south-1`, Linux on-demand
+| Instance | vCPU / RAM | $/hour | $/month |
+|---|---|---|---|
+| `t3.micro` | 2 / 1 GiB | 0.0136 | 9.93 |
+| `t3.small` | 2 / 2 GiB | 0.0271 | 19.78 |
+| `t3.medium` | 2 / 4 GiB | 0.0542 | 39.57 |
+| **`t3.large`** | 2 / 8 GiB | 0.1085 | **79.21** |
+| `t4g.large` (Arm; needs arm64 images) | 2 / 8 GiB | 0.0867 | 63.29 |
+| `m6i.large` (non-burstable) | 2 / 8 GiB | 0.1270 | 92.71 |
+| `m6g.large` (Arm, non-burstable) | 2 / 8 GiB | 0.1016 | 74.17 |
+
+### Recommended staging configuration
+| Item | Choice | $/month | Basis |
+|---|---|---|---|
+| App VM | `t3.large`, 2 vCPU / 8 GiB | 79.21 | verified |
+| Vault VM | `t3.small`, 2 vCPU / 2 GiB | 19.78 | verified |
+| Managed PostgreSQL 18 | `db.t4g.medium`, Single-AZ, 2 vCPU / 4 GiB | ~62 | provisional |
+| RDS storage | 20 GB gp3, 7-day PITR (backup storage up to the DB size is included) | ~3 | provisional |
+| EBS (VM disks) | 40 + 20 GB gp3 | ~6 | provisional |
+| Public IPv4 addresses | 2 (the app VM, plus Vault for KMS/S3 access without NAT) | ~7.30 | provisional |
+| S3 | ~15 GB (uploads, locked backup bucket, Vault snapshots) | ~0.50 | provisional |
+| ECR | ~10 GB of images | ~1.30 | provisional |
+| KMS | 2 keys | ~2 | provisional |
+| Secrets Manager | ~10 secrets | ~4 | provisional |
+| CloudWatch Logs | ~10 GB ingested, 14-day retention | ~6 | provisional |
+| Data out | < 50 GB (behind Cloudflare; within AWS's monthly free data-out allowance) | ~0 | provisional |
+| Cloudflare (free plan), staging domain (~$10–15/year) | | ~1 | |
+| **Total** | | **≈ $190/month** | 52% verified by value |
+
+**Network choice built into this total:**
+- No NAT gateway and no interface endpoints. Both VMs sit in public subnets with **no inbound access** except: 443 from Cloudflare to the app VM, and 8200 from the app VM's security group to Vault. RDS stays private.
+- A NAT gateway would add roughly **$40–45/month**. Five interface endpoints would add a similar amount. Both are more than the two IPv4 addresses they replace.
+
+### Alternatives
+| Option | Change | ≈ $/month |
+|---|---|---|
+| **Lean** | `t4g.large` app VM (arm64 images), `t3.micro` Vault, `db.t4g.small` (2 GiB) Postgres | **≈ $135** |
+| **Recommended** | As above | **≈ $190** |
+| **Separated network** | Recommended, plus a NAT gateway with private subnets for both VMs | **≈ $235** |
+| **Office hours only** | Recommended, with the VMs and RDS stopped outside ~12 h × 5 days (an instance scheduler). Breaks "deploy on every merge" outside those hours unless the pipeline starts staging first | **≈ $95** |
+
+### Notes
+- **Burstable `t3`:** a `t3` instance bills extra CPU credits if it runs above its baseline (30% for `t3.large`) for long periods. Staging is mostly idle. Watch the credit balance once ClamAV lands, and switch to `m6i.large` (+$13.50) if it runs hot.
+- **No commitments:** 1-year Savings Plans or reserved instances cut ~30–40%. Revisit when staging's shape is stable.
+- **Still to confirm in the AWS calculator:** every **provisional** line, the RDS instance class for PostgreSQL 18 in `af-south-1`, and the regional IPv4, NAT and endpoint rates. Then D1 (the ceiling) can be set against a fully verified number.
+
 ## Decisions needed from you
 
 ### D1 — Monthly budget ceiling for staging
