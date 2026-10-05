@@ -2,7 +2,8 @@
 //   1. local: initialise once (1 unseal share) and unseal on every start; keys go to the git-ignored
 //      .vault-dev.json, never to .env or stdout.   CI: Vault runs in dev mode; VAULT_ROOT_TOKEN is set.
 //   2. ensure the Transit engine, the derived aes256-gcm96 KEK, and the app policy (encrypt/decrypt only)
-//   3. ensure .env holds a working least-privilege app token (VAULT_TOKEN) plus KEY_PROVIDER/VAULT_ADDR.
+//   3. ensure .env holds a working least-privilege app token (VAULT_TOKEN) plus KEY_PROVIDER/VAULT_ADDR,
+//      and (dev/CI only) the operator key-admin token VAULT_ADMIN_TOKEN for the `keys` CLI and tests.
 // Never prints a secret.
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 
@@ -15,6 +16,7 @@ const ADDR = process.env.VAULT_ADDR ?? envVal('VAULT_ADDR') ?? 'http://127.0.0.1
 const MOUNT = process.env.VAULT_TRANSIT_MOUNT ?? envVal('VAULT_TRANSIT_MOUNT') ?? 'transit';
 const KEY = process.env.VAULT_TRANSIT_KEY ?? envVal('VAULT_TRANSIT_KEY') ?? 'univarse-kek';
 const POLICY = 'univarse-app';
+const ADMIN_POLICY = 'univarse-key-admin';
 
 async function vault(method, path, { token, body, ok = [200, 204] } = {}) {
   const res = await fetch(`${ADDR}/v1/${path}`, {
@@ -77,21 +79,35 @@ async function main() {
   const policy = `path "${MOUNT}/encrypt/${KEY}" { capabilities = ["update"] }\npath "${MOUNT}/decrypt/${KEY}" { capabilities = ["update"] }\n`;
   await vault('PUT', `sys/policies/acl/${POLICY}`, { token: root, body: { policy } });
 
-  // Keep a working app token; otherwise mint a periodic, least-privilege one.
-  let appToken = process.env.CI ? undefined : envVal('VAULT_TOKEN');
-  if (appToken) {
-    // The app token has no default policy, so it can't look itself up; root checks it instead.
-    const found = await vault('POST', 'auth/token/lookup', { token: root, body: { token: appToken }, ok: [200, 403] });
-    if (!found.data?.policies?.includes(POLICY)) appToken = undefined;
-  }
-  if (!appToken) {
-    const out = await vault('POST', 'auth/token/create', {
-      token: root,
-      body: { policies: [POLICY], no_default_policy: true, period: '768h', display_name: 'univarse-app-dev', renewable: true },
-    });
-    appToken = out.auth.client_token;
-    console.log('Issued a least-privilege app token (encrypt/decrypt only)');
-  }
+  // Operator key admin (spec 0006 E8): rotate the KEK, read its metadata, rewrap DEKs. Never the app's.
+  const adminPolicy = [
+    `path "${MOUNT}/keys/${KEY}" { capabilities = ["read"] }`,
+    `path "${MOUNT}/keys/${KEY}/rotate" { capabilities = ["update"] }`,
+    `path "${MOUNT}/rewrap/${KEY}" { capabilities = ["update"] }`,
+  ].join('\n');
+  await vault('PUT', `sys/policies/acl/${ADMIN_POLICY}`, { token: root, body: { policy: adminPolicy } });
+
+  // Keep working tokens; otherwise mint periodic, least-privilege ones.
+  const ensureToken = async (envKey, policyName, label) => {
+    let token = process.env.CI ? undefined : envVal(envKey);
+    if (token) {
+      // These tokens have no default policy, so they can't look themselves up; root checks them.
+      const found = await vault('POST', 'auth/token/lookup', { token: root, body: { token }, ok: [200, 403] });
+      if (!found.data?.policies?.includes(policyName)) token = undefined;
+    }
+    if (!token) {
+      const out = await vault('POST', 'auth/token/create', {
+        token: root,
+        body: { policies: [policyName], no_default_policy: true, period: '768h', display_name: `${policyName}-dev`, renewable: true },
+      });
+      token = out.auth.client_token;
+      console.log(`Issued ${label}`);
+    }
+    return token;
+  };
+  const appToken = await ensureToken('VAULT_TOKEN', POLICY, 'a least-privilege app token (encrypt/decrypt only)');
+  // DEV/CI ONLY: in deployed environments this is an operator credential, never in the app's env.
+  const adminToken = await ensureToken('VAULT_ADMIN_TOKEN', ADMIN_POLICY, 'an operator key-admin token (rotate/rewrap; CLI only)');
 
   let next = env.endsWith('\n') || env === '' ? env : env + '\n';
   const set = (k, v) => {
@@ -100,6 +116,7 @@ async function main() {
   set('KEY_PROVIDER', 'vault');
   set('VAULT_ADDR', ADDR);
   set('VAULT_TOKEN', appToken);
+  set('VAULT_ADMIN_TOKEN', adminToken);
   writeFileSync(envPath, next, { mode: 0o600 });
   console.log('Vault ready for UniVarse (.env updated)');
 }

@@ -43,6 +43,8 @@ const schema = z.object({
   LOCAL_KEK: z.string().min(40).optional(),
   /** Unwrapped-DEK cache TTL (≤ 1 h, docs/07 §8). */
   DEK_CACHE_TTL_MS: z.coerce.number().int().min(1_000).max(3_600_000).default(3_600_000),
+  /** How often the worker looks for a pending key sweep (spec 0006 E7, E9). */
+  KEY_SWEEP_INTERVAL_MS: z.coerce.number().int().min(1_000).default(60_000),
   SMTP_URL: z.string().startsWith('smtp').default('smtp://127.0.0.1:1025'),
   MAIL_FROM: z.string().default('UniVarse <no-reply@univarse.localhost>'),
 });

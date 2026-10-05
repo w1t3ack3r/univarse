@@ -73,6 +73,42 @@ The code is provider-agnostic (E3). The options considered:
 - Local and CI run a Vault dev server.
 - **ADR-018 closes when staging runs the `vault` provider.**
 
+## Design for PR B (E7–E9), added 2026-10-05 before implementation
+- **One sweep serves E7 and E9.** "Re-encrypt" means: bring every encrypted value of a tenant onto its **active** version. That covers values still on an older `v2` version (after a rotation) and `v1` values (the migration).
+- **Encrypted-column registry:** `apps/api/src/shared/crypto/encrypted-columns.ts` lists every encrypted column with its row AAD:
+  - `mfa_factor.secret_enc`, AAD `<tenant>:<user>:totp`;
+  - `outbox_event.payload_enc`, AAD `<tenant>:outbox:<id>`. It is NULL after delivery, so only pending and dead events hold one.
+
+  A test discovers every `*_enc` column in the tenant catalog and fails if one is missing from the registry, so a future encrypted field can't escape rotation or shredding.
+- **Sweep requests** live in the platform table `key_reencryption`: one row per tenant, with `reason ROTATION | LEGACY_V1`, `requested_at`, `completed_at`, `rows_reencrypted` and `lease_until`.
+  - Rotation and `migrate-v1` upsert a request.
+  - A worker job (`KeyMaintenanceJob`, separate from the outbox loop, so a long sweep never delays email) claims one pending request under a lease, using `FOR UPDATE SKIP LOCKED`.
+  - It re-encrypts in batches of 100 inside `ShardRegistry.tx`. Rows are locked with `SKIP LOCKED`, and each update is a compare-and-swap (`WHERE col = <old value>`), so it never overwrites a concurrent app write.
+  - It reads the active version again for every batch. When a pass finds nothing left, it marks the request completed.
+  - **Resumable without a cursor:** the work query *is* the cursor. A crash only loses the lease, which expires.
+- **Rotation (E7):** `rotateTenantKey` works in two steps.
+  1. It wraps a new DEK, outside any transaction.
+  2. In one platform transaction it locks the ACTIVE row, marks it `RETIRED`, inserts version n+1 as `ACTIVE`, upserts a `ROTATION` sweep request, and writes the audit event `crypto.tenant_key.rotated` `{from, to}`.
+
+  If two rotations run at once, one wins and the other fails cleanly: the row lock and the one-ACTIVE partial index both stop it. The keyring reads the active version for every write, so rotation needs no restart.
+- **Destroying a retired version (E7)** is refused unless all three hold:
+  1. the version is `RETIRED`;
+  2. it was retired at least **1 hour** ago (default), which is longer than the keyring TTL and longer than any in-flight request that read the old active version;
+  3. a usage scan across the registry finds **zero** values on that version.
+
+  Then the wrap is erased in place and the audit event `crypto.tenant_key.destroyed` `{versions, reason}` is written.
+- **KEK re-wrap (E8):**
+  - An operator rotates the Vault key, which is a Vault admin action the app token can't perform (E3).
+  - `rewrap-kek` then calls Transit `rewrap` for every live wrap made with an older Vault key version, updates each row by compare-and-swap, and writes one audit event `crypto.kek.rewrapped` `{kekId, keyVersion, count}`.
+  - `rewrap` never shows the DEK to the caller. Transit keeps older key versions decryptable, so old wraps keep working until the re-wrap is done. Raising `min_decryption_version` afterwards is a separate operator step.
+  - **Credential:** a separate Vault policy, `univarse-key-admin` (rotate the Transit key, read its metadata, rewrap). Its token (`VAULT_ADMIN_TOKEN`) belongs to the operator CLI only and is never in the API or worker config. Dev and CI get one from `tools/vault-dev.mjs`.
+- **v1 migration (E9):**
+  - `migrate-v1` requests a `LEGACY_V1` sweep for every tenant, and the same worker sweep does the work.
+  - `status` prints numbers only, per tenant: values per version, and values still `v1`.
+  - When a tenant's sweep completes with no `v1` left, it writes the audit event `crypto.legacy_v1.migrated`.
+  - **Contract-release condition:** `status` reports zero `v1` values for every tenant.
+- **Operator entry point:** `pnpm --filter @univarse/api keys <status | rotate <slug> | migrate-v1 | destroy-retired <slug> <version> | rewrap-kek>`. It's a Nest application context like the worker, so shard access goes through `ShardRegistry` (invariant 1). The console replaces it in Phase 1.
+
 ## Implementation notes (PR A: E1–E6, E10–E12)
 - **Package:** `@univarse/crypto` (`packages/crypto`). It holds the cipher, the providers, the keyring, `FieldCrypto`, key provisioning/destruction and the platform audit chain. The API registers one `FieldCrypto` provider (`apps/api/src/shared/crypto/envelope.ts`) for the HTTP app and the worker. `MfaService`, `Outbox` and `OutboxWorker` call only `FieldCrypto`.
 - **Vault locally:** `pnpm dev:infra` starts `hashicorp/vault:2.1.1` (file storage, persistent volume, port bound to 127.0.0.1). It then runs `tools/vault-dev.mjs`, which:
@@ -103,6 +139,48 @@ The code is provider-agnostic (E3). The options considered:
     - no retry;
     - retrying 4xx.
 
+## Implementation notes (PR B: E7–E9)
+- **Built as designed above.** The pieces:
+  - `rotateTenantKey`, `destroyRetiredKey`, `requestReencryption` and `rewrapAllDeks` in `@univarse/crypto`;
+  - the `key_reencryption` platform table;
+  - the encrypted-column registry and `KeyMaintenance` (the sweep) in the API, running in the worker on its own loop (`KEY_SWEEP_INTERVAL_MS`, default 60 s);
+  - the operator CLI, `pnpm --filter @univarse/api keys …`.
+- **Changes found while testing:**
+  - **Unreadable values are skipped and reported, not fatal.** Run against real local data, the v1 sweep met corrupted payloads: the outbox `[B2]` test parks an event whose payload was copied from another row, and its AAD binding makes that payload undecryptable. Failing the tenant would have blocked its migration forever.
+    - Such a value is now left untouched, counted (`unreadable`) and logged by table and id only, never its content.
+    - The request still completes. `crypto.legacy_v1.migrated` is written only when **no** `v1` value remains, so `keys status` keeps showing the leftovers until an operator resolves them, before the contract release.
+    - Each pass walks the table with an id cursor, so skipped rows can't stall it.
+    - Vault being unavailable still aborts the sweep, which is retried after its lease.
+    - The `[B2]` test now clears the payload when it parks the event.
+  - **The KEK re-wrap skips a wrap Vault refuses and reports it,** for the same reason: one bad row (for example, a key wrapped under the wrong context) must not block every other tenant. The CLI exits non-zero and lists the tenant and version. A Vault outage aborts the run, and even an aborted run is audited (`aborted: true`).
+  - **The key-admin Vault policy also allows rotating the Transit key**, so one operator credential covers the whole E8 procedure.
+- **Concurrent rotation:**
+  - The loser fails on the row lock with "Concurrent key rotation; retry".
+  - The unique `(tenant_id, version)` index is the backstop. The race test proves it with a real race: both calls are held at the wrap step until both have read the current key.
+- **Run locally (2026-10-05):** `keys migrate-v1` then `keys sweep` moved demo-uni's readable `v1` values to `v2`. It reported 4 unreadable ones, all left by `[B2]` test runs.
+- **Tests:**
+  - **API integration (12, `key-rotation.int.spec.ts`), all on scratch tenants:**
+    - rotation and its audit;
+    - the sweep, which is idempotent and resumes after a stop;
+    - compare-and-swap;
+    - a true concurrent rotation;
+    - the three refusals for destroying a retired version, then destruction;
+    - KEK re-wrap, with the same DEK afterwards, tenant data untouched, and a bad row reported;
+    - the app token refused rewrap and rotate;
+    - the v1 migration and its audit;
+    - an unreadable value skipped;
+    - more than a batch of unreadable values;
+    - the catalog check that every `*_enc` column is registered.
+  - **Mutations caught (8):**
+    - no rotation lock check (caught once the test asserted the clean error);
+    - no "values remain" check;
+    - no grace period;
+    - swap without compare-and-swap;
+    - re-wrap aborting on a bad row;
+    - a column missing from the registry;
+    - no sweep cursor (the test hangs);
+    - rethrowing on unreadable values.
+
 ## Out of scope (tracked)
 | Gap | Milestone |
 |---|---|
@@ -111,5 +189,6 @@ The code is provider-agnostic (E3). The options considered:
 | Vault HA (3-node Raft), auto-unseal, snapshots, audit device | Before production (staging can run single-node) |
 | Per-tenant KEKs (dedicated tier) | Dedicated-deployment work |
 | Separate key-admin DB role: the API role only reads `tenant_data_key` | Phase 1 console (tenant provisioning and offboarding) |
-| DEK rotation, KEK re-wrap, v1 → v2 migration (E7–E9) | PR B of this spec |
-| Remove the v1 key and code path | The release after E9 reports zero v1 values |
+| Remove the v1 key and code path | The release after `keys status` reports zero v1 values for every tenant (unreadable ones resolved first) |
+| Scheduled DEK rotation (for example yearly) and alerting on unreadable values | Staging (Phase 0 exit), with monitoring |
+| Raising Transit `min_decryption_version` after a KEK re-wrap | Operator runbook, before production |

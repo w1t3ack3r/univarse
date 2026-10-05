@@ -34,6 +34,9 @@ const newRecoveryCode = () => {
 };
 const normaliseRecovery = (c: string) => c.toUpperCase().replace(/[^A-Z2-7]/g, '');
 
+/** AAD binding a TOTP secret to its tenant and user (shared with the key sweep, spec 0006). */
+export const mfaSecretAad = (tenantId: string, userId: string) => `${tenantId}:${userId}:totp`;
+
 /**
  * TOTP MFA (spec 0001 Part M). Every state change that must happen at most once is a
  * conditional UPDATE checked for count === 1 (M12): challenge attempts, challenge consumption,
@@ -67,7 +70,7 @@ export class MfaService {
   }
 
   private aad(tenantId: string, userId: string) {
-    return `${tenantId}:${userId}:totp`;
+    return mfaSecretAad(tenantId, userId);
   }
 
   private recoveryHash(userId: string, code: string) {
