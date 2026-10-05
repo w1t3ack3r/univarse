@@ -28,18 +28,21 @@ Statuses are kept distinct: **implemented** → **tested locally** → **verifie
 | Password reset (spec 0001 R1–R11) | ✅ | ✅ 14 tests, 3 mutations caught | ✅ (#3) | — |
 | Reset hardening R12–R15 (concurrency, eligibility, timing) | ✅ | ✅ 6 tests, R12/R13/R15 mutation-checked; R15 floors asserted (2026-10-05) | ✅ | — |
 | Web app skeleton + brand tokens + login / MFA verify / workspace (spec 0005 PR A) | ✅ | ✅ 10 unit; 9 E2E journeys × desktop + mobile (Edge); logout mutation caught | ✅ (#14, Chromium) | ✅ HTTP on `*.localhost` via the edge (screenshots in PR) |
-| Login + TOTP + recovery-code login in a real browser | ✅ | ✅ E2E | ⏳ PR | ✅ HTTP (closes that part of the spec 0001 gap) |
-| Activation, reset, two-step setup and step-up in a real browser (spec 0005 PR B, W11–W15) | ✅ | ✅ 5 journeys × desktop + mobile; codes read from Mailpit | ⏳ PR | ✅ HTTP via the edge (closes the spec 0001 browser gap over HTTP) |
+| Login + TOTP + recovery-code login in a real browser | ✅ | ✅ E2E | ✅ (#14) | ✅ HTTP (closes that part of the spec 0001 gap) |
+| Activation, reset, two-step setup and step-up in a real browser (spec 0005 PR B, W11–W15) | ✅ | ✅ 5 journeys × desktop + mobile; codes read from Mailpit | ✅ (#17) | ✅ HTTP via the edge (closes the spec 0001 browser gap over HTTP) |
 | TOTP MFA (M2–M15 incl. R16) | ✅ | ✅ 24 tests + 24 unit; layered mutation-checked | ✅ (#6) | ✅ verify + enrolment (spec 0005) |
 | M1 secret at rest | ✅ envelope `v2` under the tenant's own DEK (spec 0006); `v1` values migrate with `keys migrate-v1` | ✅ cross-tenant decrypt fails (mutation-checked) | ✅ (#18) | n/a |
 | Envelope encryption, PR A (spec 0006 E1–E6, E10–E12): per-tenant DEKs wrapped by Vault Transit; MFA secrets + outbox payloads | ✅ | ✅ 14 unit + 10 against real Vault; 5 mutations caught; E2E 28 via Vault | ✅ (#18) | n/a |
-| Envelope encryption, PR B (E7–E9: DEK rotation + sweep, KEK re-wrap, v1 → v2 migration, `keys` CLI) | ✅ | ✅ 12 tests against real Vault, scratch tenants; 8 mutations caught; run on local data | ⏳ PR | n/a |
-| MFA tables live isolation (app role) | ✅ | ✅ 6 tests; disabling RLS fails 4 | ⏳ | n/a |
-| All-table generic isolation sweep (spec 0004 I1–I9) | ✅ every tenant table, discovered from the catalog | ✅ 9 tests × 14 tables; 3 negative controls fail it | ⏳ PR | n/a |
+| Envelope encryption, PR B (E7–E9: DEK rotation + sweep, KEK re-wrap, v1 → v2 migration, `keys` CLI) | ✅ | ✅ 12 tests against real Vault, scratch tenants; 8 mutations caught; run on local data | ✅ (#21) | n/a |
+| Tenant settings, one typed key end to end (spec 0007 ST1–ST13): `registration.unitLimits`, Registrar-managed, step-up, `If-Match`, audited | ✅ | ✅ 22 integration + 3 registry unit; 7 mutations caught | ⏳ PR | ✅ Settings page, desktop + mobile (E2E, screenshots reviewed) |
+| Settings cache: tenant-scoped keys, ≤ 2 s cross-instance, ≤ 30 s if a message is lost, no stale re-cache, works without Valkey (ST10–ST11) | ✅ | ✅ two API instances, measured (tests ST10, ST11a–d); mutations caught | ⏳ PR, **pending until CI runs them** | n/a |
+| Registration **enforcing** the unit limits | ❌ Phase 4 (registration module); mid-window change semantics to be decided first | — | — | — |
+| MFA tables live isolation (app role) | ✅ | ✅ 6 tests; disabling RLS fails 4 | ✅ (every CI run) | n/a |
+| All-table generic isolation sweep (spec 0004 I1–I9) | ✅ every tenant table, discovered from the catalog | ✅ 9 tests × 14 tables; 3 negative controls fail it | ✅ (#13) | n/a |
 | Step-up (S1–S12) + MFA management (M9a–M9e, M15′) | ✅ | ✅ 30 tests + 13 guard unit; mutation-checked | ✅ (#7) | ✅ step-up dialog on the Products page (spec 0005 PR B) |
-| Permission-flagged step-up on a real route (S9) | ✅ `PUT /admin/products/{product}` (`settings.product.manage`) | ✅ 428 without step-up | ⏳ PR | — |
+| Permission-flagged step-up on a real route (S9) | ✅ `PUT /admin/products/{product}` (`settings.product.manage`) | ✅ 428 without step-up | ✅ (#10) | — |
 | Hash-chained audit log + identity events (spec 0002 Part A) | ✅ | ✅ 19 tests + 5 unit; 6/6 mutations caught | ✅ (#8) | n/a |
-| Product entitlements + product guard (spec 0003 P1–P9) | ✅ | ✅ 16 tests + 9 unit; 8/8 mutations caught | ⏳ PR | n/a (no UI yet) |
+| Product entitlements + product guard (spec 0003 P1–P9) | ✅ | ✅ 16 tests + 9 unit; 8/8 mutations caught | ✅ (#10) | n/a (no UI yet) |
 | Inactive product → 404 through a real non-core route (P3 end-to-end) | 🟡 guard unit-tested + guard order asserted; no non-core route yet | — | — | — |
 | Cross-instance product/tenant cache invalidation (P7) | ❌ before multi-instance production | — | — | — |
 | Audit chain anchoring outside the DB (A5 limit) | ❌ before GA | — | — | — |

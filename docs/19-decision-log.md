@@ -225,3 +225,28 @@ Alternatives considered: option — why not.
 **Alternatives:**
 - **AWS KMS:** less to operate, but ties keys to one cloud and doesn't fit in-country dedicated deployments.
 - **Secret-manager KEK:** the KEK sits in process memory. Acceptable only as a stop-gap, and not chosen.
+
+## ADR-024 — Local-first until the application is complete; cloud staging deferred
+**Status:** Accepted (2026-10-05, owner decision).
+
+**Context:** [Spec 0008](specs/0008-staging-environment.md) planned AWS staging at about $190/month (partly verified). The application work (settings, the API isolation route sweep, uploads, API contracts, observability) doesn't need the cloud.
+
+**Decision:**
+- Build and verify everything locally (compose, real Vault, real Postgres) and in GitHub CI.
+- Cloud staging waits until the application is complete. Spec 0008 stays as the plan for then, with its estimate.
+- When it's useful, a **local staging profile** rehearses what staging was for:
+  - production images under the hardening rules;
+  - HTTPS with a local certificate authority installed on test devices, for real `Secure` cookies and an enforced CSP;
+  - Vault with TLS and its audit device;
+  - LAN access for real phones, through a name that resolves to the host (e.g. `*.<lan-ip>.sslip.io`).
+
+**Consequences:**
+- **Phase 0 can't fully close.** Its staging-only exit criteria are recorded as **deferred**, not done:
+  - CSP and HTTPS cookies on staging;
+  - an automatic deploy from `main`;
+  - backups with a rehearsed restore;
+  - ADR-018 closure, which needs staging to run the `vault` provider.
+- **Image scanning and signing don't need staging.** They move into CI.
+- **The developer machine is the only copy** of local Vault keys and data. It holds synthetic data only, never real personal data.
+- **Docker needs about 8 GB** once ClamAV and Gotenberg run.
+

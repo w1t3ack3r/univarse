@@ -15,7 +15,13 @@ export const PERMISSIONS = {
   'identity.role.assign': { description: 'Grant or revoke roles', privileged: true, stepUp: true },
   'org.unit.view': { description: 'View the organisation structure' },
   'org.unit.manage': { description: 'Create and edit org units', privileged: true },
+  'settings.tenant.view': { description: 'View institution settings and who changed them' },
   'settings.tenant.manage': { description: 'Change institution settings', privileged: true, stepUp: true },
+  'settings.registration.manage': {
+    description: 'Change course registration settings (registration keys only; spec 0007 D3)',
+    privileged: true,
+    stepUp: true,
+  },
   'settings.product.manage': { description: 'Enable or disable products within the plan', privileged: true, stepUp: true },
   'audit.event.view': { description: 'View the audit log', privileged: true, sensitiveData: true },
 } as const satisfies Record<string, PermissionDef>;
@@ -32,11 +38,14 @@ export const SYSTEM_ROLE_PERMISSIONS: Readonly<Record<string, readonly Permissio
     'identity.role.assign',
     'org.unit.view',
     'org.unit.manage',
+    'settings.tenant.view',
     'settings.tenant.manage',
     'settings.product.manage',
     'audit.event.view',
   ],
-  REGISTRAR: ['identity.user.view', 'org.unit.view', 'audit.event.view'],
+  // Oversight of registration settings is by view + audit + role assignment, not by holding the manage
+  // permission (spec 0007 ST5). The Registrar owns them.
+  REGISTRAR: ['identity.user.view', 'org.unit.view', 'audit.event.view', 'settings.tenant.view', 'settings.registration.manage'],
   DEAN: ['org.unit.view'],
   HOD: ['org.unit.view'],
   LECTURER: ['org.unit.view'],

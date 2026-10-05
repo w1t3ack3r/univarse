@@ -80,22 +80,28 @@ export class AccessGuard implements CanActivate {
       throw new ProblemError(403, 'auth.mfa_enrolment_required', 'Set up multi-factor authentication to continue');
     }
 
-    if (access.kind === 'permission') {
-      if (!canInstitutionWide(actor, access.permission)) {
-        throw new ProblemError(403, 'auth.forbidden', 'Forbidden');
-      }
-      if (isPrivileged(access.permission) && !actor.mfaAt) {
-        throw new ProblemError(403, 'auth.mfa_required', 'Multi-factor authentication required');
-      }
-    }
-
-    // S1 / S9: explicit @RequireStepUp() or a permission flagged stepUp in the catalog.
-    const stepUpNeeded = explicitStepUp || (access.kind === 'permission' && requiresStepUp(access.permission));
-    if (stepUpNeeded && !hasFreshStepUp(actor, new Date())) {
-      throw new ProblemError(428, 'auth.step_up_required', 'Confirm your identity to continue');
-    }
+    if (access.kind === 'permission') enforcePermission(actor, access.permission);
+    // S1: explicit @RequireStepUp() (a permission flagged stepUp is enforced above).
+    if (explicitStepUp) enforceStepUp(actor);
     return true;
   }
+}
+
+/**
+ * The permission checks of a `@RequirePermission` route, for permissions only known at run time
+ * (e.g. a setting's own manage permission, spec 0007 ST4): held institution-wide, MFA if privileged,
+ * and a fresh step-up if the catalog flags it (S9).
+ */
+export function enforcePermission(actor: Actor, permission: Permission): void {
+  if (!canInstitutionWide(actor, permission)) throw new ProblemError(403, 'auth.forbidden', 'Forbidden');
+  if (isPrivileged(permission) && !actor.mfaAt) {
+    throw new ProblemError(403, 'auth.mfa_required', 'Multi-factor authentication required');
+  }
+  if (requiresStepUp(permission)) enforceStepUp(actor);
+}
+
+function enforceStepUp(actor: Actor): void {
+  if (!hasFreshStepUp(actor, new Date())) throw new ProblemError(428, 'auth.step_up_required', 'Confirm your identity to continue');
 }
 
 export const CurrentActor = createParamDecorator((_: unknown, ctx: ExecutionContext): Actor => {
