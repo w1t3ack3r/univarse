@@ -4,7 +4,7 @@ import js from '@eslint/js';
 import globals from 'globals';
 import tseslint from 'typescript-eslint';
 
-const TEST_FILES = ['**/*.spec.ts', '**/test/**', '**/testing/**'];
+const TEST_FILES = ['**/*.spec.ts', '**/test/**', '**/testing/**', '**/e2e/**'];
 const TOOLING_FILES = ['**/scripts/**', '**/*.config.ts', 'tools/**'];
 
 export default tseslint.config(
@@ -15,6 +15,10 @@ export default tseslint.config(
       '**/.turbo/**',
       '**/generated/**',
       '**/node_modules/**',
+      '**/.next/**',
+      '**/next-env.d.ts',
+      '**/playwright-report/**',
+      '**/test-results/**',
     ],
   },
   {
@@ -56,7 +60,7 @@ export default tseslint.config(
 
   // Banned in production code (docs/17 §8). Tests, scripts and tooling are exempt.
   {
-    files: ['**/*.ts'],
+    files: ['**/*.ts', '**/*.tsx'],
     ignores: [...TEST_FILES, ...TOOLING_FILES],
     rules: {
       'no-console': 'error',
@@ -92,8 +96,9 @@ export default tseslint.config(
     files: ['**/*.js', '**/*.mjs'],
     extends: [tseslint.configs.disableTypeChecked],
   },
+  // Browser code: the web app and the UI kit (spec 0005).
   {
-    files: ['tools/dev-edge/public/**'],
-    languageOptions: { globals: globals.browser },
+    files: ['apps/web/src/**', 'packages/ui/src/**'],
+    languageOptions: { globals: { ...globals.browser } },
   },
 );

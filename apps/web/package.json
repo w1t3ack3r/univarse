@@ -1,0 +1,36 @@
+{
+  "name": "@univarse/web",
+  "version": "0.0.0",
+  "private": true,
+  "description": "UniVarse tenant web app (Next.js). Served behind the edge: /api/* goes to the API, everything else here.",
+  "type": "module",
+  "scripts": {
+    "dev": "next dev --port 3000 --hostname 127.0.0.1",
+    "build": "next build",
+    "start": "next start --port 3000 --hostname 127.0.0.1",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "test": "vitest run",
+    "test:e2e": "playwright test"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "^4.13.0",
+    "@playwright/test": "^1.63.0",
+    "@tailwindcss/postcss": "^4.3.3",
+    "@types/qrcode": "^1.5.6",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@univarse/db": "workspace:*",
+    "tailwindcss": "^4.3.3",
+    "vitest": "^4.1.11"
+  },
+  "dependencies": {
+    "@fontsource/poppins": "^5.3.0",
+    "@univarse/contracts": "workspace:*",
+    "@univarse/ui": "workspace:*",
+    "next": "^16.3.8",
+    "qrcode": "^1.5.4",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0"
+  }
+}

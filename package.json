@@ -21,7 +21,8 @@
     "dev:secrets": "node tools/dev-secrets.mjs",
     "dev:infra": "docker compose -f infra/compose/compose.dev.yml --env-file .env up -d --wait",
     "dev:infra:docs": "docker compose -f infra/compose/compose.dev.yml --env-file .env --profile docs up -d",
-    "dev:infra:down": "docker compose -f infra/compose/compose.dev.yml --env-file .env down"
+    "dev:infra:down": "docker compose -f infra/compose/compose.dev.yml --env-file .env down",
+    "test:e2e": "turbo run test:e2e"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
