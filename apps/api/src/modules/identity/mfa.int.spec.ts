@@ -5,7 +5,7 @@
 import { forTenant } from '@univarse/db';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { codeIn, createHarness, HOSTS, PASSWORD, type Harness, type InjectResult } from '../../testing/int-harness.js';
-import { enrolTestTotp, resetReplayGuard, totpCode, waitForFreshTotpStep } from '../../testing/mfa-helpers.js';
+import { enrolTestTotp, resetReplayGuard, testFieldCrypto, totpCode, waitForFreshTotpStep } from '../../testing/mfa-helpers.js';
 import { base32Decode, hotp, timeStep } from './totp.js';
 
 let h: Harness;
@@ -43,7 +43,11 @@ describe('enrolment (M1-M3, M14, M15)', () => {
     const { begin, secret } = await enrolViaApi(u.username);
     expect(begin.otpauthUri).toMatch(/^otpauth:\/\/totp\/.+\?secret=[A-Z2-7]+&issuer=/);
     const factor = await forTenant(h.shard, h.tenants.demo).mfaFactor.findFirstOrThrow({ where: { userId: u.id } });
-    expect(factor.secretEnc).toMatch(/^v1:[a-z0-9-]+:/);
+    // Spec 0006: envelope format under the tenant's own data key, unreadable with another tenant's.
+    expect(factor.secretEnc).toMatch(/^v2:1:/);
+    const aad = `${h.tenants.demo}:${u.id}:totp`;
+    expect((await testFieldCrypto().decrypt(h.tenants.demo, factor.secretEnc, aad)).equals(secret)).toBe(true);
+    await expect(testFieldCrypto().decrypt(h.tenants.poly, factor.secretEnc, aad)).rejects.toThrow();
     expect(factor.secretEnc).not.toContain(begin.secret);
     expect(factor.secretEnc).not.toContain(secret.toString('base64'));
   });

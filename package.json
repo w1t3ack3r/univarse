@@ -14,15 +14,16 @@
     "dev": "turbo run dev",
     "db:setup": "pnpm --filter @univarse/db run setup",
     "db:migrate": "pnpm --filter @univarse/db run migrate",
-    "db:seed": "pnpm --filter @univarse/db run seed",
+    "db:seed": "pnpm --filter @univarse/db run seed && pnpm --filter @univarse/crypto run provision",
     "rls:check": "pnpm --filter @univarse/db run rls:check",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "dev:secrets": "node tools/dev-secrets.mjs",
-    "dev:infra": "docker compose -f infra/compose/compose.dev.yml --env-file .env up -d --wait",
+    "dev:infra": "docker compose -f infra/compose/compose.dev.yml --env-file .env up -d --wait && node tools/vault-dev.mjs",
     "dev:infra:docs": "docker compose -f infra/compose/compose.dev.yml --env-file .env --profile docs up -d",
     "dev:infra:down": "docker compose -f infra/compose/compose.dev.yml --env-file .env down",
-    "test:e2e": "turbo run test:e2e"
+    "test:e2e": "turbo run test:e2e",
+    "dev:vault": "node tools/vault-dev.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

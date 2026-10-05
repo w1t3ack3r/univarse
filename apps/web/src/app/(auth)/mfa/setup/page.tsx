@@ -1,19 +1,15 @@
 import { buttonClass, Card, Check } from '@univarse/ui';
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { redirect } from 'next/navigation';
 import { LogoutButton } from '@/components/LogoutButton';
-import { serverApi } from '@/lib/server-api';
-import type { Me } from '@/lib/session';
+import { loadSession, signedInOrThrow } from '@/lib/session';
 import { MfaSetup } from './MfaSetup';
 
 export const metadata: Metadata = { title: 'Turn on two-step sign-in' };
 
 /** W13. Reachable from an enrolment-only (restricted) session, or voluntarily from the workspace. */
 export default async function MfaSetupPage() {
-  const res = await serverApi<Me>('/api/v1/auth/me');
-  if (res.status !== 200 || !res.body) redirect('/login');
-  const me = res.body;
+  const me = signedInOrThrow(await loadSession());
 
   if (me.mfa && !me.restricted) {
     return (

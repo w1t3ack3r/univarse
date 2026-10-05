@@ -2,6 +2,7 @@ import { Module, type DynamicModule } from '@nestjs/common';
 import { APP_CONFIG, type AppConfig } from './config/config.js';
 import { ProductService } from './modules/products/product.service.js';
 import { AuditWriter } from './shared/audit/audit-writer.js';
+import { fieldCryptoProvider } from './shared/crypto/envelope.js';
 import { DbModule } from './shared/db/db.module.js';
 import { MAILER, SmtpMailer, type Mailer } from './shared/infra/mailer.js';
 import { OutboxWorker } from './shared/outbox/outbox-worker.js';
@@ -23,6 +24,7 @@ export class WorkerModule {
         { provide: APP_CONFIG, useValue: config },
         { provide: MAILER, useValue: overrides.mailer ?? new SmtpMailer(config.SMTP_URL, config.MAIL_FROM) },
         AuditWriter,
+        fieldCryptoProvider,
         ProductService,
         OutboxWorker,
       ],

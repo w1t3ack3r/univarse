@@ -31,8 +31,9 @@ Statuses are kept distinct: **implemented** → **tested locally** → **verifie
 | Login + TOTP + recovery-code login in a real browser | ✅ | ✅ E2E | ⏳ PR | ✅ HTTP (closes that part of the spec 0001 gap) |
 | Activation, reset, two-step setup and step-up in a real browser (spec 0005 PR B, W11–W15) | ✅ | ✅ 5 journeys × desktop + mobile; codes read from Mailpit | ⏳ PR | ✅ HTTP via the edge (closes the spec 0001 browser gap over HTTP) |
 | TOTP MFA (M2–M15 incl. R16) | ✅ | ✅ 24 tests + 24 unit; layered mutation-checked | ✅ (#6) | ✅ verify + enrolment (spec 0005) |
-| M1 secret at rest | 🟡 **direct AES-GCM, single key, AAD-bound. NOT envelope** (ADR-018 deviation) | ✅ | ⏳ | n/a |
-| Envelope encryption (KMS-wrapped per-tenant DEKs; covers MFA secrets and outbox payloads) | ❌ required before staging (ADR-018) | — | — | — |
+| M1 secret at rest | ✅ envelope `v2` under the tenant's own DEK (spec 0006); old `v1` values still readable until E9 | ✅ cross-tenant decrypt fails (mutation-checked) | ⏳ PR | n/a |
+| Envelope encryption, PR A (spec 0006 E1–E6, E10–E12): per-tenant DEKs wrapped by Vault Transit; MFA secrets + outbox payloads | ✅ | ✅ 14 unit + 10 against real Vault; 5 mutations caught; E2E 28 via Vault | ⏳ PR | n/a |
+| Envelope encryption, PR B (E7–E9: DEK rotation, KEK re-wrap, v1 → v2 migration) | ❌ next | — | — | — |
 | MFA tables live isolation (app role) | ✅ | ✅ 6 tests; disabling RLS fails 4 | ⏳ | n/a |
 | All-table generic isolation sweep (spec 0004 I1–I9) | ✅ every tenant table, discovered from the catalog | ✅ 9 tests × 14 tables; 3 negative controls fail it | ⏳ PR | n/a |
 | Step-up (S1–S12) + MFA management (M9a–M9e, M15′) | ✅ | ✅ 30 tests + 13 guard unit; mutation-checked | ✅ (#7) | ✅ step-up dialog on the Products page (spec 0005 PR B) |
@@ -59,8 +60,8 @@ pnpm install
 pnpm db:setup      # asks for your local postgres superuser password (hidden), creates
                    # least-privilege roles + databases, writes .env (git-ignored)
 pnpm db:migrate    # platform + tenant migrations (RLS, grants)
-pnpm db:seed       # demo-uni, test-poly, paused-uni (suspended)
-pnpm dev:secrets && pnpm dev:infra   # Valkey + Mailpit (Docker; UI http://127.0.0.1:8025)
+pnpm dev:secrets && pnpm dev:infra   # Valkey, Mailpit (UI http://127.0.0.1:8025), Vault (Docker)
+pnpm db:seed       # demo-uni, test-poly, paused-uni (suspended) + each tenant's data key (needs Vault)
 pnpm rls:check     # static tenant-isolation gate
 pnpm test          # unit tests
 pnpm --filter @univarse/db test:int   # cross-tenant isolation tests against the real DB
@@ -69,6 +70,8 @@ pnpm --filter @univarse/db test:int   # cross-tenant isolation tests against the
 **Web app:** start `api`, `web` and `edge-demo-uni` from `.claude/launch.json` (or `node tools/dev-edge/start-api.mjs`, `pnpm --filter @univarse/web dev`, `node tools/dev-edge/server.mjs`) and open http://demo-uni.univarse.localhost:4180. The edge sends `/api/*` to the API and everything else to the web app, as production does. E2E: `pnpm build && pnpm test:e2e`.
 
 Use `PGPORT=5433 pnpm db:setup` if your PostgreSQL 18 runs on another port.
+
+**Vault (spec 0006):** `pnpm dev:infra` also initialises and unseals a local Vault and writes a least-privilege `VAULT_TOKEN` to `.env`. Its unseal key and root token stay in the git-ignored `.vault-dev.json`; deleting that file means resetting the `univarse-dev_vault-data` volume and re-seeding. After a Docker restart, `pnpm dev:vault` unseals it again.
 
 `pnpm dev` runs the outbox worker next to the API, so activation and reset codes arrive in Mailpit. Requests never send email themselves (spec 0002 B7).
 

@@ -136,6 +136,30 @@
   }
 }
 
+/* Error boundary: the API could not answer (components/ProblemState.tsx) */
+.problem {
+  display: grid;
+  gap: var(--uv-space-4);
+  max-width: 34rem;
+}
+.problem__hint {
+  margin: 0;
+  font-size: var(--uv-text-sm);
+  line-height: 1.55;
+  color: var(--uv-text-muted);
+}
+.problem-page {
+  display: grid;
+  align-content: start;
+  justify-items: center;
+  gap: var(--uv-space-6);
+  min-height: 100dvh;
+  padding: clamp(24px, 10vh, 120px) 16px var(--uv-space-10);
+}
+.problem-page > .problem {
+  width: 100%;
+}
+
 /* Two-step setup pieces */
 .qr {
   display: grid;
