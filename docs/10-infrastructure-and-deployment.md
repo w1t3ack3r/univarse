@@ -96,8 +96,8 @@ Browse `http://demo-uni.univarse.localhost:3000`. `*.localhost` resolves to loop
 | Item | Method | Frequency / retention |
 |------|--------|-----------------------|
 | Postgres (all DBs) | Managed PITR (WAL) | Continuous; 35 days prod, 7 days staging |
-| Postgres snapshots | Provider snapshot, **copied cross-region**, encrypted | Daily; 35 days, monthly kept 12 months |
-| Per-tenant logical export | Worker job: `COPY … WHERE tenant_id = $1` for all tables → encrypted archive → backup bucket (different account, object lock) | Nightly; 30 days, monthly 12 months |
+| Postgres snapshots | Provider snapshot, **copied cross-region**, encrypted. Platform-DB snapshots hold wrapped tenant keys, so this retention sets the crypto-erasure boundary (up to 12 months, [spec 0006](specs/0006-envelope-encryption.md)) | Daily; 35 days, monthly kept 12 months |
+| Per-tenant logical export | Worker job: `COPY … WHERE tenant_id = $1` for all tables **except `tenant_data_key`** (wrapped keys never go into object-locked archives, [spec 0006](specs/0006-envelope-encryption.md) destruction boundary) → encrypted archive → backup bucket (different account, object lock) | Nightly; 30 days, monthly 12 months |
 | Object storage | Versioning + cross-region replication + object lock (compliance mode) on the backup bucket | Continuous |
 | Redis | Not a system of record (sessions are re-creatable; queues rebuilt from outbox) | AOF for durability of in-flight jobs |
 | Secrets / config | Secret manager versioning. IaC in git | — |
