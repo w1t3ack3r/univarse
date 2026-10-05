@@ -73,6 +73,36 @@ The code is provider-agnostic (E3). The options considered:
 - Local and CI run a Vault dev server.
 - **ADR-018 closes when staging runs the `vault` provider.**
 
+## Implementation notes (PR A: E1–E6, E10–E12)
+- **Package:** `@univarse/crypto` (`packages/crypto`). It holds the cipher, the providers, the keyring, `FieldCrypto`, key provisioning/destruction and the platform audit chain. The API registers one `FieldCrypto` provider (`apps/api/src/shared/crypto/envelope.ts`) for the HTTP app and the worker. `MfaService`, `Outbox` and `OutboxWorker` call only `FieldCrypto`.
+- **Vault locally:** `pnpm dev:infra` starts `hashicorp/vault:2.1.1` (file storage, persistent volume, port bound to 127.0.0.1). It then runs `tools/vault-dev.mjs`, which:
+  - initialises Vault once, keeping the unseal key and root token in the git-ignored `.vault-dev.json`, never in `.env` or output;
+  - unseals it on every start;
+  - ensures Transit, the derived KEK and the `univarse-app` policy (encrypt/decrypt on that key only);
+  - keeps one periodic, least-privilege app token in `.env`.
+
+  The script is idempotent: re-running it keeps the existing token. CI runs Vault in dev mode, and the same script configures it.
+- **Provisioning:** `pnpm db:seed` now ends with `pnpm --filter @univarse/crypto run provision`, which gives every tenant an ACTIVE v1 key (idempotent). It prints versions and the KEK id only.
+- **Transient Vault failures are retried once** (timeout, network error, 5xx; never a 4xx), then fail closed.
+  - **Why:** found in E2E. A cold Transit call takes 200–400 ms on an idle dev machine, but under full E2E load it passed the 3 s timeout and failed a request.
+  - **Safe:** encrypt/decrypt have no side effects.
+  - **Errors:** `KeyUnavailableError.detail` (HTTP status or network error name) goes to server logs only. The client gets the generic `500 server.internal` problem (E6).
+- **Platform audit chain (E12):** `platform_audit_event` gained `seq`. Each append takes a transaction-level advisory lock and hashes the canonical event with the previous hash. The app role can't UPDATE, DELETE or TRUNCATE it. `verifyPlatformAuditChain` checks the whole chain.
+- **Shredding (E10)** erases in place: status `DESTROYED`, wrap set to NULL, `destroyed_at`. A check constraint refuses a `DESTROYED` row that still has a wrap, and the app role can't DELETE key rows.
+- **v1 stays readable** with `DATA_ENCRYPTION_KEY` (now optional) until PR B migrates v1 values (E9). New writes are always v2.
+- **Deviation (tracked):** the design note says the API role may only *read* `tenant_data_key`. In PR A, provisioning and shredding run as the same platform app role, which may INSERT and UPDATE (DELETE and TRUNCATE are revoked). A separate key-admin role, used by the console and scripts only, is listed below.
+- **Known cost:** on a keyring cache miss, the Vault call happens inside the request's DB transaction (outbox enqueue, MFA enrol). That's at most one miss per tenant per hour per process; the retry bounds the worst case at about 6 s.
+- **Tests:**
+  - **Crypto unit (14):** the format, the providers, the keyring cache, `FieldCrypto` and the Vault retry, all against a fake Transit server.
+  - **Crypto integration (10):** run against real Vault, tagged E1, E2, E3, E6, E10, E11 and E12.
+  - **API:** the MFA test now proves the stored secret is `v2` under the tenant's own key and fails under the other tenant's.
+  - **Mutations caught:**
+    - the wrap context without the tenant ([E2]);
+    - shredding without erasing the wrap (6 tests, and the DB check constraint);
+    - the cross-tenant MFA assertion pointed at the same tenant;
+    - no retry;
+    - retrying 4xx.
+
 ## Out of scope (tracked)
 | Gap | Milestone |
 |---|---|
@@ -80,3 +110,6 @@ The code is provider-agnostic (E3). The options considered:
 | Two-person approval for crypto-shredding | Phase 1 console (offboarding workflow) |
 | Vault HA (3-node Raft), auto-unseal, snapshots, audit device | Before production (staging can run single-node) |
 | Per-tenant KEKs (dedicated tier) | Dedicated-deployment work |
+| Separate key-admin DB role: the API role only reads `tenant_data_key` | Phase 1 console (tenant provisioning and offboarding) |
+| DEK rotation, KEK re-wrap, v1 → v2 migration (E7–E9) | PR B of this spec |
+| Remove the v1 key and code path | The release after E9 reports zero v1 values |

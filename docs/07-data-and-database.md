@@ -139,7 +139,14 @@ CREATE TABLE audit_event (
 
 ## 8. Encryption of sensitive fields
 
-- **Envelope encryption:** a per-tenant data key (DEK), wrapped by a KMS key (KEK), cached in memory for ≤ 1h. AES-256-GCM with a random 96-bit IV. The stored format is `v1:{keyId}:{iv}:{ciphertext}:{tag}`.
+- **Envelope encryption** ([spec 0006](specs/0006-envelope-encryption.md), [ADR-023](19-decision-log.md)):
+  - **Keys:** a per-tenant data key (DEK) wrapped by a KEK in **Vault Transit**. The KEK is a derived `aes256-gcm96` key; the wrap context `univarse:dek:<tenantId>:<version>` binds each wrap to its tenant and version.
+  - **Storage:** wrapped DEKs live in the **platform** DB (`tenant_data_key`), never in a tenant shard.
+  - **Cache:** unwrapped DEKs are cached in memory for ≤ 1 h and zeroed on eviction.
+  - **Fields:** AES-256-GCM with a random 96-bit IV; AAD always bound.
+  - **Format:** `v2:{keyVersion}:{iv}:{ciphertext}:{tag}`. Legacy `v1:{keyId}:…` (one platform key, ADR-018) is decrypt-only until the v1 → v2 migration.
+  - **One entry point:** all field encryption goes through `FieldCrypto` (`@univarse/crypto`); nothing else touches keys.
+  - **Crypto-shredding** (offboarding) destroys a tenant's wrapped DEKs, which makes all its encrypted fields unreadable.
 - Encrypted fields: NIN, TOTP secrets, outbox payloads (email bodies carry codes; AAD = tenant + event id, wiped after delivery), gateway secret keys, webhook secrets, bank details for refunds, medical notes.
 - Searchable encrypted fields (e.g. NIN uniqueness) additionally store an HMAC-SHA256 **blind index** with a separate key.
 - Key rotation: new DEK version for new writes, with background re-encryption. Old key IDs stay decryptable until re-encryption completes.

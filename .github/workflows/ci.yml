@@ -54,6 +54,15 @@ jobs:
       mailpit:
         image: axllent/mailpit:v1.27
         ports: ['1025:1025', '8025:8025']
+      # KEK for envelope encryption (spec 0006, ADR-023). Dev mode is fine for an ephemeral CI run;
+      # tools/vault-dev.mjs configures Transit, the derived KEK and a least-privilege app token.
+      vault:
+        image: hashicorp/vault:2.1.1
+        env:
+          VAULT_DEV_ROOT_TOKEN_ID: ci-root-token-only
+          VAULT_DEV_LISTEN_ADDRESS: 0.0.0.0:8200
+          SKIP_SETCAP: 'true'
+        ports: ['8200:8200']
     env:
       NODE_ENV: test
       PGHOST: 127.0.0.1
@@ -96,12 +105,18 @@ jobs:
         run: pnpm db:setup
       - name: Migrate
         run: pnpm db:migrate
+      - name: Configure Vault (Transit, derived KEK, encrypt/decrypt-only app token)
+        env:
+          VAULT_ROOT_TOKEN: ci-root-token-only
+        run: node tools/vault-dev.mjs
       - name: RLS gate
         run: pnpm rls:check
       - name: Seed (twice — must be idempotent)
         run: pnpm db:seed && pnpm db:seed
       - name: DB isolation tests (as app role)
         run: pnpm --filter @univarse/db test:int
+      - name: Envelope encryption tests against real Vault (spec 0006)
+        run: pnpm --filter @univarse/crypto test:int
       - name: API integration tests
         run: pnpm --filter @univarse/api test:int
       - name: Install Playwright Chromium (spec 0005 W10)

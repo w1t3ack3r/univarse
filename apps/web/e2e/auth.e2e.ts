@@ -140,6 +140,7 @@ test('[W8] pages carry the nonce CSP and security headers, with no CSP violation
 });
 
 test('[W9] no serious or critical accessibility violations on login, MFA verify and the workspace', async ({ page }) => {
+  test.slow(); // three full axe scans plus a sign-in: ~45 s on slow machines (mobile project)
   // Wait for each page's own <title> before scanning: after a client-side navigation the URL changes
   // a moment before Next sets the title, and a scan in that gap reports "document-title" (seen once in CI).
   await page.goto(`${DEMO}/login`);

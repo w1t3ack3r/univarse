@@ -2,7 +2,7 @@ import { Inject, Injectable, Logger } from '@nestjs/common';
 import type { TenantTx } from '@univarse/db';
 import { createHmac, randomBytes } from 'node:crypto';
 import { APP_CONFIG, type AppConfig } from '../../config/config.js';
-import { decryptField, encryptField, keyringFromEnv, type FieldKeyring } from '../../shared/crypto/field-encryption.js';
+import { FieldCrypto } from '@univarse/crypto';
 import { AuditWriter } from '../../shared/audit/audit-writer.js';
 import { ShardRegistry } from '../../shared/db/db.module.js';
 import { ProblemError } from '../../shared/errors/problem.js';
@@ -42,7 +42,6 @@ const normaliseRecovery = (c: string) => c.toUpperCase().replace(/[^A-Z2-7]/g, '
 @Injectable()
 export class MfaService {
   private readonly logger = new Logger('Mfa');
-  private readonly ring: FieldKeyring;
 
   constructor(
     private readonly shards: ShardRegistry,
@@ -50,10 +49,9 @@ export class MfaService {
     private readonly passwords: PasswordAttempts,
     private readonly auditWriter: AuditWriter,
     private readonly outbox: Outbox,
+    private readonly fieldCrypto: FieldCrypto,
     @Inject(APP_CONFIG) private readonly config: AppConfig,
-  ) {
-    this.ring = keyringFromEnv(config.DATA_ENCRYPTION_KEY_ID, config.DATA_ENCRYPTION_KEY);
-  }
+  ) {}
 
   /** Identity audit event for `userId`, inside the caller's transaction (spec 0002 A1/A7). */
   private audit(tx: TenantTx, tenantId: string, userId: string, action: string, meta: SessionMeta | undefined, after?: unknown) {
@@ -91,7 +89,7 @@ export class MfaService {
     if ('code' in input) {
       const factor = await tx.mfaFactor.findFirst({ where: { userId, type: 'TOTP', confirmedAt: { not: null } } });
       if (!factor) return { ok: false };
-      const secret = decryptField(this.ring, factor.secretEnc, this.aad(tenantId, userId));
+      const secret = await this.fieldCrypto.decrypt(tenantId, factor.secretEnc, this.aad(tenantId, userId));
       const step = verifyTotp(secret, input.code, now.getTime());
       if (step === null) return { ok: false };
       const fresh = await tx.mfaFactor.updateMany({
@@ -342,7 +340,7 @@ export class MfaService {
           userId: user.id,
           type: 'TOTP',
           label: 'Authenticator app',
-          secretEnc: encryptField(this.ring, secret, this.aad(tenant.tenantId, user.id)),
+          secretEnc: await this.fieldCrypto.encrypt(tenant.tenantId, secret, this.aad(tenant.tenantId, user.id)),
         },
       });
       return { secret: base32Encode(secret), otpauthUri: otpauthUri(secret, `${tenant.shortName} UniVarse`, user.username) };
@@ -362,7 +360,7 @@ export class MfaService {
         orderBy: { createdAt: 'desc' },
       });
       if (!factor) throw new ProblemError(400, 'auth.mfa_enrolment_expired', 'Start enrolment again');
-      const secret = decryptField(this.ring, factor.secretEnc, this.aad(tenant.tenantId, actor.userId));
+      const secret = await this.fieldCrypto.decrypt(tenant.tenantId, factor.secretEnc, this.aad(tenant.tenantId, actor.userId));
       const step = verifyTotp(secret, code, now.getTime());
       if (step === null) throw invalidMfa();
       const confirmed = await tx.mfaFactor.updateMany({

@@ -55,3 +55,6 @@ apps/web/.impeccable/*.json
 apps/web/.impeccable/brief-body.md
 apps/web/.impeccable/questions/
 !apps/web/.impeccable/design.json
+
+# Local Vault unseal key + root token (tools/vault-dev.mjs); never commit
+.vault-dev.json
