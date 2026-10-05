@@ -201,3 +201,27 @@ Alternatives considered: option — why not.
 **Video is optional but implemented** (confirmed 2026-10-05): it ships in Phase 4c, not as a later add-on. Every session starts in audio + slides. The lecturer can turn on camera and screen share at any time, and the institution can allow or disallow student cameras per course. Each participant can choose to receive audio-only (low-data mode) whatever the others publish. Recordings follow the session's mode, so a video session also gets an audio + slides rendition for low-data download.
 **Consequences:** We run media infrastructure: SFU nodes, TURN, egress bandwidth (cost-tracked per tenant) and recording storage. It's a separate product capability within Teaching & Learning (entitlement `teaching`, sub-feature flag `teaching.live`). It needs its own load test (target: 300 participants per room on constrained bandwidth). **Phasing:** in-lecture engagement (attendance/polls/Q&A for in-person lectures) ships in Phase 4b. UniVarse Live (media) follows as Phase 4c, after a cost and bandwidth spike.
 **Alternatives:** Pure integration with Meet/Zoom (fast, but outside our identity, audit and data control). Building an SFU from scratch (excessive effort and risk).
+
+## ADR-023 — Key-encryption key in self-hosted Vault Transit (envelope encryption)
+**Status:** Accepted (2026-10-05). Implements spec 0006 D1. Together with spec 0006, it closes the ADR-018 deviation once staging runs it.
+**Context:** Spec 0006 needs a key-encryption key (KEK) that wraps per-tenant data keys (DEKs) and never lives in a database or in application memory. Options were a cloud KMS (AWS KMS `af-south-1`), self-hosted HashiCorp Vault Transit, or a KEK held in the secret manager.
+**Decision:** **HashiCorp Vault, Transit secrets engine**, run by UniVarse.
+- **The KEK** is a Transit key of type `aes256-gcm96` with `derived=true`. Each wrap and unwrap passes a **context** of `univarse:dek:<tenantId>:<version>`, so Vault derives a distinct key per tenant DEK. A wrapped DEK moved to another tenant or version will not unwrap (spec 0006 E2).
+- **The app only calls `transit/encrypt` and `transit/decrypt`.** Its Vault policy allows nothing else. Key creation and rotation (`transit/keys/<name>/rotate`, `rewrap`) are operator actions under a separate policy.
+- **Authentication:**
+  - Local: a dev-mode token.
+  - Deployed: AppRole, with the secret ID delivered by the secret manager. Kubernetes auth comes when Phase 3 moves to k8s.
+  - Vault runs with TLS on a private network, never exposed to the internet.
+- **Local and CI** run a Vault dev server (pinned image). The `local` provider remains for unit tests only.
+- **Built against the Transit HTTP API that OpenBao also implements**, with no Vault-Enterprise features, so OpenBao is a drop-in replacement.
+
+**Licence note:** Vault is under the Business Source License 1.1 since August 2023. Using it to protect our own service is permitted; offering Vault itself as a competing product is not, and we won't. **OpenBao** (Linux Foundation, MPL-2.0) is the API-compatible fork, and our exit if the licence terms or pricing change.
+**Consequences:**
+- **We operate Vault:** HA (3-node Raft) before production, unseal (auto-unseal via a cloud KMS or a transit seal when we move to managed infrastructure), Raft snapshots in the backup plan, audit devices enabled, and the KEK version recorded on every wrapped DEK.
+- **Cost:** a Vault call per uncached DEK, made cheap by the 1-hour DEK cache (spec 0006 E5).
+- **Availability:** a Vault outage blocks only tenants whose DEK isn't cached (spec 0006 E6, fail closed). Vault availability belongs in the staging and production SLOs.
+- **Dedicated in-country deployments:** these get their own Vault (or OpenBao), which suits Nigerian data-residency requirements.
+
+**Alternatives:**
+- **AWS KMS:** less to operate, but ties keys to one cloud and doesn't fit in-country dedicated deployments.
+- **Secret-manager KEK:** the KEK sits in process memory. Acceptable only as a stop-gap, and not chosen.
