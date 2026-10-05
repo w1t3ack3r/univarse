@@ -13,7 +13,8 @@ if (existsSync(rootEnv)) process.loadEnvFile(rootEnv);
 export const EDGE_PORT = Number(process.env.EDGE_PORT ?? 4180);
 export type Slug = 'demo-uni' | 'test-poly';
 export const hostUrl = (slug: Slug) => `http://${slug}.univarse.localhost:${EDGE_PORT}`;
-export const PASSWORD = 'E2e-Harmattan-Breeze-77';
+/** Random per run: no credential literal in the repo (gitleaks), and still meets the password policy. */
+export const PASSWORD = `E2e-${randomBytes(12).toString('base64url')}-7a`;
 
 const platform = createPlatformClient(process.env.PLATFORM_DATABASE_URL!);
 const shard = createTenantShardClient(process.env.TENANT_POOL_01_DATABASE_URL!);

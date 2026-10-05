@@ -1,0 +1,4 @@
+# Reviewed false positives only, by exact fingerprint (commit:file:rule:line). Never add a real secret here.
+# 2026-10-05: E2E test password literal (test-only user in the local/CI test DB), replaced in the
+# next commit by a per-run random value. The finding stays in this commit's history, so it's listed.
+92613b23275ecb3ba2f3a7d35f582f568ff40cc6:apps/web/e2e/fixtures.ts:generic-api-key:16
