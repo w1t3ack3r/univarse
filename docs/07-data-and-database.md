@@ -151,6 +151,7 @@ CREATE TABLE audit_event (
 - Encrypted fields: NIN, TOTP secrets, outbox payloads (email bodies carry codes; AAD = tenant + event id, wiped after delivery), gateway secret keys, webhook secrets, bank details for refunds, medical notes.
 - Searchable encrypted fields (e.g. NIN uniqueness) additionally store an HMAC-SHA256 **blind index** with a separate key.
 - Key rotation (built, spec 0006 PR B): a new DEK version takes new writes at once. The worker's key sweep re-encrypts every registered encrypted column (`apps/api/src/shared/crypto/encrypted-columns.ts`; a test fails on any unregistered `*_enc` column), and old versions stay decryptable until destroyed. A retired version can be destroyed only after a 1 h grace period and once no value uses it. KEK rotation re-wraps DEKs through Transit `rewrap` without touching tenant data.
+- **Crypto-shredding has a destruction boundary** ([spec 0006](specs/0006-envelope-encryption.md#destruction-boundary-what-crypto-shredding-does-and-doesnt-reach-added-2026-10-05)): immediate in the live platform DB; within the DEK cache TTL (≤ 1 h) for running processes; and across backups only after the platform-DB backup window (35 days in production) has passed since the shred, provided every restore re-applies shreds. It never reaches plaintext that already left the system.
 
 ## 9. Data lifecycle and retention (summary; authoritative table in [16](16-compliance-ndpa.md))
 
