@@ -73,6 +73,42 @@ The code is provider-agnostic (E3). The options considered:
 - Local and CI run a Vault dev server.
 - **ADR-018 closes when staging runs the `vault` provider.**
 
+## Design for PR B (E7–E9), added 2026-10-05 before implementation
+- **One sweep serves E7 and E9.** "Re-encrypt" means: bring every encrypted value of a tenant onto its **active** version. That covers values still on an older `v2` version (after a rotation) and `v1` values (the migration).
+- **Encrypted-column registry:** `apps/api/src/shared/crypto/encrypted-columns.ts` lists every encrypted column with its row AAD:
+  - `mfa_factor.secret_enc`, AAD `<tenant>:<user>:totp`;
+  - `outbox_event.payload_enc`, AAD `<tenant>:outbox:<id>`. It is NULL after delivery, so only pending and dead events hold one.
+
+  A test discovers every `*_enc` column in the tenant catalog and fails if one is missing from the registry, so a future encrypted field can't escape rotation or shredding.
+- **Sweep requests** live in the platform table `key_reencryption`: one row per tenant, with `reason ROTATION | LEGACY_V1`, `requested_at`, `completed_at`, `rows_reencrypted` and `lease_until`.
+  - Rotation and `migrate-v1` upsert a request.
+  - A worker job (`KeyMaintenanceJob`, separate from the outbox loop, so a long sweep never delays email) claims one pending request under a lease, using `FOR UPDATE SKIP LOCKED`.
+  - It re-encrypts in batches of 100 inside `ShardRegistry.tx`. Rows are locked with `SKIP LOCKED`, and each update is a compare-and-swap (`WHERE col = <old value>`), so it never overwrites a concurrent app write.
+  - It reads the active version again for every batch. When a pass finds nothing left, it marks the request completed.
+  - **Resumable without a cursor:** the work query *is* the cursor. A crash only loses the lease, which expires.
+- **Rotation (E7):** `rotateTenantKey` works in two steps.
+  1. It wraps a new DEK, outside any transaction.
+  2. In one platform transaction it locks the ACTIVE row, marks it `RETIRED`, inserts version n+1 as `ACTIVE`, upserts a `ROTATION` sweep request, and writes the audit event `crypto.tenant_key.rotated` `{from, to}`.
+
+  If two rotations run at once, one wins and the other fails cleanly: the row lock and the one-ACTIVE partial index both stop it. The keyring reads the active version for every write, so rotation needs no restart.
+- **Destroying a retired version (E7)** is refused unless all three hold:
+  1. the version is `RETIRED`;
+  2. it was retired at least **1 hour** ago (default), which is longer than the keyring TTL and longer than any in-flight request that read the old active version;
+  3. a usage scan across the registry finds **zero** values on that version.
+
+  Then the wrap is erased in place and the audit event `crypto.tenant_key.destroyed` `{versions, reason}` is written.
+- **KEK re-wrap (E8):**
+  - An operator rotates the Vault key, which is a Vault admin action the app token can't perform (E3).
+  - `rewrap-kek` then calls Transit `rewrap` for every live wrap made with an older Vault key version, updates each row by compare-and-swap, and writes one audit event `crypto.kek.rewrapped` `{kekId, keyVersion, count}`.
+  - `rewrap` never shows the DEK to the caller. Transit keeps older key versions decryptable, so old wraps keep working until the re-wrap is done. Raising `min_decryption_version` afterwards is a separate operator step.
+  - **Credential:** a separate Vault policy, `univarse-key-admin` (rewrap and read key metadata). Its token (`VAULT_ADMIN_TOKEN`) belongs to the operator CLI only and is never in the API or worker config. Dev and CI get one from `tools/vault-dev.mjs`.
+- **v1 migration (E9):**
+  - `migrate-v1` requests a `LEGACY_V1` sweep for every tenant, and the same worker sweep does the work.
+  - `status` prints numbers only, per tenant: values per version, and values still `v1`.
+  - When a tenant's sweep completes with no `v1` left, it writes the audit event `crypto.legacy_v1.migrated`.
+  - **Contract-release condition:** `status` reports zero `v1` values for every tenant.
+- **Operator entry point:** `pnpm --filter @univarse/api keys <status | rotate <slug> | migrate-v1 | destroy-retired <slug> <version> | rewrap-kek>`. It's a Nest application context like the worker, so shard access goes through `ShardRegistry` (invariant 1). The console replaces it in Phase 1.
+
 ## Implementation notes (PR A: E1–E6, E10–E12)
 - **Package:** `@univarse/crypto` (`packages/crypto`). It holds the cipher, the providers, the keyring, `FieldCrypto`, key provisioning/destruction and the platform audit chain. The API registers one `FieldCrypto` provider (`apps/api/src/shared/crypto/envelope.ts`) for the HTTP app and the worker. `MfaService`, `Outbox` and `OutboxWorker` call only `FieldCrypto`.
 - **Vault locally:** `pnpm dev:infra` starts `hashicorp/vault:2.1.1` (file storage, persistent volume, port bound to 127.0.0.1). It then runs `tools/vault-dev.mjs`, which:
