@@ -43,6 +43,7 @@ Rules:
 - **No tokens in `localStorage`/`sessionStorage`.** Auth is the HttpOnly cookie only.
 - **No mock data in production code paths.** Fixtures live in `*.stories.tsx`, tests or MSW handlers under `__mocks__`, and are never imported by app code (lint rule).
 - Error handling maps `problem.code` → user message in `packages/contracts/error-messages.ts`, and always shows `requestId` for support.
+- **Only a 401 means "signed out".** A 5xx, another 4xx or an unreachable API on a session or page load renders the error boundary (`error.tsx` → `ProblemState`: message, support reference, retry), never a redirect to login (spec 0005 W7).
 - Every mutation button: disabled while pending, idempotency key generated per intent, optimistic UI only where rollback is trivial.
 
 ## 3. Design system

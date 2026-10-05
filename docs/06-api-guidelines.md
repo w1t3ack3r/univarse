@@ -59,7 +59,7 @@ Content-Type: application/problem+json
 | Status | Use |
 |--------|-----|
 | 400 | Malformed request / validation failure (`errors[]` populated) |
-| 401 | Not authenticated / session expired |
+| 401 | Not authenticated / session expired. The only status clients treat as "signed out" |
 | 403 | Authenticated but not permitted (**don't** reveal whether the resource exists across scopes. Use 404 for out-of-scope resources) |
 | 404 | Not found **or not visible to you** |
 | 409 | State conflict (wrong state for transition, duplicate) |
@@ -69,6 +69,8 @@ Content-Type: application/problem+json
 | 428 | Step-up authentication required (`code: auth.step_up_required`) |
 | 429 | Rate limited (`Retry-After`) |
 | 500/503 | Unexpected / dependency down. Never leak stack traces or SQL |
+
+Every API response carries the request id in the `x-request-id` header, so a client can still show the support reference when the body is not problem+json.
 
 Error `code`s are stable, namespaced and listed in `packages/contracts/errors.ts`. The UI maps codes to messages. It never parses `detail`.
 

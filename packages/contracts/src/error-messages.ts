@@ -33,6 +33,8 @@ export const ERROR_MESSAGES = {
   'server.internal': 'Something went wrong on our side. Please try again.',
   // Client-side only: the request never reached the server.
   'network.offline': "You seem to be offline. Check your connection and try again.",
+  // Server-side only: the web app could not reach the API (connection refused, reset, DNS).
+  'network.unreachable': "We couldn't reach UniVarse just now. Try again in a moment.",
 } as const satisfies Record<string, string>;
 
 export type ErrorCode = keyof typeof ERROR_MESSAGES;
