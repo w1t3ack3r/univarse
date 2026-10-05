@@ -10,7 +10,7 @@
     "typecheck": "turbo run typecheck",
     "lint": "turbo run lint && eslint tools",
     "test": "turbo run test",
-    "test:int": "turbo run test:int",
+    "test:int": "turbo run test:int --concurrency=1",
     "dev": "turbo run dev",
     "db:setup": "pnpm --filter @univarse/db run setup",
     "db:migrate": "pnpm --filter @univarse/db run migrate",

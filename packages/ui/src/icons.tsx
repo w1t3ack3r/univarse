@@ -117,6 +117,13 @@ export const Grid = (p: IconProps) => (
     <rect x="13" y="13" width="7" height="7" rx="2" />
   </Icon>
 );
+export const Sliders = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M4 7h9M17 7h3M4 17h3M11 17h9" />
+    <circle cx="15" cy="7" r="2" />
+    <circle cx="9" cy="17" r="2" />
+  </Icon>
+);
 export const LogOut = (p: IconProps) => (
   <Icon {...p}>
     <path d="M14.5 4.5h3a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2h-3M10 16.5 5.5 12 10 7.5M5.5 12H15" />

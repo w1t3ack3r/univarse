@@ -46,6 +46,8 @@ gantt
 - Images signed, 0 high/critical findings. Staging deploy is automatic from `main`
 - ADRs 001–012 accepted
 
+**Deferred by [ADR-024](19-decision-log.md) (local-first, 2026-10-05):** the staging-only criteria above wait for cloud staging. They are CSP and HTTPS cookies on staging, the automatic staging deploy, backups and restore, and ADR-018's closure. They are not met, and Phase 0 is reported as "closed locally, staging gates deferred" until they are. Image scanning and signing run in CI meanwhile.
+
 ## Phase 1 — Platform control plane (~4 wks)
 
 - Console app (separate host, IP allowlist, mandatory MFA), platform identity
