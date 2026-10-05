@@ -41,3 +41,8 @@ docs/brand-doc/
 next-env.d.ts
 test-results/
 playwright-report/
+
+# Locally installed agent skills (per developer, not part of the project)
+.agents/
+.claude/skills/
+skills-lock.json
