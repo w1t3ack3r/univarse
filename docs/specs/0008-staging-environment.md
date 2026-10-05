@@ -1,6 +1,6 @@
 # Spec 0008 — Staging environment (planning; decisions needed before build)
 
-**Status:** Draft for decision (2026-10-05). Owner direction: AWS Cape Town is **tentative** until a complete monthly estimate exists; the estimate uses the **current Vault integration**. D1–D6 still open, and only the owner can decide them · **Phase:** 0 exit gate · Builds on [10 §1–2, §7](../10-infrastructure-and-deployment.md), [09 §3–5](../09-container-security.md) and [ADR-023](../19-decision-log.md).
+**Status:** **Deferred** by [ADR-024](../19-decision-log.md) (2026-10-05): local-first until the application is complete. This spec is the plan for when cloud staging resumes, and nothing here is being built now. Owner direction when written: AWS Cape Town is **tentative** until a complete monthly estimate exists; the estimate uses the **current Vault integration**. D1–D6 still open, and only the owner can decide them · **Phase:** 0 exit gate · Builds on [10 §1–2, §7](../10-infrastructure-and-deployment.md), [09 §3–5](../09-container-security.md) and [ADR-023](../19-decision-log.md).
 
 ## Why now
 Four Phase 0 exit criteria can only be met on a deployed environment:
