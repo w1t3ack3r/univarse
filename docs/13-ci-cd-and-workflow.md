@@ -21,7 +21,7 @@ flowchart LR
   subgraph PR
     A[setup: pnpm fetch<br/>turbo cache] --> B[lint · typecheck · format]
     B --> C[unit tests + coverage]
-    C --> D[build all]
+    C --> D[build all<br/>+ no test helpers in dist]
     D --> E[integration tests<br/>Testcontainers]
     E --> F[migrations + RLS checker<br/>+ migration linter]
     F --> G[contract diff<br/>OpenAPI + events]
