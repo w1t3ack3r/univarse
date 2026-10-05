@@ -78,6 +78,12 @@ export default tseslint.config(
     },
   },
 
+  // Operator CLIs (apps/*/src/cli): stdout is their interface. They print numbers and versions only.
+  {
+    files: ['apps/*/src/cli/**/*.ts'],
+    rules: { 'no-console': 'off' },
+  },
+
   // Tests: fixtures are known to exist and HTTP response bodies are untyped (`any`), so
   // asserting presence and reading body fields is the point of the test, not a hazard.
   {

@@ -37,6 +37,12 @@ export function parseCipher(stored: string): ParsedCipher {
   return { format, key, iv, ct, tag };
 }
 
+/** The key a stored value needs: `'v1'` (legacy) or its v2 DEK version. Used by the sweep (E7, E9). */
+export function keyVersionOf(stored: string): 'v1' | number {
+  const parsed = parseCipher(stored);
+  return parsed.format === 'v1' ? 'v1' : Number(parsed.key);
+}
+
 export function encryptV2(dek: Uint8Array, version: number, plaintext: Uint8Array, aad: string): string {
   if (dek.length !== 32) throw new Error('DEK must be 32 bytes');
   return ['v2', String(version), ...seal(dek, plaintext, aad)].join(':');

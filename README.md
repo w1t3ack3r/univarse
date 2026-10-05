@@ -31,9 +31,9 @@ Statuses are kept distinct: **implemented** → **tested locally** → **verifie
 | Login + TOTP + recovery-code login in a real browser | ✅ | ✅ E2E | ⏳ PR | ✅ HTTP (closes that part of the spec 0001 gap) |
 | Activation, reset, two-step setup and step-up in a real browser (spec 0005 PR B, W11–W15) | ✅ | ✅ 5 journeys × desktop + mobile; codes read from Mailpit | ⏳ PR | ✅ HTTP via the edge (closes the spec 0001 browser gap over HTTP) |
 | TOTP MFA (M2–M15 incl. R16) | ✅ | ✅ 24 tests + 24 unit; layered mutation-checked | ✅ (#6) | ✅ verify + enrolment (spec 0005) |
-| M1 secret at rest | ✅ envelope `v2` under the tenant's own DEK (spec 0006); old `v1` values still readable until E9 | ✅ cross-tenant decrypt fails (mutation-checked) | ⏳ PR | n/a |
-| Envelope encryption, PR A (spec 0006 E1–E6, E10–E12): per-tenant DEKs wrapped by Vault Transit; MFA secrets + outbox payloads | ✅ | ✅ 14 unit + 10 against real Vault; 5 mutations caught; E2E 28 via Vault | ⏳ PR | n/a |
-| Envelope encryption, PR B (E7–E9: DEK rotation, KEK re-wrap, v1 → v2 migration) | ❌ next | — | — | — |
+| M1 secret at rest | ✅ envelope `v2` under the tenant's own DEK (spec 0006); `v1` values migrate with `keys migrate-v1` | ✅ cross-tenant decrypt fails (mutation-checked) | ✅ (#18) | n/a |
+| Envelope encryption, PR A (spec 0006 E1–E6, E10–E12): per-tenant DEKs wrapped by Vault Transit; MFA secrets + outbox payloads | ✅ | ✅ 14 unit + 10 against real Vault; 5 mutations caught; E2E 28 via Vault | ✅ (#18) | n/a |
+| Envelope encryption, PR B (E7–E9: DEK rotation + sweep, KEK re-wrap, v1 → v2 migration, `keys` CLI) | ✅ | ✅ 12 tests against real Vault, scratch tenants; 8 mutations caught; run on local data | ⏳ PR | n/a |
 | MFA tables live isolation (app role) | ✅ | ✅ 6 tests; disabling RLS fails 4 | ⏳ | n/a |
 | All-table generic isolation sweep (spec 0004 I1–I9) | ✅ every tenant table, discovered from the catalog | ✅ 9 tests × 14 tables; 3 negative controls fail it | ⏳ PR | n/a |
 | Step-up (S1–S12) + MFA management (M9a–M9e, M15′) | ✅ | ✅ 30 tests + 13 guard unit; mutation-checked | ✅ (#7) | ✅ step-up dialog on the Products page (spec 0005 PR B) |
@@ -71,7 +71,7 @@ pnpm --filter @univarse/db test:int   # cross-tenant isolation tests against the
 
 Use `PGPORT=5433 pnpm db:setup` if your PostgreSQL 18 runs on another port.
 
-**Vault (spec 0006):** `pnpm dev:infra` also initialises and unseals a local Vault and writes a least-privilege `VAULT_TOKEN` to `.env`. Its unseal key and root token stay in the git-ignored `.vault-dev.json`; deleting that file means resetting the `univarse-dev_vault-data` volume and re-seeding. After a Docker restart, `pnpm dev:vault` unseals it again.
+**Vault (spec 0006):** `pnpm dev:infra` also initialises and unseals a local Vault and writes a least-privilege `VAULT_TOKEN` to `.env`. Its unseal key and root token stay in the git-ignored `.vault-dev.json`; deleting that file means resetting the `univarse-dev_vault-data` volume and re-seeding. After a Docker restart, `pnpm dev:vault` unseals it again. Key operations (rotate, sweep, v1 migration, retired-key destroy, KEK re-wrap): `pnpm --filter @univarse/api build && pnpm --filter @univarse/api keys status` (see `apps/api/src/cli/keys.ts`).
 
 `pnpm dev` runs the outbox worker next to the API, so activation and reset codes arrive in Mailpit. Requests never send email themselves (spec 0002 B7).
 

@@ -103,7 +103,8 @@ describe('[B2] encrypted payloads, wiped after delivery', () => {
     expect(counts).toMatchObject({ claimed: 2, sent: 1, retried: 1 });
     expect(h.outbox.filter((m) => m.text === 'for A')).toHaveLength(1);
     expect(await event(b)).toMatchObject({ status: 'PENDING', attempts: 1 });
-    await db().outboxEvent.update({ where: { id: b }, data: { status: 'DEAD' } }); // keep it out of later tests
+    // Keep it out of later tests, and don't leave an undecryptable payload behind (spec 0006 key sweep).
+    await db().outboxEvent.update({ where: { id: b }, data: { status: 'DEAD', payloadEnc: null } });
   });
 });
 

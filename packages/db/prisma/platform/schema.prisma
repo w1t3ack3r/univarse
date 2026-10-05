@@ -81,6 +81,7 @@ model Tenant {
   shard    Shard           @relation(fields: [shardId], references: [id], onDelete: Restrict)
   domains  TenantDomain[]
   products TenantProduct[]
+  keyReencryption KeyReencryption?
   dataKeys TenantDataKey[]
 
   @@map("tenant")
@@ -213,4 +214,25 @@ model TenantDataKey {
 
   @@unique([tenantId, version])
   @@map("tenant_data_key")
+}
+
+enum ReencryptionReason {
+  ROTATION
+  LEGACY_V1
+}
+
+/// Spec 0006 E7/E9: a tenant's pending re-encryption sweep (one row per tenant, re-requested in place).
+model KeyReencryption {
+  tenantId        String             @id @map("tenant_id") @db.Uuid
+  reason          ReencryptionReason
+  requestedAt     DateTime           @default(now()) @map("requested_at") @db.Timestamptz(3)
+  startedAt       DateTime?          @map("started_at") @db.Timestamptz(3)
+  /// NULL while pending; a new request clears it.
+  completedAt     DateTime?          @map("completed_at") @db.Timestamptz(3)
+  rowsReencrypted BigInt             @default(0) @map("rows_reencrypted")
+  leaseUntil      DateTime?          @map("lease_until") @db.Timestamptz(3)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+
+  @@map("key_reencryption")
 }

@@ -62,7 +62,7 @@ export class VaultTransitProvider implements KeyProvider {
    * 5xx) is retried once after a short pause; a 4xx is never retried. If both attempts fail we still
    * fail closed (E6). Observed: a cold call under load can pass 3 s on a busy host.
    */
-  private async call(op: 'encrypt' | 'decrypt', body: Record<string, string>): Promise<Record<string, string>> {
+  private async call(op: 'encrypt' | 'decrypt' | 'rewrap', body: Record<string, string>): Promise<Record<string, string>> {
     const attempts = this.opts.attempts ?? 2;
     for (let attempt = 1; ; attempt++) {
       try {
@@ -76,7 +76,7 @@ export class VaultTransitProvider implements KeyProvider {
     }
   }
 
-  private async once(op: 'encrypt' | 'decrypt', body: Record<string, string>): Promise<Record<string, string>> {
+  private async once(op: 'encrypt' | 'decrypt' | 'rewrap', body: Record<string, string>): Promise<Record<string, string>> {
     let res: Response;
     try {
       res = await fetch(`${this.opts.addr.replace(/\/$/, '')}/v1/${this.opts.mount}/${op}/${this.opts.key}`, {
@@ -92,8 +92,8 @@ export class VaultTransitProvider implements KeyProvider {
     if (!res.ok) {
       await res.body?.cancel();
       if (res.status >= 500) throw new TransientVaultError(`HTTP ${res.status}`);
-      // 400 on decrypt = wrong context / tampered ciphertext; other 4xx = misconfiguration (token, policy).
-      throw new KeyUnavailableError(op === 'decrypt' && res.status === 400 ? 'unwrap_failed' : 'provider_unavailable', `HTTP ${res.status}`);
+      // 400 on decrypt/rewrap = wrong context / tampered ciphertext; other 4xx = misconfiguration (token, policy).
+      throw new KeyUnavailableError(op !== 'encrypt' && res.status === 400 ? 'unwrap_failed' : 'provider_unavailable', `HTTP ${res.status}`);
     }
     const json = (await res.json()) as { data?: Record<string, string> };
     if (!json.data) throw new KeyUnavailableError('provider_unavailable', 'no data');
@@ -109,6 +109,13 @@ export class VaultTransitProvider implements KeyProvider {
     return data.ciphertext;
   }
 
+  /** Re-encrypts a wrap under the newest Transit key version (E8). Needs a token with `rewrap`. */
+  async rewrap(wrapped: string, context: string): Promise<string> {
+    const data = await this.call('rewrap', { ciphertext: wrapped, context: Buffer.from(context, 'utf8').toString('base64') });
+    if (!data.ciphertext?.startsWith('vault:')) throw new KeyUnavailableError('provider_unavailable', 'no data');
+    return data.ciphertext;
+  }
+
   async unwrap(wrapped: string, context: string): Promise<Buffer> {
     const data = await this.call('decrypt', {
       ciphertext: wrapped,
@@ -117,6 +124,53 @@ export class VaultTransitProvider implements KeyProvider {
     const dek = Buffer.from(data.plaintext ?? '', 'base64');
     if (dek.length !== 32) throw new KeyUnavailableError('unwrap_failed');
     return dek;
+  }
+}
+
+/** The Transit key version a wrap was made with (`vault:v3:…` → 3), or null for other providers. */
+export function vaultKeyVersionOf(wrapped: string): number | null {
+  const m = /^vault:v(\d+):/.exec(wrapped);
+  return m ? Number(m[1]) : null;
+}
+
+/**
+ * Operator-only Transit access for the KEK re-wrap (spec 0006 E8). Uses the `univarse-key-admin`
+ * token (rewrap + read key metadata), which never appears in the API or worker config. `rewrap`
+ * re-encrypts a wrap under the newest Transit key version without revealing the DEK to us.
+ */
+export class VaultKeyAdmin {
+  private readonly transit: VaultTransitProvider;
+
+  constructor(private readonly opts: { addr: string; token: string; mount: string; key: string; timeoutMs?: number }) {
+    this.transit = new VaultTransitProvider(opts);
+  }
+
+  get kekId(): string {
+    return this.transit.kekId;
+  }
+
+  async latestKeyVersion(): Promise<number> {
+    let res: Response;
+    try {
+      res = await fetch(`${this.opts.addr.replace(/\/$/, '')}/v1/${this.opts.mount}/keys/${this.opts.key}`, {
+        headers: { 'x-vault-token': this.opts.token },
+        signal: AbortSignal.timeout(this.opts.timeoutMs ?? 3000),
+      });
+    } catch (err) {
+      throw new KeyUnavailableError('provider_unavailable', (err as { name?: string }).name ?? 'network');
+    }
+    if (!res.ok) {
+      await res.body?.cancel();
+      throw new KeyUnavailableError('provider_unavailable', `HTTP ${res.status}`);
+    }
+    const json = (await res.json()) as { data?: { latest_version?: unknown } };
+    const v = json.data?.latest_version;
+    if (typeof v !== 'number') throw new KeyUnavailableError('provider_unavailable', 'no data');
+    return v;
+  }
+
+  rewrap(wrapped: string, context: string): Promise<string> {
+    return this.transit.rewrap(wrapped, context);
   }
 }
 

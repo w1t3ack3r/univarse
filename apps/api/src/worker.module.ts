@@ -3,6 +3,7 @@ import { APP_CONFIG, type AppConfig } from './config/config.js';
 import { ProductService } from './modules/products/product.service.js';
 import { AuditWriter } from './shared/audit/audit-writer.js';
 import { fieldCryptoProvider } from './shared/crypto/envelope.js';
+import { KeyMaintenance } from './shared/crypto/key-maintenance.js';
 import { DbModule } from './shared/db/db.module.js';
 import { MAILER, SmtpMailer, type Mailer } from './shared/infra/mailer.js';
 import { OutboxWorker } from './shared/outbox/outbox-worker.js';
@@ -12,7 +13,10 @@ export interface WorkerOverrides {
   readonly mailer?: Mailer;
 }
 
-/** The worker process (src/worker.ts). It is the only place a Mailer exists (spec 0002 B7). */
+/**
+ * The worker process (src/worker.ts): outbox delivery and the key sweep (spec 0006). It is the only
+ * place a Mailer exists (spec 0002 B7). The `keys` CLI reuses it as its application context.
+ */
 @Module({})
 export class WorkerModule {
   static forRoot(config: AppConfig, overrides: WorkerOverrides = {}): DynamicModule {
@@ -27,6 +31,7 @@ export class WorkerModule {
         fieldCryptoProvider,
         ProductService,
         OutboxWorker,
+        KeyMaintenance,
       ],
       exports: [APP_CONFIG],
     };

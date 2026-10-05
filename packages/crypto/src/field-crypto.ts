@@ -1,6 +1,6 @@
 // The one call site for field encryption (spec 0006 design notes). Callers never see keys.
 // Writes: v2 with the tenant's active DEK. Reads: v2 by version; v1 via the legacy key (E9, read-only).
-import { decryptWith, encryptV2, parseCipher, type LegacyKeyring } from './cipher.js';
+import { decryptWith, encryptV2, keyVersionOf, parseCipher, type LegacyKeyring } from './cipher.js';
 import type { TenantKeyring } from './keyring.js';
 
 export class FieldCrypto {
@@ -21,6 +21,25 @@ export class FieldCrypto {
     const legacy = this.legacy.keys.get(parsed.key);
     if (!legacy) throw new Error(`Unknown legacy encryption key id ${parsed.key}`);
     return decryptWith(legacy, parsed, aad);
+  }
+
+  /**
+   * E7/E9: the value re-encrypted under `activeVersion`, or null when it is already there. The
+   * plaintext never leaves this call and is zeroed after use.
+   */
+  async reencrypt(tenantId: string, stored: string, aad: string, activeVersion: number): Promise<string | null> {
+    if (keyVersionOf(stored) === activeVersion) return null;
+    const plaintext = await this.decrypt(tenantId, stored, aad);
+    try {
+      return encryptV2(await this.keyring.key(tenantId, activeVersion), activeVersion, plaintext, aad);
+    } finally {
+      plaintext.fill(0);
+    }
+  }
+
+  /** The tenant's active version (read fresh: rotation takes effect at once). */
+  activeVersion(tenantId: string): Promise<number> {
+    return this.keyring.activeVersion(tenantId);
   }
 
   /** True when a stored value still needs the v1 → v2 migration (E9). */
