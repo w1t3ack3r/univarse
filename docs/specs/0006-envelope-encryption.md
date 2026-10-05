@@ -44,6 +44,7 @@ Envelope encryption fixes all three:
 | E10 | *Crypto-shredding.* Destroying a tenant's DEKs (status `DESTROYED`, wrapped bytes erased) makes every encrypted field of that tenant permanently undecryptable, and **only** that tenant's. Proven by a test across two tenants. The operation is platform-only (never a tenant endpoint) and audited. |
 | E11 | *Provisioning.* A tenant's first DEK is created when it is provisioned (seed, and later the console). Using encryption for a tenant without an active DEK is a programming error caught by tests, not a silent fallback. |
 | E12 | *Audit.* Create, rotate, KEK re-wrap, destroy and the v1 migration's completion write platform audit events (actor, tenant, key version; never key material), in the hash-chained platform audit log. |
+| E13 | *Partial sweeps stay visible (added 2026-10-05).* A sweep that had to leave unreadable values behind is recorded as **partial**, not done: `key_reencryption.unreadable_remaining` holds the count, and `keys status` shows `partial (N unreadable)`. Every key version those values carry is **retained**: a retired version can't be destroyed while any value (readable or not) is on it, and the v1 key stays until `keys status` shows zero `v1`. An operator resolves the values, then re-requests the sweep. |
 
 ## Design notes
 - **Storage:** `tenant_data_key(id, tenant_id, version, status ACTIVE|RETIRED|DESTROYED, kek_id, wrapped_dek bytea NULL after destroy, created_at, retired_at, destroyed_at)` in the platform DB. Unique `(tenant_id, version)`, and at most one `ACTIVE` per tenant (partial unique index).
@@ -72,6 +73,37 @@ The code is provider-agnostic (E3). The options considered:
 - It's built on the Transit API that OpenBao also implements (Vault is BSL-licensed; OpenBao is the MPL fork and our exit).
 - Local and CI run a Vault dev server.
 - **ADR-018 closes when staging runs the `vault` provider.**
+
+## Destruction boundary: what crypto-shredding does and doesn't reach (added 2026-10-05, corrected the same day)
+Cryptographic erasure is complete only when **no usable copy of the tenant's DEKs remains anywhere**. That means neither a wrapped copy that a still-usable KEK can unwrap, nor an already-unwrapped copy. NIST SP 800-88 makes the same point: when assessing cryptographic erase, backed-up keys and previously unwrapped copies count.
+
+Measured against that, `destroyTenantKeys` is the **first step** of erasure, not erasure itself.
+
+| Where a usable copy of a DEK can exist | Effect of `destroyTenantKeys` | When that copy is gone |
+|---|---|---|
+| Live platform DB (`tenant_data_key`) | Wraps erased in place (E10) | **At once** |
+| Unwrapped DEKs in running API or worker processes (keyring cache) | Not reached | Within the DEK cache TTL (**≤ 1 h**), or at once after the API and worker restart. A cross-instance "forget" broadcast is tracked |
+| Unwrapped DEKs that left process memory: swap, core dumps, heap snapshots, debug dumps | Not reached | Only if the hosts prevent them: core dumps disabled, swap off or encrypted (`disable_mlock` is dev-only), no heap snapshots in production. These are host-hardening requirements ([09 §5](../09-container-security.md)) |
+| **Platform-DB point-in-time recovery** (35 days production, 7 staging) | Not reached: backups before the shred hold the wrapped DEKs, and the shared KEK still unwraps them | When the window has passed since the shred: **35 days** |
+| **Platform-DB snapshots** (daily for 35 days, **monthly kept 12 months**, copied cross-region, [10 §7](../10-infrastructure-and-deployment.md)) | Not reached, as above | When the last snapshot taken before the shred expires: **up to 12 months** under the current policy |
+| **Per-tenant logical exports** (nightly 30 days, monthly **12 months, object-locked in compliance mode**, so they can't be deleted early) | They hold the tenant's ciphertext. **Requirement:** they must never include `tenant_data_key` (the export job's "all tables with `tenant_id`" rule must exclude it), otherwise a locked archive would hold usable wrapped DEKs for 12 months that nobody can delete | Ciphertext only, so the data is out of reach once every platform-DB copy of the wrapped DEKs is gone (rows above) |
+| Vault (the shared KEK) and its snapshots | Not touched: the KEK is derived per tenant and version, so it can't be destroyed for one tenant | Never by itself. A per-tenant KEK (dedicated tier, tracked) would allow deleting that tenant's Transit key, after which every backed-up wrap is useless. Vault snapshots holding that key must expire too |
+| Plaintext that already left the system (sent emails, downloads, exports, logs, printed documents) | Not reached | Never: out of the platform's control |
+
+**Wording to use:**
+- **On shredding:** "Destroying a tenant's keys stops the running platform from decrypting its data within 1 hour (at once after a restart)."
+- **On full erasure:** "Cryptographic erasure is complete once every platform-DB backup taken before the destruction has expired: **up to 12 months** under the current backup policy. Until then, the data is recoverable by restoring such a backup."
+- **Exclusion:** "Erasure never reaches plaintext that has already left the system."
+
+**Restores (an operational safeguard, not erasure):**
+- After any platform-DB restore, every destruction recorded after the restore point must be re-applied before the API and worker start. That prevents a restore from *re-exposing* a destroyed tenant during normal operation.
+- It does **not** make erasure irreversible: the recoverable copies still exist in the backups until they expire.
+- The audit chain is rolled back by a restore too, so destruction events must also go to a ledger **outside** the platform DB, for example an object-locked bucket (same need as anchoring the audit chain, spec 0002 A5).
+
+**Ways to shorten the 12-month boundary (decisions for later, tracked):**
+- keep `tenant_data_key` out of the long-retention snapshots, for example in a separate small key database with 35-day retention;
+- per-tenant KEKs for tenants that contract for short erasure;
+- or state the 12 months plainly in the DPA and privacy notice ([16](../16-compliance-ndpa.md)).
 
 ## Design for PR B (E7–E9), added 2026-10-05 before implementation
 - **One sweep serves E7 and E9.** "Re-encrypt" means: bring every encrypted value of a tenant onto its **active** version. That covers values still on an older `v2` version (after a rotation) and `v1` values (the migration).
@@ -181,11 +213,22 @@ The code is provider-agnostic (E3). The options considered:
     - no sweep cursor (the test hangs);
     - rethrowing on unreadable values.
 
+## Implementation notes (E13 and the destruction boundary)
+- **Partial sweeps:** `key_reencryption.unreadable_remaining` is set by every completed sweep. `keys status` shows `partial (N unreadable; their key versions are kept)`.
+- **Old keys are kept:** retired versions were already protected, because `destroyRetiredKey` counts every value on a version, readable or not. E13 now has a test proving it: destroy is refused while one unreadable value remains, and allowed once an operator resolves it and re-requests the sweep.
+- **Mutation caught:** not recording `unreadable_remaining` fails the E13 and E9 tests.
+- **The destruction boundary above is documentation.** Its two follow-ups (the cross-instance forget broadcast, and the shred ledger with a restore runbook) are tracked below with milestones.
+
 ## Out of scope (tracked)
 | Gap | Milestone |
 |---|---|
 | Blind indexes for searchable encrypted fields (NIN) | The first searchable encrypted field (admissions/records) |
 | Two-person approval for crypto-shredding | Phase 1 console (offboarding workflow) |
+| Cross-instance key "forget" on shredding, so cached DEKs are dropped in seconds rather than ≤ 1 h | With the settings invalidation bus ([spec 0007](0007-settings.md)) |
+| Destruction ledger outside the platform DB, plus the restore runbook that re-applies it | Staging (backup and restore set-up), before any real-like data |
+| Shorter erasure boundary than 12 months (key DB with short retention, or per-tenant KEKs), or disclose it in the DPA | Before the first tenant offboarding, and before GA contracts |
+| Per-tenant export job excludes `tenant_data_key` (test) | With the per-tenant export job |
+| Host hardening against DEKs leaving memory (no core dumps, swap off or encrypted, no heap snapshots) | Staging (SG7) |
 | Vault HA (3-node Raft), auto-unseal, snapshots, audit device | Before production (staging can run single-node) |
 | Per-tenant KEKs (dedicated tier) | Dedicated-deployment work |
 | Separate key-admin DB role: the API role only reads `tenant_data_key` | Phase 1 console (tenant provisioning and offboarding) |

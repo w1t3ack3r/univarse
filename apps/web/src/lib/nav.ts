@@ -2,7 +2,7 @@
 // the permission it needs. Items the user can't use are not rendered. The API stays the enforcement point.
 import type { Permission, ProductKey } from '@univarse/contracts';
 
-export type NavIcon = 'home' | 'users' | 'products';
+export type NavIcon = 'home' | 'users' | 'products' | 'settings';
 
 export interface NavItem {
   readonly href: string;
@@ -17,6 +17,7 @@ export const NAV: readonly NavItem[] = [
   { href: '/workspace', label: 'Home', icon: 'home', product: 'core' },
   { href: '/workspace/users', label: 'Users', icon: 'users', product: 'core', requires: 'identity.user.view' },
   { href: '/workspace/products', label: 'Products', icon: 'products', product: 'core', requires: 'settings.product.manage' },
+  { href: '/workspace/settings', label: 'Settings', icon: 'settings', product: 'core', requires: 'settings.tenant.view' },
 ];
 
 /** The items to show: product active for the institution AND permission held by the user. */

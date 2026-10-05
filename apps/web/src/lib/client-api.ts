@@ -21,13 +21,23 @@ export class ApiError extends Error {
   }
 }
 
-export async function api<T = undefined>(method: 'GET' | 'POST' | 'PUT', path: string, body?: unknown): Promise<T> {
+/** `ifMatch`: the ETag a change is based on (docs/06 §ETag); the API answers 412 if it moved on. */
+export async function api<T = undefined>(
+  method: 'GET' | 'POST' | 'PUT' | 'DELETE',
+  path: string,
+  body?: unknown,
+  opts: { ifMatch?: string } = {},
+): Promise<T> {
   let res: Response;
   try {
     res = await fetch(path, {
       method,
       credentials: 'same-origin',
-      headers: { accept: 'application/json', ...(body === undefined ? {} : { 'content-type': 'application/json' }) },
+      headers: {
+        accept: 'application/json',
+        ...(body === undefined ? {} : { 'content-type': 'application/json' }),
+        ...(opts.ifMatch ? { 'if-match': opts.ifMatch } : {}),
+      },
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     });
   } catch {

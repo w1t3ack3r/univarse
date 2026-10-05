@@ -348,7 +348,8 @@ model Setting {
   tenantId  String   @map("tenant_id") @db.Uuid
   key       String
   scopeKey  String   @default("INSTITUTION") @map("scope_key")
-  value     Json
+  /// NULL = reset to the registry default (the row and its version history stay, spec 0007 ST7).
+  value     Json?
   updatedBy String?  @map("updated_by") @db.Uuid
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
