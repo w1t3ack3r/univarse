@@ -1,6 +1,6 @@
 import { Body, Controller, HttpCode, Post, Req, Res } from '@nestjs/common';
 import type { FastifyReply, FastifyRequest } from 'fastify';
-import { z } from 'zod';
+import { MfaConfirmBody, MfaEnrolBody, MfaVerifyBody } from '@univarse/contracts';
 import { ProblemError } from '../../shared/errors/problem.js';
 import { withMinimumDuration } from '../../shared/http/timing.js';
 import { parse } from '../../shared/http/validate.js';
@@ -13,12 +13,6 @@ import { MfaService } from './mfa.service.js';
 import { CHALLENGE_COOKIE, clearedChallengeCookie, readSessionCookie, sessionCookie } from './session.service.js';
 import { Product } from '../products/product.guard.js';
 
-const Verify = z.union([
-  z.object({ code: z.string().regex(/^\d{6}$/) }).strict(),
-  z.object({ recoveryCode: z.string().trim().min(10).max(20) }).strict(),
-]);
-const Enrol = z.object({ password: z.string().min(1).max(256) }).strict();
-const Confirm = z.object({ code: z.string().regex(/^\d{6}$/) }).strict();
 /** Response-time floor for verify (M13): unknown challenge vs wrong code vs bad recovery code. */
 const VERIFY_FLOOR_MS = 400;
 
@@ -54,7 +48,7 @@ export class MfaController {
     @Req() req: FastifyRequest,
     @Res({ passthrough: true }) reply: FastifyReply,
   ) {
-    const input = parse(Verify, body);
+    const input = parse(MfaVerifyBody, body);
     await this.limit(`${tenant.tenantId}:mfa-verify:ip:${req.ip}`, 30, 900);
     const challenge = readSessionCookie(req.headers.cookie, CHALLENGE_COOKIE);
     const result = await withMinimumDuration(VERIFY_FLOOR_MS, async () => {
@@ -96,7 +90,7 @@ export class MfaController {
   @HttpCode(200)
   async enrol(@CurrentTenant() tenant: TenantContext, @CurrentActor() actor: Actor, @Body() body: unknown) {
     await this.limit(`${tenant.tenantId}:mfa-enrol:user:${actor.userId}`, 5, 900);
-    return this.mfa.beginEnrolment(tenant, actor, parse(Enrol, body).password);
+    return this.mfa.beginEnrolment(tenant, actor, parse(MfaEnrolBody, body).password);
   }
 
   @Post('totp/confirm')
@@ -111,7 +105,7 @@ export class MfaController {
     @Res({ passthrough: true }) reply: FastifyReply,
   ) {
     await this.limit(`${tenant.tenantId}:mfa-confirm:user:${actor.userId}`, 10, 900);
-    const result = await this.mfa.confirmEnrolment(tenant, actor, parse(Confirm, body).code, meta(req));
+    const result = await this.mfa.confirmEnrolment(tenant, actor, parse(MfaConfirmBody, body).code, meta(req));
     void reply.header('set-cookie', sessionCookie(result.token, result.maxAgeSec));
     // Shown exactly once (M3). The client must make the user save them.
     return { recoveryCodes: result.recoveryCodes };

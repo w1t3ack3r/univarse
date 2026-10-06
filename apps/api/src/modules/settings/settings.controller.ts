@@ -1,6 +1,6 @@
 import { Body, Controller, Delete, Get, Param, Put, Req, Res } from '@nestjs/common';
 import type { FastifyReply, FastifyRequest } from 'fastify';
-import { z } from 'zod';
+import { SettingWriteBody } from '@univarse/contracts';
 import { etagOf } from '../../shared/http/etag.js';
 import { parse } from '../../shared/http/validate.js';
 import { CurrentTenant } from '../../shared/tenancy/tenant.guard.js';
@@ -10,8 +10,6 @@ import type { Actor } from '../identity/actor.js';
 import { Product } from '../products/product.guard.js';
 import { SettingsService } from './settings.service.js';
 
-// The value itself is validated against the key's own schema (422 settings.invalid_value).
-const Write = z.object({ value: z.unknown() }).strict();
 const meta = (req: FastifyRequest) => ({ ip: req.ip, userAgent: req.headers['user-agent'], requestId: req.id });
 
 /**
@@ -52,7 +50,7 @@ export class SettingsController {
     @Req() req: FastifyRequest,
     @Res({ passthrough: true }) reply: FastifyReply,
   ) {
-    const { value } = parse(Write, body);
+    const { value } = parse(SettingWriteBody, body);
     const view = await this.settings.update(tenant, actor, key, value, req.headers['if-match'], meta(req));
     void reply.header('etag', etagOf(view.version));
     return view;

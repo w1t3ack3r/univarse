@@ -1,6 +1,6 @@
 import { Body, Controller, Delete, Get, HttpCode, Param, Post, Req, Res } from '@nestjs/common';
 import type { FastifyReply, FastifyRequest } from 'fastify';
-import { z } from 'zod';
+import { FileUploadRequestBody } from '@univarse/contracts';
 import { parse } from '../../shared/http/validate.js';
 import { CurrentTenant } from '../../shared/tenancy/tenant.guard.js';
 import type { TenantContext } from '../../shared/tenancy/tenant-resolver.service.js';
@@ -10,9 +10,6 @@ import { Product } from '../products/product.guard.js';
 import { contentDisposition } from './file-types.js';
 import { FilesService } from './files.service.js';
 
-const RequestUpload = z
-  .object({ name: z.string().trim().min(1).max(255), mime: z.string().min(1).max(100), sizeBytes: z.number().int().min(1) })
-  .strict();
 const meta = (req: FastifyRequest) => ({ ip: req.ip, userAgent: req.headers['user-agent'], requestId: req.id });
 
 /**
@@ -28,7 +25,7 @@ export class FilesController {
   @RequirePermission('files.file.upload')
   @HttpCode(201)
   async requestUpload(@CurrentTenant() tenant: TenantContext, @CurrentActor() actor: Actor, @Body() body: unknown, @Req() req: FastifyRequest) {
-    return this.files.requestUpload(tenant, actor, parse(RequestUpload, body), meta(req));
+    return this.files.requestUpload(tenant, actor, parse(FileUploadRequestBody, body), meta(req));
   }
 
   @Get()

@@ -3,6 +3,11 @@ packages:
   - packages/*
   - tools/*
 
+# One version for libraries whose objects cross package boundaries (spec 0011 OA1: zod schemas are
+# shared between contracts, the API's validators and the OpenAPI generator).
+catalog:
+  zod: 4.6.5
+
 # Supply-chain hardening — docs/09-container-security.md §1
 # New package versions are unusable until they have been public for 3 days.
 minimumReleaseAge: 4320
