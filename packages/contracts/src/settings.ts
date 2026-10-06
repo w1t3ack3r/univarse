@@ -48,6 +48,17 @@ export const SETTINGS = {
     sensitive: false,
     label: 'Units per semester',
   },
+  /** Spec 0010 D3: bytes of uploaded files a tenant may hold (pending, scanning and clean). */
+  'files.storageQuotaBytes': {
+    schema: z.int({ error: 'Enter a whole number of bytes.' }).min(0).max(10 * 1024 ** 4),
+    default: 1024 ** 3,
+    scopes: ['INSTITUTION'],
+    product: 'core',
+    manage: 'settings.tenant.manage',
+    effectiveDated: false,
+    sensitive: false,
+    label: 'Storage for uploaded documents',
+  },
 } as const satisfies Record<string, SettingDef>;
 
 export type SettingKey = keyof typeof SETTINGS;

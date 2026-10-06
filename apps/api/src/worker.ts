@@ -3,6 +3,7 @@ import { existsSync } from 'node:fs';
 import { Logger } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { loadConfig } from './config/config.js';
+import { FileScanWorker } from './modules/files/file-scan.worker.js';
 import { KeyMaintenance } from './shared/crypto/key-maintenance.js';
 import { OutboxWorker } from './shared/outbox/outbox-worker.js';
 import { WorkerModule } from './worker.module.js';
@@ -18,10 +19,13 @@ worker.start(config.WORKER_POLL_MS);
 // Separate loop: a long key sweep never delays email.
 const keys = ctx.get(KeyMaintenance);
 keys.start(config.KEY_SWEEP_INTERVAL_MS);
+// Separate loop again: a slow or unavailable scanner never delays email or the key sweep.
+const scans = ctx.get(FileScanWorker);
+scans.start(config.FILE_SCAN_INTERVAL_MS);
 new Logger('Worker').log(`UniVarse worker polling the outbox every ${config.WORKER_POLL_MS} ms (${config.NODE_ENV})`);
 
 const shutdown = async () => {
-  await Promise.all([worker.stop(), keys.stop()]);
+  await Promise.all([worker.stop(), keys.stop(), scans.stop()]);
   await ctx.close();
   process.exit(0);
 };

@@ -16,6 +16,9 @@ import { ProductDeclarationCheck } from './modules/products/product-declaration.
 import { ProductGuard } from './modules/products/product.guard.js';
 import { ProductService } from './modules/products/product.service.js';
 import { ProductsController } from './modules/products/products.controller.js';
+import { FileStorage } from './modules/files/file-storage.js';
+import { FilesController } from './modules/files/files.controller.js';
+import { FilesService } from './modules/files/files.service.js';
 import { SettingsCache } from './modules/settings/settings-cache.js';
 import { SettingsController } from './modules/settings/settings.controller.js';
 import { SETTINGS_REGISTRY, SettingsService, settingsRegistryProvider, type SettingsRegistry } from './modules/settings/settings.service.js';
@@ -45,7 +48,7 @@ export class AppModule {
       module: AppModule,
       global: true,
       imports: [DbModule, DiscoveryModule],
-      controllers: [HealthController, TenantProfileController, AuthController, MfaController, UsersController, ProductsController, SettingsController, ...(overrides.extraControllers ?? [])],
+      controllers: [HealthController, TenantProfileController, AuthController, MfaController, UsersController, ProductsController, SettingsController, FilesController, ...(overrides.extraControllers ?? [])],
       providers: [
         { provide: APP_CONFIG, useValue: config },
         {
@@ -67,6 +70,8 @@ export class AppModule {
         ProductDeclarationCheck,
         SettingsCache,
         SettingsService,
+        FileStorage,
+        FilesService,
         overrides.settingsRegistry ? { provide: SETTINGS_REGISTRY, useValue: overrides.settingsRegistry } : settingsRegistryProvider,
         // Guard order matters: resolve the tenant, hide inactive products (spec 0003 P3), then authenticate.
         { provide: APP_GUARD, useClass: TenantGuard },

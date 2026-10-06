@@ -3,7 +3,7 @@
  *   pnpm db:seed
  * Uses the APP roles (not the migrator), so it goes through RLS like the real app.
  */
-import { SYSTEM_ROLE_PERMISSIONS, type ProductKey } from '@univarse/contracts';
+import { EVERY_ROLE_PERMISSIONS, SYSTEM_ROLE_PERMISSIONS, type ProductKey } from '@univarse/contracts';
 import { createPlatformClient } from '../src/platform.js';
 import { createTenantShardClient, withTenantTx } from '../src/tenant.js';
 import { loadRootEnv, requireEnv } from './env.js';
@@ -94,7 +94,7 @@ async function main() {
       }
       const roleIds = new Map<string, string>();
       for (const [key, name] of SYSTEM_ROLES) {
-        const permissions = [...(SYSTEM_ROLE_PERMISSIONS[key] ?? [])];
+        const permissions = [...new Set([...(SYSTEM_ROLE_PERMISSIONS[key] ?? []), ...EVERY_ROLE_PERMISSIONS])];
         const role = await tx.role.upsert({
           where: { tenantId_key: { tenantId: tenant.id, key } },
           update: { name, permissions },

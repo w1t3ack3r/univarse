@@ -24,11 +24,18 @@ export const PERMISSIONS = {
   },
   'settings.product.manage': { description: 'Enable or disable products within the plan', privileged: true, stepUp: true },
   'audit.event.view': { description: 'View the audit log', privileged: true, sensitiveData: true },
+  // Spec 0010 D2: own files only in this slice; every role holds them (EVERY_ROLE_PERMISSIONS).
+  'files.file.upload': { description: 'Upload your own documents' },
+  'files.file.read': { description: 'See and download your own documents', sensitiveData: true },
+  'files.file.delete': { description: 'Delete your own documents' },
 } as const satisfies Record<string, PermissionDef>;
 
 export type Permission = keyof typeof PERMISSIONS;
 
 export const isPermission = (p: string): p is Permission => Object.hasOwn(PERMISSIONS, p);
+
+/** Granted to every seeded role, on top of its own list (spec 0010 D2: everyone manages their own files). */
+export const EVERY_ROLE_PERMISSIONS: readonly Permission[] = ['files.file.upload', 'files.file.read', 'files.file.delete'];
 
 /** Default grants for seeded system roles. Tenants may extend roles later. */
 export const SYSTEM_ROLE_PERMISSIONS: Readonly<Record<string, readonly Permission[]>> = {

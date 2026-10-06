@@ -47,6 +47,20 @@ const schema = z.object({
   SETTINGS_CACHE_TTL_MS: z.coerce.number().int().min(0).max(30_000).default(30_000),
   /** How often the worker looks for a pending key sweep (spec 0006 E7, E9). */
   KEY_SWEEP_INTERVAL_MS: z.coerce.number().int().min(1_000).default(60_000),
+  // Files (spec 0010). S3-compatible storage (SeaweedFS locally, ADR-025) and clamd.
+  S3_ENDPOINT: z.url().default('http://127.0.0.1:8333'),
+  /** The origin browsers upload to (presigned POST, D1). Same as S3_ENDPOINT locally. */
+  S3_PUBLIC_ENDPOINT: z.url().default('http://127.0.0.1:8333'),
+  S3_REGION: z.string().default('us-east-1'),
+  S3_ACCESS_KEY: z.string().min(8).optional(),
+  S3_SECRET_KEY: z.string().min(16).optional(),
+  S3_QUARANTINE_BUCKET: z.string().regex(/^[a-z0-9-]{3,63}$/).default('uv-quarantine'),
+  S3_CLEAN_BUCKET: z.string().regex(/^[a-z0-9-]{3,63}$/).default('uv-clean'),
+  CLAMD_HOST: z.string().default('127.0.0.1'),
+  CLAMD_PORT: z.coerce.number().int().min(1).max(65535).default(3310),
+  /** Per-scan timeout; a timeout is retried, never treated as clean (FU3). */
+  CLAMD_TIMEOUT_MS: z.coerce.number().int().min(1_000).max(120_000).default(30_000),
+  FILE_SCAN_INTERVAL_MS: z.coerce.number().int().min(250).default(2_000),
   SMTP_URL: z.string().startsWith('smtp').default('smtp://127.0.0.1:1025'),
   MAIL_FROM: z.string().default('UniVarse <no-reply@univarse.localhost>'),
 });
