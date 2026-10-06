@@ -32,6 +32,21 @@ import { Outbox } from './shared/outbox/outbox.js';
 import { TenantGuard } from './shared/tenancy/tenant.guard.js';
 import { TenantResolver } from './shared/tenancy/tenant-resolver.service.js';
 
+/**
+ * Every production controller. `forRoot` serves exactly these (plus test-only extras), and the OpenAPI
+ * generator documents exactly these (spec 0011 OA2), so the two can't diverge.
+ */
+export const API_CONTROLLERS = [
+  HealthController,
+  TenantProfileController,
+  AuthController,
+  MfaController,
+  UsersController,
+  ProductsController,
+  SettingsController,
+  FilesController,
+] as const;
+
 export interface AppOverrides {
   /** Tests add setting keys to prove permission scoping (spec 0007 ST5). */
   readonly settingsRegistry?: SettingsRegistry;
@@ -48,7 +63,7 @@ export class AppModule {
       module: AppModule,
       global: true,
       imports: [DbModule, DiscoveryModule],
-      controllers: [HealthController, TenantProfileController, AuthController, MfaController, UsersController, ProductsController, SettingsController, FilesController, ...(overrides.extraControllers ?? [])],
+      controllers: [...API_CONTROLLERS, ...(overrides.extraControllers ?? [])],
       providers: [
         { provide: APP_CONFIG, useValue: config },
         {

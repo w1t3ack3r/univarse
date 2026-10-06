@@ -80,21 +80,21 @@ afterAll(async () => {
 });
 
 describe('step-up (S1–S4, S6, S8)', () => {
-  it('[S2] a non-MFA user steps up with the password alone', async () => {
+  it('[S2][OA3] a non-MFA user steps up with the password alone', async () => {
     const u = await plainUser();
     const res = await stepUp(u.session, { password: PASSWORD });
     expect([res.statusCode, res.json()]).toEqual([200, { stepUp: true }]);
     expect((await sessionRow(sessionOf(res))).stepUpAt).not.toBeNull();
   });
 
-  it('[S2] an MFA user needs password + TOTP or recovery code; never one without the other', async () => {
+  it('[S2][OA3] an MFA user needs password + TOTP or recovery code; never both, never one without the other', async () => {
     const u = await mfaUser();
     const missing = await stepUp(u.session, { password: PASSWORD });
     expect([missing.statusCode, missing.json().code]).toEqual([400, 'auth.step_up_second_factor_required']);
     const wrongCode = await stepUp(u.session, { password: PASSWORD, code: totpCode(u.secret, 7) });
     expect([wrongCode.statusCode, wrongCode.json().code]).toEqual([401, 'auth.mfa_invalid']);
     const both = await stepUp(u.session, { password: PASSWORD, code: totpCode(u.secret), recoveryCode: u.recoveryCodes[0]! });
-    expect(both.statusCode).toBe(400);
+    expect([both.statusCode, both.json().code]).toEqual([400, 'request.invalid']); // OA3: the documented `not`
     expect((await stepUp(u.session, { password: PASSWORD, code: totpCode(u.secret) })).statusCode).toBe(200);
     await resetReplayGuard(h.shard, h.tenants.demo, u.id); // that step is spent (M5); the helper below logs in again
     const viaRecovery = await stepUp(await anotherSession(u), { password: PASSWORD, recoveryCode: u.recoveryCodes[0]! });

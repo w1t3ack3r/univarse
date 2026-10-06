@@ -31,7 +31,9 @@ const units = z
 export const UnitLimits = z
   .object({ min: units, max: units })
   .strict()
-  .refine((v) => v.min <= v.max, { path: ['max'], error: 'The maximum must be at least the minimum.' });
+  .refine((v) => v.min <= v.max, { path: ['max'], error: 'The maximum must be at least the minimum.' })
+  // JSON Schema can't compare two fields, so the document states it as a runtime rule (spec 0011).
+  .meta({ description: 'Runtime rule (not expressible in JSON Schema): min ≤ max, otherwise 422 settings.invalid_value.' });
 
 export const SETTINGS = {
   /**
