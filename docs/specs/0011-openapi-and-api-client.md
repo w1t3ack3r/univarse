@@ -1,6 +1,6 @@
 # Spec 0011: OpenAPI contract and the generated `api-client`
 
-**Status:** Implemented (2026-10-07): steps 1–5 in #29–#34, CI-verified; local E2E 32/32. Enforcement of `api-breaking-changes` as a required check follows the merge. Accepted 2026-10-06; D1–D4 decided, with conditions written into the criteria.
+**Status:** Complete (2026-10-06). Steps 1–5 are merged in #29–#34 and CI-verified, with local E2E at 32/32. `api-breaking-changes` is a required check in `main`'s `protect-main` ruleset. Response coverage is partial and labelled as such: 141 of 207 (operation, status) pairs exercised, which does not establish every error code or response variant. Accepted 2026-10-06; D1–D4 decided, with conditions written into the criteria.
 **Phase:** 0 (roadmap: "OpenAPI generation", "`packages/api-client`").
 **Builds on:**
 - [docs/02 §2](../02-architecture.md): zod → OpenAPI → a typed client;
@@ -316,7 +316,7 @@ docs/02 and docs/06 already promise an OpenAPI document generated from zod, and 
 - **`pnpm contracts:gen`** now regenerates `openapi.json` and `schema.ts` together.
 - **New user message:** `server.unexpected_response`.
 
-### Step 5: CI gates (2026-10-07)
+### Step 5: CI gates (2026-10-06)
 - **Stale files (OA9).** `build-test` runs `tools/api-contract/check-fresh.sh` after the build. It runs `pnpm contracts:gen`, which writes `openapi.json` and `schema.ts`, then fails if `git status` shows either file changed, untracked or deleted. The error names the command to run.
 - **Breaking changes (OA12, D4).** The `api-contract` workflow (job `api-breaking-changes`) runs on `pull_request` events, including **`edited`**, so changing the description re-evaluates it:
   - **The tool:** oasdiff 1.33.0, a checksum-verified download (like gitleaks), run with `--allow-external-refs=false` because the PR's spec is untrusted.
@@ -337,7 +337,7 @@ docs/02 and docs/06 already promise an OpenAPI document generated from zod, and 
     | 37506137364 | `api-breaking-changes` | failed: the gate's 7 tests passed, the summary listed `PUT /api/v1/admin/products/{product}`, and the verdict was "unacknowledged breaking change(s)" |
     | 37507369201 | `api-breaking-changes` | the description edited to add the acknowledgement, **same commit** `a1f2394`: passed, "1 breaking change(s), acknowledged" |
 
-- **Not yet a required check.** The `api-breaking-changes` check blocks merging only once it is marked required in `main`'s branch protection. That is a repository setting for the owner; until then its result is advisory. The stale gate lives in the already-required `build-test`.
+- **Required check (enforcement).** After #34 merged, `api-breaking-changes` was added to the `protect-main` ruleset's required status checks (ruleset 24278489, 2026-10-06 22:00 +01:00). Strict mode is still on, and nothing else in the ruleset changed. Required now: `build-test`, `secrets-scan`, `api-breaking-changes`. The stale-files gate runs inside `build-test`, which was already required.
 - **Docs:** 02, 06 (§10 rewritten; the runtime `openapi.json` endpoint is dropped), 12, 13 (the acknowledgement rule; the PR template now exists), 17 §3 (the `@Contract` and client rules) and the README.
 
 ### Status of the evidence
