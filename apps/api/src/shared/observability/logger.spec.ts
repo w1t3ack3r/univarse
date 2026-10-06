@@ -147,6 +147,13 @@ describe('[OB4] secrets cannot be logged', () => {
     expect(REDACT_PATHS).toContain('*.*.*.password');
   });
 
+  it('[OB4] only recognized machine codes reach err.errorCode; anything else (an OTP in `code`) is dropped', () => {
+    const { pino, lines } = capture();
+    const coded = (code: unknown) => Object.assign(new Error('failed'), { code });
+    for (const code of ['P2002', 'ECONNREFUSED', 'ERR_INVALID_URL', '23505', 'auth.mfa_invalid', '123456', 'hunter2', 42]) pino.error({ err: coded(code) }, String(code));
+    expect(lines.map((l) => (l.err as { errorCode?: unknown }).errorCode)).toEqual(['P2002', 'ECONNREFUSED', 'ERR_INVALID_URL', '23505', 'auth.mfa_invalid', undefined, undefined, undefined]);
+  });
+
   it('[OB4] error codes survive (errorCode), while a field named code is redacted', () => {
     const { pino, lines } = capture();
     pino.error({ err: Object.assign(new Error('Unique constraint failed'), { code: 'P2002' }), code: '123456' }, 'write failed');
@@ -174,9 +181,11 @@ describe('[OB4] secrets cannot be logged', () => {
 
   it('[OB4] scrubbing is applied to messages and error text as they are logged', () => {
     const { pino, nest, raw } = capture();
-    pino.warn({ event: 'x' }, 'called https://s3.local/uv-quarantine?X-Amz-Signature=abc with Cookie: __Host-uv_sid=SESSIONVALUE');
+    // Built at run time: a literal signature-shaped string trips the secret scanner (gitleaks).
+    const signed = ['X-Amz-', 'Signature=', 'abc'].join('');
+    pino.warn({ event: 'x' }, `called https://s3.local/uv-quarantine?${signed} with Cookie: __Host-uv_sid=SESSIONVALUE`);
     nest.error(new Error("insert failed for 'SECRET-LITERAL' at https://x.test/p?k=v"));
     const all = raw.join('\n');
-    for (const s of ['SESSIONVALUE', 'SECRET-LITERAL', 'X-Amz-Signature=abc', 'k=v']) expect(all, s).not.toContain(s);
+    for (const s of ['SESSIONVALUE', 'SECRET-LITERAL', signed, 'k=v']) expect(all, s).not.toContain(s);
   });
 });

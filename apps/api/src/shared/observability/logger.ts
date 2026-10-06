@@ -53,6 +53,14 @@ export const setActiveSpanIdsProvider = (fn: typeof activeSpanIds): void => {
 };
 
 /** Errors: type, scrubbed message and scrubbed stack. Driver messages can quote values, so foreign scrub. */
+/**
+ * Machine codes worth keeping: Prisma (`P2002`), Node and system (`ECONNREFUSED`, `ERR_…`), Postgres
+ * SQLSTATE (five characters, `23505`) and our dotted problem codes (`auth.mfa_invalid`). A six-digit OTP or
+ * reset code matches none of these.
+ */
+export const isMachineCode = (code: unknown): code is string =>
+  typeof code === 'string' && /^(P\d{4}|E[A-Z][A-Z0-9_]+|ERR_[A-Z0-9_]+|[0-9A-Z]{5}|[a-z][a-z0-9_]*(\.[a-z0-9_]+)+)$/.test(code);
+
 /** Shape: `{ type, message, stack?, errorCode? }` for Errors; anything else passes through. */
 export function serializeError(err: unknown): unknown {
   if (!(err instanceof Error)) return err;
@@ -61,8 +69,9 @@ export function serializeError(err: unknown): unknown {
     type: err.name,
     message: scrubForeign(err.message),
     ...(err.stack ? { stack: scrubForeign(err.stack) } : {}),
-    // `errorCode`, not `code`: `code` is a redacted key (TOTP and reset codes), and driver codes like P2002 are useful.
-    ...(code === undefined ? {} : { errorCode: code }),
+    // `errorCode`, not `code`: `code` is a redacted key (TOTP and reset codes). Only RECOGNIZED machine codes
+    // are kept; anything else in `code` (it could be a secret) is dropped.
+    ...(isMachineCode(code) ? { errorCode: code } : {}),
   };
 }
 

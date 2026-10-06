@@ -51,6 +51,15 @@ describe('[OB2] every app log call names its event', () => {
   });
 });
 
+describe('[OB2] the log context is for observability only', () => {
+  it('[OB2] nothing outside shared/observability reads it (tenancy and authorization use the explicit context)', () => {
+    const readers = sources(SRC)
+      .filter((f) => /\bcurrentLogContext\b/.test(readFileSync(f, 'utf8')))
+      .map((f) => relative(SRC, f));
+    expect(readers).toEqual([]);
+  });
+});
+
 describe('[OB7] the security stream', () => {
   it('[OB7] the security events are exactly these', () => {
     expect([...SECURITY_EVENTS].sort()).toEqual(

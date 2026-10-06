@@ -110,6 +110,11 @@ When something goes wrong in a deployed UniVarse, the first question is "what ha
   - **Hyphenated keys:** `set-cookie` needed bracket syntax in Pino `redact` paths; a quoted dot path silently matched nothing.
   - **Error text:** a message taken from an `Error` is foreign text, so it gets the stronger scrub that also hides quoted literals.
 - **Deviation:** `code` is redacted, as the spec lists, so error codes are logged as `err.errorCode`, keeping Prisma's `P2002` and similar visible.
+  - **Only recognized machine codes** get there (`isMachineCode`): Prisma `P####`, Node/system `E…`/`ERR_…`, five-character SQLSTATE, and our dotted problem codes.
+  - Anything else in an error's `code` (an OTP, a reset code, free text) is dropped, never logged. OTP fields stay redacted. Tested in `[OB4] only recognized machine codes reach err.errorCode`.
+- **`AsyncLocalStorage` is for observability only.** Database tenancy and authorization keep using the explicit tenant context (`req.tenant`, `ShardRegistry.forTenant`/`tx`) and the loaded actor. Nothing reads the log context to make an access decision.
+- **OB7's sampling proof is pending.** The security events are logged, and logs are never sampled by construction. The proof that a security line is still written when a real trace is **dropped** needs the sampler, so it lands with the tracing tests.
+- **CI note:** gitleaks flagged a test's fake signature-shaped string (`generic-api-key`). It is now built at run time, as this repo does for other secret-shaped test values.
 - **Tests:**
   - **Unit:** `logger.spec.ts` (19: OB1 every Nest and object-first signature, OB2 fields and null-when-unknown and no bleed between contexts, OB4 every path and pattern) and `call-sites.spec.ts` (6: OB2 every call has an `event`, nothing interpolates tenant or user, OB7 the exact event list, each logged somewhere).
   - **Integration:** `logging.int.spec.ts` (7, against the real app: OB3 public 200, signed-in 404 by template with user from the session, query strings never logged, 5xx at error, health at debug; OB7 CSRF and 429 security lines).
