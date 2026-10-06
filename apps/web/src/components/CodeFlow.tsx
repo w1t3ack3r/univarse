@@ -5,7 +5,7 @@ import { ArrowLeft, ArrowRight, Button, Card, Check, Mail, Notice, Refresh, Step
 import { CodeField, ExpiryBar, PasswordField, TextField } from '@univarse/ui/client';
 import Link from 'next/link';
 import { useEffect, useRef, useState, type SubmitEvent } from 'react';
-import { api, ApiError } from '@/lib/client-api';
+import { ApiError, client, unwrap } from '@/lib/client-api';
 
 /**
  * Activation (W11) and password reset (W12): one fixed card, the stage changes (direction contract).
@@ -43,10 +43,17 @@ const COPY = {
   },
 } as const;
 
-const PATHS = {
-  activation: { request: '/api/v1/auth/activation/request', confirm: '/api/v1/auth/activation/confirm' },
-  reset: { request: '/api/v1/auth/password-reset/request', confirm: '/api/v1/auth/password-reset/confirm' },
-} as const;
+/** Activation and reset share the shape; each flow calls its own documented operations. */
+const CALLS = {
+  activation: {
+    request: (body: { username: string }) => client.POST('/api/v1/auth/activation/request', { body }),
+    confirm: (body: { username: string; code: string; password: string }) => client.POST('/api/v1/auth/activation/confirm', { body }),
+  },
+  reset: {
+    request: (body: { username: string }) => client.POST('/api/v1/auth/password-reset/request', { body }),
+    confirm: (body: { username: string; code: string; password: string }) => client.POST('/api/v1/auth/password-reset/confirm', { body }),
+  },
+};
 
 const RESEND_AFTER_S = 45;
 
@@ -79,7 +86,7 @@ export function CodeFlow({ kind, institution }: { kind: Kind; institution: strin
     setPending(true);
     setError(null);
     try {
-      await api('POST', PATHS[kind].request, { username });
+      await unwrap(CALLS[kind].request({ username }));
       setIssuedAt(Date.now());
       setExpired(false);
       setResendIn(RESEND_AFTER_S);
@@ -98,7 +105,7 @@ export function CodeFlow({ kind, institution }: { kind: Kind; institution: strin
     setError(null);
     setPasswordError(undefined);
     try {
-      await api('POST', PATHS[kind].confirm, { username, code, password });
+      await unwrap(CALLS[kind].confirm({ username, code, password }));
       setStage(3);
     } catch (err) {
       const e = err instanceof ApiError ? err : new ApiError(0, undefined, undefined);

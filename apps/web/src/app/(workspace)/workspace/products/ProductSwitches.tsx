@@ -4,14 +4,10 @@ import { Button, Card, Notice, ShieldCheck } from '@univarse/ui';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { useStepUp } from '@/components/StepUp';
-import { api, ApiError } from '@/lib/client-api';
+import { ApiError, client, unwrap, type ResponseBody } from '@/lib/client-api';
 
-export interface ProductState {
-  readonly product: string;
-  readonly entitled: boolean;
-  readonly enabled: boolean;
-  readonly active: boolean;
-}
+/** Generated from the API contract (spec 0011): `product` is one of the catalog's keys. */
+export type ProductState = ResponseBody<'/api/v1/admin/products/{product}', 'put'>;
 
 const LABEL: Record<string, { name: string; about: string }> = {
   core: { name: 'Core', about: 'Accounts, sign-in, roles and settings. Always on.' },
@@ -38,7 +34,7 @@ export function ProductSwitches({ initial }: { initial: ProductState[] }) {
     setError(null);
     try {
       const next = await withStepUp(() =>
-        api<ProductState>('PUT', `/api/v1/admin/products/${encodeURIComponent(p.product)}`, { enabled: !p.enabled }),
+        unwrap(client.PUT('/api/v1/admin/products/{product}', { params: { path: { product: p.product } }, body: { enabled: !p.enabled } })),
       );
       if (next) {
         setItems((all) => all.map((x) => (x.product === next.product ? next : x)));
@@ -112,7 +108,7 @@ export function ConfirmToContinue() {
         <Button
           onClick={() => {
             setError(null);
-            withStepUp(() => api<{ data: ProductState[] }>('GET', '/api/v1/admin/products'))
+            withStepUp(() => unwrap(client.GET('/api/v1/admin/products')))
               .then((ok) => {
                 if (ok) router.refresh();
               })

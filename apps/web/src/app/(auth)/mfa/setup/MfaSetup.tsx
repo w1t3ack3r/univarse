@@ -4,7 +4,7 @@ import { ArrowRight, Button, Card, ChevronDown, Download, Notice, ShieldCheck, S
 import { CodeField, CopyButton, PasswordField } from '@univarse/ui/client';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState, type ReactNode, type SubmitEvent } from 'react';
-import { api, ApiError } from '@/lib/client-api';
+import { ApiError, client, unwrap } from '@/lib/client-api';
 import { textField } from '@/lib/form';
 
 /**
@@ -69,7 +69,7 @@ export function MfaSetup({ required, leaveLater }: { required: boolean; leaveLat
   const onPassword = (e: SubmitEvent<HTMLFormElement>) => {
     e.preventDefault();
     const password = textField(new FormData(e.currentTarget), 'password');
-    void run(() => api<Enrolment>('POST', '/api/v1/auth/mfa/totp/enrol', { password })).then((res) => {
+    void run(() => unwrap(client.POST('/api/v1/auth/mfa/totp/enrol', { body: { password } }))).then((res) => {
       if (res) {
         setEnrolment(res);
         setStage(1);
@@ -78,7 +78,7 @@ export function MfaSetup({ required, leaveLater }: { required: boolean; leaveLat
   };
 
   const confirm = (value: string) => {
-    void run(() => api<{ recoveryCodes: string[] }>('POST', '/api/v1/auth/mfa/totp/confirm', { code: value })).then((res) => {
+    void run(() => unwrap(client.POST('/api/v1/auth/mfa/totp/confirm', { body: { code: value } }))).then((res) => {
       if (res) {
         setCodes(res.recoveryCodes);
         setStage(3);

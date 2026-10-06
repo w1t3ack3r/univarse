@@ -1,20 +1,21 @@
 'use client';
 
-import { messageFor, UnitLimits, type SettingView } from '@univarse/contracts';
+import { messageFor, UnitLimits } from '@univarse/contracts';
 import { Button, Card, Notice, Sliders } from '@univarse/ui';
 import { TextField } from '@univarse/ui/client';
 import { useId, useRef, useState, type SubmitEvent } from 'react';
 import { useStepUp } from '@/components/StepUp';
-import { api, ApiError } from '@/lib/client-api';
+import { ApiError, client, getSetting, putSetting, resetSetting, type SettingViewOf } from '@/lib/client-api';
 
  
-type View = SettingView<'registration.unitLimits'>;
+type View = SettingViewOf<'registration.unitLimits'>;
 type Draft = { min: string; max: string };
 type FieldErrors = Partial<Record<keyof Draft, string>>;
 
-const PATH = '/api/v1/settings/registration.unitLimits';
+const KEY = 'registration.unitLimits';
 const RANGE_MAX = 60;
-const etag = (v: View) => `"v${String(v.version)}"`;
+/** The page's first read has no response header; after that, writes use the ETag the API returned. */
+const etagOf = (v: View) => `"v${String(v.version)}"`;
 const toDraft = (v: View): Draft => ({ min: String(v.value.min), max: String(v.value.max) });
 const when = new Intl.DateTimeFormat('en-NG', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'Africa/Lagos' });
 
@@ -54,6 +55,7 @@ export function UnitLimitsCard({ initial }: { initial: View }) {
   const minRef = useRef<HTMLInputElement>(null);
   const maxRef = useRef<HTMLInputElement>(null);
   const [view, setView] = useState(initial);
+  const [etag, setEtag] = useState(() => etagOf(initial));
   const [draft, setDraft] = useState<Draft>(toDraft(initial));
   const [errors, setErrors] = useState<FieldErrors>({});
   const [tried, setTried] = useState(false);
@@ -76,22 +78,25 @@ export function UnitLimitsCard({ initial }: { initial: View }) {
 
   /** 412: someone else saved first. Show their values, keep nothing of ours (ST13). */
   async function reloadAfterConflict() {
-    const latest = await api<View>('GET', PATH);
-    setView(latest);
-    setDraft(toDraft(latest));
+    const latest = await getSetting(client, KEY);
+    setView(latest.view);
+    setEtag(latest.etag);
+    setDraft(toDraft(latest.view));
     setErrors({});
     setTried(false);
     setNotice({ tone: 'info', text: messageFor('precondition.failed') });
   }
 
-  async function run(kind: 'save' | 'reset', call: () => Promise<View>) {
+  async function run(kind: 'save' | 'reset', call: () => Promise<{ view: View; etag: string }>) {
     setBusy(kind);
     setFailure(null);
     setNotice(null);
     try {
-      const next = await withStepUp(call);
-      if (!next) return; // they closed "confirm it's you"
+      const done = await withStepUp(call);
+      if (!done) return; // they closed "confirm it's you"
+      const next = done.view;
       setView(next);
+      setEtag(done.etag);
       setDraft(toDraft(next));
       setTried(false);
       setConfirmReset(false);
@@ -127,7 +132,7 @@ export function UnitLimitsCard({ initial }: { initial: View }) {
       return;
     }
     const value = r.value;
-    void run('save', () => api<View>('PUT', PATH, { value }, { ifMatch: etag(view) }));
+    void run('save', () => putSetting(client, KEY, value, etag));
   };
 
   const changedLine = isDefault
@@ -203,7 +208,7 @@ export function UnitLimitsCard({ initial }: { initial: View }) {
                   type="button"
                   variant="quiet"
                   pending={busy === 'reset'}
-                  onClick={() => void run('reset', () => api<View>('DELETE', PATH, undefined, { ifMatch: etag(view) }))}
+                  onClick={() => void run('reset', () => resetSetting(client, KEY, etag))}
                 >
                   Yes, reset
                 </Button>

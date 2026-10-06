@@ -16,7 +16,7 @@
     "db:migrate": "pnpm --filter @univarse/db run migrate",
     "db:seed": "pnpm --filter @univarse/db run seed && pnpm --filter @univarse/crypto run provision",
     "rls:check": "pnpm --filter @univarse/db run rls:check",
-    "contracts:gen": "turbo run build --filter=@univarse/api && pnpm --filter @univarse/api openapi",
+    "contracts:gen": "turbo run build --filter=@univarse/api && pnpm --filter @univarse/api openapi && pnpm --filter @univarse/api-client gen",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "dev:secrets": "node tools/dev-secrets.mjs",

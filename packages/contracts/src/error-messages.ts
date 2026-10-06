@@ -42,6 +42,7 @@ export const ERROR_MESSAGES = {
   'request.error': 'Something went wrong. Please try again.',
   'server.not_ready': 'UniVarse is starting up. Try again in a moment.',
   'server.internal': 'Something went wrong on our side. Please try again.',
+  'server.unexpected_response': 'Something went wrong on our side. Please try again in a moment.',
   // Client-side only: the request never reached the server.
   'network.offline': "You seem to be offline. Check your connection and try again.",
   // Server-side only: the web app could not reach the API (connection refused, reset, DNS).

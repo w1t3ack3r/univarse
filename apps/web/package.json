@@ -26,6 +26,7 @@
   },
   "dependencies": {
     "@fontsource/poppins": "^5.3.0",
+    "@univarse/api-client": "workspace:*",
     "@univarse/contracts": "workspace:*",
     "@univarse/ui": "workspace:*",
     "next": "^16.3.8",

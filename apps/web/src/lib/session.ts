@@ -1,5 +1,5 @@
 import { redirect } from 'next/navigation';
-import { serverApi } from './server-api';
+import { serverGet } from './server-api';
 import { ApiUnavailableError, checkSession, type Me, type MeAnswer, type SessionCheck } from './session-check';
 
 export type { Me } from './session-check';
@@ -8,7 +8,7 @@ export type { Me } from './session-check';
 export async function loadSession(): Promise<SessionCheck> {
   let answer: MeAnswer;
   try {
-    answer = await serverApi<Me>('/api/v1/auth/me');
+    answer = await serverGet((api) => api.GET('/api/v1/auth/me'));
   } catch {
     answer = 'unreachable';
   }
