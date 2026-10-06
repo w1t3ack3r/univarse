@@ -12,6 +12,7 @@
     "start": "node --enable-source-maps dist/main.js",
     "start:worker": "node --enable-source-maps dist/worker.js",
     "keys": "node --enable-source-maps dist/cli/keys.js",
+    "openapi": "node --enable-source-maps dist/cli/openapi.js",
     "test": "vitest run",
     "test:int": "vitest run --config vitest.int.config.ts"
   },
@@ -36,6 +37,7 @@
   "devDependencies": {
     "@swc/core": "^1.13.0",
     "@types/nodemailer": "^7.0.12",
+    "ajv": "^8.20.0",
     "tsc-watch": "^7.1.0",
     "unplugin-swc": "^1.5.0",
     "vitest": "^4.1.11"

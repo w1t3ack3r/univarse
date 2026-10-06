@@ -1,6 +1,7 @@
 import { Body, Controller, Get, Param, Put, Req } from '@nestjs/common';
+import { ProductsOps } from '@univarse/contracts';
+import { Contract } from '../../openapi/contract.js';
 import type { FastifyRequest } from 'fastify';
-import { ProductSetEnabledBody } from '@univarse/contracts';
 import { parse } from '../../shared/http/validate.js';
 import { CurrentTenant } from '../../shared/tenancy/tenant.guard.js';
 import type { TenantContext } from '../../shared/tenancy/tenant-resolver.service.js';
@@ -18,18 +19,21 @@ export class ProductsController {
   constructor(private readonly products: ProductService) {}
 
   /** Active products, for navigation. */
+  @Contract(ProductsOps.listActiveProducts)
   @Get('products')
   @Authenticated()
   async active(@CurrentTenant() tenant: TenantContext) {
     return { data: [...(await this.products.active(tenant.tenantId))].sort() };
   }
 
+  @Contract(ProductsOps.productsOverview)
   @Get('admin/products')
   @RequirePermission('settings.product.manage')
   async overview(@CurrentTenant() tenant: TenantContext) {
     return { data: await this.products.overview(tenant.tenantId) };
   }
 
+  @Contract(ProductsOps.setProductEnabled)
   @Put('admin/products/:product')
   @RequirePermission('settings.product.manage')
   async set(
@@ -39,6 +43,6 @@ export class ProductsController {
     @Body() body: unknown,
     @Req() req: FastifyRequest,
   ) {
-    return this.products.setEnabled(tenant, actor, product, parse(ProductSetEnabledBody, body).enabled, meta(req));
+    return this.products.setEnabled(tenant, actor, product, parse(ProductsOps.setProductEnabled.body, body).enabled, meta(req));
   }
 }

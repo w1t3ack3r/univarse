@@ -1,6 +1,7 @@
 import { Body, Controller, Delete, Get, HttpCode, Param, Post, Req, Res } from '@nestjs/common';
+import { FilesOps } from '@univarse/contracts';
+import { Contract } from '../../openapi/contract.js';
 import type { FastifyReply, FastifyRequest } from 'fastify';
-import { FileUploadRequestBody } from '@univarse/contracts';
 import { parse } from '../../shared/http/validate.js';
 import { CurrentTenant } from '../../shared/tenancy/tenant.guard.js';
 import type { TenantContext } from '../../shared/tenancy/tenant-resolver.service.js';
@@ -21,25 +22,29 @@ const meta = (req: FastifyRequest) => ({ ip: req.ip, userAgent: req.headers['use
 export class FilesController {
   constructor(private readonly files: FilesService) {}
 
+  @Contract(FilesOps.requestUpload)
   @Post('uploads')
   @RequirePermission('files.file.upload')
   @HttpCode(201)
   async requestUpload(@CurrentTenant() tenant: TenantContext, @CurrentActor() actor: Actor, @Body() body: unknown, @Req() req: FastifyRequest) {
-    return this.files.requestUpload(tenant, actor, parse(FileUploadRequestBody, body), meta(req));
+    return this.files.requestUpload(tenant, actor, parse(FilesOps.requestUpload.body, body), meta(req));
   }
 
+  @Contract(FilesOps.listFiles)
   @Get()
   @RequirePermission('files.file.read')
   async list(@CurrentTenant() tenant: TenantContext, @CurrentActor() actor: Actor) {
     return { data: await this.files.list(tenant, actor) };
   }
 
+  @Contract(FilesOps.getFile)
   @Get(':id')
   @RequirePermission('files.file.read')
   async view(@CurrentTenant() tenant: TenantContext, @CurrentActor() actor: Actor, @Param('id') id: string) {
     return this.files.view(tenant, actor, id);
   }
 
+  @Contract(FilesOps.completeUpload)
   @Post(':id/complete')
   @RequirePermission('files.file.upload')
   @HttpCode(200)
@@ -48,6 +53,7 @@ export class FilesController {
   }
 
   /** FU5/FU14: verified bytes only, as an attachment, never rendered by the browser. */
+  @Contract(FilesOps.downloadFile)
   @Get(':id/content')
   @RequirePermission('files.file.read')
   async content(
@@ -67,6 +73,7 @@ export class FilesController {
     return file.bytes;
   }
 
+  @Contract(FilesOps.deleteFile)
   @Delete(':id')
   @RequirePermission('files.file.delete')
   @HttpCode(204)

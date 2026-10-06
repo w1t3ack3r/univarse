@@ -18,7 +18,7 @@ import { base32Decode } from './modules/identity/totp.js';
 import { codeIn, createHarness, HOSTS, PASSWORD, randomIp, type Harness, type InjectResult } from './testing/int-harness.js';
 import { enrolTestTotp, resetReplayGuard, totpCode } from './testing/mfa-helpers.js';
 import { FileScanWorker } from './modules/files/file-scan.worker.js';
-import { LEAK_VICTIM, LeakyControlsController } from './testing/route-controls.js';
+import { CONTROL_ROUTES, LEAK_VICTIM, LeakyControlsController } from './testing/route-controls.js';
 import {
   captureRoutes,
   checkCollection,
@@ -823,6 +823,80 @@ describe('[RS1] route table from structured registrations', () => {
     for (const r of Object.keys(DECLS)) if (!served.has(r)) findings.push({ route: r, rule: 'RS1', detail: 'declared but not served' });
     expect(findings).toEqual([]);
     for (const [, d] of real) expect(d.prepare, 'every real route has an RS0 fixture').toBeDefined();
+  });
+});
+
+// Spec 0011 OA2: the committed OpenAPI document against the routes this app actually serves.
+type DocOp = { operationId: string; parameters?: { name: string; 'x-invalid': { status: number; code: string } }[] };
+const openapi = JSON.parse(readFileSync(new URL('../../../packages/api-client/openapi.json', import.meta.url), 'utf8')) as {
+  paths: Record<string, Record<string, DocOp>>;
+};
+const docOps = new Map<string, DocOp>(
+  Object.entries(openapi.paths).flatMap(([path, methods]) =>
+    Object.entries(methods).map(([m, op]) => [`${m.toUpperCase()} ${path.replace(/\{(\w+)\}/g, ':$1')}`, op] as const),
+  ),
+);
+
+describe('[OA2] the OpenAPI document covers exactly the routes the app serves', () => {
+  it('[OA2] served routes (Nest DiscoveryService, cross-checked with Fastify in RS1) minus the named controls = documented operations', () => {
+    const served: string[] = [...nestRoutes(app)].filter((r) => !(CONTROL_ROUTES as readonly string[]).includes(r));
+    const documented = [...docOps.keys()];
+    expect({ missingFromDoc: served.filter((r) => !docOps.has(r)), notServed: documented.filter((r) => !served.includes(r)) }).toEqual({
+      missingFromDoc: [],
+      notServed: [],
+    });
+    // The controls are served by this test app, and only by it.
+    for (const r of CONTROL_ROUTES) expect(nestRoutes(app).has(r), r).toBe(true);
+  });
+
+  // Fresh people per route, not the sweep's shared ones: each route is called fully authorized, and the
+  // shared users keep their rate-limit budget (step-up is limited per user).
+  const CALLERS: Record<string, { role: string; stepUp?: true; body?: unknown; headers?: Record<string, string> }> = {
+    'GET /api/v1/files/:id': { role: 'STUDENT' },
+    'POST /api/v1/files/:id/complete': { role: 'STUDENT' },
+    'GET /api/v1/files/:id/content': { role: 'STUDENT' },
+    'DELETE /api/v1/files/:id': { role: 'STUDENT' },
+    'GET /api/v1/settings/:key': { role: 'REGISTRAR' },
+    'PUT /api/v1/settings/:key': { role: 'REGISTRAR', body: { value: SETTING_A }, headers: { 'if-match': '"v0"' } },
+    'DELETE /api/v1/settings/:key': { role: 'REGISTRAR', headers: { 'if-match': '"v0"' } },
+    'PUT /api/v1/admin/products/:product': { role: 'INSTITUTION_ADMIN', stepUp: true, body: { enabled: true } },
+  };
+  const withParams = [...docOps].filter(([, op]) => (op.parameters?.length ?? 0) > 0).map(([k]) => k);
+
+  it('[OA2] every documented route with path parameters has a caller below (a new one must be added)', () => {
+    expect(Object.keys(CALLERS).sort()).toEqual([...withParams].sort());
+  });
+
+  it.each(withParams)(
+    '[OA2] %s: an invalid or unknown path value gets the documented status and code after authorization, never 400',
+    async (route) => {
+      const c = CALLERS[route]!;
+      const who = await mfaPerson('A', c.role);
+      const cookie = c.stepUp ? await stepUp(who) : who.session;
+      const [method, path] = route.split(' ') as [Method, string];
+      for (const p of docOps.get(route)!.parameters!) {
+        for (const bad of ['zz-not-valid', randomUUID()]) {
+          const url = path.replace(`:${p.name}`, encodeURIComponent(bad));
+          const res = await send({ method, host: A, url, cookie, ...(c.body === undefined ? {} : { body: c.body }), ...(c.headers ? { headers: c.headers } : {}) });
+          expect([res.statusCode, json(res).code], `${route} with ${p.name}=${bad}`).toEqual([p['x-invalid'].status, p['x-invalid'].code]);
+        }
+      }
+    },
+    60_000,
+  );
+
+  // Authorization order: the documented 404 is only reachable after authorization. The same invalid and
+  // unknown values with no credentials are 401, so an unauthenticated caller learns nothing about them.
+  it.each(withParams)('[OA2] %s: the same invalid or unknown path value without credentials is 401, not the 404', async (route) => {
+    const c = CALLERS[route]!;
+    const [method, path] = route.split(' ') as [Method, string];
+    for (const p of docOps.get(route)!.parameters!) {
+      for (const bad of ['zz-not-valid', randomUUID()]) {
+        const url = path.replace(`:${p.name}`, encodeURIComponent(bad));
+        const res = await send({ method, host: A, url, ...(c.body === undefined ? {} : { body: c.body }), ...(c.headers ? { headers: c.headers } : {}) });
+        expect([res.statusCode, json(res).code], `${route} with ${p.name}=${bad}, no session`).toEqual([401, 'auth.unauthenticated']);
+      }
+    }
   });
 });
 

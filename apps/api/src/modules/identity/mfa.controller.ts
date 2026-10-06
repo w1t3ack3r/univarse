@@ -1,6 +1,7 @@
 import { Body, Controller, HttpCode, Post, Req, Res } from '@nestjs/common';
+import { MfaOps } from '@univarse/contracts';
+import { Contract } from '../../openapi/contract.js';
 import type { FastifyReply, FastifyRequest } from 'fastify';
-import { MfaConfirmBody, MfaEnrolBody, MfaVerifyBody } from '@univarse/contracts';
 import { ProblemError } from '../../shared/errors/problem.js';
 import { withMinimumDuration } from '../../shared/http/timing.js';
 import { parse } from '../../shared/http/validate.js';
@@ -39,6 +40,7 @@ export class MfaController {
     }
   }
 
+  @Contract(MfaOps.verifyMfa)
   @Post('verify')
   @Public()
   @HttpCode(200)
@@ -48,7 +50,7 @@ export class MfaController {
     @Req() req: FastifyRequest,
     @Res({ passthrough: true }) reply: FastifyReply,
   ) {
-    const input = parse(MfaVerifyBody, body);
+    const input = parse(MfaOps.verifyMfa.body, body);
     await this.limit(`${tenant.tenantId}:mfa-verify:ip:${req.ip}`, 30, 900);
     const challenge = readSessionCookie(req.headers.cookie, CHALLENGE_COOKIE);
     const result = await withMinimumDuration(VERIFY_FLOOR_MS, async () => {
@@ -60,6 +62,7 @@ export class MfaController {
   }
 
   /** M9a/M9c/M9d. The response rotates the session; privileged users come back enrolment-only. */
+  @Contract(MfaOps.disableTotp)
   @Post('totp/disable')
   @Authenticated()
   @RequireStepUp()
@@ -76,6 +79,7 @@ export class MfaController {
   }
 
   /** M9a/M9b. */
+  @Contract(MfaOps.regenerateRecoveryCodes)
   @Post('recovery-codes/regenerate')
   @Authenticated()
   @RequireStepUp()
@@ -84,15 +88,17 @@ export class MfaController {
     return { recoveryCodes: await this.mfa.regenerateRecoveryCodes(tenant, actor, meta(req)) };
   }
 
+  @Contract(MfaOps.beginTotpEnrolment)
   @Post('totp/enrol')
   @Authenticated()
   @AllowRestricted()
   @HttpCode(200)
   async enrol(@CurrentTenant() tenant: TenantContext, @CurrentActor() actor: Actor, @Body() body: unknown) {
     await this.limit(`${tenant.tenantId}:mfa-enrol:user:${actor.userId}`, 5, 900);
-    return this.mfa.beginEnrolment(tenant, actor, parse(MfaEnrolBody, body).password);
+    return this.mfa.beginEnrolment(tenant, actor, parse(MfaOps.beginTotpEnrolment.body, body).password);
   }
 
+  @Contract(MfaOps.confirmTotpEnrolment)
   @Post('totp/confirm')
   @Authenticated()
   @AllowRestricted()
@@ -105,7 +111,7 @@ export class MfaController {
     @Res({ passthrough: true }) reply: FastifyReply,
   ) {
     await this.limit(`${tenant.tenantId}:mfa-confirm:user:${actor.userId}`, 10, 900);
-    const result = await this.mfa.confirmEnrolment(tenant, actor, parse(MfaConfirmBody, body).code, meta(req));
+    const result = await this.mfa.confirmEnrolment(tenant, actor, parse(MfaOps.confirmTotpEnrolment.body, body).code, meta(req));
     void reply.header('set-cookie', sessionCookie(result.token, result.maxAgeSec));
     // Shown exactly once (M3). The client must make the user save them.
     return { recoveryCodes: result.recoveryCodes };
