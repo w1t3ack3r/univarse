@@ -1,4 +1,6 @@
 import { Controller, Get, HttpCode, Inject, Logger } from '@nestjs/common';
+import { HealthOps } from '@univarse/contracts';
+import { Contract } from '../../openapi/contract.js';
 import type { PlatformClient } from '@univarse/db';
 import { ProblemError } from '../../shared/errors/problem.js';
 import { PLATFORM_DB, ShardRegistry } from '../../shared/db/db.module.js';
@@ -18,11 +20,13 @@ export class HealthController {
     private readonly shards: ShardRegistry,
   ) {}
 
+  @Contract(HealthOps.live)
   @Get('live')
   live() {
     return { status: 'ok' };
   }
 
+  @Contract(HealthOps.ready)
   @Get('ready')
   @HttpCode(200)
   async ready() {

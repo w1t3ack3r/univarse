@@ -1,0 +1,10 @@
+{
+  "name": "@univarse/api-client",
+  "version": "0.0.0",
+  "private": true,
+  "description": "The API's OpenAPI document (generated, spec 0011) and, from step 4, the typed client.",
+  "type": "module",
+  "exports": {
+    "./openapi.json": "./openapi.json"
+  }
+}

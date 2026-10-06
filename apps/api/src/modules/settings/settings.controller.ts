@@ -1,6 +1,7 @@
 import { Body, Controller, Delete, Get, Param, Put, Req, Res } from '@nestjs/common';
+import { SettingsOps } from '@univarse/contracts';
+import { Contract } from '../../openapi/contract.js';
 import type { FastifyReply, FastifyRequest } from 'fastify';
-import { SettingWriteBody } from '@univarse/contracts';
 import { etagOf } from '../../shared/http/etag.js';
 import { parse } from '../../shared/http/validate.js';
 import { CurrentTenant } from '../../shared/tenancy/tenant.guard.js';
@@ -21,12 +22,14 @@ const meta = (req: FastifyRequest) => ({ ip: req.ip, userAgent: req.headers['use
 export class SettingsController {
   constructor(private readonly settings: SettingsService) {}
 
+  @Contract(SettingsOps.listSettings)
   @Get()
   @RequirePermission('settings.tenant.view')
   async list(@CurrentTenant() tenant: TenantContext, @CurrentActor() actor: Actor) {
     return { data: await this.settings.list(tenant, actor) };
   }
 
+  @Contract(SettingsOps.getSetting)
   @Get(':key')
   @RequirePermission('settings.tenant.view')
   async get(
@@ -40,6 +43,7 @@ export class SettingsController {
     return view;
   }
 
+  @Contract(SettingsOps.putSetting)
   @Put(':key')
   @RequirePermission('settings.tenant.view')
   async put(
@@ -50,13 +54,14 @@ export class SettingsController {
     @Req() req: FastifyRequest,
     @Res({ passthrough: true }) reply: FastifyReply,
   ) {
-    const { value } = parse(SettingWriteBody, body);
+    const { value } = parse(SettingsOps.putSetting.body, body);
     const view = await this.settings.update(tenant, actor, key, value, req.headers['if-match'], meta(req));
     void reply.header('etag', etagOf(view.version));
     return view;
   }
 
   /** ST7: reset to the default. */
+  @Contract(SettingsOps.resetSetting)
   @Delete(':key')
   @RequirePermission('settings.tenant.view')
   async reset(

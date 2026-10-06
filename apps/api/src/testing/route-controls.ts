@@ -12,6 +12,12 @@ import type { TenantContext } from '../shared/tenancy/tenant-resolver.service.js
 import { Authenticated } from '../modules/identity/access.guard.js';
 import { Product } from '../modules/products/product.guard.js';
 
+/**
+ * The only routes the OpenAPI document leaves out (spec 0011 OA2), by name. They exist only in the
+ * route sweep's test app; the test asserts they are not in the production controller list.
+ */
+export const CONTROL_ROUTES = ['GET /api/v1/__test/leaky-user/:id', 'GET /api/v1/__test/leaky-users'] as const;
+
 export const LEAK_VICTIM = Symbol('LEAK_VICTIM');
 export interface LeakVictim {
   readonly tenantId: string;

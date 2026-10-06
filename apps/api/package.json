@@ -12,6 +12,7 @@
     "start": "node --enable-source-maps dist/main.js",
     "start:worker": "node --enable-source-maps dist/worker.js",
     "keys": "node --enable-source-maps dist/cli/keys.js",
+    "openapi": "node --enable-source-maps dist/cli/openapi.js",
     "test": "vitest run",
     "test:int": "vitest run --config vitest.int.config.ts"
   },

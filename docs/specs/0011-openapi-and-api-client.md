@@ -137,6 +137,57 @@ docs/02 and docs/06 already promise an OpenAPI document generated from zod, and 
   - **`SettingWriteBody.value` is `unknown`**, because each key validates its own value in the use case and returns `422 settings.invalid_value`. It converts to `{}`, which OA3 refuses. Step 2 must document the body per key without moving that check into the request schema, which would turn today's 422 into a 400.
   - **Path parameters** (`:id`, `:key`, `:product`) are not zod-validated today; the use cases check them. Step 2 declares their schemas for the document.
 
+### Step 2: `@Contract` and the generator (2026-10-06)
+- **Declarations.** `packages/contracts/src/api/operations.ts` holds one operation per route, grouped by module (`AuthOps`, `MfaOps`, `FilesOps`, …). Every handler carries `@Contract(<Group>.<op>)`, and the handlers that take a body parse it with that same operation's `body`.
+  - A unit test reads each controller and fails if any `parse` call uses a schema other than its own `@Contract`'s.
+- **The generator** (`apps/api/src/openapi/document.ts`) is pure. It reads the decorator metadata of `API_CONTROLLERS`, the list `AppModule.forRoot` serves.
+  - **Access rules:** access kind, step-up and enrolment-only come from `routeAccess()`, which reads the guard's own metadata with the guard's precedence. Step-up uses the guard's `requiresStepUp` for catalog-flagged permissions.
+  - **Tenant and product:** `@NoTenant` and `@Product`, read as the guards read them.
+  - **No services needed:** nothing is instantiated, so `pnpm contracts:gen` runs without the database, Valkey or Vault.
+  - **Where `DiscoveryService` comes in:** the integration test (below) compares the result with the routes the real app serves, using Nest's `DiscoveryService` cross-checked against Fastify's own registrations.
+- **The document** is `packages/api-client/openapi.json`: OpenAPI 3.1.1, JSON Schema 2020-12, **30 operations**.
+  - **Requests:** request bodies and path parameters. Response schemas, headers and errors come in step 3.
+  - **Security:** schemes `session` and `mfaChallenge`; `x-no-tenant` on the health routes.
+  - **Extensions:** `x-product`, `x-permission`, `x-step-up`, `x-allow-restricted`, `x-rate-limit`, `x-csrf` and `x-cookies`.
+  - **`x-rate-limit` is declared in the contract,** because no decorator records rate limits; the use cases apply them.
+- **Settings, one operation for all keys:**
+  - **The `key` parameter** is an enum of the registry's keys.
+  - **The body** keeps the strict envelope; `value` is an `anyOf` of one component per key (`SettingValue.<key>`), each converted from **that key's registry schema**, the object the use case validates with.
+  - **`x-value-by-key`** maps each key to its value shape, because a body union alone can't say which value goes with which path key. **`x-permission-by-key`** lists each key's own manage permission and its step-up.
+  - **The value check is unchanged:** it stays in the use case, so a wrong value is still `422 settings.invalid_value`.
+  - **For step 4:** the typed client's settings helper carries the same key → value relationship, using `SettingValue<K>`.
+- **Path parameters document today's checks, and add none:**
+
+  | Parameter | What it's checked against | Invalid or unknown value |
+  |---|---|---|
+  | `files/{id}` | Must be a UUID (`format: uuid`) | `404 resource.not_found` |
+  | `admin/products/{product}` | Enum of product keys | `404 resource.not_found` |
+  | `settings/{key}` | Enum of setting keys | `404 settings.unknown_key` |
+
+  - Each parameter states its 404 as `x-invalid`. Schemas are documentation only: nothing validates the path before the guards or the use case.
+- **Refinements are not in the document.** zod's conversion drops refinements; they don't become `{}`, and they are still enforced at run time:
+  - step-up's "code or recovery code, never both";
+  - the unit-limits rule `min ≤ max`.
+- **Tests:**
+
+  | Kind | What they cover |
+  |---|---|
+  | 21 unit (`openapi/document.spec.ts`) | target versions; the committed file equals a fresh build (stale check); route sets; the named control routes; refusing a route without a contract, a parameter mismatch, an unrepresentable schema and an empty schema (with its JSON pointer); bodies equal their validators; strict bodies; the settings key → value tie and per-key permissions; security; step-up; enrolment-only; tenantless health; CSRF on exactly the unsafe operations |
+  | 10 integration (route sweep) | the routes the app serves minus `CONTROL_ROUTES` equal the document's; every documented parameterised route has a caller; for all 8 such routes, a malformed and an unknown value each get exactly the documented 404 and code, called fully authorized by a fresh user and never 400 |
+
+  API integration: 313 passed, 1 opt-in skipped.
+- **Mutations caught (6):**
+  - a handler without `@Contract` (generation refused, naming the route);
+  - a body changed without regenerating;
+  - `@AllowRestricted` removed from logout;
+  - a controller parsing with another operation's schema;
+  - a malformed file id answered 400 instead of 404;
+  - `@RequireStepUp` removed from TOTP disable.
+- **Found while building:**
+  - **The generator crashed on a parameter mismatch.** It threw a `TypeError` instead of reporting the problem; a negative-control test found it, and it now reports and continues.
+  - **`GET /admin/products` requires step-up.** Its permission, `settings.product.manage`, is step-up-flagged, so the document says so and the web app wraps the call in `withStepUp`.
+- **The stale check runs from now on.** OA9's comparison of the committed file with a fresh build is already a unit test, so CI fails on a stale `openapi.json` from this step. The separate `git diff` gate on the generated client types comes with step 5.
+
 ## Out of scope (tracked)
 | Gap | Milestone |
 |---|---|

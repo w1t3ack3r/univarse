@@ -18,7 +18,7 @@ pnpm test               # unit
 pnpm test:int           # integration (Testcontainers)
 pnpm test:e2e           # Playwright
 pnpm rls:check          # RLS/tenant_id checker — must pass
-pnpm contracts:gen      # regenerate OpenAPI + api-client after contract changes
+pnpm contracts:gen      # regenerate packages/api-client/openapi.json after contract/route changes (a unit test fails if stale)
 ```
 Local tenant URL: `http://demo-uni.univarse.localhost:3000`
 

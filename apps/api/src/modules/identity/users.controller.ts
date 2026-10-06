@@ -1,4 +1,6 @@
 import { Controller, Get } from '@nestjs/common';
+import { UsersOps } from '@univarse/contracts';
+import { Contract } from '../../openapi/contract.js';
 import { ShardRegistry } from '../../shared/db/db.module.js';
 import { CurrentTenant } from '../../shared/tenancy/tenant.guard.js';
 import type { TenantContext } from '../../shared/tenancy/tenant-resolver.service.js';
@@ -11,6 +13,7 @@ export class UsersController {
   constructor(private readonly shards: ShardRegistry) {}
 
   /** First permission-protected endpoint. Explicit field selection: never return hashes. */
+  @Contract(UsersOps.listUsers)
   @Get()
   @RequirePermission('identity.user.view')
   async list(@CurrentTenant() tenant: TenantContext) {

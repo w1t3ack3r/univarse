@@ -15,7 +15,7 @@ import { canInstitutionWide, hasFreshStepUp, isPrivileged, requiresStepUp, type 
 import { readSessionCookie, SessionService } from './session.service.js';
 
 const ACCESS = 'univarse:access';
-type Access = { kind: 'public' } | { kind: 'authenticated' } | { kind: 'permission'; permission: Permission };
+export type Access = { kind: 'public' } | { kind: 'authenticated' } | { kind: 'permission'; permission: Permission };
 
 /** Anyone on the tenant host (login, activation, public profile). */
 export const Public = () => SetMetadata(ACCESS, { kind: 'public' } satisfies Access);
@@ -31,6 +31,15 @@ export const AllowRestricted = () => SetMetadata(ALLOW_RESTRICTED, true);
 /** Signed-in member holding the permission institution-wide. */
 export const RequirePermission = (permission: Permission) =>
   SetMetadata(ACCESS, { kind: 'permission', permission } satisfies Access);
+
+/**
+ * What AccessGuard will enforce for a handler, read from the same metadata with the same precedence
+ * (handler over class). Used by the OpenAPI generator (spec 0011 OA5), so the document can't drift.
+ */
+export function routeAccess(handler: object, controller: object): { access: Access | undefined; explicitStepUp: boolean; allowRestricted: boolean } {
+  const read = (key: string): unknown => Reflect.getMetadata(key, handler) ?? Reflect.getMetadata(key, controller);
+  return { access: read(ACCESS) as Access | undefined, explicitStepUp: read(REQUIRE_STEP_UP) === true, allowRestricted: read(ALLOW_RESTRICTED) === true };
+}
 
 declare module 'fastify' {
   interface FastifyRequest {
