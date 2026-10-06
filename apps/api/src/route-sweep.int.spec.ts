@@ -35,7 +35,9 @@ const A = HOSTS.demo;
 const B = HOSTS.poly;
 const PAUSED = 'paused-uni.univarse.localhost';
 const run = randomBytes(3).toString('hex').toUpperCase();
-const OTHER_PASSWORD = 'Other-Tenant-Password-7';
+// Random per run: no credential literal in the repo (gitleaks), still meets the password policy.
+const pw = (tag: string) => `${tag}-${randomBytes(9).toString('base64url')}-7a`;
+const OTHER_PASSWORD = pw('Other');
 
 let h: Harness;
 let app: NestFastifyApplication;
@@ -280,7 +282,7 @@ const DECLS: Record<RouteKey, Decl> = {
       expectStatus(await send({ method: 'POST', host: A, url: '/api/v1/auth/activation/request', body: { username: u.username } }), 202);
       const code = codeIn(await h.waitForMail(u.email, /activation code/, 0));
       return {
-        req: { method: 'POST', host: A, url: '/api/v1/auth/activation/confirm', body: { username: u.username, code, password: 'Fresh-Activation-Pass-3' } },
+        req: { method: 'POST', host: A, url: '/api/v1/auth/activation/confirm', body: { username: u.username, code, password: pw('Act') } },
         verify: async (r) => {
           expectStatus(r, 204);
           expect((await db('A').userAccount.findUniqueOrThrow({ where: { id: u.id } })).status).toBe('ACTIVE');
@@ -316,7 +318,7 @@ const DECLS: Record<RouteKey, Decl> = {
       const code = codeIn(await h.waitForMail(u.email, /password reset code/, 0));
       const hashBefore = (await db('A').userAccount.findUniqueOrThrow({ where: { id: u.id } })).passwordHash;
       return {
-        req: { method: 'POST', host: A, url: '/api/v1/auth/password-reset/confirm', body: { username: u.username, code, password: 'Fresh-Reset-Pass-4' } },
+        req: { method: 'POST', host: A, url: '/api/v1/auth/password-reset/confirm', body: { username: u.username, code, password: pw('Reset') } },
         verify: async (r) => {
           expectStatus(r, 204);
           expect((await db('A').userAccount.findUniqueOrThrow({ where: { id: u.id } })).passwordHash).not.toEqual(hashBefore);
@@ -951,9 +953,9 @@ describe('[RS7] account actions stay with their account and tenant', () => {
       await h.deliver();
       expect(h.mailsTo(uB.email)).toHaveLength(0);
       expect(await db('B').outboxEvent.count()).toBe(bOutbox);
-      const onB = await send({ method: 'POST', host: B, url: `/api/v1/auth/${kind}/confirm`, body: { username: name, code, password: 'Never-On-B-Host-5' } });
+      const onB = await send({ method: 'POST', host: B, url: `/api/v1/auth/${kind}/confirm`, body: { username: name, code, password: pw('NotB') } });
       expect([onB.statusCode, json(onB).code]).toEqual([400, kind === 'activation' ? 'auth.activation_invalid' : 'auth.reset_invalid']);
-      const ok = await send({ method: 'POST', host: A, url: `/api/v1/auth/${kind}/confirm`, body: { username: name, code, password: 'Only-On-A-Host-6' } });
+      const ok = await send({ method: 'POST', host: A, url: `/api/v1/auth/${kind}/confirm`, body: { username: name, code, password: pw('OnlyA') } });
       expect(ok.statusCode).toBe(204);
       expect(await accountState('B', uB.id)).toBe(bState);
       count('RS7 account checks');
