@@ -46,7 +46,7 @@ docs/02 and docs/06 already promise an OpenAPI document generated from zod, and 
 - **Binary download:** `GET /files/{id}/content` returns the bytes with the detected type, `content-length`, `content-disposition: attachment` and the sandbox CSP. The web app links to it with an `<a href>`, not with `fetch`.
 - **Not part of the API's contract:** the presigned POST goes **to storage**, not the API. Only the slot response that carries its URL and fields is.
 - **Web call sites:**
-  - client side, 17 calls in 10 files through `lib/client-api.ts`;
+  - client side, 17 calls in 9 files through `lib/client-api.ts`;
   - server side, 8 calls through `lib/server-api.ts`, GET only;
   - every response type is hand-written.
 - **Version skew:** `apps/api` declares `zod ^4.1.0` and `packages/contracts` declares `^4.6.5`. One version must be resolved before schemas are shared.
