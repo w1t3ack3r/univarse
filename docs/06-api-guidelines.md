@@ -111,8 +111,10 @@ GET  /api/v1/jobs/{jobId}/events  (SSE, optional)
 
 ## 9. Files
 
-- Upload: `POST /files/uploads` → returns a **presigned PUT URL** + `fileId` (size/type limits embedded) → client uploads directly to storage → `POST /files/{id}/complete` → async scan → the file is usable only when `scanStatus=CLEAN`.
-- Download: `GET /files/{id}/download` → authorization check → `302` to a presigned GET URL (TTL ≤ 5 min, `Content-Disposition: attachment` for user content).
+Built in [spec 0010](specs/0010-file-uploads.md).
+- **Upload:** `POST /files/uploads` reserves quota atomically and returns a **presigned POST**: one fixed key, type, `content-length-range` up to the declared size, 5-minute TTL. The client posts directly to storage, then calls `POST /files/{id}/complete`. A worker scans the file, and it is usable only once `state=CLEAN`. (The backend's enforcement of `content-length-range` is a contract test; if it fails, uploads go through the API instead.)
+- **Download:** `GET /files/{id}/content` is **authenticated**, and re-checks session, permission, ownership and state on every request. The bytes are read with the recorded size as a bound and their SHA-256 verified **before** any byte is sent. They are served as `attachment` under the API's sandboxed CSP.
+- **No presigned GET URLs.** They are bearer URLs: they can't follow permission changes, and revoking them means revoking their signing credentials. Adding them needs its own spec that tests the backend's actual behaviour.
 
 ## 10. Documentation & client generation
 

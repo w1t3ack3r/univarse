@@ -17,6 +17,7 @@ import { hashPassword } from './modules/identity/password.js';
 import { base32Decode } from './modules/identity/totp.js';
 import { codeIn, createHarness, HOSTS, PASSWORD, randomIp, type Harness, type InjectResult } from './testing/int-harness.js';
 import { enrolTestTotp, resetReplayGuard, totpCode } from './testing/mfa-helpers.js';
+import { FileScanWorker } from './modules/files/file-scan.worker.js';
 import { LEAK_VICTIM, LeakyControlsController } from './testing/route-controls.js';
 import {
   captureRoutes,
@@ -194,7 +195,42 @@ const SETTING_B = { min: 2, max: 59 };
 const ETAG = async (cookie: string) => String((await send({ method: 'GET', host: A, url: '/api/v1/settings/registration.unitLimits', cookie })).headers.etag);
 
 /** B's names that must never appear through A. */
-const bMarkers = () => [marker.userB, '"max":59', 'Test State Polytechnic', tenant.B];
+const bMarkers = () => [marker.userB, '"max":59', 'Test State Polytechnic', tenant.B, FILE_B_NAME];
+
+// Files (spec 0010 FU2): A's Registrar owns A's files; a second A user and B's Registrar own others.
+const FILE_A_NAME = `00FA${run}.pdf`;
+const FILE_B_NAME = `00FB${run}.pdf`;
+const pdfBytes = (tag: string) => Buffer.from(`%PDF-1.4\n% ${tag} ${randomBytes(6).toString('hex')}\n%%EOF\n`);
+let fileA = '';
+let fileA2 = '';
+let fileB = '';
+let scanner: FileScanWorker;
+
+/** Upload through the real flow (slot → presigned POST → complete) and scan it; returns the id. */
+async function uploadFile(p: Person, name: string, opts: { complete?: boolean; scan?: boolean } = {}): Promise<string> {
+  const bytes = pdfBytes(name);
+  const res = await send({ method: 'POST', host: p.host, url: '/api/v1/files/uploads', cookie: p.session, body: { name, mime: 'application/pdf', sizeBytes: bytes.length } });
+  expectStatus(res, 201);
+  const slot = json(res) as { file: { id: string }; upload: { url: string; fields: Record<string, string> } };
+  const form = new FormData();
+  for (const [k, v] of Object.entries(slot.upload.fields)) form.append(k, v);
+  form.append('file', new Blob([bytes], { type: 'application/pdf' }), 'upload');
+  expect((await fetch(slot.upload.url, { method: 'POST', body: form })).status).toBe(204);
+  if (opts.complete === false) return slot.file.id;
+  expectStatus(await send({ method: 'POST', host: p.host, url: `/api/v1/files/${slot.file.id}/complete`, cookie: p.session }), 200);
+  if (opts.scan !== false) {
+    const ref = { id: tenant[p.t], shardId };
+    for (let i = 0; i < 3; i++) {
+      await scanner.scanTenant(ref);
+      if ((await db(p.t).fileObject.findUniqueOrThrow({ where: { id: slot.file.id } })).state === 'CLEAN') break;
+    }
+  }
+  return slot.file.id;
+}
+const fileState = async (t: 'A' | 'B', id: string) =>
+  JSON.stringify(await db(t).fileObject.findUniqueOrThrow({ where: { id }, select: { state: true, reservedBytes: true, cleanKey: true, deletedAt: true } }), (_k, v: unknown) =>
+    typeof v === 'bigint' ? v.toString() : v,
+  );
 
 // ---------------------------------------------------------------------------------------------------
 // Route declarations: authentication kind, isolation classes, and the exact legitimate fixture (RS0)
@@ -608,6 +644,97 @@ const DECLS: Record<RouteKey, Decl> = {
     },
   },
 
+  // Files (spec 0010): one creation route, one collection, four resource routes (RS6, FU2).
+  'POST /api/v1/files/uploads': {
+    auth: 'session',
+    classes: ['self'],
+    strictBody: true,
+    skeleton: (cookie) => ({ method: 'POST', host: A, url: '/api/v1/files/uploads', ...(cookie ? { cookie } : {}), body: { name: 'x.pdf', mime: 'application/pdf', sizeBytes: 10 } }),
+    prepare: () => ({
+      req: { method: 'POST', host: A, url: '/api/v1/files/uploads', cookie: regA.session, body: { name: 'slot.pdf', mime: 'application/pdf', sizeBytes: 42 } },
+      verify: async (r) => {
+        expectStatus(r, 201);
+        const body = json(r) as { file: { id: string; state: string }; upload: { url: string } };
+        expect(body.file.state).toBe('PENDING_UPLOAD');
+        expect(body.upload.url).toMatch(/^http/);
+        expect(await db('A').fileObject.findUniqueOrThrow({ where: { id: body.file.id } })).toMatchObject({ reservedBytes: 42n, uploadedById: regA.id });
+      },
+    }),
+  },
+
+  'GET /api/v1/files': {
+    auth: 'session',
+    classes: ['collection'],
+    skeleton: (cookie) => ({ method: 'GET', host: A, url: '/api/v1/files', ...(cookie ? { cookie } : {}) }),
+    prepare: () => ({
+      req: { method: 'GET', host: A, url: '/api/v1/files', cookie: regA.session },
+      verify: (r) => {
+        expectStatus(r, 200);
+        expect(checkCollection('GET /api/v1/files', json(r), [FILE_A_NAME], bMarkers())).toEqual([]);
+      },
+    }),
+  },
+
+  'GET /api/v1/files/:id': {
+    auth: 'session',
+    classes: ['resource'],
+    skeleton: (cookie) => ({ method: 'GET', host: A, url: `/api/v1/files/${randomUUID()}`, ...(cookie ? { cookie } : {}) }),
+    prepare: () => ({
+      req: { method: 'GET', host: A, url: `/api/v1/files/${fileA}`, cookie: regA.session },
+      verify: (r) => {
+        expectStatus(r, 200);
+        expect(json(r)).toMatchObject({ id: fileA, name: FILE_A_NAME, state: 'CLEAN' });
+      },
+    }),
+  },
+
+  'POST /api/v1/files/:id/complete': {
+    auth: 'session',
+    classes: ['resource'],
+    skeleton: (cookie) => ({ method: 'POST', host: A, url: `/api/v1/files/${randomUUID()}/complete`, ...(cookie ? { cookie } : {}) }),
+    prepare: async () => {
+      const id = await uploadFile(regA, `complete-${randomBytes(3).toString('hex')}.pdf`, { complete: false });
+      return {
+        req: { method: 'POST', host: A, url: `/api/v1/files/${id}/complete`, cookie: regA.session },
+        verify: async (r) => {
+          expectStatus(r, 200);
+          expect(json(r)).toMatchObject({ id, state: 'UPLOADED' });
+          expect((await db('A').fileObject.findUniqueOrThrow({ where: { id } })).state).toBe('UPLOADED');
+        },
+      };
+    },
+  },
+
+  'GET /api/v1/files/:id/content': {
+    auth: 'session',
+    classes: ['resource'],
+    skeleton: (cookie) => ({ method: 'GET', host: A, url: `/api/v1/files/${randomUUID()}/content`, ...(cookie ? { cookie } : {}) }),
+    prepare: () => ({
+      req: { method: 'GET', host: A, url: `/api/v1/files/${fileA}/content`, cookie: regA.session },
+      verify: (r) => {
+        expectStatus(r, 200);
+        expect(r.headers['content-type']).toBe('application/pdf');
+        expect(r.rawPayload.subarray(0, 5).toString()).toBe('%PDF-');
+      },
+    }),
+  },
+
+  'DELETE /api/v1/files/:id': {
+    auth: 'session',
+    classes: ['resource'],
+    skeleton: (cookie) => ({ method: 'DELETE', host: A, url: `/api/v1/files/${randomUUID()}`, ...(cookie ? { cookie } : {}) }),
+    prepare: async () => {
+      const id = await uploadFile(regA, `delete-${randomBytes(3).toString('hex')}.pdf`);
+      return {
+        req: { method: 'DELETE', host: A, url: `/api/v1/files/${id}`, cookie: regA.session },
+        verify: async (r) => {
+          expectStatus(r, 204);
+          expect(await db('A').fileObject.findUniqueOrThrow({ where: { id } })).toMatchObject({ state: 'DELETED', reservedBytes: 0n });
+        },
+      };
+    },
+  },
+
   // Synthetic negative controls (RS8). Registered only in this test app.
   'GET /api/v1/__test/leaky-user/:id': { auth: 'session', classes: ['resource'], control: true },
   'GET /api/v1/__test/leaky-users': { auth: 'session', classes: ['collection'], control: true },
@@ -646,6 +773,10 @@ beforeAll(async () => {
   adminA = await mfaPerson('A', 'INSTITUTION_ADMIN');
   regA = await mfaPerson('A', 'REGISTRAR');
   regB = await mfaPerson('B', 'REGISTRAR');
+  scanner = h.workerCtx.get(FileScanWorker);
+  fileA = await uploadFile(regA, FILE_A_NAME);
+  fileA2 = await uploadFile(await mfaPerson('A', 'STUDENT'), `00FA2${run}.pdf`);
+  fileB = await uploadFile(regB, FILE_B_NAME);
 
   // Keyed markers: A's setting through the API, B's directly (B has no Academics, so no API for it).
   const cookie = await stepUp(regA);
@@ -672,7 +803,7 @@ afterAll(async () => {
   process.stdout.write(
     `\n[route-sweep] routes discovered: ${String(fastifyRoutes.size)} Fastify registrations ` +
       `(${String(nestCount)} declared in Nest) | real routes swept: ${String(real.length)} | coverage: ${JSON.stringify(coverage)} | ` +
-      `real resource routes: ${realResources === 0 ? 'N/A: 0 routes' : String(realResources)}\n`,
+      `real resource routes: ${realResources === 0 ? 'N/A: 0 routes' : String(realResources)} (plus 2 synthetic controls)\n`,
   );
 });
 
@@ -767,7 +898,7 @@ describe('[RS2] credentials by kind, exact answers', () => {
     for (const [route, d] of real) {
       if (d.auth === 'none') continue;
       const [method, url] = route.split(' ') as [Method, string];
-      const concrete = url.replace(':key', 'registration.unitLimits').replace(':product', 'bursary');
+      const concrete = url.replace(':key', 'registration.unitLimits').replace(':product', 'bursary').replace(':id', randomUUID());
       const res = await send({ method, host: PAUSED, url: concrete, ...(method !== 'GET' ? { body: {} } : {}) });
       expect([route, res.statusCode, json(res).code]).toEqual([route, 423, 'tenant.suspended']);
       count('RS2 suspended-host probes');
@@ -829,8 +960,28 @@ describe('[RS5] keyed items are per tenant', () => {
 });
 
 describe('[RS6][RS8] resources by id, and the negative controls', () => {
-  it('[RS6] real resource routes: N/A: 0 routes (reported separately from the controls)', () => {
-    expect(real.filter(([, d]) => d.classes.includes('resource'))).toEqual([]);
+  const resourceRoutes = real.filter(([, d]) => d.classes.includes('resource')).map(([k]) => k);
+
+  it('[RS6] real resource routes exist now (spec 0010 FU2), reported separately from the controls', () => {
+    expect(resourceRoutes.sort()).toEqual(['DELETE /api/v1/files/:id', 'GET /api/v1/files/:id', 'GET /api/v1/files/:id/content', 'POST /api/v1/files/:id/complete']);
+  });
+
+  it.each(resourceRoutes)('[RS6] %s: B’s id and another user’s id answer exactly like a nonexistent id; nothing changes', async (route) => {
+    const [method, path] = route.split(' ') as [Method, string];
+    const call = (id: string) => send({ method, host: A, url: path.replace(':id', id), cookie: regA.session });
+    // The record reference is supplied only in the path (declared location).
+    const bBefore = await fileState('B', fileB);
+    const a2Before = await fileState('A', fileA2);
+    const missing = await call(randomUUID());
+    for (const [label, id] of [['otherTenant', fileB], ['sameTenantOtherUser', fileA2]] as const) {
+      const answer = await call(id);
+      const findings = checkResource(route, `path (${label})`, { own: { status: 200, body: {} }, otherTenant: { status: answer.statusCode, body: json(answer) }, missing: { status: missing.statusCode, body: json(missing) } }, FILE_B_NAME);
+      expect(findings).toEqual([]);
+      expect([answer.statusCode, json(answer).code]).toEqual([404, 'resource.not_found']);
+    }
+    expect(await fileState('B', fileB)).toBe(bBefore);
+    expect(await fileState('A', fileA2)).toBe(a2Before);
+    count('RS6 real resource checks');
   });
 
   it('[RS8][RS6] the leaky resource control really leaks, and the sweep reports exactly that leak', async () => {

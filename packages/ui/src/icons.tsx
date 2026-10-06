@@ -124,6 +124,23 @@ export const Sliders = (p: IconProps) => (
     <circle cx="9" cy="17" r="2" />
   </Icon>
 );
+export const FileText = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M14 3.5H7.5A1.5 1.5 0 0 0 6 5v14a1.5 1.5 0 0 0 1.5 1.5h9A1.5 1.5 0 0 0 18 19V7.5L14 3.5Z" />
+    <path d="M14 3.5V7.5h4M9 12h6M9 15.5h6" />
+  </Icon>
+);
+export const Upload = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M12 15V4.5M7.5 9 12 4.5 16.5 9M5 15.5V18a1.5 1.5 0 0 0 1.5 1.5h11A1.5 1.5 0 0 0 19 18v-2.5" />
+  </Icon>
+);
+export const ShieldAlert = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M12 3.5 5 6v5.5c0 4.2 2.9 7.4 7 9 4.1-1.6 7-4.8 7-9V6l-7-2.5Z" />
+    <path d="M12 8.5v4M12 15.75v.01" />
+  </Icon>
+);
 export const LogOut = (p: IconProps) => (
   <Icon {...p}>
     <path d="M14.5 4.5h3a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2h-3M10 16.5 5.5 12 10 7.5M5.5 12H15" />

@@ -253,3 +253,29 @@ Alternatives considered: option — why not.
 - **The developer machine is the only copy** of local Vault keys and data. It holds synthetic data only, never real personal data.
 - **Docker needs about 8 GB** once ClamAV and Gotenberg run.
 
+## ADR-025 — SeaweedFS as the local and CI S3-compatible store (MinIO is unmaintained)
+**Status:** Accepted (2026-10-06). Resolves the S3 row ADR-015 deferred ("Evaluate MinIO vs Garage/SeaweedFS", milestone: files module).
+
+**Context:** The blueprint named MinIO for local object storage. On 2026-10-06 its open-source server repository (`minio/minio`) is **archived** and marked unmaintained; LocalStack's repository is archived too. Production uses a managed S3-compatible service ([10](10-infrastructure-and-deployment.md)), so the local store only has to speak the S3 API faithfully enough to exercise our code. It must also be maintained, small, and suitable for CI.
+
+**Options checked** (GitHub, 2026-10-06):
+
+| Option | Licence | Status | Releases | Notes |
+|---|---|---|---|---|
+| **SeaweedFS** | Apache-2.0 | Active | 4.48 (2026-09-28), 4.47, 4.46: every 1–2 weeks | Single container with an S3 gateway, years of production use. Image `chrislusf/seaweedfs:4.48`, 92 MB compressed |
+| Garage | AGPL-3.0 | Active | Published on its own forge | Built for geo-distributed small clusters |
+| RustFS | Apache-2.0 | Active | 1.0.0 (2026-09-16), 1.0.1 | Young: 1.0 three weeks old |
+| versitygw | Apache-2.0 | Active | v1.8.0 (2026-09-04) | A gateway over a filesystem |
+| Zenko CloudServer | Apache-2.0 | Active | 9.4.7 (2026-10-05) | Heavier, Node-based |
+| MinIO | AGPL-3.0 | **Archived** | n/a | Rejected |
+
+**Decision:**
+- **SeaweedFS** (`chrislusf/seaweedfs`, pinned tag, then by digest per [09](09-container-security.md)) runs in dev Compose and as a CI service, S3 gateway only, bound to `127.0.0.1`.
+- **Nothing may depend on a SeaweedFS-specific behaviour.** The upload design ([spec 0010](specs/0010-file-uploads.md)) is safe even if the backend enforces none of the optional S3 safeguards: conditional writes, signed `Content-Length`, presigned expiry.
+- **Storage contract tests** record what the backend actually does. They are re-run against the production provider before staging.
+
+**Consequences:**
+- The docs that named MinIO now name SeaweedFS: 02, 09, 10, 12, 18 and `CLAUDE.md`.
+- Behaviour differences between SeaweedFS and the production provider are caught by the contract tests, not assumed away.
+- Re-evaluate if SeaweedFS stops releasing. The S3 API keeps a swap cheap.
+

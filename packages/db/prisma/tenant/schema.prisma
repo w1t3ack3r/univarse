@@ -388,11 +388,44 @@ model FileObject {
   ownerId        String?    @map("owner_id") @db.Uuid
   uploadedById   String?    @map("uploaded_by_id") @db.Uuid
   createdAt      DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
+  /// Spec 0010 lifecycle. `scanStatus` is kept (mapped) until a later contract release.
+  state           FileState @default(PENDING_UPLOAD)
+  detectedType    String?   @map("detected_type")
+  rejectionReason String?   @map("rejection_reason")
+  /// The signature name ClamAV reported (data only, never a branch).
+  scanSignature   String?   @map("scan_signature")
+  scanAttempts    Int       @default(0) @map("scan_attempts")
+  nextScanAt      DateTime? @map("next_scan_at") @db.Timestamptz(3)
+  leaseUntil      DateTime? @map("lease_until") @db.Timestamptz(3)
+  leaseToken      String?   @map("lease_token") @db.Uuid
+  quarantineKey   String?   @map("quarantine_key")
+  cleanKey        String?   @map("clean_key")
+  /// FU13: bytes held against the tenant quota; zeroed exactly once on release.
+  reservedBytes   BigInt    @default(0) @map("reserved_bytes")
+  uploadExpiresAt DateTime? @map("upload_expires_at") @db.Timestamptz(3)
+  completedAt     DateTime? @map("completed_at") @db.Timestamptz(3)
+  scannedAt       DateTime? @map("scanned_at") @db.Timestamptz(3)
+  deletedAt       DateTime? @map("deleted_at") @db.Timestamptz(3)
+  updatedAt       DateTime  @default(now()) @map("updated_at") @db.Timestamptz(3)
 
   @@unique([tenantId, id])
   @@unique([tenantId, bucketKey])
   @@index([tenantId, ownerType, ownerId])
+  @@index([tenantId, state, nextScanAt], map: "file_object_tenant_state_next")
+  @@index([tenantId, uploadedById], map: "file_object_tenant_uploader")
   @@map("file_object")
+}
+
+enum FileState {
+  PENDING_UPLOAD
+  UPLOADED
+  SCANNING
+  CLEAN
+  INFECTED
+  REJECTED
+  SCAN_FAILED
+  ABANDONED
+  DELETED
 }
 
 /// Per-tenant numbering (receipts, invoices, matric numbers). Incremented inside the business tx.

@@ -6,7 +6,16 @@ import { NextResponse, type NextRequest } from 'next/server';
 
 const SESSION_COOKIE = '__Host-uv_sid';
 
-export function csp(nonce: string, dev: boolean): string {
+/**
+ * The one extra origin the browser may talk to: object storage, for presigned uploads (spec 0010 D1).
+ * Only a bare `scheme://host[:port]` is accepted, so configuration can't smuggle in other directives.
+ */
+export function uploadOrigin(raw: string | undefined): string | null {
+  if (!raw) return null;
+  return /^https?:\/\/[a-z0-9.-]+(:\d{1,5})?$/i.test(raw.trim()) ? raw.trim() : null;
+}
+
+export function csp(nonce: string, dev: boolean, upload: string | null = null): string {
   return [
     "default-src 'self'",
     // 'strict-dynamic': only nonce'd scripts and what they load. Dev needs eval for fast refresh.
@@ -17,7 +26,7 @@ export function csp(nonce: string, dev: boolean): string {
     "style-src-attr 'unsafe-inline'",
     "img-src 'self' data: blob:",
     "font-src 'self'",
-    `connect-src 'self'${dev ? ' ws: wss:' : ''}`,
+    `connect-src 'self'${upload ? ` ${upload}` : ''}${dev ? ' ws: wss:' : ''}`,
     "object-src 'none'",
     "base-uri 'none'",
     "form-action 'self'",
@@ -31,7 +40,7 @@ export function proxy(req: NextRequest) {
   }
 
   const nonce = btoa(crypto.randomUUID());
-  const policy = csp(nonce, process.env.NODE_ENV !== 'production');
+  const policy = csp(nonce, process.env.NODE_ENV !== 'production', uploadOrigin(process.env.STORAGE_UPLOAD_ORIGIN ?? 'http://127.0.0.1:8333'));
   const requestHeaders = new Headers(req.headers);
   requestHeaders.set('x-nonce', nonce);
   requestHeaders.set('content-security-policy', policy);

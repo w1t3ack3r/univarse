@@ -16,7 +16,7 @@ export default async function SettingsPage() {
   await requireSession();
   const res = await serverApi<{ data: SettingView[] }>('/api/v1/settings');
   if (res.status !== 200 || !res.body) notFound();
-  // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-arguments, @typescript-eslint/no-unnecessary-condition -- one key today; the narrowing matters once the registry grows
+   
   const unitLimits = res.body.data.find((s): s is SettingView<'registration.unitLimits'> => s.key === 'registration.unitLimits');
 
   return (

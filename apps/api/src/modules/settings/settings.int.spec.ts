@@ -141,7 +141,9 @@ describe('[ST1][ST2] typed registry and defaults', () => {
     try {
       const res = await h.call('GET', D, '/api/v1/settings', { cookie: registrarUp });
       expect(res.statusCode).toBe(200);
-      expect(res.json().data.map((v: { key: string }) => v.key)).toEqual([KEY]);
+      const keys = res.json().data.map((v: { key: string }) => v.key);
+      expect(keys).toContain(KEY);
+      expect(keys).not.toContain(`gone.${run}`); // the orphan row is ignored
     } finally {
       await db.setting.delete({ where: { id: orphan.id } });
     }

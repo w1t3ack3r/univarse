@@ -4,6 +4,9 @@ import { ProductService } from './modules/products/product.service.js';
 import { AuditWriter } from './shared/audit/audit-writer.js';
 import { fieldCryptoProvider } from './shared/crypto/envelope.js';
 import { KeyMaintenance } from './shared/crypto/key-maintenance.js';
+import { ClamdScanner } from './modules/files/clamd-scanner.js';
+import { FileScanWorker } from './modules/files/file-scan.worker.js';
+import { FileStorage } from './modules/files/file-storage.js';
 import { DbModule } from './shared/db/db.module.js';
 import { MAILER, SmtpMailer, type Mailer } from './shared/infra/mailer.js';
 import { OutboxWorker } from './shared/outbox/outbox-worker.js';
@@ -32,6 +35,9 @@ export class WorkerModule {
         ProductService,
         OutboxWorker,
         KeyMaintenance,
+        FileStorage,
+        ClamdScanner,
+        FileScanWorker,
       ],
       exports: [APP_CONFIG],
     };

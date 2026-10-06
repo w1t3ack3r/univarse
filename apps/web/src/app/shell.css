@@ -846,3 +846,134 @@
   margin: 0;
   color: var(--uv-text-muted);
 }
+
+/* My documents (spec 0010 FU9) */
+.docs-upload {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--uv-space-4);
+}
+.docs-upload__text {
+  display: grid;
+  flex: 1 1 12rem;
+  gap: 2px;
+}
+.docs-upload__title {
+  margin: 0;
+  font-size: var(--uv-text-lg);
+  font-weight: 600;
+}
+.docs-upload__hint {
+  margin: 0;
+  font-size: var(--uv-text-sm);
+  color: var(--uv-text-muted);
+}
+/* The real control stays in the accessibility tree and keyboard order; the label is its face. */
+.docs-upload__input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.docs-upload__button {
+  cursor: pointer;
+}
+.docs-upload__input:focus-visible + .docs-upload__button {
+  outline: 3px solid var(--uv-focus);
+  outline-offset: 3px;
+}
+.docs-upload__button.is-busy {
+  pointer-events: none;
+  background: var(--uv-offwhite);
+  color: var(--uv-input-border);
+  box-shadow: inset 0 0 0 1.5px var(--uv-border);
+}
+@media (max-width: 479px) {
+  .docs-upload__button {
+    width: 100%;
+    justify-content: center;
+  }
+}
+.docs {
+  display: grid;
+  gap: var(--uv-space-3);
+}
+.doc-row {
+  align-items: flex-start;
+}
+.doc-row__tile {
+  flex: none;
+}
+.doc-row__name {
+  overflow-wrap: anywhere;
+}
+.doc-row__detail {
+  font-size: var(--uv-text-xs);
+  color: var(--uv-text-muted);
+  max-width: 34rem;
+}
+.doc-row__bar {
+  display: block;
+  height: 6px;
+  margin-top: var(--uv-space-2);
+  border-radius: var(--uv-radius-pill);
+  background: var(--uv-deep-soft);
+  overflow: hidden;
+}
+.doc-row__fill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--uv-deep);
+  transition: width 200ms var(--uv-ease-out);
+}
+@media (prefers-reduced-motion: reduce) {
+  .doc-row__fill {
+    transition: none;
+  }
+}
+.doc-row__end {
+  display: grid;
+  justify-items: end;
+  gap: var(--uv-space-2);
+}
+.doc-row__actions,
+.doc-row__confirm {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--uv-space-1);
+}
+.doc-status--wait {
+  background: var(--uv-deep-soft);
+  color: var(--uv-text-muted);
+}
+.doc-status--ok {
+  background: var(--uv-lime-wash);
+  color: var(--uv-deep);
+}
+.doc-status--bad {
+  background: var(--uv-danger-bg);
+  color: var(--uv-danger);
+}
+.doc-status--warn {
+  background: var(--uv-warning-bg);
+  color: var(--uv-warning);
+}
+@media (max-width: 599px) {
+  .doc-row {
+    flex-wrap: wrap;
+  }
+  .doc-row__end {
+    justify-items: start;
+    width: 100%;
+    padding-left: 60px;
+  }
+  .doc-row__actions,
+  .doc-row__confirm {
+    justify-content: flex-start;
+  }
+}

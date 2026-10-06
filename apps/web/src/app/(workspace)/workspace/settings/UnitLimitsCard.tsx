@@ -7,7 +7,7 @@ import { useId, useRef, useState, type SubmitEvent } from 'react';
 import { useStepUp } from '@/components/StepUp';
 import { api, ApiError } from '@/lib/client-api';
 
-// eslint-disable-next-line @typescript-eslint/no-unnecessary-type-arguments -- one key today; keeps the type once the registry grows
+ 
 type View = SettingView<'registration.unitLimits'>;
 type Draft = { min: string; max: string };
 type FieldErrors = Partial<Record<keyof Draft, string>>;

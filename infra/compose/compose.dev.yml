@@ -1,6 +1,7 @@
 # Local development dependencies — docs/10-infrastructure-and-deployment.md §4
 #   pnpm dev:infra            → valkey + mailpit + vault (then unseals and configures Vault)
-#   pnpm dev:infra:docs       → + gotenberg + clamav (large images)
+#   pnpm dev:infra:docs       → + gotenberg (large image)
+#   seaweedfs + clamav start by default (file uploads, spec 0010)
 # PostgreSQL 18 runs natively on the host (see `pnpm db:setup`).
 #
 # Hardening (docs/09 §4.2): every port bound to 127.0.0.1 only, all capabilities dropped,
@@ -64,12 +65,64 @@ services:
     command: ['gotenberg', '--chromium-disable-javascript=true', '--chromium-allow-list=^file:///tmp/.*', '--api-timeout=30s']
     ports: ['127.0.0.1:3100:3000']
 
+  # S3-compatible object storage (ADR-025: SeaweedFS; MinIO is unmaintained). S3 gateway only.
+  # tools/storage-dev.mjs writes seaweedfs/s3.json (git-ignored) from .env and creates the buckets.
+  seaweedfs:
+    image: chrislusf/seaweedfs:4.48
+    <<: *hardening
+    # The entrypoint drops root with su-exec and fixes /data ownership; it needs these (like Vault).
+    cap_add: [CHOWN, SETUID, SETGID, DAC_OVERRIDE, FOWNER]
+    command: ['server', '-dir=/data', '-ip.bind=0.0.0.0', '-s3', '-s3.port=8333', '-s3.config=/etc/seaweedfs/s3.json', '-master.volumeSizeLimitMB=128', '-volume.max=16']
+    ports: ['127.0.0.1:8333:8333']
+    volumes:
+      - seaweedfs-data:/data
+      - ./seaweedfs/s3.json:/etc/seaweedfs/s3.json:ro
+
+  # Copies the test-only signature (spec 0010 FU16) from the read-only repo fixture into ClamAV's own
+  # database volume, then exits. ClamAV never sees the repository. Dev/CI only; never deployed.
+  clamav-test-sigs:
+    image: clamav/clamav:stable
+    entrypoint: ['sh', '-c', 'cp /fixtures/univarse-test.ndb /var/lib/clamav/univarse-test.ndb']
+    restart: 'no'
+    security_opt: ['no-new-privileges:true']
+    volumes:
+      - clamav-db:/var/lib/clamav
+      - ./clamav/test-sigs:/fixtures:ro
+
+  # Virus scanning for uploads (spec 0010). The image ships with signatures; FreshClam still updates
+  # them (set CLAMAV_NO_FRESHCLAMD=true in .env on a slow link: stale signatures, local only).
+  # The normal signature databases stay in place; the test signature is one extra file beside them.
   clamav:
     image: clamav/clamav:stable
-    profiles: [docs]
     restart: unless-stopped
     security_opt: ['no-new-privileges:true']
     ports: ['127.0.0.1:3310:3310']
+    environment:
+      CLAMAV_NO_FRESHCLAMD: '${CLAMAV_NO_FRESHCLAMD:-false}'
+      # Fail closed (spec 0010 FU3). The image defaults leave these OFF, so a file that hits a scan
+      # limit, or an encrypted document ClamAV can't open, would come back as a plain "OK".
+      CLAMD_CONF_AlertExceedsMax: 'yes'
+      CLAMD_CONF_AlertEncrypted: 'yes'
+      CLAMD_CONF_AlertEncryptedArchive: 'yes'
+      CLAMD_CONF_AlertEncryptedDoc: 'yes'
+      # Above our 5 MB upload limit, so ordinary uploads are scanned whole; extracted content (e.g. PDF
+      # streams) beyond MaxScanSize trips AlertExceedsMax instead of being skipped.
+      CLAMD_CONF_StreamMaxLength: '25M'
+      CLAMD_CONF_MaxFileSize: '25M'
+      CLAMD_CONF_MaxScanSize: '100M'
+      CLAMD_CONF_MaxScanTime: '60000'
+    depends_on:
+      clamav-test-sigs: { condition: service_completed_successfully }
+    volumes:
+      - clamav-db:/var/lib/clamav
+    healthcheck:
+      test: ['CMD-SHELL', 'clamdscan --ping 3 >/dev/null 2>&1 || echo PING | nc -w 2 127.0.0.1 3310 | grep -q PONG']
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 120s
 
 volumes:
   vault-data:
+  seaweedfs-data:
+  clamav-db:

@@ -259,7 +259,7 @@ Invariant: a bed space has at most one `HELD`/`CONFIRMED` allocation per session
 | `OutboundMessage` | channel (`EMAIL`/`SMS`), to, templateKey, status, provider, providerRef, attempts, costKobo |
 | `Announcement` | title, body (sanitized), audience (rules: roles/org units/levels), publishAt, expiresAt |
 | `Ticket`, `TicketMessage` | category, priority, status, assigneeId, requesterId, sla |
-| `FileObject` | bucketKey, originalName, mime, sizeBytes, sha256, scanStatus (`PENDING`/`CLEAN`/`INFECTED`/`ERROR`), ownerType, ownerId, classification (`PUBLIC`/`INTERNAL`/`CONFIDENTIAL`/`SENSITIVE`) |
+| `FileObject` | originalName (sanitised), mime (declared), detectedType, sizeBytes, sha256 (of the clean bytes), **state** (`PENDING_UPLOAD` → `UPLOADED` → `SCANNING` → `CLEAN` / `INFECTED` / `REJECTED` / `SCAN_FAILED`; `ABANDONED`; `DELETED`, [spec 0010](specs/0010-file-uploads.md)), scanSignature, scanAttempts, lease (token, until), quarantineKey, cleanKey (unique per lease), reservedBytes (quota, released exactly once), uploadedById (owner), classification. `scanStatus` is kept and mapped until a later contract release |
 | `ImportJob` | type, fileId, status (`UPLOADED`/`VALIDATING`/`PREVIEW_READY`/`COMMITTING`/`DONE`/`FAILED`), totals, errorReportFileId |
 | `AuditEvent` | actorType, actorId, action, entityType, entityId, before?, after?, reason?, ip, userAgent, requestId, prevHash, hash, occurredAt | Append-only, hash-chained per tenant |
 | `OutboxEvent` | type, payload, occurredAt, publishedAt, attempts |

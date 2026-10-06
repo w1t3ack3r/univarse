@@ -16,10 +16,14 @@
     "test:int": "vitest run --config vitest.int.config.ts"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1146.0",
+    "@aws-sdk/s3-presigned-post": "^3.1146.0",
+    "@aws-sdk/s3-request-presigner": "^3.1146.0",
     "@nestjs/common": "^11.1.0",
     "@nestjs/core": "^11.1.0",
     "@nestjs/platform-fastify": "^11.1.0",
     "@univarse/contracts": "workspace:*",
+    "@univarse/crypto": "workspace:*",
     "@univarse/db": "workspace:*",
     "@univarse/domain": "workspace:*",
     "fastify": "5.12.5",
@@ -27,8 +31,7 @@
     "nodemailer": "^10.0.11",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.2",
-    "zod": "^4.1.0",
-    "@univarse/crypto": "workspace:*"
+    "zod": "^4.1.0"
   },
   "devDependencies": {
     "@swc/core": "^1.13.0",

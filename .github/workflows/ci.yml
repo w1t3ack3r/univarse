@@ -86,6 +86,17 @@ jobs:
           echo "SESSION_PEPPER=$(openssl rand -base64 32)" >> .env
           echo "DATA_ENCRYPTION_KEY_ID=ci-1" >> .env
           echo "DATA_ENCRYPTION_KEY=$(openssl rand -base64 32)" >> .env
+          echo "S3_ACCESS_KEY=uvci$(openssl rand -hex 8)" >> .env
+          echo "S3_SECRET_KEY=$(openssl rand -hex 30)" >> .env
+      # Spec 0010 / ADR-025: the SAME compose services and settings as dev (SeaweedFS; ClamAV with the
+      # fail-closed CLAMD_CONF_* options and the test-only signature copied from a read-only fixture).
+      # Started early so ClamAV loads its signatures while the build runs. VALKEY_PASSWORD only satisfies
+      # compose interpolation; CI's Valkey is the service above.
+      - name: Start object storage + ClamAV (compose, same as dev)
+        env: { VALKEY_PASSWORD: ci-compose-interpolation-only }
+        run: |
+          node tools/storage-dev.mjs config
+          docker compose -f infra/compose/compose.dev.yml --env-file .env up -d seaweedfs clamav-test-sigs clamav
       - name: Build (includes Prisma generate)
         run: pnpm build
       - name: No test helpers in the API build (CLAUDE.md invariant 8)
@@ -113,10 +124,22 @@ jobs:
         run: pnpm rls:check
       - name: Seed (twice — must be idempotent)
         run: pnpm db:seed && pnpm db:seed
+      - name: Wait for SeaweedFS + ClamAV, create buckets, show ClamAV's effective fail-closed settings
+        env: { VALKEY_PASSWORD: ci-compose-interpolation-only }
+        run: |
+          docker compose -f infra/compose/compose.dev.yml --env-file .env up -d --wait seaweedfs clamav
+          node tools/storage-dev.mjs buckets
+          docker exec univarse-dev-clamav-1 clamconf | grep -E '^(AlertExceedsMax|AlertEncrypted|AlertEncryptedDoc|AlertEncryptedArchive|StreamMaxLength|MaxScanSize) '
+      - name: SeaweedFS + ClamAV logs (on failure)
+        if: failure()
+        run: |
+          docker logs --tail 80 univarse-dev-seaweedfs-1 || true
+          docker logs --tail 40 univarse-dev-clamav-1 || true
       - name: DB isolation tests (as app role)
         run: pnpm --filter @univarse/db test:int
       - name: Envelope encryption tests against real Vault (spec 0006)
         run: pnpm --filter @univarse/crypto test:int
+      # Includes the storage contract tests (FU11, D1 gate) and the file flow against real SeaweedFS + ClamAV.
       - name: API integration tests
         run: pnpm --filter @univarse/api test:int
       - name: Install Playwright Chromium (spec 0005 W10)
