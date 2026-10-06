@@ -14,7 +14,7 @@
 | Unit (domain) | Vitest + **fast-check** (property-based) | `packages/domain`: grading, GPA/CGPA, standing, degree audit, fee rule matching, matric generator, state machines, policy engine | Every commit (< 30 s) |
 | Unit (app) | Vitest | Use cases with in-memory ports, mappers, validators | Every commit |
 | Integration | Vitest + **Testcontainers** (Postgres 18, Valkey, SeaweedFS for S3, ClamAV) | Repositories, use cases with the real DB + RLS, migrations, outbox, job processors | Every PR |
-| Contract | OpenAPI diff (oasdiff) + schema tests | Breaking API changes, event schema compatibility | Every PR |
+| Contract | Generated OpenAPI + schema tests; oasdiff against the PR base; real-response conformance ([spec 0011](specs/0011-openapi-and-api-client.md)) | Stale generated files (CI regenerates and diffs); breaking API changes (reported, and acknowledged in the PR description); every integration response checked against the document as sent. Event schemas: tracked | Every PR |
 | E2E | **Playwright** against the compose stack | Critical journeys ([§5](#5-critical-e2e-journeys)) on desktop + mobile viewport | PR (smoke subset), `main` (full) |
 | Load | **k6** | Peak scenarios ([§6](#6-performance--load-testing)) | Before each phase exit & release; weekly on staging |
 | Security | ZAP, Semgrep, CodeQL, Trivy, gitleaks | [08 §11](08-security.md) | PR / nightly / pre-release |
@@ -105,7 +105,7 @@ k6 scenarios in `tools/load/`, run against staging with a large-tenant dataset (
 - [ ] Behaviour matches the acceptance criteria in [05](05-modules-and-features.md). Rules match [04](04-business-rules.md)
 - [ ] Unit + integration tests, including unauthorized and cross-tenant paths
 - [ ] Domain changes: fixtures/property tests updated
-- [ ] API contract updated (zod → OpenAPI), client regenerated, no unintended breaking diff
+- [ ] API contract updated (`@Contract` → `pnpm contracts:gen`), both generated files committed; any breaking change acknowledged under `## API breaking changes`
 - [ ] Migration follows expand/contract. The RLS checker passes
 - [ ] Audit events + outbox events for consequential changes
 - [ ] Logs/metrics/traces for new flows. No PII in logs

@@ -99,6 +99,8 @@ jobs:
           docker compose -f infra/compose/compose.dev.yml --env-file .env up -d seaweedfs clamav-test-sigs clamav
       - name: Build (includes Prisma generate)
         run: pnpm build
+      - name: API contract files are regenerated and committed (spec 0011 OA9)
+        run: sh tools/api-contract/check-fresh.sh
       - name: No test helpers in the API build (CLAUDE.md invariant 8)
         run: |
           if [ -e apps/api/dist/testing ]; then
