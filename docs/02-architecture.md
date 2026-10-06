@@ -28,7 +28,7 @@
 | Database | **PostgreSQL 18** (managed in prod) | Native `uuidv7()`, RLS, `pg_trgm` for search |
 | Connection pooling | **PgBouncer** (transaction mode) | RLS context set with `SET LOCAL` inside each transaction |
 | Cache / queues / rate limits | **Valkey (or Redis) 8** + **BullMQ** | Separate logical DBs/prefixes per concern |
-| Object storage | **S3-compatible** (MinIO in dev; S3/R2 in prod) | Private buckets, presigned URLs |
+| Object storage | **S3-compatible** (SeaweedFS in dev and CI, [ADR-025](19-decision-log.md); S3/R2 in prod) | Private buckets, presigned URLs |
 | PDF generation | **Gotenberg** (sandboxed Chromium) as an internal service | Transcripts, receipts, dockets, letters. Keeps Chromium out of the API image |
 | Malware scanning | **ClamAV** (clamd) internal service | All uploads scanned before use |
 | Edge / reverse proxy | **Caddy** (compose) / Gateway API implementation, e.g. Envoy Gateway or Traefik (k8s) | Automatic TLS incl. on-demand TLS for verified custom domains |

@@ -69,7 +69,7 @@ CMD ["dist/main.js"]          # worker: ["dist/worker.js"]
 Web (`apps/web`) uses Next.js `output: 'standalone'` with the same pattern (`CMD ["server.js"]`).
 
 ### 2.3 Third-party service images
-Gotenberg, ClamAV, Caddy, PgBouncer, Valkey, MinIO: official images **pinned by digest**, scanned like ours, run with the same runtime hardening (§4), and never exposed publicly.
+Gotenberg, ClamAV, Caddy, PgBouncer, Valkey, SeaweedFS: official images **pinned by digest**, scanned like ours, run with the same runtime hardening (§4), and never exposed publicly.
 
 ## 3. Build pipeline: scan, SBOM, sign, attest
 
@@ -157,7 +157,7 @@ networks:
   data: { internal: true }                   # no external connectivity
 ```
 Rules:
-- **Never publish database, Redis, MinIO, ClamAV or Gotenberg ports** to the host/internet. Only the edge proxy publishes 80/443. (The v0 compose exposed 5433/5434/6379. Don't repeat that.)
+- **Never publish database, Redis, object storage (SeaweedFS), ClamAV or Gotenberg ports** to the host/internet. Only the edge proxy publishes 80/443. (The v0 compose exposed 5433/5434/6379. Don't repeat that.)
 - Never mount `/var/run/docker.sock` into a container. If a tool needs it, use a filtered socket proxy, or don't use that tool.
 - Use rootless Docker or user-namespace remapping (`userns-remap`) on hosts.
 - Secrets via host files with `0600` permissions or Docker secrets. Never in the compose file.

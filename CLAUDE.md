@@ -5,7 +5,7 @@
 UniVarse: the multi-tenant operating platform for Nigerian tertiary institutions — a suite of independent products (Core, Admissions, Bursary, Academics, Teaching & Learning, Assessment/CA CBT, Student Affairs, Helpdesk & Comms, Reporting) with CIA (confidentiality, integrity, availability) as the first design constraint. The full blueprint is in `docs/`. **Read the relevant doc before changing a module.** Start at `docs/README.md`.
 
 ## Stack
-TypeScript everywhere · pnpm + Turborepo · Next.js 16 (`apps/web`, `apps/console`) · NestJS 11/Fastify (`apps/api`: `main.ts` HTTP, `worker.ts` jobs) · Prisma + PostgreSQL 18 with RLS · Valkey/Redis + BullMQ · S3/MinIO · Gotenberg · ClamAV.
+TypeScript everywhere · pnpm + Turborepo · Next.js 16 (`apps/web`, `apps/console`) · NestJS 11/Fastify (`apps/api`: `main.ts` HTTP, `worker.ts` jobs) · Prisma + PostgreSQL 18 with RLS · Valkey/Redis + BullMQ · S3-compatible storage (SeaweedFS locally, ADR-025) · Gotenberg · ClamAV.
 
 ## Commands
 ```bash

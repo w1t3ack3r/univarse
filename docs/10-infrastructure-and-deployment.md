@@ -56,7 +56,7 @@ flowchart TB
 
 > **Current state:** see [ADR-015](19-decision-log.md). Postgres runs natively in Phase 0, and dependencies are added to compose as features need them. The list below is the target.
 
-`infra/compose/compose.dev.yml` provides: `postgres` (with `platform` + `pool_01` DBs, roles and extensions via init scripts), `pgbouncer`, `valkey`, `minio` (+ bucket bootstrap), `mailpit` (catches email), `gotenberg`, `clamav`, and an optional `caddy` for `*.univarse.localhost` subdomains.
+`infra/compose/compose.dev.yml` provides: `postgres` (with `platform` + `pool_01` DBs, roles and extensions via init scripts), `pgbouncer`, `valkey`, `seaweedfs` S3 gateway (+ bucket bootstrap; [ADR-025](19-decision-log.md)), `mailpit` (catches email), `gotenberg`, `clamav`, and an optional `caddy` for `*.univarse.localhost` subdomains.
 
 ```bash
 pnpm i

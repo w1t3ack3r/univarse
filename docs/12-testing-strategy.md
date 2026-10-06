@@ -13,7 +13,7 @@
 |-------|------|-------|------|
 | Unit (domain) | Vitest + **fast-check** (property-based) | `packages/domain`: grading, GPA/CGPA, standing, degree audit, fee rule matching, matric generator, state machines, policy engine | Every commit (< 30 s) |
 | Unit (app) | Vitest | Use cases with in-memory ports, mappers, validators | Every commit |
-| Integration | Vitest + **Testcontainers** (Postgres 18, Valkey, MinIO) | Repositories, use cases with the real DB + RLS, migrations, outbox, job processors | Every PR |
+| Integration | Vitest + **Testcontainers** (Postgres 18, Valkey, SeaweedFS for S3, ClamAV) | Repositories, use cases with the real DB + RLS, migrations, outbox, job processors | Every PR |
 | Contract | OpenAPI diff (oasdiff) + schema tests | Breaking API changes, event schema compatibility | Every PR |
 | E2E | **Playwright** against the compose stack | Critical journeys ([§5](#5-critical-e2e-journeys)) on desktop + mobile viewport | PR (smoke subset), `main` (full) |
 | Load | **k6** | Peak scenarios ([§6](#6-performance--load-testing)) | Before each phase exit & release; weekly on staging |
