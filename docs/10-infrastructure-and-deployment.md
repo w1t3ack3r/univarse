@@ -29,27 +29,27 @@ Environments are isolated from each other: separate cloud accounts/projects (at 
 
 ```mermaid
 flowchart TB
-  U[Users] --> CF[Cloudflare<br/>DNS · CDN · WAF · DDoS · Turnstile]
-  CF --> LB[Cloud load balancer<br/>(Cloudflare IPs only)]
-  subgraph K8s[Kubernetes cluster — 3 AZs]
-    GW[Gateway API controller<br/>TLS, on-demand certs for custom domains]
-    WEB[web ×3+ HPA]
-    CON[console ×2]
-    API[api ×3+ HPA]
-    WRK[worker ×2+ scaled on queue depth]
-    PGB[PgBouncer ×2]
-    GOT[Gotenberg ×2]
-    AV[ClamAV ×2]
-    OTEL[OTel collector]
-  end
-  LB --> GW --> WEB & CON & API
-  WEB --> API
-  API & WRK --> PGB --> PG[(Managed PostgreSQL HA<br/>platform + pool shards<br/>+ read replica)]
-  API & WRK --> RD[(Managed Redis/Valkey HA)]
-  API & WRK --> S3[(Object storage<br/>versioned, encrypted)]
-  WRK --> GOT & AV
-  WRK --> EGR[Egress NAT/proxy allowlist] --> EXT[Paystack · Flutterwave · Remita · SMS · Email]
-  OTEL --> OBS[Grafana Cloud / self-hosted LGTM + Sentry]
+    U["Users"] --> CF["Cloudflare\nDNS · CDN · WAF · DDoS · Turnstile"]
+    CF --> LB["Cloud load balancer\n(Cloudflare IPs only)"]
+    subgraph K8s["Kubernetes cluster — 3 AZs"]
+        GW["Gateway API controller\nTLS, on-demand certs for custom domains"]
+        WEB["web ×3+ HPA"]
+        CON["console ×2"]
+        API["api ×3+ HPA"]
+        WRK["worker ×2+ scaled on queue depth"]
+        PGB["PgBouncer ×2"]
+        GOT["Gotenberg ×2"]
+        AV["ClamAV ×2"]
+        OTEL["OTel collector"]
+    end
+    LB --> GW --> WEB & CON & API
+    WEB --> API
+    API & WRK --> PGB --> PG[("Managed PostgreSQL HA\nplatform + pool shards\n+ read replica")]
+    API & WRK --> RD[("Managed Redis/Valkey HA")]
+    API & WRK --> S3[("Object storage\nversioned, encrypted")]
+    WRK --> GOT & AV
+    WRK --> EGR["Egress NAT/proxy allowlist"] --> EXT["Paystack · Flutterwave · Remita · SMS · Email"]
+    OTEL --> OBS["Grafana Cloud / self-hosted LGTM + Sentry"]
 ```
 
 ## 4. Local development
