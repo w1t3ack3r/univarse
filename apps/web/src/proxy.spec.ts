@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { csp } from './proxy';
+import { csp, uploadOrigin } from './proxy';
 
 describe('[W8] content security policy', () => {
   const prod = csp('abc123', false);
@@ -29,5 +29,20 @@ describe('[W8] content security policy', () => {
     const dev = csp('n', true);
     expect(dev).toContain("'unsafe-eval'");
     expect(dev).toContain('ws:');
+  });
+});
+
+describe('[FU5] upload origin in connect-src (spec 0010 D1)', () => {
+  it('adds exactly the storage origin to connect-src and nowhere else', () => {
+    const policy = csp('n', false, uploadOrigin('http://127.0.0.1:8333'));
+    expect(policy).toContain("connect-src 'self' http://127.0.0.1:8333");
+    expect(policy.split('; ').filter((d) => d.includes('127.0.0.1'))).toEqual(["connect-src 'self' http://127.0.0.1:8333"]);
+  });
+
+  it('accepts only a bare origin: anything that could inject directives is refused', () => {
+    for (const bad of ['http://x.test; script-src *', 'http://x.test/path', "'unsafe-inline'", 'javascript:alert(1)', ' ', 'ftp://x.test']) {
+      expect(uploadOrigin(bad)).toBeNull();
+    }
+    expect(uploadOrigin('https://files.univarse.ng')).toBe('https://files.univarse.ng');
   });
 });

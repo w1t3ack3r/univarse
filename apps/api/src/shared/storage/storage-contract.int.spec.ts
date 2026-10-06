@@ -146,6 +146,14 @@ describe('[FU11] storage contract (what the backend actually does)', () => {
     expect(await exists(k)).toBeNull();
   });
 
+  it('[FU11] bucket CORS: what the backend answers to a foreign origin (recorded; not relied on)', async () => {
+    // tools/storage-dev.mjs sets a restrictive rule (tenant origins, POST only). Uploads are protected by
+    // the signed policy, not CORS: a cross-site HTML form can POST without CORS at all.
+    const res = await fetch(`${endpoint}/${bucket}`, { method: 'OPTIONS', headers: { origin: 'http://evil.example', 'access-control-request-method': 'POST' } });
+    observed.corsForeignOrigin = `${String(res.status)} allow-origin=${String(res.headers.get('access-control-allow-origin'))}`;
+    expect(res.status).toBeGreaterThan(0);
+  });
+
   it('[FU1][FU11] private bucket: an anonymous read is refused', async () => {
     const k = key();
     await s3.send(new PutObjectCommand({ Bucket: bucket, Key: k, Body: bytes(10) }));

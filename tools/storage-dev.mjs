@@ -4,6 +4,7 @@
 // Never prints a secret.
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 
 const envPath = new URL('../.env', import.meta.url);
 const env = existsSync(envPath) ? readFileSync(envPath, 'utf8') : '';
@@ -25,7 +26,7 @@ function config() {
   console.log('SeaweedFS identity written (infra/compose/seaweedfs/s3.json, git-ignored)');
 }
 
-function buckets() {
+async function buckets() {
   for (let i = 0; i < 30; i++) {
     try {
       execFileSync('docker', ['exec', CONTAINER, 'sh', '-c', 'echo "s3.bucket.list" | weed shell'], { stdio: 'pipe' });
@@ -42,13 +43,36 @@ function buckets() {
     execFileSync('docker', ['exec', CONTAINER, 'sh', '-c', `echo "s3.bucket.create -name ${b}" | weed shell`], { stdio: 'pipe' });
     console.log(`Bucket ${b} created`);
   }
+  await cors();
   console.log('SeaweedFS ready for UniVarse');
+}
+
+/**
+ * Restrictive CORS on the quarantine bucket: tenant web origins, POST only (spec 0010 D1). SeaweedFS
+ * stores this but does not enforce it (FU11 records that); the production provider does. Uploads are
+ * protected by the signed policy, not by CORS.
+ */
+async function cors() {
+  const require = createRequire(new URL('../apps/api/package.json', import.meta.url));
+  const { S3Client, PutBucketCorsCommand } = require('@aws-sdk/client-s3');
+  const s3 = new S3Client({
+    endpoint: envVal('S3_ENDPOINT') ?? 'http://127.0.0.1:8333',
+    region: envVal('S3_REGION') ?? 'us-east-1',
+    forcePathStyle: true,
+    credentials: { accessKeyId: envVal('S3_ACCESS_KEY'), secretAccessKey: envVal('S3_SECRET_KEY') },
+  });
+  const origins = (envVal('STORAGE_CORS_ORIGINS') ?? 'http://*.univarse.localhost:4180,http://*.univarse.localhost:3000').split(',').map((o) => o.trim()).filter(Boolean);
+  await s3.send(new PutBucketCorsCommand({
+    Bucket: BUCKETS[0],
+    CORSConfiguration: { CORSRules: [{ AllowedOrigins: origins, AllowedMethods: ['POST'], AllowedHeaders: ['*'], MaxAgeSeconds: 600 }] },
+  }));
+  s3.destroy();
 }
 
 try {
   const cmd = process.argv[2];
   if (cmd === 'config') config();
-  else if (cmd === 'buckets') buckets();
+  else if (cmd === 'buckets') await buckets();
   else throw new Error('usage: storage-dev.mjs config|buckets');
 } catch (err) {
   console.error(`storage-dev: ${err.message}`);
