@@ -6,6 +6,7 @@
  */
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { createServer, type Server } from 'node:net';
+import { deflateSync } from 'node:zlib';
 import type { INestApplicationContext } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { forTenant, withTenantTx } from '@univarse/db';
@@ -155,11 +156,12 @@ describe('[FU9][FU10] the real flow: upload → scan → download → delete', (
     const s = await upload(me.session, pdf());
     await scanUntilDone(s.file.id);
     expect((await download(me.session, s.file.id)).statusCode).toBe(200);
+    const liveKey = (await fileRow(s.file.id)).cleanKey!;
     expect((await h.call('DELETE', D, `/api/v1/files/${s.file.id}`, { cookie: me.session })).statusCode).toBe(204);
     expect((await h.call('DELETE', D, `/api/v1/files/${s.file.id}`, { cookie: me.session })).statusCode).toBe(404);
     const row = await fileRow(s.file.id);
     expect(row).toMatchObject({ state: 'DELETED', reservedBytes: 0n, cleanKey: null, quarantineKey: null });
-    expect((await storage.readBounded(storage.clean, `tenants/${demo.id}/c/${s.file.id}`, 10_000)).kind).toBe('missing');
+    expect((await storage.readBounded(storage.clean, liveKey, 10_000)).kind).toBe('missing');
     const events = await forTenant(h.shard, demo.id).auditEvent.findMany({ where: { entityType: 'file_object', entityId: s.file.id }, orderBy: { seq: 'asc' } });
     expect(events.map((e) => e.action)).toEqual(['files.upload.requested', 'files.upload.completed', 'files.scan.clean', 'files.downloaded', 'files.deleted']);
   });
@@ -287,7 +289,7 @@ describe('[FU4][FU14] the downloaded bytes are the scanned bytes', () => {
     // Same length as the original: only the fingerprint check can catch it (not the size bound).
     const original = (await fileRow(s.file.id)).sizeBytes;
     const tampered = Buffer.concat([Buffer.from('%PDF-1.4 TAMPERED-CONTENT'), Buffer.alloc(Number(original), 0x20)]).subarray(0, Number(original));
-    await storage.put(storage.clean, `tenants/${demo.id}/c/${s.file.id}`, tampered, 'application/pdf');
+    await storage.put(storage.clean, (await fileRow(s.file.id)).cleanKey!, tampered, 'application/pdf');
     const res = await download(me.session, s.file.id);
     expect([res.statusCode, res.json().code]).toEqual([500, 'server.internal']);
     expect(res.body).not.toContain('TAMPERED-CONTENT');
@@ -307,7 +309,7 @@ describe('[FU15] deletion wins against an in-flight scan', () => {
     worker.beforeFinalize = null;
     const row = await fileRow(s.file.id);
     expect(row).toMatchObject({ state: 'DELETED', reservedBytes: 0n });
-    expect((await storage.readBounded(storage.clean, `tenants/${demo.id}/c/${s.file.id}`, 10_000)).kind).toBe('missing');
+    expect(await storage.listKeys(storage.clean, `tenants/${demo.id}/c/${s.file.id}/`, 10)).toEqual([]);
     const after = await withTenantTx(h.shard, demo.id, (tx) => reservedTotal(tx, demo.id));
     expect(before - after).toBe(BigInt(bytes.length));
     // A retried job finds nothing to resurrect.
@@ -402,7 +404,115 @@ describe('[FU1][FU2] own files only, with no existence oracle', () => {
     const me = await student();
     const s = await upload(me.session, pdf());
     await scanUntilDone(s.file.id);
-    const res = await fetch(`${process.env.S3_ENDPOINT ?? 'http://127.0.0.1:8333'}/uv-clean/tenants/${demo.id}/c/${s.file.id}`);
+    const res = await fetch(`${process.env.S3_ENDPOINT ?? 'http://127.0.0.1:8333'}/uv-clean/${(await fileRow(s.file.id)).cleanKey!}`);
     expect(res.status).toBe(403);
   });
+});
+
+describe('[FU7][FU15] scan lease takeover: a stale worker never touches what another worker published', () => {
+  for (const pauseAt of ['before promotion', 'after promotion'] as const) {
+    it(`[FU7][FU15] worker A paused ${pauseAt}, its lease lapses, worker B publishes, then A resumes: B's object and the quota stand`, async () => {
+      const me = await student();
+      const bytes = pdf(`takeover ${pauseAt}`);
+      const s = await upload(me.session, bytes);
+      const reservedBefore = await withTenantTx(h.shard, demo.id, (tx) => reservedTotal(tx, demo.id));
+
+      // Worker B: a separate process (its own Nest context), healthy scanner.
+      const cfg = loadConfig({ ...process.env, NODE_ENV: 'test' });
+      const ctxB = await NestFactory.createApplicationContext(WorkerModule.forRoot(cfg, { mailer: { send: () => Promise.resolve() } }), { logger: false });
+      contexts.push(ctxB);
+      const workerB = ctxB.get(FileScanWorker);
+
+      // Worker A pauses at the chosen point until B has finished.
+      let resumeA!: () => void;
+      const gate = new Promise<void>((r) => (resumeA = r));
+      let paused!: () => void;
+      const isPaused = new Promise<void>((r) => (paused = r));
+      const hold = async () => {
+        paused();
+        await gate;
+      };
+      if (pauseAt === 'before promotion') worker.beforeFinalize = hold;
+      else worker.afterPromotion = hold;
+      const runA = worker.scanTenant(demo);
+      await isPaused;
+
+      // A's lease lapses; B claims, scans and publishes.
+      await forTenant(h.shard, demo.id).fileObject.update({ where: { id: s.file.id }, data: { leaseUntil: new Date(Date.now() - 1000) } });
+      await workerB.scanTenant(demo);
+      const published = await fileRow(s.file.id);
+      expect(published.state).toBe('CLEAN');
+      const bKey = published.cleanKey!;
+
+      // A resumes: its result write is refused (stale lease), and it may only remove its OWN object.
+      resumeA();
+      const outcomes = await runA;
+      worker.beforeFinalize = null;
+      worker.afterPromotion = null;
+      expect(outcomes).toContain('lost');
+
+      const after = await fileRow(s.file.id);
+      expect(after).toMatchObject({ state: 'CLEAN', cleanKey: bKey });
+      expect(await storage.listKeys(storage.clean, `tenants/${demo.id}/c/${s.file.id}/`, 10)).toEqual([bKey]);
+      expect(sha((await download(me.session, s.file.id)).rawPayload)).toBe(sha(bytes));
+      // The reservation is held once (CLEAN keeps it): unchanged by the takeover.
+      expect(await withTenantTx(h.shard, demo.id, (tx) => reservedTotal(tx, demo.id))).toBe(reservedBefore);
+    }, 60_000);
+  }
+});
+
+// --- real-scanner limits and encryption (FU3) ---------------------------------------------------------
+/** Assembles a PDF with a correct xref table from object bodies (test content only). */
+function buildPdf(objects: (string | Buffer)[], trailerExtra = ''): Buffer {
+  const parts: Buffer[] = [Buffer.from('%PDF-1.4\n%\xe2\xe3\xcf\xd3\n', 'latin1')];
+  const offsets: number[] = [];
+  let pos = parts[0]!.length;
+  objects.forEach((body, i) => {
+    offsets.push(pos);
+    const b = Buffer.isBuffer(body) ? body : Buffer.from(body, 'latin1');
+    const head = Buffer.from(`${String(i + 1)} 0 obj\n`);
+    const tail = Buffer.from('\nendobj\n');
+    parts.push(head, b, tail);
+    pos += head.length + b.length + tail.length;
+  });
+  const xref = [`xref\n0 ${String(objects.length + 1)}\n0000000000 65535 f \n`, ...offsets.map((o) => `${String(o).padStart(10, '0')} 00000 n \n`)].join('');
+  parts.push(Buffer.from(`${xref}trailer\n<< /Size ${String(objects.length + 1)} /Root 1 0 R ${trailerExtra}>>\nstartxref\n${String(pos)}\n%%EOF\n`, 'latin1'));
+  return Buffer.concat(parts);
+}
+const page = ['<< /Type /Catalog /Pages 2 0 R >>', '<< /Type /Pages /Kids [3 0 R] /Count 1 >>', '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R >>'];
+/** ~31 KB on disk; its stream inflates to 30 MB, past clamd's MaxFileSize (25M). */
+const limitBombPdf = () => {
+  const deflated = deflateSync(Buffer.alloc(30 * 1024 * 1024, 0x20), { level: 9 });
+  return buildPdf([...page, Buffer.concat([Buffer.from(`<< /Length ${String(deflated.length)} /Filter /FlateDecode >>\nstream\n`), deflated, Buffer.from('\nendstream')])]);
+};
+/** Standard security handler (RC4, R2) with an unknown user password. */
+const encryptedPdf = () => {
+  const id = randomBytes(16).toString('hex');
+  return buildPdf(
+    [...page, Buffer.concat([Buffer.from('<< /Length 32 >>\nstream\n'), randomBytes(32), Buffer.from('\nendstream')]), `<< /Filter /Standard /V 1 /R 2 /O <${randomBytes(32).toString('hex')}> /U <${randomBytes(32).toString('hex')}> /P -44 >>`],
+    `/Encrypt 5 0 R /ID [<${id}> <${id}>] `,
+  );
+};
+
+describe('[FU3] the real scanner fails closed on limits and encryption (clamd configured, not defaults)', () => {
+  it('[FU3] clamd configuration: a limit hit and an encrypted PDF are FOUND, not a silent OK', async () => {
+    // With the image defaults (AlertExceedsMax / AlertEncrypted* off) both of these return "OK".
+    const scanner = h.workerCtx.get(ClamdScanner);
+    expect(await scanner.scan(limitBombPdf())).toEqual({ verdict: 'infected', signature: 'Heuristics.Limits.Exceeded.MaxFileSize' });
+    expect(await scanner.scan(encryptedPdf())).toEqual({ verdict: 'infected', signature: 'Heuristics.Encrypted.PDF' });
+  });
+
+  for (const [label, make, signature] of [
+    ['a PDF that hits a real scan limit (31 KB inflating to 30 MB)', limitBombPdf, 'Heuristics.Limits.Exceeded.MaxFileSize'],
+    ['a password-encrypted PDF', encryptedPdf, 'Heuristics.Encrypted.PDF'],
+  ] as const) {
+    it(`[FU3] ${label} passes the type check but stays unavailable`, async () => {
+      const me = await student();
+      const s = await upload(me.session, make());
+      expect(await scanUntilDone(s.file.id)).toBe('INFECTED');
+      const row = await fileRow(s.file.id);
+      expect(row).toMatchObject({ scanSignature: signature, reservedBytes: 0n, cleanKey: null });
+      expect((await download(me.session, s.file.id)).statusCode).toBe(409);
+    });
+  }
 });

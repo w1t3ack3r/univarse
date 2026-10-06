@@ -44,8 +44,10 @@ export class FileScanWorker {
   private readonly logger = new Logger('FileScan');
   private timer: NodeJS.Timeout | null = null;
   private running: Promise<unknown> | null = null;
-  /** Test hook (FU15): runs after the scan, before the result is written. */
+  /** Test hook (FU15, lease takeover): after the scan, before promotion and the result write. */
   beforeFinalize: ((fileId: string) => Promise<void>) | null = null;
+  /** Test hook (lease takeover): after promotion, before the result write. */
+  afterPromotion: ((fileId: string) => Promise<void>) | null = null;
 
   constructor(
     @Inject(PLATFORM_DB) private readonly platform: PlatformClient,
@@ -121,11 +123,13 @@ export class FileScanWorker {
 
     // FU4: promote exactly the scanned bytes, from memory, to a key no client can write.
     const sha = createHash('sha256').update(bytes).digest();
-    const key = cleanKey(t.id, f.id);
+    const key = cleanKey(t.id, f.id, f.lease_token);
     await this.storage.put(this.storage.clean, key, bytes, detected);
+    await this.afterPromotion?.(f.id);
     const done = await this.finalize(t, f, { state: 'CLEAN', cleanKey: key, sha256: sha, detectedType: detected, release: false }, 'files.scan.clean', {});
     if (!done) {
-      // Lost the race (deleted, or re-claimed after our lease lapsed): undo our promotion (FU15).
+      // Lost the race (deleted, or re-claimed after our lease lapsed): undo OUR promotion only. The key
+      // is unique to our lease, so another worker's published object is never touched (FU15).
       await this.storage.remove(this.storage.clean, key).catch(() => undefined);
       return 'lost';
     }

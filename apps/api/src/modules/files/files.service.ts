@@ -33,7 +33,11 @@ export interface UploadSlot {
 }
 
 export const quarantineKey = (tenantId: string, fileId: string) => `tenants/${tenantId}/q/${fileId}`;
-export const cleanKey = (tenantId: string, fileId: string) => `tenants/${tenantId}/c/${fileId}`;
+/**
+ * Unique per scan lease (FU7/FU15): a stale worker that lost its lease can only ever write or delete
+ * its OWN object, never the one another worker published. The file row records which key is live.
+ */
+export const cleanKey = (tenantId: string, fileId: string, leaseToken: string) => `tenants/${tenantId}/c/${fileId}/${leaseToken}`;
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const notFound = () => new ProblemError(404, 'resource.not_found', 'Not found');

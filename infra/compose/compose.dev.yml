@@ -97,7 +97,20 @@ services:
     restart: unless-stopped
     security_opt: ['no-new-privileges:true']
     ports: ['127.0.0.1:3310:3310']
-    environment: { CLAMAV_NO_FRESHCLAMD: '${CLAMAV_NO_FRESHCLAMD:-false}' }
+    environment:
+      CLAMAV_NO_FRESHCLAMD: '${CLAMAV_NO_FRESHCLAMD:-false}'
+      # Fail closed (spec 0010 FU3). The image defaults leave these OFF, so a file that hits a scan
+      # limit, or an encrypted document ClamAV can't open, would come back as a plain "OK".
+      CLAMD_CONF_AlertExceedsMax: 'yes'
+      CLAMD_CONF_AlertEncrypted: 'yes'
+      CLAMD_CONF_AlertEncryptedArchive: 'yes'
+      CLAMD_CONF_AlertEncryptedDoc: 'yes'
+      # Above our 5 MB upload limit, so ordinary uploads are scanned whole; extracted content (e.g. PDF
+      # streams) beyond MaxScanSize trips AlertExceedsMax instead of being skipped.
+      CLAMD_CONF_StreamMaxLength: '25M'
+      CLAMD_CONF_MaxFileSize: '25M'
+      CLAMD_CONF_MaxScanSize: '100M'
+      CLAMD_CONF_MaxScanTime: '60000'
     depends_on:
       clamav-test-sigs: { condition: service_completed_successfully }
     volumes:
