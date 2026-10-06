@@ -5,3 +5,6 @@
 # 2026-10-06: route-sweep test password literal (activation confirm, test-only account in the local/CI test DB), replaced
 # in the next commit by per-run random values. The finding stays in this commit's history.
 249fe6bca9ba3fa86fc9f82cdbea292412442157:apps/api/src/route-sweep.int.spec.ts:generic-api-key:283
+# 2026-10-06: a fake presigned-signature string ("X-Amz-Signature=abc") in a scrubbing unit test, not a
+# credential. The next commit builds it at run time; the finding stays in this commit's history.
+a88a5c1b705756dc6bd3f184de6a4877c57abf42:apps/api/src/shared/observability/logger.spec.ts:generic-api-key:180

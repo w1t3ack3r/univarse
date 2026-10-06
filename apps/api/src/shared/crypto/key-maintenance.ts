@@ -84,7 +84,7 @@ export class KeyMaintenance {
           if (err instanceof KeyUnavailableError && err.reason === 'provider_unavailable') throw err;
           unreadable++;
           // Which row, never what it holds.
-          this.logger.warn({ tenantId: tenant.id, table: col.table, id: row.id, error: errorSummary(err) }, 'Encrypted value unreadable; left as is');
+          this.logger.warn({ event: 'keys.sweep.value_unreadable', tenantId: tenant.id, table: col.table, id: row.id, error: errorSummary(err) }, 'Encrypted value unreadable; left as is');
           continue;
         }
         if (next !== null) updated += await col.swap(tx, tenant.id, row.id, row.value, next);
@@ -145,12 +145,12 @@ export class KeyMaintenance {
         }
       });
       const log = { tenantId: tenant.id, reason: claimed.reason, rowsReencrypted: n, unreadable };
-      if (unreadable > 0) this.logger.warn(log, 'Key sweep done; some values are unreadable and were left as is');
-      else this.logger.log(log, 'Key sweep done');
+      if (unreadable > 0) this.logger.warn({ event: 'keys.sweep.done_with_unreadable', ...log }, 'Key sweep done; some values are unreadable and were left as is');
+      else this.logger.log({ event: 'keys.sweep.done', ...log }, 'Key sweep done');
       return { tenantId: tenant.id, ok: true, reencrypted: n, unreadable };
     } catch (err) {
       // The lease expires and a later pass starts again; values already moved are skipped by the query.
-      this.logger.error({ tenantId: tenant.id, error: errorSummary(err) }, 'Key sweep failed');
+      this.logger.error({ event: 'keys.sweep.failed', tenantId: tenant.id, error: errorSummary(err) }, 'Key sweep failed');
       return { tenantId: tenant.id, ok: false, reencrypted: 0, unreadable: 0 };
     }
   }
@@ -159,7 +159,7 @@ export class KeyMaintenance {
   start(intervalMs: number): void {
     const tick = () => {
       this.running = this.runOnce()
-        .catch((err: unknown) => this.logger.error({ error: errorSummary(err) }, 'Key sweep pass failed'))
+        .catch((err: unknown) => this.logger.error({ event: 'keys.sweep.pass_failed', error: errorSummary(err) }, 'Key sweep pass failed'))
         .finally(() => {
           if (this.timer !== null) this.timer = setTimeout(tick, intervalMs);
         });

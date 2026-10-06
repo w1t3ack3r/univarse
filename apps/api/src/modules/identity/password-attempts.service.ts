@@ -1,3 +1,4 @@
+import { securityFields } from '../../shared/observability/security.js';
 import { Injectable, Logger } from '@nestjs/common';
 import { AuditWriter } from '../../shared/audit/audit-writer.js';
 import { ShardRegistry } from '../../shared/db/db.module.js';
@@ -51,7 +52,7 @@ export class PasswordAttempts {
       await this.audit.write(tx, tenant.tenantId, { ...base, action: 'auth.account.locked', after: { lockedUntil, context } });
       return true;
     });
-    if (locked) this.logger.warn(`Account locked after repeated failures tenant=${tenant.slug} user=${user.id}`);
+    if (locked) this.logger.warn(securityFields('auth.account.locked', { tenantId: tenant.tenantId, lockedUserId: user.id, context }), 'Account locked after repeated failures');
     return false;
   }
 }

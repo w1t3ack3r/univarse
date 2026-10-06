@@ -32,7 +32,7 @@ export class RateLimiter implements OnApplicationShutdown {
       }
       return { allowed: retryAfterSec === 0, retryAfterSec };
     } catch (err) {
-      this.logger.warn(`Rate limiter unavailable, failing open: ${err instanceof Error ? err.message : String(err)}`);
+      this.logger.warn({ event: 'infra.rate_limiter.unavailable', err }, 'Rate limiter unavailable, failing open');
       return { allowed: true, retryAfterSec: 0 };
     }
   }

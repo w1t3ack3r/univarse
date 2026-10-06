@@ -54,9 +54,9 @@ export class SettingsCache implements OnModuleInit, OnModuleDestroy {
     // A dedicated connection: a subscribed client can't run other commands. ioredis reconnects and
     // re-subscribes by itself; startup never waits on Valkey (ST11d).
     const sub = this.publisher.duplicate({ enableOfflineQueue: true, maxRetriesPerRequest: null });
-    sub.on('error', (err: Error) => this.logger.warn({ error: err.name }, 'Settings invalidation subscriber error'));
+    sub.on('error', (err: Error) => this.logger.warn({ event: 'settings.cache.subscriber_error', error: err.name }, 'Settings invalidation subscriber error'));
     sub.on('message', (_channel: string, message: string) => this.onMessage(message));
-    sub.subscribe(SETTINGS_CHANNEL).catch((err: unknown) => this.logger.warn({ error: (err as Error).name }, 'Subscribe failed'));
+    sub.subscribe(SETTINGS_CHANNEL).catch((err: unknown) => this.logger.warn({ event: 'settings.cache.subscribe_failed', error: (err as Error).name }, 'Subscribe failed'));
     this.subscriber = sub;
   }
 
@@ -104,7 +104,7 @@ export class SettingsCache implements OnModuleInit, OnModuleDestroy {
       await this.publisher.publish(SETTINGS_CHANNEL, JSON.stringify(inv));
     } catch (err) {
       // Other instances converge within the TTL.
-      this.logger.warn({ tenantId: inv.tenantId, key: inv.key, error: (err as Error).name }, 'Settings invalidation not published');
+      this.logger.warn({ event: 'settings.cache.publish_failed', tenantId: inv.tenantId, key: inv.key, error: (err as Error).name }, 'Settings invalidation not published');
     }
   }
 
@@ -113,7 +113,7 @@ export class SettingsCache implements OnModuleInit, OnModuleDestroy {
     try {
       parsed = Invalidation.parse(JSON.parse(message));
     } catch {
-      this.logger.warn('Malformed settings invalidation ignored');
+      this.logger.warn({ event: 'settings.cache.malformed_invalidation' }, 'Malformed settings invalidation ignored');
       return;
     }
     this.evict(cacheKey(parsed.tenantId, parsed.scopeKey, parsed.key));

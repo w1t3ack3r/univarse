@@ -1,3 +1,4 @@
+import { securityFields } from '../../shared/observability/security.js';
 import { Injectable, Logger, SetMetadata, type CanActivate, type ExecutionContext } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { PATH_METADATA } from '@nestjs/common/constants.js';
@@ -36,7 +37,7 @@ export class ProductGuard implements CanActivate {
     const product = this.reflector.getAllAndOverride<ProductKey | undefined>(PRODUCT, targets);
     if (!product) {
       // The boot check makes this unreachable; fail closed if it ever regresses.
-      this.logger.error(`Route without product declaration: ${req.method} ${req.routeOptions.url}`);
+      this.logger.error(securityFields('products.route_undeclared', { method: req.method, route: req.routeOptions.url ?? null }), 'Route without product declaration');
       throw notFound();
     }
     if (!req.tenant || !(await this.products.isActive(req.tenant.tenantId, product))) throw notFound();

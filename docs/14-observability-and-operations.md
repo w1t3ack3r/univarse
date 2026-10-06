@@ -13,11 +13,25 @@
 
 ## 2. Logging standards
 
+Built in [spec 0012](specs/0012-observability-logs-and-traces.md).
 - **Pino JSON** to stdout. One line per event, and no `console.log` in app code (lint rule).
-- Mandatory fields: `ts`, `level`, `msg`, `service`, `env`, `version`, `requestId`, `traceId`, `tenantId` (when known), `userId` (UUID only, never names/emails), `module`, `event` (stable machine name, e.g. `results.scoresheet.approved`).
-- Levels: `error` (needs attention), `warn` (unexpected but handled), `info` (business events, request summary), `debug` (off in prod unless temporarily enabled per tenant via flag).
-- **Redaction** (central config, unit-tested): `password`, `otp`, `token`, `authorization`, `cookie`, `secret*`, `nin`, `*.accountNumber`, request bodies of auth/payment routes.
-- Security events go to the `security` logger → a separate stream with longer retention (12 months).
+  - **One shared logger:** the API and worker build theirs from `apps/api/src/shared/observability/logger.ts`. Fastify uses it directly; Nest's `Logger` reaches it through an adapter that accepts Nest's signatures and our object-first ones.
+- **Mandatory fields, present as `null` when unknown** (never omitted):
+  - `time`, `level`, `msg`, `service` (`api` or `worker`), `env`, `version` (git SHA, or `dev`);
+  - `requestId`, `traceId`, `spanId`, `tenantId`, `userId` (UUID only, never names or emails);
+  - `module` (the logger context) and `event` (a stable machine name, e.g. `files.scan.malware_detected`).
+  - **Where they come from:** request fields come from `AsyncLocalStorage`. `TenantGuard` sets the tenant from the Host, `AccessGuard` sets the user from the session, and the worker loops set the tenant per pass. A source scan fails if an app log call has no `event`.
+- **One summary line per request,** `event: http.request`: method, **route template** (never the raw URL or query string), status and duration.
+- **Severity by outcome:**
+  - `info` for 2xx–4xx, whoever is signed in;
+  - `error` for 5xx;
+  - `warn` for security events, logged by the code that detects them;
+  - `debug` for health probes, and otherwise off in prod unless temporarily enabled per tenant via flag.
+- **Redaction** (central, unit-tested), in two layers:
+  - **Keys:** object keys at any depth up to 3 (`password`, `code`, `otp`, `recoveryCode(s)`, `secret`, `token*`, `authorization`, `cookie`, `set-cookie`, `accountNumber`, `nin`, …) become `[redacted]`.
+  - **Text:** `msg` and error messages and stacks are scrubbed of query strings, header values, our cookie values, bearer tokens and signed storage credentials. Error text also loses quoted literals.
+  - **Error codes:** these log as `err.errorCode`, because `code` is a redacted key.
+- **Security events** carry `stream: "security"`, so the collector can route them to a separate stream with longer retention (12 months). The list is `SECURITY_EVENTS` in `shared/observability/security.ts`; a test requires each to be logged somewhere. Logs are never sampled.
 - **Application logs aren't the audit log.** Audit events are business records in the DB ([07 §7](07-data-and-database.md)).
 
 ## 3. Metrics

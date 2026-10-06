@@ -1,3 +1,4 @@
+import { setLogContext } from '../observability/context.js';
 import {
   createParamDecorator,
   Injectable,
@@ -46,6 +47,7 @@ export class TenantGuard implements CanActivate {
     if (!SERVABLE.has(tenant.status)) throw new ProblemError(404, 'tenant.not_found', 'Institution not found');
 
     req.tenant = tenant;
+    setLogContext({ tenantId: tenant.tenantId }); // spec 0012 OB2: from the Host, never from input
     return true;
   }
 }

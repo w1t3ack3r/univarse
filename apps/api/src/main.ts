@@ -10,4 +10,4 @@ if (process.env.NODE_ENV !== 'production' && existsSync(rootEnv)) process.loadEn
 const config = loadConfig();
 const app = await createApp(config);
 await app.listen(config.PORT, config.HOST);
-new Logger('Main').log(`UniVarse API listening on http://${config.HOST}:${config.PORT} (${config.NODE_ENV})`);
+new Logger('Main').log({ event: 'api.started', host: config.HOST, port: config.PORT }, `UniVarse API listening on http://${config.HOST}:${String(config.PORT)} (${config.NODE_ENV})`);

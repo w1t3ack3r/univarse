@@ -1,3 +1,4 @@
+import { withLogContext } from '../observability/context.js';
 // Outbox delivery (spec 0002 B3–B10). Runs in the worker process only (src/worker.ts).
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import type { PlatformClient, TenantTx } from '@univarse/db';
@@ -64,10 +65,11 @@ export class OutboxWorker {
     });
     for (const tenant of tenants) {
       try {
-        const c = await this.runTenant(tenant);
+        // Spec 0012 OB2: lines from anything this tenant's batch calls carry its tenantId.
+        const c = await withLogContext({ tenantId: tenant.id }, () => this.runTenant(tenant));
         for (const k of Object.keys(total) as (keyof BatchCounts)[]) total[k] += c[k];
       } catch (err) {
-        this.logger.error({ tenantId: tenant.id, error: errorSummary(err) }, 'Outbox pass failed for tenant');
+        this.logger.error({ event: 'outbox.tenant_failed', tenantId: tenant.id, error: errorSummary(err) }, 'Outbox pass failed for tenant');
       }
     }
     return total;
@@ -97,7 +99,7 @@ export class OutboxWorker {
       { timeoutMs: TX_TIMEOUT_MS },
     );
     // B9: counts only, never payloads or recipients.
-    if (counts.claimed > 0) this.logger.log({ tenantId: tenant.id, ...counts }, 'Outbox batch');
+    if (counts.claimed > 0) this.logger.log({ event: 'outbox.batch', tenantId: tenant.id, ...counts }, 'Outbox batch');
     return counts;
   }
 
@@ -119,7 +121,7 @@ export class OutboxWorker {
           ...(dead ? { status: 'DEAD' } : { nextAttemptAt: new Date(Date.now() + backoffMs(attempts)) }),
         },
       });
-      if (dead) this.logger.error({ tenantId, eventId: row.id, error: errorSummary(err) }, 'Outbox event is DEAD');
+      if (dead) this.logger.error({ event: 'outbox.event_dead', tenantId, eventId: row.id, error: errorSummary(err) }, 'Outbox event is DEAD');
       return dead ? 'dead' : 'retried';
     }
     // B2: the payload (which may hold a code) is wiped once delivered.
@@ -134,7 +136,7 @@ export class OutboxWorker {
   start(intervalMs: number): void {
     const tick = () => {
       this.running = this.runOnce()
-        .catch((err: unknown) => this.logger.error({ error: errorSummary(err) }, 'Outbox pass failed'))
+        .catch((err: unknown) => this.logger.error({ event: 'outbox.pass_failed', error: errorSummary(err) }, 'Outbox pass failed'))
         .finally(() => {
           if (this.timer !== null) this.timer = setTimeout(tick, intervalMs);
         });

@@ -157,7 +157,7 @@ export class SettingsService {
     });
     const value = row?.value ?? null;
     if (value !== null && !def.schema.safeParse(value).success) {
-      this.logger.error({ tenantId: tenant.tenantId, key }, 'Stored setting value fails its schema');
+      this.logger.error({ event: 'settings.stored_value_invalid', tenantId: tenant.tenantId, key }, 'Stored setting value fails its schema');
       throw new ProblemError(500, 'settings.stored_value_invalid', 'Stored setting value is invalid');
     }
     return { value, version: row?.version ?? 0, updatedAt: row?.updatedAt ?? null, updatedById: row?.updatedBy ?? null };
@@ -218,9 +218,9 @@ export class SettingsService {
     try {
       const rows = await (await this.shards.forTenant(tenant.shardId, tenant.tenantId)).setting.findMany({ select: { key: true } });
       const orphans = [...new Set(rows.map((r) => r.key).filter((k) => !Object.hasOwn(this.registry, k)))];
-      if (orphans.length > 0) this.logger.warn({ tenantId: tenant.tenantId, keys: orphans }, 'Stored settings with unregistered keys are ignored');
+      if (orphans.length > 0) this.logger.warn({ event: 'settings.orphans_ignored', tenantId: tenant.tenantId, keys: orphans }, 'Stored settings with unregistered keys are ignored');
     } catch (err) {
-      this.logger.warn({ tenantId: tenant.tenantId, error: (err as Error).name }, 'Orphan settings check failed');
+      this.logger.warn({ event: 'settings.orphans_check_failed', tenantId: tenant.tenantId, error: (err as Error).name }, 'Orphan settings check failed');
     }
   }
 }

@@ -99,7 +99,9 @@ Revisit the threat model at the start of every roadmap phase. New modules add ro
 - Validate **all** input with zod at the edge (type, length, format, range). Normalise Unicode (NFKC) for identifiers and names, trim, and cap lengths (names ≤ 100, free text ≤ 5,000 unless specified).
 - Output encoding by React. PDFs are rendered from server-escaped templates. Email templates escape by default.
 - **CSV/XLSX exports:** prefix cells starting with `= + - @ \t \r` with `'`.
-- **Logging:** never log passwords, OTPs, session IDs, tokens, full NIN, card data or gateway secrets. Pino redaction paths are configured centrally, with a unit test asserting redaction.
+- **Logging:** never log passwords, OTPs, session IDs, tokens, full NIN, card data or gateway secrets.
+  - **How it's enforced:** Pino redaction paths **and** a string scrubber (query strings, header values, cookie values, bearer tokens, signed storage credentials, quoted literals in error text) are configured centrally in `apps/api/src/shared/observability/`, with unit tests for each path and pattern ([spec 0012](specs/0012-observability-logs-and-traces.md) OB4).
+  - **Traces:** they're protected separately, because span attributes aren't covered by log redaction (OB5).
 - **Error responses:** Problem Details only. No stack traces, SQL or internal hostnames.
 - Cardholder data **never** touches UniVarse. Card entry happens on gateway-hosted pages/popups only, which keeps UniVarse out of PCI DSS scope for card data (SAQ-A-style posture).
 
