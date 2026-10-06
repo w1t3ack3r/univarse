@@ -1,4 +1,4 @@
-import { Module, type DynamicModule } from '@nestjs/common';
+import { Module, type DynamicModule, type Provider, type Type } from '@nestjs/common';
 import { APP_FILTER, APP_GUARD, DiscoveryModule } from '@nestjs/core';
 import { Redis } from 'ioredis';
 import { APP_CONFIG, type AppConfig } from './config/config.js';
@@ -32,6 +32,9 @@ import { TenantResolver } from './shared/tenancy/tenant-resolver.service.js';
 export interface AppOverrides {
   /** Tests add setting keys to prove permission scoping (spec 0007 ST5). */
   readonly settingsRegistry?: SettingsRegistry;
+  /** Tests only: the route sweep's deliberately leaky control routes (spec 0009 RS8). Never in main.ts. */
+  readonly extraControllers?: readonly Type[];
+  readonly extraProviders?: readonly Provider[];
 }
 
 @Module({})
@@ -42,7 +45,7 @@ export class AppModule {
       module: AppModule,
       global: true,
       imports: [DbModule, DiscoveryModule],
-      controllers: [HealthController, TenantProfileController, AuthController, MfaController, UsersController, ProductsController, SettingsController],
+      controllers: [HealthController, TenantProfileController, AuthController, MfaController, UsersController, ProductsController, SettingsController, ...(overrides.extraControllers ?? [])],
       providers: [
         { provide: APP_CONFIG, useValue: config },
         {
@@ -70,6 +73,7 @@ export class AppModule {
         { provide: APP_GUARD, useClass: ProductGuard },
         { provide: APP_GUARD, useClass: AccessGuard },
         { provide: APP_FILTER, useClass: ProblemFilter },
+        ...(overrides.extraProviders ?? []),
       ],
       exports: [APP_CONFIG],
     };

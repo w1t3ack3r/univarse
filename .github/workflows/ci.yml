@@ -29,7 +29,7 @@ jobs:
           curl -sSfLo gitleaks.tgz "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
           echo "${GITLEAKS_SHA256}  gitleaks.tgz" | sha256sum -c -
           tar -xzf gitleaks.tgz gitleaks
-          ./gitleaks git --redact --no-banner --exit-code 1 .
+          ./gitleaks git --redact --verbose --no-banner --exit-code 1 .  # --verbose: file, line, rule, fingerprint; the secret stays redacted
 
   build-test:
     runs-on: ubuntu-24.04

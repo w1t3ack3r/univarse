@@ -2,3 +2,6 @@
 # 2026-10-05: E2E test password literal (test-only user in the local/CI test DB), replaced in the
 # next commit by a per-run random value. The finding stays in this commit's history, so it's listed.
 92613b23275ecb3ba2f3a7d35f582f568ff40cc6:apps/web/e2e/fixtures.ts:generic-api-key:16
+# 2026-10-06: route-sweep test password literal (activation confirm, test-only account in the local/CI test DB), replaced
+# in the next commit by per-run random values. The finding stays in this commit's history.
+249fe6bca9ba3fa86fc9f82cdbea292412442157:apps/api/src/route-sweep.int.spec.ts:generic-api-key:283
