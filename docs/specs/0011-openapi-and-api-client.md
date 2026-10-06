@@ -1,0 +1,131 @@
+# Spec 0011: OpenAPI contract and the generated `api-client`
+
+**Status:** Accepted (2026-10-06), owner review. D1–D4 decided, with conditions written into the criteria.
+**Phase:** 0 (roadmap: "OpenAPI generation", "`packages/api-client`").
+**Builds on:**
+- [docs/02 §2](../02-architecture.md): zod → OpenAPI → a typed client;
+- [docs/06 §OpenAPI](../06-api-guidelines.md);
+- [docs/12](../12-testing-strategy.md): the contract test layer;
+- [spec 0009](0009-api-route-sweep.md): real-route discovery.
+
+Every AC ID appears in at least one test name.
+
+## Why
+The web app calls the API through hand-typed generics, for example `api<FileView>('GET', …)`. Nothing ties those types to what the API actually returns:
+- a renamed field compiles fine and fails at run time;
+- an error code the UI switches on can change silently.
+
+docs/02 and docs/06 already promise an OpenAPI document generated from zod, and a generated client that the web **must** use. Neither exists yet.
+
+**The goal:** one machine-checked contract for every real route. It is generated from the running application, so it cannot describe a route that doesn't exist or miss one that does. It is consumed by the web app, and verified against real HTTP responses in CI.
+
+## What exists today (2026-10-06, `main` at `3aaf809`)
+- **Routes:** 30 real routes, the same set spec 0009's sweep discovers. This is **today's baseline, not a fixed number**:
+  - the 28 routes under `/api/v1`;
+  - **plus the two health routes** (`GET /health/live`, `GET /health/ready`).
+
+  Nest declares 32. The other two are the sweep's test-only control routes (`testing/route-controls.ts`), registered only in that test.
+- **Requests:** validated by `parse(schema, body)` (`shared/http/validate.ts`) with strict zod schemas. Those schemas are **defined inside each controller**, not in `packages/contracts` as docs/06 says.
+- **Responses:** have **no schema**. Services return plain objects, and some fields are serialized differently from their in-memory type (for example, `bigint` and `Date`).
+- **Errors:** Problem Details (`application/problem+json`) from `ProblemFilter`, with `type`, `title`, `status`, `code`, `detail?`, `errors?` and `requestId`.
+  - Codes thrown today, by area:
+
+    | Area | Codes |
+    |---|---|
+    | Access | `auth.unauthenticated`, `auth.forbidden`, `auth.mfa_required`, `auth.mfa_enrolment_required`, `auth.step_up_required` (428) |
+    | Credentials and MFA | `auth.invalid_credentials`, `auth.mfa_invalid`, `auth.activation_invalid`, `auth.reset_invalid`, `auth.password_rejected`, `auth.mfa_enrolment_expired`, `auth.mfa_already_enrolled`, `auth.mfa_not_enrolled`, `auth.step_up_second_factor_required` |
+    | Request and preconditions | `request.invalid`, `request.rate_limited`, `request.csrf_rejected`, `precondition.required` (428), `precondition.failed` (412) |
+    | Tenant | `tenant.not_found`, `tenant.suspended` (423) |
+    | Resources | `resource.not_found`, `settings.unknown_key`, `product.changed`, `product.not_entitled`, `product.core_required` |
+    | Files | `file.not_ready`, `file.quota_exceeded`, `file.upload_incomplete`, `file.too_large`, `file.type_not_allowed` |
+
+  - **Inconsistency found:** the CSRF hook writes `type: …/request.csrf-rejected` (a hyphen), while its `code` is `request.csrf_rejected`. Everything else uses `problemType(code)`.
+- **Authentication:**
+  - the session cookie is `__Host-uv_sid`;
+  - the MFA challenge cookie `__Host-uv_mfa` is set by `login` when a second factor is needed, and read and cleared by `mfa/verify`.
+- **CSRF:**
+  - every unsafe method under `/api/` needs `Sec-Fetch-Site: same-origin`;
+  - without Fetch Metadata, an `Origin` header matching the Host;
+  - otherwise `403 request.csrf_rejected`.
+- **ETags:** settings writes need `If-Match: "v<n>"`. A missing header is `428 precondition.required`; a stale one is `412 precondition.failed`.
+- **Binary download:** `GET /files/{id}/content` returns the bytes with the detected type, `content-length`, `content-disposition: attachment` and the sandbox CSP. The web app links to it with an `<a href>`, not with `fetch`.
+- **Presigned upload:** this request goes **directly to storage**, not to the API.
+  - It is sent with `XMLHttpRequest`, for progress, from `DocumentsPanel.tsx`.
+  - It is not an API operation. Only the slot response that carries its URL and fields is.
+- **Web call sites:**
+  - client side, 17 calls in 9 files through `lib/client-api.ts`;
+  - server side, 8 calls through `lib/server-api.ts`, GET only;
+  - every response type is hand-written.
+- **How failures are handled today** (D3: preserve, and close the gap):
+  - **Browser:**
+    - a network failure → `ApiError(0, 'network.offline')`;
+    - a Problem Details response → `ApiError(status, code, requestId, fieldErrors)`, with the user message chosen by `code`, never by `detail`;
+    - **gap:** a non-JSON error body (for example, a proxy's 502 page) makes `JSON.parse` throw a raw `SyntaxError`.
+  - **Server:**
+    - a network failure throws, and the caller decides what it means;
+    - a non-JSON body becomes `body: null`, with the status kept and the request ID read from the `x-request-id` header.
+- **Version skew:** `apps/api` declares `zod ^4.1.0` and `packages/contracts` declares `^4.6.5`.
+
+## Acceptance criteria
+| ID | Criterion |
+|---|---|
+| OA1 | *Generated from the application, with an explicit target.*<br>• **Source:** the generator boots the real Nest app (as the route sweep does) and builds the document from **application metadata**: routes from Nest's `DiscoveryService`, and for each one its `@Contract`, permission, `@Public`, `@RequireStepUp` and `@Product`, read from the same metadata the guards enforce.<br>• **Target: OpenAPI 3.1.1, schemas in JSON Schema draft 2020-12**, converted with zod 4's `z.toJSONSchema` (`target: 'draft-2020-12'`).<br>• **One zod version** across the workspace, pinned through the catalog or overrides; a test fails if two resolve.<br>• **Output:** written to `packages/api-client/openapi.json`. |
+| OA2 | *Complete, by comparing route sets, not counts.*<br>• **The sets:** the set of discovered real routes (`DiscoveryService`, cross-checked against Fastify `onRoute` as in spec 0009 RS1) must **equal** the set of documented operations, as `METHOD path` pairs.<br>• **Failure:** any difference fails, naming each route that is missing or extra. No total is hard-coded; 30 is today's baseline.<br>• **Health routes are included:** `GET /health/live` and `GET /health/ready` are documented under the tag `operations`, with `security: []` and no tenant.<br>• **Exclusions:** only the test-only control routes, listed **by name** in one constant, which the test asserts are absent from production module wiring. |
+| OA3 | *Requests from the schemas that validate them; responses as serialized.*<br>• **Requests:** each operation's request body, path and query parameters come from **the same zod schema** the handler's `parse` uses, moved into `packages/contracts`. They are converted with `io: 'input'`, so defaults and transforms describe what a client may **send**. Request bodies are strict (`additionalProperties: false`). A test proves the documented schema and the runtime validator are the same object.<br>• **Responses:** each response schema describes the **serialized JSON wire form**, converted with `io: 'output'`. Values whose JSON differs from their in-memory type (`bigint` → string, `Date` → ISO string) are declared as their wire type in the response schema; they are not inferred.<br>• **Unsupported conversions fail generation.** `unrepresentable: 'throw'` is used, and a check fails the generator if any schema in the document is empty (`{}`), `true`, or has no `type`, `const`, `enum`, `$ref` or combinator. Each failure names the operation and the JSON pointer. |
+| OA4 | *Responses for every status, including errors.*<br>• **Success:** each operation lists its success response, with its schema and relevant headers.<br>• **Errors:** it also lists **every error it can produce** as `application/problem+json` with the shared `Problem` schema, each `code` listed as an enum on that response.<br>• **Where errors come from:**<br>&nbsp;&nbsp;– the guards: 401, 403, 404, 423, and 428 for step-up;<br>&nbsp;&nbsp;– validation: 400 `request.invalid` with `errors[]`;<br>&nbsp;&nbsp;– CSRF: 403 on unsafe methods;<br>&nbsp;&nbsp;– rate limits: 429 with `Retry-After`;<br>&nbsp;&nbsp;– the use case itself. |
+| OA5 | *Authentication described accurately.*<br>• **Security schemes:** `session` (cookie `__Host-uv_sid`) and `mfaChallenge` (cookie `__Host-uv_mfa`, only on `mfa/verify`).<br>• **Public routes** have `security: []`.<br>• **Cookies:** endpoints that set or clear cookies document `Set-Cookie`, describing its attributes (`HttpOnly`, `Secure`, `SameSite`, `Path`, `Max-Age`), never values.<br>• **Extensions:** `x-permission`, `x-step-up`, `x-product`, `x-rate-limit` and `x-idempotency` (docs/06), plus which operations allow an enrolment-only session (spec 0001 M15′). |
+| OA6 | *CSRF, ETags, binary and empty responses described accurately.*<br>• **CSRF:** every unsafe operation documents its requirement (`x-csrf: same-origin`) and its `403 request.csrf_rejected` response.<br>• **ETags:** settings `GET` documents the `ETag` header; settings `PUT` and `DELETE` document a required `If-Match`, with 412 and 428.<br>• **Binary download:** `GET /files/{id}/content` documents `200` with `application/pdf`, `image/png` and `image/jpeg` as `format: binary`, plus `Content-Disposition`, `Content-Length` and `409 file.not_ready`.<br>• **Empty responses:** `204` responses document **no content**. |
+| OA7 | *One error shape.* The CSRF rejection's `type` is fixed to `problemType('request.csrf_rejected')`. A test asserts, for every documented error response, that `type` equals `problemType(code)`. |
+| OA8 | *A generated client, actually used.*<br>• **What it is:** `packages/api-client` exports types generated by `openapi-typescript` (`paths`) and an `openapi-fetch` client (D2).<br>• **The shared wrapper owns everything below,** so no call site re-implements it:<br>&nbsp;&nbsp;– **Cookies:** in the browser, `credentials: 'same-origin'`. On the server, the transport forwards Host, X-Forwarded-*, the cookie and the user agent, as `server-api.ts` does today.<br>&nbsp;&nbsp;– **CSRF:** relies on same-origin `Sec-Fetch-Site` in the browser; the server transport stays GET-only, or else sets `Origin`.<br>&nbsp;&nbsp;– **Problem Details:** parsed into `ApiError`, with `code` typed to that operation's enum and the message by code.<br>&nbsp;&nbsp;– **`If-Match`.**<br>&nbsp;&nbsp;– **The binary download:** a typed `contentUrl(id)` for the `<a href>`.<br>• **Failure handling is preserved (D3):** a network failure is still `network.offline`. A non-JSON or unexpected response becomes `ApiError(status, 'server.unexpected_response', requestId from the header)`, closing the browser gap; it is no longer a raw `SyntaxError`.<br>• **Coverage:** **every** API call in `apps/web` goes through the client, and the hand-written response types are deleted. The documents flow is on it end to end: list, slot, complete, poll, delete and the download link.<br>• **Lint rule:** forbids `fetch`, `XMLHttpRequest` and literal `/api/` paths outside `packages/api-client` and its transports. **The one exception** is the dedicated presigned-storage upload helper (`apps/web/src/lib/storage-upload.ts`), because that request goes to storage, not the API. The rule names it explicitly. |
+| OA9 | *Stale generated files fail CI.* CI runs `pnpm contracts:gen`, then `git diff --exit-code` on `openapi.json` and the generated types. A contract change without regenerating fails, with a message naming the command. |
+| OA10 | *Each real HTTP response is verified against its schema.* In the API integration tests, every `h.call` result is checked against its operation **as it went over the wire**: the raw payload and headers, not the object the service returned.<br>• **Status:** it must be documented for that operation.<br>• **Content type:** it must match a documented media type, for example `application/json` or `application/problem+json`.<br>• **Body:** for JSON, the **serialized** payload is parsed and validated with Ajv for 2020-12; for Problem Details, `type` must also equal `problemType(code)`.<br>• **Headers:** the relevant ones are checked:<br>&nbsp;&nbsp;– `ETag` on settings reads;<br>&nbsp;&nbsp;– `Set-Cookie` attributes on auth responses;<br>&nbsp;&nbsp;– `Retry-After` on 429;<br>&nbsp;&nbsp;– `Content-Disposition`, `Content-Length` and the security headers (`nosniff`, the sandbox CSP, `no-store`) on downloads.<br>• **Binary responses:**<br>&nbsp;&nbsp;– the content type is one of the documented binary types;<br>&nbsp;&nbsp;– `Content-Length` equals the payload's byte length;<br>&nbsp;&nbsp;– `Content-Disposition` is `attachment` with a filename;<br>&nbsp;&nbsp;– no JSON parsing is attempted.<br>• **Empty responses:** a `204` must have a zero-length body. Any content on an operation documented as empty fails.<br>• **Failures:** any of these fails the test that made the call.<br>• **Coverage line:** `[openapi-conformance] operations N of M discovered; (operation, status) pairs seen K of L`. It lists the documented pairs never exercised, so gaps are visible and not silent. |
+| OA11 | *Negative controls.* The conformance check must actually catch drift. Each change below must fail a test:<br>• renaming a response field;<br>• returning an undocumented status;<br>• removing a documented error code from the enum;<br>• making a strict request schema loose;<br>• deleting a route's contract declaration;<br>• a schema that converts to `{}`;<br>• a `204` that returns a body;<br>• a download whose `Content-Length` doesn't match its payload. |
+| OA12 | *Breaking changes are visible and acknowledged (D4: report-only).*<br>• **The diff:** CI runs oasdiff, the PR's `openapi.json` against `main`'s, and writes the full breaking-change list to the job summary.<br>• **What passes:** a **breaking change passes** only when the PR description has an `## API breaking changes` section that names each break and says how older clients cope. An unacknowledged break fails the check, so a break can't slip through unannounced.<br>• **Why older clients matter:** first-party clients can still run older versions in open browser tabs. The usual coping strategy is expand → migrate → contract (CLAUDE.md invariant 9): keep the old field or route for a release. |
+
+## Design notes
+- **Declaring a contract.** Each handler gets one `@Contract(op)`. `op` lives in `packages/contracts/src/api/<module>.ts` with `operationId`, `request`, `responses` (status → schema, `binary` or `empty`), `errors` (codes), `headers` and `cookies`.
+  - It holds **no** permission or step-up data. Those are read from the existing decorators, so the documentation can't disagree with what is enforced.
+  - The handler's `parse` takes `op.request.body`.
+- **The generator** is a script in `apps/api`, sharing the harness's app bootstrap:
+  - it boots, collects routes from `DiscoveryService`, joins each to its `@Contract` and guard metadata, and emits the document;
+  - Fastify `onRoute` capture is the cross-check (spec 0009 RS1), so a route registered outside Nest is still noticed.
+- **The client** (D2): `openapi-typescript` produces `paths`, and `openapi-fetch` gives `client.GET('/api/v1/files/{id}', { params })`.
+  - The shared wrapper (OA8) adapts its result to the existing `ApiError` contract, so the UI's error handling doesn't change shape during the migration.
+- **Committed artifact, no runtime endpoint.** `openapi.json` is committed and reviewed in diffs. docs/06's "`/api/v1/openapi.json` in non-prod only" is **dropped** for this slice: the committed file serves the same purpose without adding a route.
+- **Steps, each green before the next:**
+  1. zod alignment, and schemas moved to contracts;
+  2. `@Contract` and the generator, with the OA2 set comparison;
+  3. response schemas, plus conformance in the tests (OA10, OA11);
+  4. `api-client` and the web migration, the documents flow first (OA8);
+  5. the CI gates (OA9, OA12).
+
+## Decisions (owner, 2026-10-06)
+| # | Decision | Conditions (in the criteria) |
+|---|---|---|
+| D1 | **Our own `@Contract` metadata + zod 4's JSON Schema output**, assembled from Nest's `DiscoveryService`. (`@nestjs/swagger` with `nestjs-zod` is not used.) | **OA1:** one zod version; an explicit target (OpenAPI 3.1.1, draft 2020-12). **OA3:** requests use `io: 'input'`; responses are described as serialized; unsupported conversions fail generation, never `{}`. |
+| D2 | **`openapi-fetch` + `openapi-typescript`.** | **OA8:** cookies, CSRF, Problem Details, `If-Match` and download handling live in the shared wrapper. |
+| D3 | **Schema validation in CI only**, not in the browser. | **OA8:** the existing handling of network failures and unexpected responses is preserved, and the browser's non-JSON gap is closed during the migration. |
+| D4 | **Breaking-change detection is report-only.** | **OA12:** the diff is visible in the PR; intentional breaks are acknowledged in the PR description, with how older open tabs cope. |
+
+## Docs to update in the same change
+- **docs/06 §OpenAPI:**
+  - the artifact's location;
+  - the runtime endpoint dropped;
+  - the target versions;
+  - the extensions list;
+  - schemas living in `packages/contracts`.
+- **docs/02 §2 and the repo layout:** `packages/api-client` exists.
+- **docs/12:** the contract layer (generation, conformance, the oasdiff report).
+- **docs/13:** the PR description's "API breaking changes" section.
+- **docs/17 §3:** the `@Contract` rule, and the lint rule with its storage-upload exception.
+- **CLAUDE.md:** `pnpm contracts:gen` exists and is gated in CI.
+- **README:** a status row.
+
+## Out of scope (tracked)
+| Gap | Milestone |
+|---|---|
+| Event (outbox) schema contracts and compatibility checks | With the first cross-product event consumer |
+| Publishing the API docs (rendered reference), or serving `openapi.json` | When an external integrator exists |
+| Runtime response validation in the client (D3) | If CI conformance ever misses a real bug |
+| Blocking breaking changes (D4) | When a client we don't deploy ourselves exists (mobile, third parties) |
+| Cross-instance product cache (spec 0003 P7), key-forget broadcast and shred ledger (spec 0006) | Unchanged: on the invalidation bus and the staging backups. File isolation alone does not close layer 5 |
