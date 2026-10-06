@@ -167,6 +167,10 @@ Three criteria need recorded results, not just the configuration that enables th
   - `files.int.spec.ts` ran 27 tests, all passed (API integration 303 passed, 1 opt-in skipped);
   - the default reporter printed only totals and slow tests, so per-test names were not in that log;
   - from now on CI runs the API integration tests with `--reporter=verbose`, so each FU test's result is in every CI log.
+- **CI-verified by name: CI run 37416508690** on `6f79017` (#27), API integration 303 passed, 1 opt-in skipped:
+  - **FU3:** all 9 `[FU3]` tests passed by name: the configuration check, the 30 MB limit-bomb PDF, the encrypted PDF, the four scanner-failure modes, the worker crash and "not downloadable before CLEAN";
+  - **FU18:** both `[FU18]` takeover tests passed by name: paused before promotion, and paused after it.
+  - **FU12 is not CI-verified,** by design: it is opt-in, and its evidence is the three recorded local runs below.
 - **Local runs on `main` at `3aaf809`:** the per-test results below, against the dev SeaweedFS 4.48 and ClamAV 1.5.4 with fail-closed settings.
 
 ### FU12: peak memory during a signature reload under load
@@ -180,7 +184,8 @@ Each run had 12 uploads (four of 4.5 MB) being scanned while clean files were do
 
 - **Run 3's raw report:** `RELOAD -> RELOADING`; peaks clamav 1371, seaweedfs 445, vault 31, valkey 13, mailpit 32 MiB; 89 s.
 - **The test asserts** 0 restarts, 0 failed downloads, every file `CLEAN` and no `SCAN_FAILED`. It is opt-in (`MEASURE_FILES_STACK=1`) because it deliberately loads the machine, which is why CI shows it as skipped. These recorded runs are its evidence.
-- **Peaks vary with when the reload lands.** The two databases coexist only briefly. The budget in docs/10 §4.1 uses the highest run.
+- **Peaks vary with when the reload lands.** The two databases coexist only briefly.
+- **2,395 MiB is the highest observed container peak for this workload** (12 uploads, a download loop, one reload), on a dev machine. It is **not** the total RAM requirement for a future server: that adds Postgres, the OS, more instances and real traffic, and is sized in spec 0008.
 
 ### FU3: the real scanner's limits and encryption, results
 These run against real clamd with real payloads; neither is a mock.

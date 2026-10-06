@@ -86,7 +86,8 @@ Browse `http://demo-uni.univarse.localhost:3000`. `*.localhost` resolves to loop
 - in run two, 3 scans were **retried** while clamd was reloading. A busy scanner delays files; it never releases them.
 
 **Recommendation:**
-- **Docker:** allocate **at least 4 GB**. The measured peak is about 2.4 GB plus headroom; 3.8 GB worked here.
+- **Docker:** allocate **at least 4 GB**. The highest observed container peak for this workload is 2,395 MiB, plus headroom; 3.8 GB worked here.
+- **That figure is not a server size.** It covers one workload of the dev containers. A server's RAM also covers Postgres, the OS, more API and worker instances, and real traffic; it is sized in spec 0008.
 - **ClamAV in staging and production:** a **2.5–3 GB** memory limit for its container. Its own guidance of about 4 GB stays the safer default for production nodes.
 - These figures replace the earlier "8 GB" estimate.
 
