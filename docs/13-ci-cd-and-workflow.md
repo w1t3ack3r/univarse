@@ -12,6 +12,7 @@
   - **When it fails:** only when a breaking change (oasdiff level ERR) isn't acknowledged in the PR description.
   - **What counts as acknowledged:** an `## API breaking changes` section that names each broken operation as `METHOD /path`, plus an `Open tabs:` line saying how a browser tab still running the previous web app copes. First-party clients can stay open across a deploy; the usual answer is expand → migrate → contract.
   - **Re-evaluation:** the check re-runs when the description is edited.
+  - **Enforcement:** `api-breaking-changes` is a required status check in the `protect-main` ruleset, together with `build-test` and `secrets-scan`.
 - **Review:** solo phase: self-review + AI review (`/code-review`) + CI. Every change to auth, RLS, payments or results engines gets a deliberate second pass the next day ("sleep on it" rule) or a second reviewer once the team grows.
 
 ## 2. Local quality gates (pre-commit via lefthook)
