@@ -81,7 +81,11 @@ The flow is built so a file is **never** available before it has been scanned cl
   - **Direct POST path:** the CSP `connect-src` allows exactly `S3_PUBLIC_ENDPOINT`, and bucket CORS allows exactly the tenant web origins, `POST` only.
   - **API path:** same origin, so no CSP or CORS change.
 - **Quota lock:** `pg_advisory_xact_lock(hashtext('files-quota:' || tenant_id))` inside the slot transaction, then `SUM(reserved_bytes)` against the setting. `reserved_bytes` lives on `file_object` and is zeroed on release.
-- **Test signature:** `infra/compose/clamav/test-sigs/univarse-test.ndb` holds a hex body signature for the marker, under a name prefixed `UniVarse.Test`. It is mounted into clamd only by the dev and CI compose files, never by any deployed configuration. The marker itself is assembled in the test at run time.
+- **Test signature:** `infra/compose/clamav/test-sigs/univarse-test.ndb` holds a hex body signature for the marker, under a name prefixed `UniVarse.Test`.
+  - **Delivery:** a one-shot `clamav-test-sigs` container mounts the fixture **read-only**, copies it into ClamAV's own database volume, and exits. ClamAV never sees the repository file.
+  - **Alongside the normal databases:** the official ones (`main`, `daily`, `bytecode`) stay loaded and updated.
+  - **Where it runs:** dev and CI only, never any deployed configuration. The marker itself is assembled in the test at run time.
+- **No marker-specific application logic.** The API and worker handle ClamAV's ordinary `<signature> FOUND` reply, whatever the signature. Only the scanner knows the test marker exists. The recorded signature name is data, never a branch.
 - **Docs to correct when this lands:**
   - docs/06 §9 and docs/08 §7 (download through the authenticated endpoint, not a 302 to a presigned GET);
   - docs/08 §7's `content-length-range`, which is a presigned **POST** policy feature; a presigned **PUT** can only sign an exact `Content-Length`.
@@ -99,7 +103,7 @@ The flow is built so a file is **never** available before it has been scanned cl
 | Presigned URL after expiry | 403 | Yes (5-minute TTL) |
 | Anonymous read of a private bucket | 403 | Yes (FU1) |
 
-| Scanner input (FU16), sent straight to clamd | Result |
+| Scanner input (FU16), sent straight to clamd (rechecked after FreshClam updated to 28144, 2026-10-05) | Result |
 |---|---|
 | A clean PDF | `OK` |
 | Exact EICAR (68 bytes; with CRLF) | `Eicar-Test-Signature FOUND` / `Eicar-Signature FOUND` |

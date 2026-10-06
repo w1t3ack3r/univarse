@@ -78,19 +78,30 @@ services:
       - seaweedfs-data:/data
       - ./seaweedfs/s3.json:/etc/seaweedfs/s3.json:ro
 
+  # Copies the test-only signature (spec 0010 FU16) from the read-only repo fixture into ClamAV's own
+  # database volume, then exits. ClamAV never sees the repository. Dev/CI only; never deployed.
+  clamav-test-sigs:
+    image: clamav/clamav:stable
+    entrypoint: ['sh', '-c', 'cp /fixtures/univarse-test.ndb /var/lib/clamav/univarse-test.ndb']
+    restart: 'no'
+    security_opt: ['no-new-privileges:true']
+    volumes:
+      - clamav-db:/var/lib/clamav
+      - ./clamav/test-sigs:/fixtures:ro
+
   # Virus scanning for uploads (spec 0010). The image ships with signatures; FreshClam still updates
   # them (set CLAMAV_NO_FRESHCLAMD=true in .env on a slow link: stale signatures, local only).
-  # The test-only signature (spec 0010 FU16) is mounted here and in CI, never in a deployed config.
+  # The normal signature databases stay in place; the test signature is one extra file beside them.
   clamav:
     image: clamav/clamav:stable
     restart: unless-stopped
     security_opt: ['no-new-privileges:true']
     ports: ['127.0.0.1:3310:3310']
     environment: { CLAMAV_NO_FRESHCLAMD: '${CLAMAV_NO_FRESHCLAMD:-false}' }
+    depends_on:
+      clamav-test-sigs: { condition: service_completed_successfully }
     volumes:
       - clamav-db:/var/lib/clamav
-      # Writable: the image's entrypoint chowns everything in /var/lib/clamav at start.
-      - ./clamav/test-sigs/univarse-test.ndb:/var/lib/clamav/univarse-test.ndb
     healthcheck:
       test: ['CMD-SHELL', 'clamdscan --ping 3 >/dev/null 2>&1 || echo PING | nc -w 2 127.0.0.1 3310 | grep -q PONG']
       interval: 10s
