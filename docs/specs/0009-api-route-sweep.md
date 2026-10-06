@@ -62,6 +62,34 @@ Layer 3 is partial: a handful of hand-written checks cover host resolution, a se
   - Product states and settings overrides changed by a fixture are restored through the API, so instance caches are invalidated too.
   - Append-only rows (audit, outbox) remain, as with the DB sweep.
 
+## Implementation notes (2026-10-06)
+- **Code:**
+  - the sweep: `apps/api/src/route-sweep.int.spec.ts`;
+  - its machinery: `src/testing/route-sweep.ts` (route capture, `checkCollection`, `checkResource` returning findings);
+  - the controls: `src/testing/route-controls.ts`;
+  - hooks: `createApp(config, { beforeInit, extraControllers, extraProviders })`. These are test-only; `main.ts` passes none.
+  - **Departure from the design notes:** the route declarations live in the spec file rather than `src/testing/route-declarations.ts`, because each fixture closes over the sweep's identities and markers.
+- **Route table (local run, 2026-10-06):**
+  - 37 Fastify registrations: 26 Nest routes, plus 11 `HEAD` twins (one per `GET`).
+  - No other framework routes appeared, so none are allowed.
+  - 24 real routes; 2 are the test-only controls.
+- **Coverage per check:**
+  - **RS0:** 24 legitimate operations, each exact. Examples: login creates exactly one session for that user; activation and reset confirm change exactly that account; MFA enrol, confirm, disable and regenerate change exactly that user's factor and codes; product and setting writes succeed with step-up and a current ETag, then are restored through the API.
+  - **RS3:** 59 tenant-hint variants (header, query, body), each on a fresh independent fixture. A strict body with an unknown `tenantId` is the documented `400 request.invalid`. Tenant B's state is compared before and after every route.
+  - **RS2:**
+    - 16 credential probes (15 session routes plus `mfa/verify`);
+    - the restricted-session allow-list, probed on all 15 credentialed routes, equals exactly {enrol, confirm, logout, `/me`};
+    - 22 suspended-host probes.
+  - **RS4:** 4 collection checks. **RS5:** 3 keyed checks.
+  - **RS6:** 0 real resource routes (N/A), plus the checker's own tests: an existence oracle is flagged, and a correct route passes.
+  - **RS7:** 5 account checks.
+  - **RS8:** both controls leak for real, and each is reported with exactly the expected finding. The compiled `dist` has no `__test` path, and its booted route table equals the 24 real routes.
+- **Found while building:** `GET /users` returns the first 50 users by username, with no pagination. The sweep's non-vacuous check caught its own marker falling off that page. Markers now sort first (`00…`). The missing pagination ([06](../06-api-guidelines.md)) is tracked below.
+- **Mutations caught (4):**
+  - restricted sessions allowed everywhere, and `/me` losing `@AllowRestricted()`: both fail RS2 (M8);
+  - an undeclared route: fails RS1;
+  - the product cache shared across tenants, a real cross-tenant cache leak: fails RS5 (B could write A's Academics-only setting).
+
 ## Out of scope (tracked)
 | Gap | Milestone |
 |---|---|
@@ -69,3 +97,4 @@ Layer 3 is partial: a handful of hand-written checks cover host resolution, a se
 | Resource-scoped authorisation (faculty or department scope against the loaded record, invariant 2) | With scoped grants (Phase 1–2), as an extension of RS6 |
 | Layer 5 file isolation (presigned URLs, object keys) | File uploads module |
 | Product cache isolation across instances (spec 0003 P7) | With the shared invalidation bus |
+| `GET /users` pagination (it silently returns the first 50 by username) | With the user-management module (Phase 1) |
