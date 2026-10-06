@@ -4,7 +4,7 @@
 // parameter that doesn't match the route, a schema zod can't convert, or one that converts to `{}`.
 import { RequestMethod } from '@nestjs/common';
 import { METHOD_METADATA, PATH_METADATA } from '@nestjs/common/constants.js';
-import { type ApiOperation, type CookieName, type SettingDef } from '@univarse/contracts';
+import { PERMISSIONS, type ApiOperation, type CookieName, type Permission, type SettingDef } from '@univarse/contracts';
 import { z } from 'zod';
 import { routeAccess } from '../modules/identity/access.guard.js';
 import { requiresStepUp } from '../modules/identity/actor.js';
@@ -165,8 +165,34 @@ export function buildOpenApi(controllers: readonly Ctor[], settings: Readonly<Re
       if (err instanceof ContractError) problems.push(...err.problems);
       else throw err;
     }
-    // Step 3 adds response schemas, headers and every error (OA4).
-    operation.responses = { [String(op.success)]: { description: op.success === 204 ? 'No content' : 'Success' } };
+    if (op.ifMatch) {
+      ((operation.parameters ??= []) as Json[]).push({
+        name: 'If-Match',
+        in: 'header',
+        required: true,
+        description: 'The ETag you read. Missing: 428 precondition.required; stale: 412 precondition.failed.',
+        schema: { type: 'string', pattern: '^(W/)?"v[0-9]+"$' },
+      });
+    }
+    try {
+      operation.responses = {
+        [String(op.success)]: successResponse(op, where),
+        ...errorResponses(op, {
+          tenant: !noTenant,
+          product,
+          isPublic,
+          allowRestricted,
+          permission,
+          stepUp,
+          settings: op.permissionBySettingKey ? settings : undefined,
+          unsafe: UNSAFE.has(r.method),
+          params,
+        }),
+      };
+    } catch (err) {
+      if (err instanceof ContractError) problems.push(...err.problems);
+      else throw err;
+    }
     operation.security = security;
 
     if (noTenant) operation['x-no-tenant'] = true;
@@ -190,6 +216,7 @@ export function buildOpenApi(controllers: readonly Ctor[], settings: Readonly<Re
     (paths[template(r.path)] ??= {})[r.method.toLowerCase()] = operation;
   }
 
+  schemas.Problem = PROBLEM;
   // OA3: nothing in the document may be an empty schema.
   for (const [name, s] of Object.entries(schemas)) for (const p of emptySchemas(s, `#/components/schemas/${name}`)) problems.push(`empty schema at ${p}`);
   for (const [path, methods] of Object.entries(paths)) {
@@ -198,6 +225,14 @@ export function buildOpenApi(controllers: readonly Ctor[], settings: Readonly<Re
       ((o.parameters ?? []) as Json[]).forEach((p, i) => problems.push(...emptySchemas(p.schema, `${base}/parameters/${String(i)}/schema`).map((x) => `empty schema at ${x}`)));
       const body = (o.requestBody as { content: Record<string, { schema: unknown }> } | undefined)?.content['application/json']?.schema;
       if (body !== undefined) problems.push(...emptySchemas(body, `${base}/requestBody/content/application~1json/schema`).map((x) => `empty schema at ${x}`));
+      for (const [status, res] of Object.entries((o.responses ?? {}) as Record<string, ResponseObject>)) {
+        for (const [media, c] of Object.entries(res.content ?? {})) {
+          problems.push(...emptySchemas(c.schema, `${base}/responses/${status}/content/${media.replace('/', '~1')}/schema`).map((x) => `empty schema at ${x}`));
+        }
+        for (const [h, spec] of Object.entries(res.headers ?? {})) {
+          problems.push(...emptySchemas(spec.schema, `${base}/responses/${status}/headers/${h}/schema`).map((x) => `empty schema at ${x}`));
+        }
+      }
     }
   }
   if (problems.length > 0) throw new ContractError(problems);
@@ -237,4 +272,137 @@ function settingValueBody(envelope: Json, settings: Readonly<Record<string, Sett
   }
   const properties = { ...(envelope.properties as Json), value: { anyOf: Object.values(refs).map(($ref) => ({ $ref })) } };
   return { ...envelope, properties, 'x-value-by-key': { parameter: 'key', values: refs } };
+}
+
+// ---- Responses (OA4–OA7) -----------------------------------------------------------------------------
+
+interface ResponseObject {
+  description: string;
+  headers?: Record<string, { required?: boolean; description?: string; schema: Json }>;
+  content?: Record<string, { schema: Json }>;
+  'x-set-cookie'?: { sets: string[]; clears: string[] };
+}
+
+/** RFC 9457 Problem Details as ProblemFilter writes them; each error response narrows status and code. */
+const PROBLEM: Json = {
+  type: 'object',
+  description: 'RFC 9457 Problem Details. `type` is always problemType(code); clients branch on `code`, never `detail`.',
+  required: ['type', 'title', 'status', 'code', 'requestId'],
+  additionalProperties: false,
+  properties: {
+    type: { type: 'string', format: 'uri' },
+    title: { type: 'string' },
+    status: { type: 'integer' },
+    code: { type: 'string' },
+    detail: { type: 'string' },
+    requestId: { type: 'string' },
+    errors: {
+      type: 'array',
+      description: 'Field errors (400 request.invalid only).',
+      items: {
+        type: 'object',
+        required: ['path', 'code', 'message'],
+        additionalProperties: false,
+        properties: { path: { type: 'string' }, code: { type: 'string' }, message: { type: 'string' } },
+      },
+    },
+  },
+};
+
+const COOKIE_RULE = 'Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age (0 when cleared). Values are never documented.';
+
+function successResponse(op: ApiOperation, where: string): ResponseObject {
+  const res: ResponseObject = { description: op.success === 204 ? 'No content' : 'Success' };
+  const headers: NonNullable<ResponseObject['headers']> = {};
+  if (op.response) {
+    res.content = { 'application/json': { schema: toJsonSchema(op.response, 'output', `${where} response`) } };
+  } else if (op.binary) {
+    res.content = Object.fromEntries(op.binary.map((t) => [t, { schema: { type: 'string', format: 'binary' } }]));
+    headers['Content-Disposition'] = {
+      required: true,
+      description: 'Always an attachment, with an ASCII and an RFC 5987 filename.',
+      schema: { type: 'string', pattern: '^attachment; filename="' },
+    };
+    headers['Content-Length'] = { required: true, description: 'The verified byte length (spec 0010 FU14).', schema: { type: 'string', pattern: '^[0-9]+$' } };
+    headers['X-Content-Type-Options'] = { required: true, schema: { type: 'string', const: 'nosniff' } };
+    headers['Content-Security-Policy'] = { required: true, description: 'Sandboxed: nothing in the file can run.', schema: { type: 'string', pattern: '(^|; )sandbox($|;)' } };
+    headers['Cache-Control'] = { required: true, schema: { type: 'string', const: 'no-store' } };
+  } else if (op.success !== 204) {
+    throw new ContractError([`${where}: a ${String(op.success)} response needs \`response\` or \`binary\``]);
+  }
+  if (op.etag) headers.ETag = { required: true, description: 'Send it back as If-Match to change this resource.', schema: { type: 'string', pattern: '^"v[0-9]+"$' } };
+  const sets = (op.cookies?.sets ?? []).map((c) => COOKIES[c]);
+  const clears = (op.cookies?.clears ?? []).map((c) => COOKIES[c]);
+  if (sets.length + clears.length > 0) {
+    const what = [...(sets.length ? [`sets ${sets.join(' or ')}`] : []), ...(clears.length ? [`clears ${clears.join(', ')}`] : [])].join('; ');
+    headers['Set-Cookie'] = { required: true, description: `${what}. ${COOKIE_RULE}`, schema: { type: 'string', pattern: '^__Host-uv_' } };
+    res['x-set-cookie'] = { sets, clears };
+  }
+  if (Object.keys(headers).length > 0) res.headers = headers;
+  return res;
+}
+
+interface ErrorContext {
+  tenant: boolean;
+  product: string | undefined;
+  isPublic: boolean;
+  allowRestricted: boolean;
+  permission: Permission | undefined;
+  stepUp: boolean;
+  settings: Readonly<Record<string, SettingDef>> | undefined;
+  unsafe: boolean;
+  params: Readonly<Record<string, { invalid: { status: number; code: string } }>>;
+}
+
+const privileged = (p: Permission) => (PERMISSIONS[p] as { privileged?: boolean }).privileged === true;
+
+/** Every error the operation can produce: derived from the route, plus the use case's own (OA4). */
+function errorResponses(op: ApiOperation, c: ErrorContext): Record<string, ResponseObject> {
+  const codes = new Map<number, Set<string>>();
+  const add = (status: number, code: string) => {
+    const set = codes.get(status) ?? new Set<string>();
+    set.add(code);
+    codes.set(status, set);
+  };
+  if (c.tenant) {
+    add(404, 'tenant.not_found');
+    add(423, 'tenant.suspended');
+  }
+  if (c.product && c.product !== 'core') add(404, 'resource.not_found'); // product switched off (spec 0003 P3)
+  if (!c.isPublic) {
+    add(401, 'auth.unauthenticated');
+    if (!c.allowRestricted) add(403, 'auth.mfa_enrolment_required');
+  }
+  const perms = [...(c.permission ? [c.permission] : []), ...Object.values(c.settings ?? {}).map((d) => d.manage)];
+  for (const p of perms) {
+    add(403, 'auth.forbidden');
+    if (privileged(p)) add(403, 'auth.mfa_required');
+  }
+  if (c.stepUp || Object.values(c.settings ?? {}).some((d) => requiresStepUp(d.manage))) add(428, 'auth.step_up_required');
+  if (op.body) add(400, 'request.invalid');
+  if (c.unsafe) add(403, 'request.csrf_rejected');
+  if (op.rateLimit) add(429, 'request.rate_limited');
+  for (const p of Object.values(c.params)) add(p.invalid.status, p.invalid.code);
+  if (op.ifMatch) {
+    add(428, 'precondition.required');
+    add(412, 'precondition.failed');
+  }
+  add(500, 'server.internal');
+  for (const [status, list] of Object.entries(op.errors ?? {})) for (const code of list) add(Number(status), code);
+
+  const out: Record<string, ResponseObject> = {};
+  for (const [status, set] of [...codes.entries()].sort(([a], [b]) => a - b)) {
+    const list = [...set].sort();
+    const res: ResponseObject = {
+      description: list.join(', '),
+      content: {
+        'application/problem+json': {
+          schema: { type: 'object', allOf: [{ $ref: '#/components/schemas/Problem' }], properties: { status: { const: status }, code: { enum: list } } },
+        },
+      },
+    };
+    if (status === 429) res.headers = { 'Retry-After': { required: true, description: 'Seconds until the limit resets.', schema: { type: 'string', pattern: '^[0-9]+$' } } };
+    out[String(status)] = res;
+  }
+  return out;
 }

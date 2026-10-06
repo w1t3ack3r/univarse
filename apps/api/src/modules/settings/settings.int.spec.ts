@@ -92,6 +92,8 @@ const academics = (enabled: boolean) =>
 
 /** A second API instance on the same DB and Valkey (another pod in production). */
 async function instance(env: Record<string, string> = {}) {
+  // Not checked against the OpenAPI document (spec 0011 OA10): this app serves a test-only settings
+  // registry, which the production document does not describe.
   const app = await createApp(loadConfig({ ...process.env, NODE_ENV: 'test', ...env }), { settingsRegistry: REGISTRY });
   apps.push(app);
   return app;

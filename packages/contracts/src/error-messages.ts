@@ -35,6 +35,7 @@ export const ERROR_MESSAGES = {
   'precondition.failed': 'Someone else changed this while you were editing. Here are the latest values.',
   'request.invalid': 'Some details are missing or not valid.',
   'request.rate_limited': 'Too many attempts. Wait a little and try again.',
+  'request.csrf_rejected': "That request didn't come from this page. Reload it and try again.",
   'request.method_not_allowed': "That action isn't allowed here.",
   'request.too_large': 'That is too large to send.',
   'request.unsupported_media_type': "That file type isn't supported.",

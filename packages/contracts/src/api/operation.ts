@@ -31,6 +31,20 @@ export interface ApiOperation {
   /** Settings only: writes also need the chosen key's own manage permission (spec 0007 ST4). */
   readonly permissionBySettingKey?: true;
   readonly success: 200 | 201 | 202 | 204;
+  /** The success body (JSON) as serialized. Absent for 204 and for binary responses. */
+  readonly response?: z.ZodType;
+  /** A binary success: the media types the body may have (OA6). */
+  readonly binary?: readonly string[];
+  /**
+   * Errors the use case produces, by status. Errors that follow from the route itself (tenant, product,
+   * authentication, permission, step-up, validation, CSRF, rate limit, path parameters, If-Match and
+   * 500) are derived by the generator and must not be repeated here.
+   */
+  readonly errors?: Readonly<Partial<Record<400 | 401 | 403 | 404 | 409 | 412 | 422 | 500 | 503, readonly string[]>>>;
+  /** The success response carries an `ETag` (docs/06 §ETag). */
+  readonly etag?: true;
+  /** The request must send `If-Match` (428 if missing, 412 if stale). */
+  readonly ifMatch?: true;
   /** The rate-limit buckets the use case applies (docs/06); declared, as no decorator records them. */
   readonly rateLimit?: string;
   /** `reads` replaces the session as this operation's credential (MFA verify reads the challenge). */

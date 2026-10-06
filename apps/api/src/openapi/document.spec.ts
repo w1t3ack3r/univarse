@@ -2,7 +2,7 @@
 import 'reflect-metadata';
 import { readFileSync } from 'node:fs';
 import { Body, Controller, Get, Param, Post } from '@nestjs/common';
-import { AuthOps, MfaOps, SETTING_KEYS, SETTINGS, type ApiOperation } from '@univarse/contracts';
+import { AuthOps, ERROR_MESSAGES, MfaOps, SETTING_KEYS, SETTINGS, type ApiOperation } from '@univarse/contracts';
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import { Ajv2020 } from 'ajv/dist/2020.js';
@@ -21,6 +21,7 @@ const committed = readFileSync(new URL('../../../../packages/api-client/openapi.
 const ops = Object.entries(doc.paths).flatMap(([path, methods]) => Object.entries(methods).map(([method, op]) => ({ path, method: method.toUpperCase(), op })));
 const byId = (id: string) => ops.find((o) => o.op.operationId === id)!.op;
 const ids = (pred: (o: Op, method: string) => boolean) => ops.filter((o) => pred(o.op, o.method)).map((o) => o.op.operationId).sort();
+const OK = z.object({ ok: z.literal(true) }).strict();
 const refuses = (fn: () => unknown): string[] => {
   try {
     fn();
@@ -69,7 +70,7 @@ describe('[OA2] every production route, and only those', () => {
   });
 
   it('[OA2] path parameters must be exactly the route’s', () => {
-    const op: ApiOperation = { operationId: 'p', summary: 's', tag: 'files', success: 200 };
+    const op: ApiOperation = { operationId: 'p', summary: 's', tag: 'files', success: 200, response: OK };
     @Controller('api/v1/x')
     @Product('core')
     class MissingParam {
@@ -91,7 +92,7 @@ describe('[OA3] request schemas are the validators, and nothing converts to {}',
     @Controller('api/v1/x')
     @Product('core')
     class Fake {
-      @Contract({ operationId: 'fake', summary: 's', tag: 'files', body, success: 200 })
+      @Contract({ operationId: 'fake', summary: 's', tag: 'files', body, success: 200, response: OK })
       @Post('y')
       @Public()
       y(@Body() _b: unknown) {}
@@ -238,6 +239,117 @@ describe('[OA5][OA6] authentication, step-up, CSRF and path parameters as enforc
   it('[OA2] path parameters document today’s check: invalid or unknown values are 404, never 400', () => {
     const withParams = ops.filter((o) => o.op.parameters?.length);
     expect(withParams.length).toBeGreaterThan(0);
-    for (const { op } of withParams) for (const p of op.parameters!) expect((p['x-invalid'] as { status: number }).status, op.operationId).toBe(404);
+    for (const { op } of withParams) for (const p of op.parameters!.filter((x) => x.in === 'path')) expect((p['x-invalid'] as { status: number }).status, op.operationId).toBe(404);
+  });
+});
+
+type Res = { description: string; headers?: Record<string, { required?: boolean; schema: Json }>; content?: Record<string, { schema: Json }> };
+const responses = (o: Op) => (o as unknown as { responses: Record<string, Res> }).responses;
+const codesOf = (r: Res | undefined) => (r?.content?.['application/problem+json']?.schema.properties as { code?: { enum: string[] } } | undefined)?.code?.enum ?? [];
+
+describe('[OA4] every response, including every error', () => {
+  it('[OA4] each operation documents exactly one success status, and 500 server.internal', () => {
+    for (const { op } of ops) {
+      const statuses = Object.keys(responses(op)).map(Number);
+      expect(statuses.filter((s) => s < 300), op.operationId).toHaveLength(1);
+      expect(codesOf(responses(op)['500']), op.operationId).toContain('server.internal');
+    }
+  });
+
+  it('[OA4] route-derived errors are present wherever the route can produce them', () => {
+    for (const { op, method } of ops) {
+      const r = responses(op);
+      const id = op.operationId;
+      if (op.requestBody) expect(codesOf(r['400']), id).toContain('request.invalid');
+      if (method !== 'GET') expect(codesOf(r['403']), id).toContain('request.csrf_rejected');
+      if ((op.security as object[]).some((x) => 'session' in x)) expect(codesOf(r['401']), id).toContain('auth.unauthenticated');
+      if (op['x-step-up'] === true) expect(codesOf(r['428']), id).toContain('auth.step_up_required');
+      if (op['x-rate-limit']) expect(r['429']?.headers?.['Retry-After']?.required, id).toBe(true);
+      if (!op['x-no-tenant']) {
+        expect(codesOf(r['404']), id).toContain('tenant.not_found');
+        expect(codesOf(r['423']), id).toEqual(['tenant.suspended']);
+      }
+      for (const p of op.parameters ?? []) {
+        const inv = p['x-invalid'] as { status: number; code: string } | undefined;
+        if (inv) expect(codesOf(r[String(inv.status)]), id).toContain(inv.code);
+      }
+    }
+  });
+
+  it('[OA4] each operation’s own use-case errors are documented under their status', () => {
+    for (const r of apiRoutes(API_CONTROLLERS)) {
+      const c = Reflect.getMetadata('univarse:contract', r.handler) as ApiOperation;
+      for (const [status, list] of Object.entries(c.errors ?? {})) {
+        for (const code of list) expect(codesOf(responses(byId(c.operationId))[status]), `${c.operationId} ${status}`).toContain(code);
+      }
+    }
+  });
+
+  it('[OA4] every documented error code has a user message (the UI maps codes, never detail)', () => {
+    const documented = new Set(ops.flatMap(({ op }) => Object.values(responses(op)).flatMap(codesOf)));
+    expect([...documented].filter((c) => !(c in ERROR_MESSAGES)).sort()).toEqual([]);
+  });
+
+  it('[OA4] error bodies are the shared Problem schema, narrowed to the status and its codes', () => {
+    const problem = doc.components.schemas.Problem as { required: string[]; additionalProperties: boolean };
+    expect(problem.required).toEqual(['type', 'title', 'status', 'code', 'requestId']);
+    expect(problem.additionalProperties).toBe(false);
+    for (const { op } of ops) {
+      for (const [status, r] of Object.entries(responses(op))) {
+        if (Number(status) < 400) continue;
+        const schema = r.content!['application/problem+json']!.schema as { allOf: unknown[]; properties: { status: { const: number } } };
+        expect([schema.allOf, schema.properties.status.const], `${op.operationId} ${status}`).toEqual([[{ $ref: '#/components/schemas/Problem' }], Number(status)]);
+      }
+    }
+  });
+
+  it('[OA4] a success with neither a body schema nor binary types refuses generation', () => {
+    @Controller('api/v1/x')
+    @Product('core')
+    class NoBody {
+      @Contract({ operationId: 'nobody', summary: 's', tag: 'files', success: 200 })
+      @Get('y')
+      @Public()
+      y() {}
+    }
+    expect(refuses(() => buildOpenApi([NoBody], SETTINGS))).toEqual(['GET /api/v1/x/y: a 200 response needs `response` or `binary`']);
+  });
+});
+
+describe('[OA5][OA6] headers, cookies, ETags, binary and empty responses', () => {
+  it('[OA6] 204 responses document no content', () => {
+    for (const { op } of ops) expect(responses(op)['204']?.content, op.operationId).toBeUndefined();
+    expect(ids((o) => '204' in responses(o))).toEqual(['confirmActivation', 'confirmPasswordReset', 'deleteFile', 'logout']);
+  });
+
+  it('[OA6] the download is binary: PDF, PNG or JPEG, attachment, verified length, sandboxed', () => {
+    const r = responses(byId('downloadFile'))['200']!;
+    expect(Object.keys(r.content!).sort()).toEqual(['application/pdf', 'image/jpeg', 'image/png']);
+    for (const h of ['Content-Disposition', 'Content-Length', 'X-Content-Type-Options', 'Content-Security-Policy', 'Cache-Control']) {
+      expect(r.headers?.[h]?.required, h).toBe(true);
+    }
+    expect(codesOf(responses(byId('downloadFile'))['409'])).toContain('file.not_ready');
+  });
+
+  it('[OA6] settings reads and writes return an ETag; writes require If-Match (412, 428)', () => {
+    for (const id of ['getSetting', 'putSetting', 'resetSetting']) expect(responses(byId(id))['200']!.headers?.ETag?.required, id).toBe(true);
+    for (const id of ['putSetting', 'resetSetting']) {
+      expect(byId(id).parameters!.find((p) => p.name === 'If-Match')).toMatchObject({ in: 'header', required: true });
+      expect(codesOf(responses(byId(id))['412']), id).toEqual(['precondition.failed']);
+      expect(codesOf(responses(byId(id))['428']), id).toContain('precondition.required');
+    }
+  });
+
+  it('[OA5] cookie-setting operations document Set-Cookie', () => {
+    const setsCookie = (o: Op) => Object.entries(responses(o)).some(([s, r]) => Number(s) < 300 && r.headers?.['Set-Cookie']?.required === true);
+    expect(ids(setsCookie)).toEqual(['confirmTotpEnrolment', 'disableTotp', 'login', 'logout', 'stepUp', 'verifyMfa']);
+  });
+
+  it('[OA4] setting responses tie each key to its own value shape (the key is in the body)', () => {
+    const schema = responses(byId('getSetting'))['200']!.content!['application/json']!.schema as { anyOf?: Json[] } & Json;
+    const variants = schema.anyOf ?? [schema];
+    const keyOf = (v: Json) => ((v.properties as Json).key as { const: keyof typeof SETTINGS }).const;
+    expect(variants.map(keyOf).sort()).toEqual([...SETTING_KEYS].sort());
+    for (const v of variants) expect((v.properties as Json).value, keyOf(v)).toEqual(toJsonSchema(SETTINGS[keyOf(v)].schema, 'output', keyOf(v)));
   });
 });
