@@ -121,6 +121,22 @@ docs/02 and docs/06 already promise an OpenAPI document generated from zod, and 
 - **CLAUDE.md:** `pnpm contracts:gen` exists and is gated in CI.
 - **README:** a status row.
 
+## Implementation notes
+### Step 1: zod aligned, request schemas in `packages/contracts` (2026-10-06)
+- **One zod.** `pnpm-workspace.yaml` has a `catalog:` entry (`zod: 4.6.5`), and `apps/api` and `packages/contracts` both declare `"zod": "catalog:"`. The lockfile resolves exactly one `zod@4.6.5`.
+  - `[OA1]` tests in `packages/contracts` fail if the lockfile resolves a second version, or if a package declares zod outside the catalog.
+  - Both were mutation-checked: putting `^4.1.0` back in the API fails one; a second zod in the lockfile fails the other.
+- **Request schemas moved, unchanged.** `packages/contracts/src/api/identity.ts` and `resources.ts` now hold every request body the controllers parse:
+  - `CodeRequestBody` and `CodeConfirmBody` (activation and reset);
+  - `LoginBody`, `StepUpBody`;
+  - `MfaVerifyBody`, `MfaEnrolBody`, `MfaConfirmBody`;
+  - `FileUploadRequestBody`, `ProductSetEnabledBody`, `SettingWriteBody`.
+
+  No controller imports zod any more. The definitions are byte-for-byte the old ones, so behaviour is unchanged; unit tests cover strictness, the field rules and the either-or second factor. API integration: 303 passed, 1 opt-in skipped.
+- **For step 2:**
+  - **`SettingWriteBody.value` is `unknown`**, because each key validates its own value in the use case and returns `422 settings.invalid_value`. It converts to `{}`, which OA3 refuses. Step 2 must document the body per key without moving that check into the request schema, which would turn today's 422 into a 400.
+  - **Path parameters** (`:id`, `:key`, `:product`) are not zod-validated today; the use cases check them. Step 2 declares their schemas for the document.
+
 ## Out of scope (tracked)
 | Gap | Milestone |
 |---|---|

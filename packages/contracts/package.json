@@ -11,11 +11,15 @@
     }
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "test": "vitest run"
   },
   "dependencies": {
-    "zod": "^4.6.5"
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.11"
   }
 }

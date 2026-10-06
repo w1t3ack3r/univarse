@@ -1,6 +1,6 @@
 import { Body, Controller, Get, Param, Put, Req } from '@nestjs/common';
 import type { FastifyRequest } from 'fastify';
-import { z } from 'zod';
+import { ProductSetEnabledBody } from '@univarse/contracts';
 import { parse } from '../../shared/http/validate.js';
 import { CurrentTenant } from '../../shared/tenancy/tenant.guard.js';
 import type { TenantContext } from '../../shared/tenancy/tenant-resolver.service.js';
@@ -9,7 +9,6 @@ import type { Actor } from '../identity/actor.js';
 import { Product } from './product.guard.js';
 import { ProductService } from './product.service.js';
 
-const SetEnabled = z.object({ enabled: z.boolean() }).strict();
 const meta = (req: FastifyRequest) => ({ ip: req.ip, userAgent: req.headers['user-agent'], requestId: req.id });
 
 /** Spec 0003 P4/P6. Entitlements are read-only here; only the platform grants them (P9). */
@@ -40,6 +39,6 @@ export class ProductsController {
     @Body() body: unknown,
     @Req() req: FastifyRequest,
   ) {
-    return this.products.setEnabled(tenant, actor, product, parse(SetEnabled, body).enabled, meta(req));
+    return this.products.setEnabled(tenant, actor, product, parse(ProductSetEnabledBody, body).enabled, meta(req));
   }
 }

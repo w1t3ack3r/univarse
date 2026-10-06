@@ -4,6 +4,12 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+catalogs:
+  default:
+    zod:
+      specifier: 4.6.5
+      version: 4.6.5
+
 overrides:
   fastify: 5.12.5
   mysql2: '>=3.23.1 <4'
@@ -87,7 +93,7 @@ importers:
         specifier: ^7.8.2
         version: 7.8.2
       zod:
-        specifier: ^4.1.0
+        specifier: 'catalog:'
         version: 4.6.5
     devDependencies:
       '@swc/core':
@@ -161,8 +167,12 @@ importers:
   packages/contracts:
     dependencies:
       zod:
-        specifier: ^4.6.5
+        specifier: 'catalog:'
         version: 4.6.5
+    devDependencies:
+      vitest:
+        specifier: ^4.1.11
+        version: 4.1.11(@types/node@24.19.0)(@vitest/coverage-v8@4.1.11)(vite@7.3.6(@types/node@24.19.0)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.15))
 
   packages/crypto:
     dependencies:

@@ -1,6 +1,6 @@
 import { Body, Controller, Get, HttpCode, Post, Req, Res } from '@nestjs/common';
 import type { FastifyReply, FastifyRequest } from 'fastify';
-import { z } from 'zod';
+import { CodeConfirmBody, CodeRequestBody, LoginBody, StepUpBody } from '@univarse/contracts';
 import { parse } from '../../shared/http/validate.js';
 import { CurrentTenant } from '../../shared/tenancy/tenant.guard.js';
 import type { TenantContext } from '../../shared/tenancy/tenant-resolver.service.js';
@@ -9,23 +9,6 @@ import type { Actor } from './actor.js';
 import { AuthService } from './auth.service.js';
 import { challengeCookie, clearedSessionCookie, sessionCookie, SessionService } from './session.service.js';
 import { Product } from '../products/product.guard.js';
-
-const Identifier = z.string().trim().min(1).max(254);
-/** Shared by activation and reset: both take an identifier, then identifier + code + new password. */
-const RequestActivation = z.object({ username: Identifier }).strict();
-const ConfirmActivation = z
-  .object({ username: Identifier, code: z.string().regex(/^\d{6}$/), password: z.string().min(1).max(256) })
-  .strict();
-const Login = z.object({ username: Identifier, password: z.string().min(1).max(256) }).strict();
-/** S2: password, plus a TOTP code or a recovery code for MFA users (never both). */
-const StepUp = z
-  .object({
-    password: z.string().min(1).max(256),
-    code: z.string().regex(/^\d{6}$/).optional(),
-    recoveryCode: z.string().trim().min(10).max(20).optional(),
-  })
-  .strict()
-  .refine((v) => !(v.code && v.recoveryCode), 'Send either code or recoveryCode, not both');
 
 const meta = (req: FastifyRequest) => ({ ip: req.ip, userAgent: req.headers['user-agent'], requestId: req.id });
 
@@ -41,7 +24,7 @@ export class AuthController {
   @Public()
   @HttpCode(202)
   async requestActivation(@CurrentTenant() tenant: TenantContext, @Body() body: unknown, @Req() req: FastifyRequest) {
-    const input = parse(RequestActivation, body);
+    const input = parse(CodeRequestBody, body);
     await this.auth.requestActivation(tenant, input.username, req.ip);
     return { message: 'If an account is awaiting activation, a code has been sent to its email address.' };
   }
@@ -50,14 +33,14 @@ export class AuthController {
   @Public()
   @HttpCode(204)
   async confirmActivation(@CurrentTenant() tenant: TenantContext, @Body() body: unknown, @Req() req: FastifyRequest) {
-    await this.auth.confirmActivation(tenant, parse(ConfirmActivation, body), req.ip);
+    await this.auth.confirmActivation(tenant, parse(CodeConfirmBody, body), req.ip);
   }
 
   @Post('password-reset/request')
   @Public()
   @HttpCode(202)
   async requestReset(@CurrentTenant() tenant: TenantContext, @Body() body: unknown, @Req() req: FastifyRequest) {
-    const input = parse(RequestActivation, body);
+    const input = parse(CodeRequestBody, body);
     await this.auth.requestPasswordReset(tenant, input.username, req.ip);
     return { message: 'If an active account matches, a reset code has been sent to its email address.' };
   }
@@ -66,7 +49,7 @@ export class AuthController {
   @Public()
   @HttpCode(204)
   async confirmReset(@CurrentTenant() tenant: TenantContext, @Body() body: unknown, @Req() req: FastifyRequest) {
-    await this.auth.confirmPasswordReset(tenant, parse(ConfirmActivation, body), req.ip);
+    await this.auth.confirmPasswordReset(tenant, parse(CodeConfirmBody, body), req.ip);
   }
 
   @Post('login')
@@ -78,7 +61,7 @@ export class AuthController {
     @Req() req: FastifyRequest,
     @Res({ passthrough: true }) reply: FastifyReply,
   ) {
-    const result = await this.auth.login(tenant, parse(Login, body), meta(req));
+    const result = await this.auth.login(tenant, parse(LoginBody, body), meta(req));
     if (result.kind === 'mfa_challenge') {
       // M4: no session yet — only a short-lived challenge cookie usable at /auth/mfa/verify.
       void reply.header('set-cookie', challengeCookie(result.challengeToken));
@@ -99,7 +82,7 @@ export class AuthController {
     @Req() req: FastifyRequest,
     @Res({ passthrough: true }) reply: FastifyReply,
   ) {
-    const session = await this.auth.stepUp(tenant, actor, parse(StepUp, body), meta(req));
+    const session = await this.auth.stepUp(tenant, actor, parse(StepUpBody, body), meta(req));
     // S3: the old token is already revoked; this cookie replaces it.
     void reply.header('set-cookie', sessionCookie(session.token, session.maxAgeSec));
     return { stepUp: true };
