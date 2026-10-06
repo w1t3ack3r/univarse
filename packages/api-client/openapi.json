@@ -300,10 +300,15 @@
                 "properties": {
                   "enabled": {
                     "type": "boolean"
+                  },
+                  "reason": {
+                    "type": "string",
+                    "minLength": 1
                   }
                 },
                 "required": [
-                  "enabled"
+                  "enabled",
+                  "reason"
                 ],
                 "additionalProperties": false
               }

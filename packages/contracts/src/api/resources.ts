@@ -7,7 +7,7 @@ export const FileUploadRequestBody = z
   .object({ name: z.string().trim().min(1).max(255), mime: z.string().min(1).max(100), sizeBytes: z.number().int().min(1) })
   .strict();
 
-export const ProductSetEnabledBody = z.object({ enabled: z.boolean() }).strict();
+export const ProductSetEnabledBody = z.object({ enabled: z.boolean(), reason: z.string().min(1) }).strict();
 
 /**
  * The value is validated against the key's own schema by the use case (422 settings.invalid_value),
