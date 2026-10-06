@@ -5,13 +5,8 @@ import { PasswordField, TextField } from '@univarse/ui/client';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState, type SubmitEvent } from 'react';
-import { api, ApiError } from '@/lib/client-api';
+import { ApiError, client, unwrap } from '@/lib/client-api';
 import { textField } from '@/lib/form';
-
-interface LoginResponse {
-  readonly mfaRequired?: true;
-  readonly mfaEnrolmentRequired?: true;
-}
 
 /** Spec 0005 W4. Errors come from problem codes and always show the support reference. */
 export function LoginForm() {
@@ -25,11 +20,11 @@ export function LoginForm() {
     setPending(true);
     setError(null);
     try {
-      const res = await api<LoginResponse>('POST', '/api/v1/auth/login', {
-        username: textField(form, 'username'),
-        password: textField(form, 'password'),
-      });
-      router.replace(res.mfaRequired ? '/login/verify' : res.mfaEnrolmentRequired ? '/mfa/setup' : '/workspace');
+      const res = await unwrap(
+        client.POST('/api/v1/auth/login', { body: { username: textField(form, 'username'), password: textField(form, 'password') } }),
+      );
+      // Two outcomes (generated union): an MFA challenge (challenge cookie set) or a session (session cookie set).
+      router.replace('mfaRequired' in res ? '/login/verify' : res.mfaEnrolmentRequired ? '/mfa/setup' : '/workspace');
       router.refresh();
     } catch (err) {
       setError(err instanceof ApiError ? err : new ApiError(0, undefined, undefined));

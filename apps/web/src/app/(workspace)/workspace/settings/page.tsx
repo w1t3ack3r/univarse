@@ -1,8 +1,8 @@
-import type { SettingView } from '@univarse/contracts';
+import type { SettingViewOf } from '@univarse/api-client';
 import { Card, Sliders } from '@univarse/ui';
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
-import { serverApi } from '@/lib/server-api';
+import { serverGet } from '@/lib/server-api';
 import { requireSession } from '@/lib/session';
 import { UnitLimitsCard } from './UnitLimitsCard';
 
@@ -14,10 +14,10 @@ export const metadata: Metadata = { title: 'Settings' };
  */
 export default async function SettingsPage() {
   await requireSession();
-  const res = await serverApi<{ data: SettingView[] }>('/api/v1/settings');
-  if (res.status !== 200 || !res.body) notFound();
+  const res = await serverGet((api) => api.GET('/api/v1/settings'));
+  if (res.status !== 200 || !res.data) notFound();
    
-  const unitLimits = res.body.data.find((s): s is SettingView<'registration.unitLimits'> => s.key === 'registration.unitLimits');
+  const unitLimits = res.data.data.find((s): s is SettingViewOf<'registration.unitLimits'> => s.key === 'registration.unitLimits');
 
   return (
     <div className="page">

@@ -5,7 +5,7 @@ import { CodeField, TextField } from '@univarse/ui/client';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState, type SubmitEvent } from 'react';
-import { api, ApiError } from '@/lib/client-api';
+import { ApiError, client, unwrap } from '@/lib/client-api';
 import { textField } from '@/lib/form';
 
 /** Spec 0005 W5: authenticator code (submits itself at six digits), or a recovery code. */
@@ -20,7 +20,7 @@ export function VerifyForm() {
     setPending(true);
     setError(null);
     try {
-      await api('POST', '/api/v1/auth/mfa/verify', body);
+      await unwrap(client.POST('/api/v1/auth/mfa/verify', { body }));
       router.replace('/workspace');
       router.refresh();
     } catch (err) {

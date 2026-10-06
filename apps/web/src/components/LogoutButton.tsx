@@ -3,7 +3,7 @@
 import { Button, LogOut } from '@univarse/ui';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
-import { api } from '@/lib/client-api';
+import { client, unwrap } from '@/lib/client-api';
 
 export function LogoutButton({ variant = 'quiet', compact = false }: { variant?: 'action' | 'quiet' | 'plain'; compact?: boolean }) {
   const router = useRouter();
@@ -16,7 +16,7 @@ export function LogoutButton({ variant = 'quiet', compact = false }: { variant?:
       onClick={() => {
         setPending(true);
         // Signed out either way: an expired session also lands on the login page.
-        void api('POST', '/api/v1/auth/logout')
+        void unwrap(client.POST('/api/v1/auth/logout'))
           .catch(() => undefined)
           .then(() => {
             router.replace('/login');

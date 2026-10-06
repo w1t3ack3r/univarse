@@ -3,7 +3,7 @@
 import { Button, Notice, ShieldCheck } from '@univarse/ui';
 import { CodeField, PasswordField } from '@univarse/ui/client';
 import { createContext, useCallback, useContext, useRef, useState, type ReactNode, type SubmitEvent } from 'react';
-import { api, ApiError } from '@/lib/client-api';
+import { ApiError, client, unwrap } from '@/lib/client-api';
 import { textField } from '@/lib/form';
 
 /**
@@ -46,7 +46,7 @@ export function StepUpProvider({ hasMfa, children }: { hasMfa: boolean; children
     setPending(true);
     setError(null);
     setFieldError(undefined);
-    api('POST', '/api/v1/auth/step-up', hasMfa ? { password, code } : { password })
+    unwrap(client.POST('/api/v1/auth/step-up', { body: hasMfa ? { password, code } : { password } }))
       .then(() => close(true))
       .catch((err: unknown) => {
         const e2 = err instanceof ApiError ? err : new ApiError(0, undefined, undefined);

@@ -3,23 +3,11 @@
 import { messageFor } from '@univarse/contracts';
 import { Button, Card, Check, Clock, FileText, Notice, ShieldAlert, Upload } from '@univarse/ui';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { api, ApiError } from '@/lib/client-api';
+import { ApiError, client, contentUrl, unwrap, type ResponseBody } from '@/lib/client-api';
+import { postToStorage } from '@/lib/storage-upload';
 
-export interface FileView {
-  readonly id: string;
-  readonly name: string;
-  readonly sizeBytes: number;
-  readonly state: 'PENDING_UPLOAD' | 'UPLOADED' | 'SCANNING' | 'CLEAN' | 'INFECTED' | 'REJECTED' | 'SCAN_FAILED' | 'ABANDONED' | 'DELETED';
-  readonly type: string | null;
-  readonly rejectionReason: string | null;
-  readonly createdAt: string;
-  readonly scannedAt: string | null;
-}
-
-interface Slot {
-  readonly file: FileView;
-  readonly upload: { readonly url: string; readonly fields: Record<string, string> };
-}
+/** Generated from the API contract (spec 0011): the API never returns deleted or abandoned files. */
+export type FileView = ResponseBody<'/api/v1/files/{id}', 'get'>;
 
 /** Same limits the API enforces (spec 0010 D3); checked here first so a slow phone doesn't upload in vain. */
 const MAX_BYTES = 5 * 1024 * 1024;
@@ -36,23 +24,6 @@ function localProblem(f: File): string | null {
   if (f.size > MAX_BYTES) return messageFor('file.too_large');
   if (f.size === 0) return 'That file is empty.';
   return null;
-}
-
-/** Direct to storage with real progress (XHR: fetch can't report upload progress). */
-function postToStorage(slot: Slot, file: File, onProgress: (pct: number) => void): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const form = new FormData();
-    for (const [k, v] of Object.entries(slot.upload.fields)) form.append(k, v);
-    form.append('file', file);
-    const xhr = new XMLHttpRequest();
-    xhr.open('POST', slot.upload.url);
-    xhr.upload.onprogress = (e) => {
-      if (e.lengthComputable) onProgress(Math.round((e.loaded / e.total) * 100));
-    };
-    xhr.onload = () => (xhr.status >= 200 && xhr.status < 300 ? resolve() : reject(new ApiError(xhr.status, 'file.upload_incomplete', undefined)));
-    xhr.onerror = () => reject(new ApiError(0, 'network.offline', undefined));
-    xhr.send(form);
-  });
 }
 
 type Status = { label: string; tone: 'wait' | 'ok' | 'bad' | 'warn'; detail?: string };
@@ -82,14 +53,20 @@ export function DocumentsPanel({ initial }: { initial: FileView[] }) {
   const [problem, setProblem] = useState<{ text: string; requestId?: string | undefined } | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
 
-  const upsert = useCallback((f: FileView) => setFiles((all) => [f, ...all.filter((x) => x.id !== f.id)].filter((x) => x.state !== 'DELETED')), []);
+  const upsert = useCallback((f: FileView) => setFiles((all) => [f, ...all.filter((x) => x.id !== f.id)]), []);
 
   // Poll the ones still being checked; a refresh mid-upload resumes from the server's state.
   useEffect(() => {
     const pending = files.filter((f) => !settled(f));
     if (pending.length === 0) return;
     const t = setTimeout(() => {
-      void Promise.all(pending.map((f) => api<FileView>('GET', `/api/v1/files/${f.id}`).then(upsert).catch(() => undefined)));
+      void Promise.all(
+        pending.map((f) =>
+          unwrap(client.GET('/api/v1/files/{id}', { params: { path: { id: f.id } } }))
+            .then(upsert)
+            .catch(() => undefined),
+        ),
+      );
     }, POLL_MS);
     return () => clearTimeout(t);
   }, [files, upsert]);
@@ -103,10 +80,10 @@ export function DocumentsPanel({ initial }: { initial: FileView[] }) {
     }
     setBusy(true);
     try {
-      const slot = await api<Slot>('POST', '/api/v1/files/uploads', { name: file.name, mime: file.type, sizeBytes: file.size });
+      const slot = await unwrap(client.POST('/api/v1/files/uploads', { body: { name: file.name, mime: file.type, sizeBytes: file.size } }));
       upsert(slot.file);
       await postToStorage(slot, file, (pct) => setProgress((p) => ({ ...p, [slot.file.id]: pct })));
-      upsert(await api<FileView>('POST', `/api/v1/files/${slot.file.id}/complete`));
+      upsert(await unwrap(client.POST('/api/v1/files/{id}/complete', { params: { path: { id: slot.file.id } } })));
     } catch (err) {
       const e = err instanceof ApiError ? err : new ApiError(0, undefined, undefined);
       setProblem({ text: e.message, requestId: e.requestId });
@@ -119,7 +96,7 @@ export function DocumentsPanel({ initial }: { initial: FileView[] }) {
   async function remove(id: string) {
     setProblem(null);
     try {
-      await api('DELETE', `/api/v1/files/${id}`);
+      await unwrap(client.DELETE('/api/v1/files/{id}', { params: { path: { id } } }));
       setFiles((all) => all.filter((f) => f.id !== id));
     } catch (err) {
       const e = err instanceof ApiError ? err : new ApiError(0, undefined, undefined);
@@ -212,7 +189,7 @@ export function DocumentsPanel({ initial }: { initial: FileView[] }) {
                       ) : (
                         <span className="doc-row__actions">
                           {f.state === 'CLEAN' ? (
-                            <a className="uv-btn uv-btn--plain" href={`/api/v1/files/${f.id}/content`} download>
+                            <a className="uv-btn uv-btn--plain" href={contentUrl(f.id)} download>
                               Download<span className="uv-visually-hidden"> {f.name}</span>
                             </a>
                           ) : null}

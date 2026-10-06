@@ -2,7 +2,7 @@ import { ArrowRight, Card, Grid, ShieldCheck, Users, buttonClass } from '@univar
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { buildNav, NAV } from '@/lib/nav';
-import { serverApi } from '@/lib/server-api';
+import { serverGet } from '@/lib/server-api';
 import { requireSession } from '@/lib/session';
 
 export const metadata: Metadata = { title: 'Home' };
@@ -20,8 +20,8 @@ const DESTINATION: Record<string, { icon: typeof Users; meta: string }> = {
 
 export default async function WorkspaceHome() {
   const me = await requireSession();
-  const products = await serverApi<{ data: string[] }>('/api/v1/products');
-  const destinations = buildNav(NAV, me.permissions, products.body?.data ?? ['core']).filter((i) => i.href !== '/workspace');
+  const products = await serverGet((api) => api.GET('/api/v1/products'));
+  const destinations = buildNav(NAV, me.permissions, products.data?.data ?? ['core']).filter((i) => i.href !== '/workspace');
   const firstName = me.displayName.split(/\s+/)[0] ?? me.displayName;
 
   return (

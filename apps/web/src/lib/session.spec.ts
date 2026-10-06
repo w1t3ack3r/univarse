@@ -9,7 +9,7 @@ vi.mock('next/navigation', () => ({
 // A plain stub, not vi.fn(): a mock records the promises it returns, and vitest reports a recorded
 // rejection as a failure even though the code under test handled it.
 let answer: () => Promise<unknown> = () => Promise.resolve(undefined);
-vi.mock('./server-api', () => ({ serverApi: () => answer() }));
+vi.mock('./server-api', () => ({ serverGet: () => answer() }));
 const respond = (value: unknown) => {
   answer = () => Promise.resolve(value);
 };

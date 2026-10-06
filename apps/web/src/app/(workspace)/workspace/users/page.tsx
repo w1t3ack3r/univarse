@@ -1,19 +1,16 @@
 import { Card } from '@univarse/ui';
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
-import { serverApi } from '@/lib/server-api';
+import type { ResponseBody } from '@univarse/api-client';
+import { serverGet } from '@/lib/server-api';
 import { requireSession } from '@/lib/session';
 
 export const metadata: Metadata = { title: 'Users' };
 
-interface UserRow {
-  readonly id: string;
-  readonly username: string;
-  readonly displayName: string;
-  readonly status: string;
-}
+type UserStatus = ResponseBody<'/api/v1/users', 'get'>['data'][number]['status'];
 
-const STATUS: Record<string, { label: string; on: boolean }> = {
+/** Every status the API can return has a label (the generated type makes a missing one a compile error). */
+const STATUS: Record<UserStatus, { label: string; on: boolean }> = {
   ACTIVE: { label: 'Active', on: true },
   PENDING_ACTIVATION: { label: 'Not activated yet', on: false },
   DISABLED: { label: 'Disabled', on: false },
@@ -23,8 +20,8 @@ const STATUS: Record<string, { label: string; on: boolean }> = {
 /** Permission-gated (identity.user.view). The API decides; a refusal renders as not found. */
 export default async function UsersPage() {
   await requireSession();
-  const res = await serverApi<{ data: UserRow[] }>('/api/v1/users');
-  if (res.status !== 200 || !res.body) notFound();
+  const res = await serverGet((api) => api.GET('/api/v1/users'));
+  if (res.status !== 200 || !res.data) notFound();
   return (
     <div className="page">
       <h1 className="page__title">Users</h1>
@@ -41,8 +38,8 @@ export default async function UsersPage() {
               </tr>
             </thead>
             <tbody>
-              {res.body.data.map((u) => {
-                const s = STATUS[u.status] ?? { label: u.status.toLowerCase(), on: false };
+              {res.data.data.map((u) => {
+                const s = STATUS[u.status];
                 return (
                   <tr key={u.id}>
                     <td>{u.displayName}</td>

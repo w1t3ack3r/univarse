@@ -2,9 +2,28 @@
   "name": "@univarse/api-client",
   "version": "0.0.0",
   "private": true,
-  "description": "The API's OpenAPI document (generated, spec 0011) and, from step 4, the typed client.",
+  "description": "The API's OpenAPI document and the typed client generated from it (spec 0011).",
   "type": "module",
   "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
     "./openapi.json": "./openapi.json"
+  },
+  "dependencies": {
+    "@univarse/contracts": "workspace:*",
+    "openapi-fetch": "^0.17.0"
+  },
+  "devDependencies": {
+    "openapi-typescript": "^7.13.0",
+    "vitest": "^4.1.11"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "eslint .",
+    "test": "vitest run --typecheck",
+    "gen": "openapi-typescript openapi.json -o src/schema.ts"
   }
 }

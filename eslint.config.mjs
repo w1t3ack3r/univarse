@@ -108,4 +108,32 @@ export default tseslint.config(
     files: ['apps/web/src/**', 'packages/ui/src/**'],
     languageOptions: { globals: { ...globals.browser } },
   },
+
+  // Spec 0011 OA8: the web app calls the API only through the generated client. The two transports
+  // (lib/server-api.ts forwards the user's request; packages/api-client wraps fetch) and the one request
+  // that goes to storage, not the API (lib/storage-upload.ts), are the named exceptions.
+  {
+    files: ['apps/web/src/**/*.ts', 'apps/web/src/**/*.tsx'],
+    ignores: [...TEST_FILES, 'apps/web/src/lib/server-api.ts', 'apps/web/src/lib/storage-upload.ts'],
+    rules: {
+      'no-restricted-globals': [
+        'error',
+        { name: 'fetch', message: 'Call the API through the generated client (lib/client-api, lib/server-api; spec 0011).' },
+        { name: 'XMLHttpRequest', message: 'Only lib/storage-upload.ts talks to storage directly (spec 0011).' },
+      ],
+      'no-restricted-syntax': [
+        'error',
+        {
+          // A hand-written API path. Allowed: the typed client's own path argument, and type positions.
+          selector:
+            ":matches(Literal[value=/^.api.v1./], TemplateElement[value.raw=/^.api.v1./]):not(TSLiteralType > Literal):not(CallExpression[callee.property.name=/^(GET|POST|PUT|DELETE)$/] > Literal.arguments)",
+          message: 'API paths are typed: use client.GET/POST/PUT/DELETE (or contentUrl) from the generated client (spec 0011).',
+        },
+        {
+          selector: "MemberExpression[property.name='fetch'][object.name=/^(window|globalThis|self)$/]",
+          message: 'Call the API through the generated client (spec 0011).',
+        },
+      ],
+    },
+  },
 );

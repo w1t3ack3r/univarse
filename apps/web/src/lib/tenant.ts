@@ -1,14 +1,11 @@
-import { serverApi } from './server-api';
+import type { ResponseBody } from '@univarse/api-client';
+import { serverGet } from './server-api';
 
-export interface TenantProfile {
-  readonly slug: string;
-  readonly shortName: string;
-  readonly legalName: string;
-  readonly type: string;
-}
+export type TenantProfile = ResponseBody<'/api/v1/tenant/public-profile', 'get'>;
 
 /** The institution serving this host, or null (unknown host, suspended): from the Host, never input. */
 export async function tenantProfile(): Promise<{ profile: TenantProfile | null; code: string | undefined }> {
-  const res = await serverApi<TenantProfile & { code?: string }>('/api/v1/tenant/public-profile');
-  return res.status === 200 ? { profile: res.body, code: undefined } : { profile: null, code: res.body?.code };
+  const res = await serverGet((api) => api.GET('/api/v1/tenant/public-profile'));
+  const code = (res.body as { code?: unknown } | null)?.code;
+  return res.data ? { profile: res.data, code: undefined } : { profile: null, code: typeof code === 'string' ? code : undefined };
 }

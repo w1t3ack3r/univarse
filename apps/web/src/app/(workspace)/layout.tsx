@@ -3,7 +3,7 @@ import { LogoutButton } from '@/components/LogoutButton';
 import { NavLinks } from '@/components/NavLinks';
 import { StepUpProvider } from '@/components/StepUp';
 import { buildNav, NAV } from '@/lib/nav';
-import { serverApi } from '@/lib/server-api';
+import { serverGet } from '@/lib/server-api';
 import { requireSession } from '@/lib/session';
 import { tenantProfile } from '@/lib/tenant';
 
@@ -21,8 +21,8 @@ const initials = (name: string) =>
  */
 export default async function WorkspaceLayout({ children }: { children: ReactNode }) {
   const me = await requireSession();
-  const [{ profile }, products] = await Promise.all([tenantProfile(), serverApi<{ data: string[] }>('/api/v1/products')]);
-  const nav = buildNav(NAV, me.permissions, products.body?.data ?? ['core']);
+  const [{ profile }, products] = await Promise.all([tenantProfile(), serverGet((api) => api.GET('/api/v1/products'))]);
+  const nav = buildNav(NAV, me.permissions, products.data?.data ?? ['core']);
 
   return (
     <StepUpProvider hasMfa={me.mfa}>
