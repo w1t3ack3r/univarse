@@ -6,6 +6,7 @@ import { existsSync } from 'node:fs';
 import type { NestFastifyApplication } from '@nestjs/platform-fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createApp } from './bootstrap.js';
+import { attachConformance } from './testing/conformance.js';
 import { loadConfig } from './config/config.js';
 
 const rootEnv = new URL('../../../.env', import.meta.url);
@@ -16,7 +17,7 @@ const get = (url: string, host: string, headers: Record<string, string> = {}) =>
   app.getHttpAdapter().getInstance().inject({ method: 'GET', url, headers: { host, ...headers } });
 
 beforeAll(async () => {
-  app = await createApp(loadConfig({ ...process.env, NODE_ENV: 'test' }));
+  app = await createApp(loadConfig({ ...process.env, NODE_ENV: 'test' }), { beforeInit: attachConformance });
 });
 afterAll(async () => {
   await app.close();

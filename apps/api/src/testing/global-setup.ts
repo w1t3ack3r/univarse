@@ -1,11 +1,19 @@
 // Vitest globalSetup for API integration tests: fail fast, with a clear message, when a dependency
 // is down. The rate limiter deliberately FAILS OPEN without Valkey (docs/06 §7), so a missing Valkey
 // otherwise shows up as misleading "rate limiting is broken" test failures (seen 2026-10-04).
-import { existsSync } from 'node:fs';
+import { existsSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { coverageReport } from './conformance.js';
 import { createTenantShardClient } from '@univarse/db';
 import { Redis } from 'ioredis';
 
-export default async function setup(): Promise<void> {
+export default async function setup(): Promise<() => void> {
+  // Spec 0011 OA10: workers append each (operation, status) they see; teardown prints the coverage line.
+  const seenFile = join(tmpdir(), `univarse-oa-seen-${String(process.pid)}.jsonl`);
+  rmSync(seenFile, { force: true });
+  process.env.UNIVARSE_OA_SEEN = seenFile;
+
   const rootEnv = new URL('../../../../.env', import.meta.url);
   if (existsSync(rootEnv)) process.loadEnvFile(rootEnv);
 
@@ -41,4 +49,8 @@ export default async function setup(): Promise<void> {
   if (problems.length > 0) {
     throw new Error(`Integration test prerequisites missing:\n  - ${problems.join('\n  - ')}`);
   }
+  return () => {
+    process.stdout.write(`\n${coverageReport(seenFile)}\n`);
+    rmSync(seenFile, { force: true });
+  };
 }

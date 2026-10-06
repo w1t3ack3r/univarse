@@ -19,6 +19,7 @@ import { codeIn, createHarness, HOSTS, PASSWORD, randomIp, type Harness, type In
 import { enrolTestTotp, resetReplayGuard, totpCode } from './testing/mfa-helpers.js';
 import { FileScanWorker } from './modules/files/file-scan.worker.js';
 import { CONTROL_ROUTES, LEAK_VICTIM, LeakyControlsController } from './testing/route-controls.js';
+import { attachConformance } from './testing/conformance.js';
 import {
   captureRoutes,
   checkCollection,
@@ -764,7 +765,10 @@ beforeAll(async () => {
   const opts: CreateAppOptions = {
     extraControllers: [LeakyControlsController],
     extraProviders: [{ provide: LEAK_VICTIM, useValue: { tenantId: tenant.B, shardId } }],
-    beforeInit: (f) => captureRoutes(f, fastifyRoutes),
+    beforeInit: (f) => {
+      captureRoutes(f, fastifyRoutes);
+      attachConformance(f);
+    },
   };
   app = await createApp(config, opts);
 
@@ -827,7 +831,7 @@ describe('[RS1] route table from structured registrations', () => {
 });
 
 // Spec 0011 OA2: the committed OpenAPI document against the routes this app actually serves.
-type DocOp = { operationId: string; parameters?: { name: string; 'x-invalid': { status: number; code: string } }[] };
+type DocOp = { operationId: string; parameters?: { name: string; in: string; 'x-invalid': { status: number; code: string } }[] };
 const openapi = JSON.parse(readFileSync(new URL('../../../packages/api-client/openapi.json', import.meta.url), 'utf8')) as {
   paths: Record<string, Record<string, DocOp>>;
 };
@@ -861,7 +865,7 @@ describe('[OA2] the OpenAPI document covers exactly the routes the app serves', 
     'DELETE /api/v1/settings/:key': { role: 'REGISTRAR', headers: { 'if-match': '"v0"' } },
     'PUT /api/v1/admin/products/:product': { role: 'INSTITUTION_ADMIN', stepUp: true, body: { enabled: true } },
   };
-  const withParams = [...docOps].filter(([, op]) => (op.parameters?.length ?? 0) > 0).map(([k]) => k);
+  const withParams = [...docOps].filter(([, op]) => (op.parameters ?? []).some((x) => x.in === 'path')).map(([k]) => k);
 
   it('[OA2] every documented route with path parameters has a caller below (a new one must be added)', () => {
     expect(Object.keys(CALLERS).sort()).toEqual([...withParams].sort());
@@ -874,7 +878,7 @@ describe('[OA2] the OpenAPI document covers exactly the routes the app serves', 
       const who = await mfaPerson('A', c.role);
       const cookie = c.stepUp ? await stepUp(who) : who.session;
       const [method, path] = route.split(' ') as [Method, string];
-      for (const p of docOps.get(route)!.parameters!) {
+      for (const p of docOps.get(route)!.parameters!.filter((x) => x.in === 'path')) {
         for (const bad of ['zz-not-valid', randomUUID()]) {
           const url = path.replace(`:${p.name}`, encodeURIComponent(bad));
           const res = await send({ method, host: A, url, cookie, ...(c.body === undefined ? {} : { body: c.body }), ...(c.headers ? { headers: c.headers } : {}) });
@@ -890,7 +894,7 @@ describe('[OA2] the OpenAPI document covers exactly the routes the app serves', 
   it.each(withParams)('[OA2] %s: the same invalid or unknown path value without credentials is 401, not the 404', async (route) => {
     const c = CALLERS[route]!;
     const [method, path] = route.split(' ') as [Method, string];
-    for (const p of docOps.get(route)!.parameters!) {
+    for (const p of docOps.get(route)!.parameters!.filter((x) => x.in === 'path')) {
       for (const bad of ['zz-not-valid', randomUUID()]) {
         const url = path.replace(`:${p.name}`, encodeURIComponent(bad));
         const res = await send({ method, host: A, url, ...(c.body === undefined ? {} : { body: c.body }), ...(c.headers ? { headers: c.headers } : {}) });

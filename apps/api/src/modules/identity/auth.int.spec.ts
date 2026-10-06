@@ -12,6 +12,7 @@ import { createPlatformClient, createTenantShardClient, forTenant, type Platform
 import { TenantResolver } from '../../shared/tenancy/tenant-resolver.service.js';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createApp } from '../../bootstrap.js';
+import { attachConformance } from '../../testing/conformance.js';
 import { loadConfig } from '../../config/config.js';
 import type { Mailer, OutboundEmail } from '../../shared/infra/mailer.js';
 import { OutboxWorker } from '../../shared/outbox/outbox-worker.js';
@@ -121,8 +122,8 @@ beforeAll(async () => {
   }
   shard = createTenantShardClient(process.env.TENANT_POOL_01_DATABASE_URL!);
   const config = loadConfig({ ...process.env, NODE_ENV: 'test' });
-  app = await createApp(config);
-  appBehindEdge = await createApp(loadConfig({ ...process.env, NODE_ENV: 'test', TRUSTED_PROXIES: '127.0.0.1' }));
+  app = await createApp(config, { beforeInit: attachConformance });
+  appBehindEdge = await createApp(loadConfig({ ...process.env, NODE_ENV: 'test', TRUSTED_PROXIES: '127.0.0.1' }), { beforeInit: attachConformance });
   workerCtx = await NestFactory.createApplicationContext(WorkerModule.forRoot(config, { mailer: captureMailer }), { logger: false });
 });
 

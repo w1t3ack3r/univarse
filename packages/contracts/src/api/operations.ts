@@ -14,6 +14,7 @@ import {
 } from './identity.js';
 import { defineOperations, type PathParam } from './operation.js';
 import { FileUploadRequestBody, ProductSetEnabledBody, SettingWriteBody } from './resources.js';
+import * as R from './responses.js';
 
 const fileId: PathParam = {
   // Documented, not enforced by a schema: the use case answers anything that is not a UUID exactly
@@ -30,6 +31,7 @@ export const AuthOps = defineOperations({
     tag: 'auth',
     body: CodeRequestBody,
     success: 202,
+    response: R.MessageResponse,
     rateLimit: 'activation-request: 20/15 min per IP, 3/15 min per account',
   },
   confirmActivation: {
@@ -38,6 +40,7 @@ export const AuthOps = defineOperations({
     tag: 'auth',
     body: CodeConfirmBody,
     success: 204,
+    errors: { 400: ['auth.activation_invalid'], 422: ['auth.password_rejected'] },
     rateLimit: 'activation-confirm: 30/15 min per IP',
   },
   requestPasswordReset: {
@@ -46,6 +49,7 @@ export const AuthOps = defineOperations({
     tag: 'auth',
     body: CodeRequestBody,
     success: 202,
+    response: R.MessageResponse,
     rateLimit: 'reset-request: 20/15 min per IP, 3/15 min per account',
   },
   confirmPasswordReset: {
@@ -54,6 +58,7 @@ export const AuthOps = defineOperations({
     tag: 'auth',
     body: CodeConfirmBody,
     success: 204,
+    errors: { 400: ['auth.reset_invalid'], 422: ['auth.password_rejected'] },
     rateLimit: 'reset-confirm: 30/15 min per IP',
   },
   login: {
@@ -62,6 +67,8 @@ export const AuthOps = defineOperations({
     tag: 'auth',
     body: LoginBody,
     success: 200,
+    response: R.LoginResponse,
+    errors: { 401: ['auth.invalid_credentials'] },
     rateLimit: 'login: 50/min per IP, plus per IP and identifier',
     cookies: { sets: ['session', 'mfaChallenge'] },
   },
@@ -71,6 +78,12 @@ export const AuthOps = defineOperations({
     tag: 'auth',
     body: StepUpBody,
     success: 200,
+    response: R.StepUpResponse,
+    errors: {
+      400: ['auth.step_up_second_factor_required'],
+      401: ['auth.invalid_credentials', 'auth.mfa_invalid'],
+      403: ['auth.mfa_enrolment_required'],
+    },
     rateLimit: 'login buckets, plus step-up: 10/15 min per user',
     cookies: { sets: ['session'] },
   },
@@ -86,6 +99,7 @@ export const AuthOps = defineOperations({
     summary: 'The signed-in user, their permissions and MFA state',
     tag: 'auth',
     success: 200,
+    response: R.MeResponse,
   },
 });
 
@@ -96,6 +110,8 @@ export const MfaOps = defineOperations({
     tag: 'mfa',
     body: MfaVerifyBody,
     success: 200,
+    response: R.MfaVerifyResponse,
+    errors: { 401: ['auth.mfa_invalid'] },
     rateLimit: 'mfa-verify: 30/15 min per IP',
     cookies: { reads: 'mfaChallenge', sets: ['session'], clears: ['mfaChallenge'] },
   },
@@ -104,6 +120,8 @@ export const MfaOps = defineOperations({
     summary: 'Turn off TOTP for yourself',
     tag: 'mfa',
     success: 200,
+    response: R.TotpDisabledResponse,
+    errors: { 409: ['auth.mfa_not_enrolled'] },
     cookies: { sets: ['session'] },
   },
   regenerateRecoveryCodes: {
@@ -111,6 +129,8 @@ export const MfaOps = defineOperations({
     summary: 'Replace your recovery codes (shown once)',
     tag: 'mfa',
     success: 200,
+    response: R.RecoveryCodesResponse,
+    errors: { 409: ['auth.mfa_not_enrolled'] },
   },
   beginTotpEnrolment: {
     operationId: 'beginTotpEnrolment',
@@ -118,6 +138,8 @@ export const MfaOps = defineOperations({
     tag: 'mfa',
     body: MfaEnrolBody,
     success: 200,
+    response: R.TotpEnrolmentResponse,
+    errors: { 401: ['auth.invalid_credentials'], 409: ['auth.mfa_already_enrolled'] },
     rateLimit: 'mfa-enrol: 5/15 min per user',
   },
   confirmTotpEnrolment: {
@@ -126,13 +148,21 @@ export const MfaOps = defineOperations({
     tag: 'mfa',
     body: MfaConfirmBody,
     success: 200,
+    response: R.RecoveryCodesResponse,
+    errors: { 400: ['auth.mfa_enrolment_expired'], 401: ['auth.mfa_invalid'] },
     rateLimit: 'mfa-confirm: 10/15 min per user',
     cookies: { sets: ['session'] },
   },
 });
 
 export const UsersOps = defineOperations({
-  listUsers: { operationId: 'listUsers', summary: 'People in this institution', tag: 'users', success: 200 },
+  listUsers: {
+    operationId: 'listUsers',
+    summary: 'People in this institution',
+    tag: 'users',
+    success: 200,
+    response: R.UserList,
+  },
 });
 
 export const ProductsOps = defineOperations({
@@ -141,12 +171,14 @@ export const ProductsOps = defineOperations({
     summary: 'Products switched on for this institution',
     tag: 'products',
     success: 200,
+    response: R.ActiveProducts,
   },
   productsOverview: {
     operationId: 'productsOverview',
     summary: 'Every product: entitled by the plan, and switched on or off',
     tag: 'products',
     success: 200,
+    response: R.ProductOverview,
   },
   setProductEnabled: {
     operationId: 'setProductEnabled',
@@ -161,6 +193,8 @@ export const ProductsOps = defineOperations({
     },
     body: ProductSetEnabledBody,
     success: 200,
+    response: R.ProductStateResponse,
+    errors: { 409: ['product.not_entitled', 'product.changed'], 422: ['product.core_required'] },
   },
 });
 
@@ -173,8 +207,24 @@ const settingKey: PathParam = {
 };
 
 export const SettingsOps = defineOperations({
-  listSettings: { operationId: 'listSettings', summary: 'Settings you can see, with their values', tag: 'settings', success: 200 },
-  getSetting: { operationId: 'getSetting', summary: 'One setting, with its ETag', tag: 'settings', params: { key: settingKey }, success: 200 },
+  listSettings: {
+    operationId: 'listSettings',
+    summary: 'Settings you can see, with their values',
+    tag: 'settings',
+    success: 200,
+    response: R.SettingList,
+    errors: { 500: ['settings.stored_value_invalid'] },
+  },
+  getSetting: {
+    operationId: 'getSetting',
+    summary: 'One setting, with its ETag',
+    tag: 'settings',
+    params: { key: settingKey },
+    success: 200,
+    response: R.SettingViewResponse,
+    etag: true,
+    errors: { 500: ['settings.stored_value_invalid'] },
+  },
   putSetting: {
     operationId: 'putSetting',
     summary: 'Change a setting (If-Match required); the value must fit the chosen key',
@@ -184,6 +234,10 @@ export const SettingsOps = defineOperations({
     valueBySettingKey: true,
     permissionBySettingKey: true,
     success: 200,
+    response: R.SettingViewResponse,
+    etag: true,
+    ifMatch: true,
+    errors: { 422: ['settings.invalid_value'], 500: ['settings.stored_value_invalid'] },
   },
   resetSetting: {
     operationId: 'resetSetting',
@@ -192,6 +246,10 @@ export const SettingsOps = defineOperations({
     params: { key: settingKey },
     permissionBySettingKey: true,
     success: 200,
+    response: R.SettingViewResponse,
+    etag: true,
+    ifMatch: true,
+    errors: { 500: ['settings.stored_value_invalid'] },
   },
 });
 
@@ -202,15 +260,32 @@ export const FilesOps = defineOperations({
     tag: 'files',
     body: FileUploadRequestBody,
     success: 201,
+    response: R.UploadSlotResponse,
+    errors: { 409: ['file.quota_exceeded'], 422: ['file.too_large', 'file.type_not_allowed'] },
   },
-  listFiles: { operationId: 'listFiles', summary: 'Your documents', tag: 'files', success: 200 },
-  getFile: { operationId: 'getFile', summary: 'One of your documents and its state', tag: 'files', params: { id: fileId }, success: 200 },
+  listFiles: {
+    operationId: 'listFiles',
+    summary: 'Your documents',
+    tag: 'files',
+    success: 200,
+    response: R.FileList,
+  },
+  getFile: {
+    operationId: 'getFile',
+    summary: 'One of your documents and its state',
+    tag: 'files',
+    params: { id: fileId },
+    success: 200,
+    response: R.FileViewResponse,
+  },
   completeUpload: {
     operationId: 'completeUpload',
     summary: 'Tell the API the upload finished; scanning starts',
     tag: 'files',
     params: { id: fileId },
     success: 200,
+    response: R.FileViewResponse,
+    errors: { 409: ['file.upload_incomplete'] },
   },
   downloadFile: {
     operationId: 'downloadFile',
@@ -218,8 +293,16 @@ export const FilesOps = defineOperations({
     tag: 'files',
     params: { id: fileId },
     success: 200,
+    binary: R.FILE_DOWNLOAD_TYPES,
+    errors: { 409: ['file.not_ready'] },
   },
-  deleteFile: { operationId: 'deleteFile', summary: 'Delete one of your documents', tag: 'files', params: { id: fileId }, success: 204 },
+  deleteFile: {
+    operationId: 'deleteFile',
+    summary: 'Delete one of your documents',
+    tag: 'files',
+    params: { id: fileId },
+    success: 204,
+  },
 });
 
 export const TenantOps = defineOperations({
@@ -228,10 +311,24 @@ export const TenantOps = defineOperations({
     summary: 'The institution’s public name and branding for this host',
     tag: 'tenant',
     success: 200,
+    response: R.PublicProfileResponse,
   },
 });
 
 export const HealthOps = defineOperations({
-  live: { operationId: 'live', summary: 'Process is up (no dependencies checked)', tag: 'operations', success: 200 },
-  ready: { operationId: 'ready', summary: 'Dependencies reachable; 503 server.not_ready otherwise', tag: 'operations', success: 200 },
+  live: {
+    operationId: 'live',
+    summary: 'Process is up (no dependencies checked)',
+    tag: 'operations',
+    success: 200,
+    response: R.LiveResponse,
+  },
+  ready: {
+    operationId: 'ready',
+    summary: 'Dependencies reachable; 503 server.not_ready otherwise',
+    tag: 'operations',
+    success: 200,
+    response: R.ReadyResponse,
+    errors: { 503: ['server.not_ready'] },
+  },
 });

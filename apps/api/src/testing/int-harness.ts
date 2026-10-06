@@ -12,6 +12,7 @@ import {
   type TenantShardClient,
 } from '@univarse/db';
 import { createApp } from '../bootstrap.js';
+import { attachConformance } from './conformance.js';
 import { loadConfig } from '../config/config.js';
 import { hashPassword } from '../modules/identity/password.js';
 import type { OutboundEmail } from '../shared/infra/mailer.js';
@@ -91,7 +92,7 @@ export async function createHarness(opts: { mailDelayMs?: number } = {}): Promis
     poly: (await platform.tenant.findUniqueOrThrow({ where: { slug: 'test-poly' } })).id,
   };
   const config = loadConfig({ ...process.env, NODE_ENV: 'test' });
-  const app = await createApp(config);
+  const app = await createApp(config, { beforeInit: attachConformance });
   const workerCtx: INestApplicationContext = await NestFactory.createApplicationContext(
     WorkerModule.forRoot(config, {
       mailer: {

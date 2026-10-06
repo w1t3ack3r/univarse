@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
+import { problemType } from '../errors/problem.js';
 
 const SAFE_REQUEST_ID = /^[A-Za-z0-9_-]{8,64}$/;
 
@@ -33,7 +34,7 @@ export function registerCsrfGuard(app: FastifyInstance): void {
     }
     if (!ok) {
       return reply.status(403).header('content-type', 'application/problem+json').send({
-        type: 'https://docs.univarse.ng/errors/request.csrf-rejected',
+        type: problemType('request.csrf_rejected'),
         title: 'Cross-site request rejected',
         status: 403,
         code: 'request.csrf_rejected',
