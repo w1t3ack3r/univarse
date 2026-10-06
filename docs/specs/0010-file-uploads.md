@@ -139,6 +139,7 @@ The effective configuration was read with `clamconf` (2026-10-06): before the ch
   2. **ClamAV defaults pass limit hits and encrypted PDFs as `OK`** (shown above with `clamscan`). The fail-closed `CLAMD_CONF_*` settings are now in dev and CI. A real decompression-bomb PDF and an encrypted PDF both end `INFECTED`.
   3. **The global API security-header hook overwrote a per-route CSP.** The API's global CSP now includes `sandbox`, so no route can weaken it.
   4. **Two mutation checks first survived because of weak tests.** The tamper test used a longer file (the size bound caught it before the hash check), and the quota race only happened by luck. Both tests are now deterministic: a same-length tamper, and a hook that holds the first reservation after its read.
+- **CI's first run failed creating buckets via `weed shell`.** The command reached SeaweedFS's internal master right after start, and that is flaky. Buckets are now created through the **S3 API** with the app's SDK and a bounded retry: idempotent, and independent of the backend's internals.
 - **SeaweedFS stores bucket CORS but does not enforce it.** A preflight from any origin gets `allow-origin: *`. This is recorded in FU11 and not relied on: uploads are protected by the signed policy, and a cross-site form can POST without CORS anyway. A restrictive rule is still set for the production provider.
 - **Measured local budget (FU12):** see docs/10 §4.1.
   - ClamAV peaked at 1.6–1.9 GB during a reload under load, and the container stack at 2.0–2.4 GB.

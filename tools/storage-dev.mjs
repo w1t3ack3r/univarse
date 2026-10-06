@@ -2,7 +2,6 @@
 //   node tools/storage-dev.mjs config    writes infra/compose/seaweedfs/s3.json from .env (before compose up)
 //   node tools/storage-dev.mjs buckets   creates the quarantine and clean buckets (after compose up)
 // Never prints a secret.
-import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 
@@ -11,7 +10,6 @@ const env = existsSync(envPath) ? readFileSync(envPath, 'utf8') : '';
 const envVal = (k) => process.env[k] ?? (env.match(new RegExp(`^${k}=(.*)$`, 'm')) ?? [])[1];
 
 const BUCKETS = [envVal('S3_QUARANTINE_BUCKET') ?? 'uv-quarantine', envVal('S3_CLEAN_BUCKET') ?? 'uv-clean'];
-const CONTAINER = process.env.SEAWEEDFS_CONTAINER ?? 'univarse-dev-seaweedfs-1';
 
 function config() {
   const accessKey = envVal('S3_ACCESS_KEY');
@@ -26,24 +24,54 @@ function config() {
   console.log('SeaweedFS identity written (infra/compose/seaweedfs/s3.json, git-ignored)');
 }
 
+/** The app's S3 client (same SDK as the API), against the local store. */
+function s3Client() {
+  const require = createRequire(new URL('../apps/api/package.json', import.meta.url));
+  const sdk = require('@aws-sdk/client-s3');
+  const client = new sdk.S3Client({
+    endpoint: envVal('S3_ENDPOINT') ?? 'http://127.0.0.1:8333',
+    region: envVal('S3_REGION') ?? 'us-east-1',
+    forcePathStyle: true,
+    credentials: { accessKeyId: envVal('S3_ACCESS_KEY'), secretAccessKey: envVal('S3_SECRET_KEY') },
+  });
+  return { sdk, client };
+}
+
+/**
+ * Buckets through the S3 API itself (not `weed shell`, whose master connection is flaky right after
+ * start: it failed CI on 2026-10-06). Retries until the S3 gateway answers; idempotent.
+ */
 async function buckets() {
-  for (let i = 0; i < 30; i++) {
-    try {
-      execFileSync('docker', ['exec', CONTAINER, 'sh', '-c', 'echo "s3.bucket.list" | weed shell'], { stdio: 'pipe' });
-      break;
-    } catch {
-      if (i === 29) throw new Error(`SeaweedFS not ready (${CONTAINER})`);
-      execFileSync(process.execPath, ['-e', 'setTimeout(()=>{},1000)']);
+  const { sdk, client } = s3Client();
+  try {
+    for (const b of BUCKETS) {
+      if (!/^[a-z0-9-]{3,63}$/.test(b)) throw new Error(`Bad bucket name ${b}`);
+      for (let i = 0; ; i++) {
+        try {
+          await client.send(new sdk.HeadBucketCommand({ Bucket: b }));
+          break;
+        } catch (err) {
+          const status = err?.$metadata?.httpStatusCode;
+          if (status === 404) {
+            try {
+              await client.send(new sdk.CreateBucketCommand({ Bucket: b }));
+              console.log(`Bucket ${b} created`);
+              break;
+            } catch (createErr) {
+              if (createErr?.name === 'BucketAlreadyOwnedByYou' || createErr?.name === 'BucketAlreadyExists') break;
+              if (i >= 60) throw createErr;
+            }
+          } else if (i >= 60) {
+            throw new Error(`S3 gateway not ready for ${b} (${err?.name ?? 'error'})`, { cause: err });
+          }
+          await new Promise((r) => setTimeout(r, 1000));
+        }
+      }
     }
+    await cors(sdk, client);
+  } finally {
+    client.destroy();
   }
-  const list = execFileSync('docker', ['exec', CONTAINER, 'sh', '-c', 'echo "s3.bucket.list" | weed shell'], { encoding: 'utf8' });
-  for (const b of BUCKETS) {
-    if (!/^[a-z0-9-]{3,63}$/.test(b)) throw new Error(`Bad bucket name ${b}`);
-    if (list.includes(b)) continue;
-    execFileSync('docker', ['exec', CONTAINER, 'sh', '-c', `echo "s3.bucket.create -name ${b}" | weed shell`], { stdio: 'pipe' });
-    console.log(`Bucket ${b} created`);
-  }
-  await cors();
   console.log('SeaweedFS ready for UniVarse');
 }
 
@@ -52,21 +80,12 @@ async function buckets() {
  * stores this but does not enforce it (FU11 records that); the production provider does. Uploads are
  * protected by the signed policy, not by CORS.
  */
-async function cors() {
-  const require = createRequire(new URL('../apps/api/package.json', import.meta.url));
-  const { S3Client, PutBucketCorsCommand } = require('@aws-sdk/client-s3');
-  const s3 = new S3Client({
-    endpoint: envVal('S3_ENDPOINT') ?? 'http://127.0.0.1:8333',
-    region: envVal('S3_REGION') ?? 'us-east-1',
-    forcePathStyle: true,
-    credentials: { accessKeyId: envVal('S3_ACCESS_KEY'), secretAccessKey: envVal('S3_SECRET_KEY') },
-  });
+async function cors(sdk, client) {
   const origins = (envVal('STORAGE_CORS_ORIGINS') ?? 'http://*.univarse.localhost:4180,http://*.univarse.localhost:3000').split(',').map((o) => o.trim()).filter(Boolean);
-  await s3.send(new PutBucketCorsCommand({
+  await client.send(new sdk.PutBucketCorsCommand({
     Bucket: BUCKETS[0],
     CORSConfiguration: { CORSRules: [{ AllowedOrigins: origins, AllowedMethods: ['POST'], AllowedHeaders: ['*'], MaxAgeSeconds: 600 }] },
   }));
-  s3.destroy();
 }
 
 try {
