@@ -142,6 +142,9 @@ Alternatives considered: option — why not.
 3. CI runs `pnpm audit --audit-level high` right after install. A high or critical advisory fails the build.
 **Consequences:** Overrides must be revisited on every framework upgrade and removed once the framework catches up. The NestJS 12 upgrade (ADR-013) will retire the fastify override. The audit gate can block unrelated PRs when a new advisory lands. That's intended: fix or explicitly document an exception with an expiry.
 
+**Override log:**
+- `source-map-js >=1.2.2 <2` (2026-10-06): GHSA-68fv-2mgg-jv7q, high; a crafted source map ties up the event loop. It reaches us only through build and test tooling (`unplugin-swc → vite → postcss`), never the API runtime. It blocked the route-sweep PR (#25), which is the gate working as intended. Pinned after the full suite passed (build, lint, unit, integration, E2E 30). **Remove** once `postcss` depends on `source-map-js` 1.2.2 or later.
+
 ## ADR-018 — Direct field encryption with one server key (temporary deviation from envelope encryption)
 **Status:** Accepted as a **temporary deviation** (2026-10-01). Does **not** yet implement the envelope scheme in [07 §8](07-data-and-database.md) or spec 0001 M1. **Must be closed before staging.**
 **Context:** TOTP secrets must never be stored in plaintext (spec 0001 M1). The target design is envelope encryption: a per-tenant DEK wrapped by a KMS key. No KMS exists in Phase 0 (no cloud environment yet).
