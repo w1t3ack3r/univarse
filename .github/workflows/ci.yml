@@ -141,7 +141,8 @@ jobs:
         run: pnpm --filter @univarse/crypto test:int
       # Includes the storage contract tests (FU11, D1 gate) and the file flow against real SeaweedFS + ClamAV.
       - name: API integration tests
-        run: pnpm --filter @univarse/api test:int
+        # Verbose: every test's result is in the log, not just totals (spec 0010 completion record).
+        run: pnpm --filter @univarse/api test:int --reporter=verbose
       - name: Install Playwright Chromium (spec 0005 W10)
         run: pnpm --filter @univarse/web exec playwright install --with-deps chromium
       - name: E2E — edge → web → API → DB, desktop + mobile (spec 0005 W10)
