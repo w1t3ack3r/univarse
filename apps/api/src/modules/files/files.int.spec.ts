@@ -409,9 +409,9 @@ describe('[FU1][FU2] own files only, with no existence oracle', () => {
   });
 });
 
-describe('[FU7][FU15] scan lease takeover: a stale worker never touches what another worker published', () => {
+describe('[FU18][FU7][FU15] scan lease takeover: a stale worker never touches what another worker published', () => {
   for (const pauseAt of ['before promotion', 'after promotion'] as const) {
-    it(`[FU7][FU15] worker A paused ${pauseAt}, its lease lapses, worker B publishes, then A resumes: B's object and the quota stand`, async () => {
+    it(`[FU18] worker A paused ${pauseAt}, its lease lapses, worker B publishes, then A resumes: B's object and the quota stand`, async () => {
       const me = await student();
       const bytes = pdf(`takeover ${pauseAt}`);
       const s = await upload(me.session, bytes);
