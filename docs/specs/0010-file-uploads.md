@@ -128,6 +128,35 @@ The effective configuration was read with `clamconf` (2026-10-06): before the ch
 - **D2: who may upload.** Everyone, for their own files, through explicit permissions (`files.file.upload`, `files.file.read`, `files.file.delete`) granted to every seeded role. MFA enrolment-only sessions stay restricted (FU17).
 - **D3: limits.** PDF, PNG and JPEG; 5 MB per file; 1 GiB per institution by default (a setting). The owner sees `409 file.not_ready` with the state while a file isn't clean; everyone else gets 404.
 
+## Implementation notes (2026-10-06)
+- **Code:**
+  - `apps/api/src/modules/files/`: `files.service.ts` (slot, complete, list, view, verified download, delete), `file-scan.worker.ts` (claims, scan, promotion, conditional finalize, cleanup), `clamd-scanner.ts`, `file-storage.ts`, `file-types.ts`, `files.controller.ts`;
+  - the worker runs a third loop beside the outbox and the key sweep;
+  - web: `apps/web/src/app/(workspace)/workspace/documents/`;
+  - storage and scanner setup: `tools/storage-dev.mjs` and `infra/compose/compose.dev.yml`, which CI uses unchanged.
+- **Found and fixed while building:**
+  1. **Lease takeover (FU18).** With a fixed clean key, a stale worker that lost its lease **deleted the object another worker had published**. Clean keys now carry the lease token. Mutating back to a fixed key fails both takeover tests.
+  2. **ClamAV defaults pass limit hits and encrypted PDFs as `OK`** (shown above with `clamscan`). The fail-closed `CLAMD_CONF_*` settings are now in dev and CI. A real decompression-bomb PDF and an encrypted PDF both end `INFECTED`.
+  3. **The global API security-header hook overwrote a per-route CSP.** The API's global CSP now includes `sandbox`, so no route can weaken it.
+  4. **Two mutation checks first survived because of weak tests.** The tamper test used a longer file (the size bound caught it before the hash check), and the quota race only happened by luck. Both tests are now deterministic: a same-length tamper, and a hook that holds the first reservation after its read.
+- **SeaweedFS stores bucket CORS but does not enforce it.** A preflight from any origin gets `allow-origin: *`. This is recorded in FU11 and not relied on: uploads are protected by the signed policy, and a cross-site form can POST without CORS anyway. A restrictive rule is still set for the production provider.
+- **Measured local budget (FU12):** see docs/10 §4.1.
+  - ClamAV peaked at 1.6–1.9 GB during a reload under load, and the container stack at 2.0–2.4 GB.
+  - There were 0 restarts and 0 failed downloads; 3 scans were retried during the reload, and all 12 files ended `CLEAN`.
+- **Tests:**
+  - **Integration:** 27 file-flow tests and 7 storage-contract tests against real SeaweedFS and ClamAV.
+  - **Unit:** 7 tests for the clamd reply parser, content checks and headers.
+  - **E2E:** desktop and mobile, axe-clean.
+  - **Route sweep:** 6 file routes declared, with RS6 on 4 real resource routes.
+- **Mutations caught (7):**
+  - no ownership filter;
+  - a non-conditional result write;
+  - promotion from the quarantine object;
+  - a download without hash verification;
+  - no quota lock;
+  - an unexpected clamd reply treated as clean;
+  - a fixed clean key.
+
 ## Out of scope (tracked)
 | Gap | Milestone |
 |---|---|

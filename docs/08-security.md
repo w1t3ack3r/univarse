@@ -120,10 +120,15 @@ CSP starts in `report-only` mode in staging, reports go to an endpoint, and it's
 
 ## 7. File uploads
 
-1. The client asks for an upload slot. The server checks permission and quota and issues a presigned PUT with `content-length-range` and a fixed key `tenants/{tid}/uploads/{uuid}`.
-2. On `complete`: HEAD the object, verify size, sniff the **magic bytes** against the allowlist (`pdf, jpg, png, webp, csv, xlsx`), and scan with ClamAV. Infected → quarantine bucket + security event.
+Built in [spec 0010](specs/0010-file-uploads.md).
+1. **The upload slot.** The client asks for a slot. The server checks permission and **reserves quota atomically**, then issues a presigned **POST** whose policy fixes the key (`tenants/{tid}/q/{uuid}`), the type, and a `content-length-range`. (`content-length-range` is a POST-policy condition; a presigned PUT can only sign an exact `Content-Length`.)
+2. **The scan, in the worker.** It reads the object with a size bound, sniffs the **magic bytes** against the allowlist, then scans with ClamAV.
+   - **Allowlist today:** PDF, PNG and JPEG. More types arrive with the modules that need them.
+   - **ClamAV runs fail-closed:** `AlertExceedsMax` and `AlertEncrypted*` are on, and the limits sit above the upload size. With the image defaults, a limit hit or an encrypted document comes back as a plain `OK`.
+   - **Only an explicit `OK` is clean.** Any detection (`FOUND`) is infected and raises a security event. Timeouts, refusals and odd replies are retried, then `SCAN_FAILED`, never clean.
+   - **Clean bytes are promoted from the scanned buffer** to a lease-unique key in a bucket no client can write. A reused upload URL can only create an orphan, which cleanup removes.
 3. Images are re-encoded (strips EXIF/GPS and polyglot payloads) and thumbnails generated. PDFs aren't rendered inline on the app origin.
-4. Downloads are served via short-lived presigned GET URLs from a **separate storage/CDN origin** with `Content-Disposition: attachment` (or `inline` only for re-encoded images).
+4. **Downloads go through the authenticated API endpoint.** Every download re-checks permission and verifies the SHA-256 before sending any byte. The response is `attachment`, under `nosniff` and a CSP with `sandbox`. Presigned GET URLs or a separate CDN origin are a later option, needing their own spec (they are bearer URLs).
 5. Limits: photo 2 MB, document 5 MB, import file 20 MB `[CONFIG]`.
 
 ## 8. Payments security (see also [15](15-integrations.md))

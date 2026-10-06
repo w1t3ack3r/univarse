@@ -67,6 +67,33 @@ pnpm dev              # turbo: web :3000, console :3001, api :8080, worker
 ```
 Browse `http://demo-uni.univarse.localhost:3000`. `*.localhost` resolves to loopback in modern browsers, so no hosts-file edits are needed. Ports are bound to `127.0.0.1` only.
 
+### 4.1 Local resource budget (measured 2026-10-06, spec 0010 FU12)
+**What was measured:**
+- **Stack:** Valkey, Mailpit, Vault, SeaweedFS 4.48 and ClamAV 1.5.4 (fail-closed settings) in Docker; the API and worker on the host.
+- **Load:** 12 uploads (four of 4.5 MB) scanned while clean files were downloaded concurrently, with a ClamAV signature `RELOAD` triggered mid-burst. The opt-in test is `apps/api/src/modules/files/files.load.int.spec.ts`.
+
+| Container | Idle | Peak, two runs |
+|---|---|---|
+| ClamAV | 955 MiB | **1,579 / 1,907 MiB** (the reload briefly holds two databases) |
+| SeaweedFS | 73 MiB | 380 / 413 MiB |
+| Vault, Valkey, Mailpit | ~60 MiB together | ~70 MiB together |
+| **All containers** | ~1.1 GiB | **2,025 / 2,395 MiB** |
+| API and worker process (host) | | ~390 MiB |
+
+**In both runs:**
+- **0 container restarts** and **0 failed downloads** (161 and 87 completed);
+- all 12 files ended `CLEAN`;
+- in run two, 3 scans were **retried** while clamd was reloading. A busy scanner delays files; it never releases them.
+
+**Recommendation:**
+- **Docker:** allocate **at least 4 GB**. The measured peak is about 2.4 GB plus headroom; 3.8 GB worked here.
+- **ClamAV in staging and production:** a **2.5–3 GB** memory limit for its container. Its own guidance of about 4 GB stays the safer default for production nodes.
+- These figures replace the earlier "8 GB" estimate.
+
+**Bandwidth:**
+- The ClamAV image ships with signatures, but **FreshClam still downloads updates** at start and daily (usually small diffs, sometimes a full database). Observed here: signatures 28136 (2026-09-27) updated to 28144 (2026-10-05) on first start. Image size is not a total download budget.
+- `CLAMAV_NO_FRESHCLAMD=true` in `.env` stops updates on a slow link. That is local only, with stale signatures, and never in CI or deployed environments.
+
 ## 5. Deployment process
 
 1. Merge to `main` → CI builds, tests, scans, signs images → **staging deploy** (Helm upgrade, digests pinned) → migration job → smoke tests → e2e subset.

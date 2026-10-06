@@ -40,6 +40,7 @@ Statuses are kept distinct: **implemented** → **tested locally** → **verifie
 | MFA tables live isolation (app role) | ✅ | ✅ 6 tests; disabling RLS fails 4 | ✅ (every CI run) | n/a |
 | All-table generic isolation sweep (spec 0004 I1–I9) | ✅ every tenant table, discovered from the catalog | ✅ 9 tests × 14 tables; 3 negative controls fail it | ✅ (#13) | n/a |
 | API route sweep, isolation layer 3 (spec 0009 RS0–RS9): **complete for today's routes** | ✅ routes discovered from `onRoute` and cross-checked against Nest; **real resource-by-id routes: 4** (`GET`, `DELETE /files/:id`, `POST /files/:id/complete`, `GET /files/:id/content`, spec 0010) | ✅ RS6 on all 4: B's id and another user's id answer exactly like a nonexistent id, and neither file changes. Plus 2 synthetic leaks detected, the production build free of test routes, legitimate operations first. Counts are in the CI log's `[route-sweep]` line | ✅ (#25) for the first 24 routes; the 4 file routes are ⏳ in the file-uploads PR | n/a |
+| File uploads, first slice (spec 0010 FU1–FU18): upload → scan → authorised download → delete, against real SeaweedFS + ClamAV | ✅ presigned POST (D1 decided by a contract test), fail-closed ClamAV, verified downloads, atomic quota, deletion wins, lease-unique clean keys | ✅ 27 integration + 7 storage-contract tests, E2E desktop + mobile; 7 mutations caught; peak memory measured (docs/10 §4.1) | ⏳ PR | ✅ "My documents" page (E2E, screenshots reviewed) |
 | Step-up (S1–S12) + MFA management (M9a–M9e, M15′) | ✅ | ✅ 30 tests + 13 guard unit; mutation-checked | ✅ (#7) | ✅ step-up dialog on the Products page (spec 0005 PR B) |
 | Permission-flagged step-up on a real route (S9) | ✅ `PUT /admin/products/{product}` (`settings.product.manage`) | ✅ 428 without step-up | ✅ (#10) | — |
 | Hash-chained audit log + identity events (spec 0002 Part A) | ✅ | ✅ 19 tests + 5 unit; 6/6 mutations caught | ✅ (#8) | n/a |
@@ -64,7 +65,7 @@ pnpm install
 pnpm db:setup      # asks for your local postgres superuser password (hidden), creates
                    # least-privilege roles + databases, writes .env (git-ignored)
 pnpm db:migrate    # platform + tenant migrations (RLS, grants)
-pnpm dev:secrets && pnpm dev:infra   # Valkey, Mailpit (UI http://127.0.0.1:8025), Vault (Docker)
+pnpm dev:secrets && pnpm dev:infra   # Valkey, Mailpit (UI http://127.0.0.1:8025), Vault, SeaweedFS (S3), ClamAV (Docker; give Docker ≥ 4 GB, docs/10 §4.1)
 pnpm db:seed       # demo-uni, test-poly, paused-uni (suspended) + each tenant's data key (needs Vault)
 pnpm rls:check     # static tenant-isolation gate
 pnpm test          # unit tests
