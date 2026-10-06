@@ -130,6 +130,11 @@ jobs:
           docker compose -f infra/compose/compose.dev.yml --env-file .env up -d --wait seaweedfs clamav
           node tools/storage-dev.mjs buckets
           docker exec univarse-dev-clamav-1 clamconf | grep -E '^(AlertExceedsMax|AlertEncrypted|AlertEncryptedDoc|AlertEncryptedArchive|StreamMaxLength|MaxScanSize) '
+      - name: SeaweedFS + ClamAV logs (on failure)
+        if: failure()
+        run: |
+          docker logs --tail 80 univarse-dev-seaweedfs-1 || true
+          docker logs --tail 40 univarse-dev-clamav-1 || true
       - name: DB isolation tests (as app role)
         run: pnpm --filter @univarse/db test:int
       - name: Envelope encryption tests against real Vault (spec 0006)

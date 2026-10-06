@@ -2,7 +2,7 @@
 //   node tools/storage-dev.mjs config    writes infra/compose/seaweedfs/s3.json from .env (before compose up)
 //   node tools/storage-dev.mjs buckets   creates the quarantine and clean buckets (after compose up)
 // Never prints a secret.
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 
 const envPath = new URL('../.env', import.meta.url);
@@ -20,7 +20,11 @@ function config() {
   // One identity for the app. Bucket-scoped least privilege is spec 0010's design note; SeaweedFS
   // actions can be narrowed per bucket (Read:bucket, Write:bucket) once the roles are split.
   const identity = { identities: [{ name: 'univarse-app', credentials: [{ accessKey, secretKey }], actions: ['Read', 'Write', 'List', 'Tagging', 'Admin'] }] };
-  writeFileSync(new URL('s3.json', dir), JSON.stringify(identity, null, 2), { mode: 0o600 });
+  // 0644, not 0600: the container drops root to its own user (uid 1000), which on Linux (CI) cannot
+  // read a 0600 file owned by the checkout's user, so the S3 gateway never starts. The file is
+  // git-ignored, dev/CI only, and holds the same throwaway keys as .env.
+  writeFileSync(new URL('s3.json', dir), JSON.stringify(identity, null, 2), { mode: 0o644 });
+  chmodSync(new URL('s3.json', dir), 0o644);
   console.log('SeaweedFS identity written (infra/compose/seaweedfs/s3.json, git-ignored)');
 }
 
@@ -62,7 +66,7 @@ async function buckets() {
               if (i >= 60) throw createErr;
             }
           } else if (i >= 60) {
-            throw new Error(`S3 gateway not ready for ${b} (${err?.name ?? 'error'})`, { cause: err });
+            throw new Error(`S3 gateway not ready for ${b} (${err?.name ?? 'error'}: ${err?.code ?? err?.cause?.code ?? err?.message ?? ''})`, { cause: err });
           }
           await new Promise((r) => setTimeout(r, 1000));
         }
