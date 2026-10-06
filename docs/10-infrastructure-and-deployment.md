@@ -72,16 +72,16 @@ Browse `http://demo-uni.univarse.localhost:3000`. `*.localhost` resolves to loop
 - **Stack:** Valkey, Mailpit, Vault, SeaweedFS 4.48 and ClamAV 1.5.4 (fail-closed settings) in Docker; the API and worker on the host.
 - **Load:** 12 uploads (four of 4.5 MB) scanned while clean files were downloaded concurrently, with a ClamAV signature `RELOAD` triggered mid-burst. The opt-in test is `apps/api/src/modules/files/files.load.int.spec.ts`.
 
-| Container | Idle | Peak, two runs |
+| Container | Idle | Peak, three runs (3rd on `main` at `3aaf809`) |
 |---|---|---|
-| ClamAV | 955 MiB | **1,579 / 1,907 MiB** (the reload briefly holds two databases) |
-| SeaweedFS | 73 MiB | 380 / 413 MiB |
-| Vault, Valkey, Mailpit | ~60 MiB together | ~70 MiB together |
-| **All containers** | ~1.1 GiB | **2,025 / 2,395 MiB** |
-| API and worker process (host) | | ~390 MiB |
+| ClamAV | 955 MiB | **1,579 / 1,907 / 1,371 MiB** (the reload briefly holds two databases) |
+| SeaweedFS | 73 MiB | 380 / 413 / 445 MiB |
+| Vault, Valkey, Mailpit | ~60 MiB together | ~70 / ~70 / 76 MiB together |
+| **All containers** | ~1.1 GiB | **2,025 / 2,395 / 1,893 MiB** |
+| API and worker process (host) | | ~390 / ~390 / 344 MiB |
 
-**In both runs:**
-- **0 container restarts** and **0 failed downloads** (161 and 87 completed);
+**In all three runs** (per-run table in spec 0010's completion record):
+- **0 container restarts** and **0 failed downloads** (161, 87 and 126 completed);
 - all 12 files ended `CLEAN`;
 - in run two, 3 scans were **retried** while clamd was reloading. A busy scanner delays files; it never releases them.
 

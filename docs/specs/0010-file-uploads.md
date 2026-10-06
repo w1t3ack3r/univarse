@@ -159,6 +159,56 @@ The effective configuration was read with `clamconf` (2026-10-06): before the ch
   - an unexpected clamd reply treated as clean;
   - a fixed clean key.
 
+## Completion record (2026-10-06, after merge of #26 at `3aaf809`)
+Three criteria need recorded results, not just the configuration that enables them.
+
+**Where the results come from:**
+- **CI run 37414297088** on `8249e4c`, the commit merged as `3aaf809`:
+  - `files.int.spec.ts` ran 27 tests, all passed (API integration 303 passed, 1 opt-in skipped);
+  - the default reporter printed only totals and slow tests, so per-test names were not in that log;
+  - from now on CI runs the API integration tests with `--reporter=verbose`, so each FU test's result is in every CI log.
+- **Local runs on `main` at `3aaf809`:** the per-test results below, against the dev SeaweedFS 4.48 and ClamAV 1.5.4 with fail-closed settings.
+
+### FU12: peak memory during a signature reload under load
+Each run had 12 uploads (four of 4.5 MB) being scanned while clean files were downloaded in a loop, and clamd was sent `RELOAD` during the scan burst.
+
+| Run | Commit | ClamAV peak | All containers | Host process | Restarts | Downloads failed / completed | Scans retried | `SCAN_FAILED` | Outcome |
+|---|---|---|---|---|---|---|---|---|---|
+| 1 | branch, pre-merge | 1,579 MiB | 2,025 MiB | ~390 MiB | 0 | 0 / 161 | 0 | 0 | 12 `CLEAN` |
+| 2 | branch, pre-merge | 1,907 MiB | 2,395 MiB | ~390 MiB | 0 | 0 / 87 | 3 (during the reload) | 0 | 12 `CLEAN` |
+| 3 | `3aaf809` (main) | 1,371 MiB | 1,893 MiB | 344 MiB | 0 | 0 / 126 | 0 | 0 | 12 `CLEAN` |
+
+- **Run 3's raw report:** `RELOAD -> RELOADING`; peaks clamav 1371, seaweedfs 445, vault 31, valkey 13, mailpit 32 MiB; 89 s.
+- **The test asserts** 0 restarts, 0 failed downloads, every file `CLEAN` and no `SCAN_FAILED`. It is opt-in (`MEASURE_FILES_STACK=1`) because it deliberately loads the machine, which is why CI shows it as skipped. These recorded runs are its evidence.
+- **Peaks vary with when the reload lands.** The two databases coexist only briefly. The budget in docs/10 §4.1 uses the highest run.
+
+### FU3: the real scanner's limits and encryption, results
+These run against real clamd with real payloads; neither is a mock.
+- **Configuration, sent straight to clamd:** a limit hit and an encrypted PDF are both `FOUND`, not a silent `OK`. ✓
+- **A 31 KB PDF inflating to 30 MB** passes the type check, then ends `INFECTED` with `Heuristics.Limits.Exceeded.MaxFileSize`: reservation released, no clean object, the owner's download is `409`. ✓
+- **A password-encrypted PDF** passes the type check, then ends `INFECTED` with `Heuristics.Encrypted.PDF`, with the same checks. ✓
+- **Scanner failures:**
+  - clamd timing out, refusing on size, or answering nonsense: each retried, then `SCAN_FAILED`, never `CLEAN` ✓;
+  - clamd down: the file stays unavailable ✓;
+  - a worker crash mid-scan: the lease lapses and the scan restarts from the beginning ✓.
+- **Without the fail-closed settings,** the image defaults return `OK` for both files; this is shown with `clamscan` in "Contract and scanner observations" above. CI also prints clamd's effective settings: `AlertExceedsMax`, `AlertEncrypted`, `AlertEncryptedDoc` and `AlertEncryptedArchive` are all `yes`.
+
+### FU18: lease takeover, results
+Worker A claims a file and is paused. Its lease lapses, and worker B (a separate Nest context) scans it and publishes. Then A resumes.
+- **What both cases assert,** with A paused before promotion and, separately, after uploading its own clean copy:
+  - A's run reports `lost`, so its conditional result write changed nothing;
+  - the file is still `CLEAN` with **B's** clean key;
+  - **only B's object** is left under the file's clean prefix: A removes only its own lease-unique copy;
+  - the download's SHA-256 equals the uploaded bytes;
+  - the tenant's reserved total is unchanged: held once, since a `CLEAN` file keeps its reservation. ✓
+- **Mutation:** with a fixed clean key, both tests fail; this is the stale-worker deletion bug found while building.
+- These tests are now tagged `[FU18]`; before, they were tagged only by the FU7 and FU15 criteria they also cover.
+
+### What this does not close
+File isolation is done for this slice. **Isolation layer 5 (caches and files) is not complete:**
+- the product cache across instances is still open (spec 0003 P7);
+- two key-destruction gaps from spec 0006 remain: the cross-instance key-forget broadcast, and the shred ledger with its restore runbook.
+
 ## Out of scope (tracked)
 | Gap | Milestone |
 |---|---|
