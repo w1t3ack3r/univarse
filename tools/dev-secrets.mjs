@@ -12,6 +12,9 @@ const wanted = {
   DATA_ENCRYPTION_KEY_ID: () => 'dev-1',
   DATA_ENCRYPTION_KEY: () => randomBytes(32).toString('base64'),
   MAIL_FROM: () => 'UniVarse <no-reply@univarse.localhost>',
+  // Local S3-compatible store (SeaweedFS, ADR-025). tools/storage-dev.mjs writes its identity file.
+  S3_ACCESS_KEY: () => `uvdev${randomBytes(8).toString('hex')}`,
+  S3_SECRET_KEY: () => randomBytes(30).toString('base64url'),
 };
 const added = [];
 let next = current.endsWith('\n') || current === '' ? current : current + '\n';

@@ -87,11 +87,32 @@ The flow is built so a file is **never** available before it has been scanned cl
   - docs/08 §7's `content-length-range`, which is a presigned **POST** policy feature; a presigned **PUT** can only sign an exact `Content-Length`.
   - docs/10: FreshClam bandwidth, and the measured resource budget (FU12).
 
+## Contract and scanner observations (2026-10-06, local; SeaweedFS 4.48, ClamAV 1.5.4, signatures 28136 of 2026-09-27)
+| Behaviour (FU11) | Observed | Relied on? |
+|---|---|---|
+| Presigned POST, exactly at `content-length-range` | 204, stored | **Yes: D1** |
+| Presigned POST, limit + 1 byte / 4× the limit | 400, nothing stored | **Yes: D1** |
+| Presigned POST to a key other than the policy fixes | 403, nothing stored | Yes (keys are server-generated) |
+| Presigned POST **reused** before expiry | 204, **overwrote** | No. FU4 makes it harmless |
+| Presigned PUT reused | 400, first object kept | No (the PUT path isn't used) |
+| `If-None-Match: *` on an existing key | refused, 412 | No (defence in depth only) |
+| Presigned URL after expiry | 403 | Yes (5-minute TTL) |
+| Anonymous read of a private bucket | 403 | Yes (FU1) |
+
+| Scanner input (FU16), sent straight to clamd | Result |
+|---|---|
+| A clean PDF | `OK` |
+| Exact EICAR (68 bytes; with CRLF) | `Eicar-Test-Signature FOUND` / `Eicar-Signature FOUND` |
+| **EICAR embedded in a PDF** | **`OK`: not detected.** This confirms that EICAR can't prove full-flow detection |
+| A PDF carrying the test marker | `UniVarse.Test.Marker-1.UNOFFICIAL FOUND` |
+
 ## Decisions (owner, 2026-10-06)
-- **D1: the upload path, decided by evidence.**
-  - **Presigned POST** goes direct to storage, **if** the real-SeaweedFS contract test (FU11) proves the policy's `content-length-range` refuses an oversize upload.
-  - **Otherwise, upload through the API**, with exact byte counting.
-  - The test result and the chosen path are recorded here before the upload code is written.
+- **D1: the upload path, decided by evidence (2026-10-06): presigned POST, direct to storage.** SeaweedFS 4.48 enforces the policy's `content-length-range`:
+  - exactly the limit: `204`, stored;
+  - one byte over: `400`, nothing stored;
+  - four times over: `400`, nothing stored.
+
+  The contract test (FU11) keeps asserting this. If it ever fails, for example against another backend, uploads must switch to the API path before release.
 - **D2: who may upload.** Everyone, for their own files, through explicit permissions (`files.file.upload`, `files.file.read`, `files.file.delete`) granted to every seeded role. MFA enrolment-only sessions stay restricted (FU17).
 - **D3: limits.** PDF, PNG and JPEG; 5 MB per file; 1 GiB per institution by default (a setting). The owner sees `409 file.not_ready` with the state while a file isn't clean; everyone else gets 404.
 

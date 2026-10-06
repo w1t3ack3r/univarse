@@ -58,3 +58,5 @@ apps/web/.impeccable/questions/
 
 # Local Vault unseal key + root token (tools/vault-dev.mjs); never commit
 .vault-dev.json
+# Local SeaweedFS identity file (tools/storage-dev.mjs, from .env); never commit
+infra/compose/seaweedfs/s3.json
