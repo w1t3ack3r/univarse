@@ -60,6 +60,8 @@ export async function reservedTotal(tx: TenantTx, tenantId: string): Promise<big
 @Injectable()
 export class FilesService {
   private readonly logger = new Logger('Files');
+  /** Test hook (FU13): runs right after the quota total is read, inside the reservation transaction. */
+  afterQuotaRead: (() => Promise<void>) | null = null;
 
   constructor(
     private readonly shards: ShardRegistry,
@@ -83,7 +85,9 @@ export class FilesService {
     const row = await this.shards.tx(tenant.shardId, tenant.tenantId, async (tx) => {
       // One reservation at a time per tenant: concurrent slots can't both see the same headroom.
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`files-quota:${tenant.tenantId}`}))`;
-      if ((await reservedTotal(tx, tenant.tenantId)) + size > quota) throw new ProblemError(409, 'file.quota_exceeded', 'Storage quota exceeded');
+      const reserved = await reservedTotal(tx, tenant.tenantId);
+      await this.afterQuotaRead?.();
+      if (reserved + size > quota) throw new ProblemError(409, 'file.quota_exceeded', 'Storage quota exceeded');
       const created = await tx.fileObject.create({
         data: {
           id,

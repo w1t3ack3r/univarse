@@ -50,7 +50,9 @@ export function registerSecurityHeaders(app: FastifyInstance, opts: { production
     void reply.header('x-content-type-options', 'nosniff');
     void reply.header('referrer-policy', 'strict-origin-when-cross-origin');
     void reply.header('cross-origin-resource-policy', 'same-origin');
-    void reply.header('content-security-policy', "default-src 'none'; frame-ancestors 'none'");
+    // `sandbox`: the API never serves anything a browser should run; this also covers file downloads
+    // (spec 0010 FU5). Set here, after handlers, so no route can weaken it.
+    void reply.header('content-security-policy', "default-src 'none'; frame-ancestors 'none'; sandbox");
     void reply.header('cache-control', 'no-store');
     if (opts.production) {
       void reply.header('strict-transport-security', 'max-age=63072000; includeSubDomains; preload');

@@ -61,14 +61,12 @@ export class FilesController {
     @Res({ passthrough: true }) reply: FastifyReply,
   ) {
     const file = await this.files.download(tenant, actor, id, meta(req));
+    // nosniff, CSP (incl. sandbox), no-store and CORP come from the global hook (fastify-hooks.ts),
+    // which runs after this handler so no route can weaken them.
     void reply
       .header('content-type', file.type)
       .header('content-length', String(file.bytes.length))
-      .header('content-disposition', contentDisposition(file.name))
-      .header('x-content-type-options', 'nosniff')
-      .header('content-security-policy', "sandbox; default-src 'none'")
-      .header('cache-control', 'private, no-store')
-      .header('cross-origin-resource-policy', 'same-origin');
+      .header('content-disposition', contentDisposition(file.name));
     return file.bytes;
   }
 

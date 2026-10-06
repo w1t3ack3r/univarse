@@ -41,6 +41,8 @@ export interface InjectResult {
   statusCode: number;
   headers: Record<string, string | string[] | number | undefined>;
   body: string;
+  /** The exact response bytes (binary downloads). */
+  rawPayload: Buffer;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- test convenience
   json(): any;
 }
