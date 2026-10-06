@@ -102,6 +102,9 @@ importers:
       '@types/nodemailer':
         specifier: ^7.0.12
         version: 7.0.12
+      ajv:
+        specifier: ^8.20.0
+        version: 8.20.0
       tsc-watch:
         specifier: ^7.1.0
         version: 7.2.1(typescript@5.9.3)

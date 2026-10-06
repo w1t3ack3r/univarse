@@ -884,6 +884,20 @@ describe('[OA2] the OpenAPI document covers exactly the routes the app serves', 
     },
     60_000,
   );
+
+  // Authorization order: the documented 404 is only reachable after authorization. The same invalid and
+  // unknown values with no credentials are 401, so an unauthenticated caller learns nothing about them.
+  it.each(withParams)('[OA2] %s: the same invalid or unknown path value without credentials is 401, not the 404', async (route) => {
+    const c = CALLERS[route]!;
+    const [method, path] = route.split(' ') as [Method, string];
+    for (const p of docOps.get(route)!.parameters!) {
+      for (const bad of ['zz-not-valid', randomUUID()]) {
+        const url = path.replace(`:${p.name}`, encodeURIComponent(bad));
+        const res = await send({ method, host: A, url, ...(c.body === undefined ? {} : { body: c.body }), ...(c.headers ? { headers: c.headers } : {}) });
+        expect([res.statusCode, json(res).code], `${route} with ${p.name}=${bad}, no session`).toEqual([401, 'auth.unauthenticated']);
+      }
+    }
+  });
 });
 
 describe('[RS0][RS3] legitimate operation first, then tenant hints change nothing', () => {

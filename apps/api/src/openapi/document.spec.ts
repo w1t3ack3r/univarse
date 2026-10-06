@@ -2,9 +2,10 @@
 import 'reflect-metadata';
 import { readFileSync } from 'node:fs';
 import { Body, Controller, Get, Param, Post } from '@nestjs/common';
-import { SETTING_KEYS, SETTINGS, type ApiOperation } from '@univarse/contracts';
+import { AuthOps, MfaOps, SETTING_KEYS, SETTINGS, type ApiOperation } from '@univarse/contracts';
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
+import { Ajv2020 } from 'ajv/dist/2020.js';
 import { API_CONTROLLERS } from '../app.module.js';
 import { Public } from '../modules/identity/access.guard.js';
 import { Product } from '../modules/products/product.guard.js';
@@ -136,6 +137,42 @@ describe('[OA3] request schemas are the validators, and nothing converts to {}',
     expect(refuses(() => buildOpenApi([fake(z.object({ anything: z.unknown() }).strict())], SETTINGS))).toEqual([
       'empty schema at #/paths/~1api~1v1~1x~1y/post/requestBody/content/application~1json/schema/properties/anything',
     ]);
+  });
+});
+
+describe('[OA3] second-factor rules: the document says what the validator enforces', () => {
+  // Each case: the documented schema (Ajv, JSON Schema 2020-12) and the runtime zod validator must agree.
+  const agree = (opId: string, zodSchema: z.ZodType, cases: [unknown, boolean][]) => {
+    const schema = byId(opId).requestBody!.content['application/json']!.schema;
+    // strictRequired off: `not: { required: [...] }` names properties declared one level up, by design.
+    const validate = new Ajv2020({ strict: true, strictRequired: false }).compile(schema);
+    for (const [body, ok] of cases) {
+      expect([validate(body), zodSchema.safeParse(body).success], `${opId} ${JSON.stringify(body)}`).toEqual([ok, ok]);
+    }
+  };
+
+  it('[OA3] step-up: password alone (non-MFA users), or with a code, or with a recovery code; never both', () => {
+    expect(byId('stepUp').requestBody!.content['application/json']!.schema.not).toEqual({ required: ['code', 'recoveryCode'] });
+    agree('stepUp', AuthOps.stepUp.body, [
+      [{ password: 'p' }, true],
+      [{ password: 'p', code: '123456' }, true],
+      [{ password: 'p', recoveryCode: 'ABCDE-FGHIJ' }, true],
+      [{ password: 'p', code: '123456', recoveryCode: 'ABCDE-FGHIJ' }, false],
+      [{ code: '123456' }, false],
+    ]);
+  });
+
+  it('[OA3] MFA verify: exactly one credential, a code or a recovery code', () => {
+    agree('verifyMfa', MfaOps.verifyMfa.body, [
+      [{ code: '123456' }, true],
+      [{ recoveryCode: 'ABCDE-FGHIJ' }, true],
+      [{}, false],
+      [{ code: '123456', recoveryCode: 'ABCDE-FGHIJ' }, false],
+    ]);
+  });
+
+  it('[OA3] min ≤ max for unit limits is documented as a runtime rule (JSON Schema cannot compare fields)', () => {
+    expect(String(doc.components.schemas['SettingValue.registration.unitLimits']!.description)).toMatch(/min ≤ max.*422 settings\.invalid_value/);
   });
 });
 

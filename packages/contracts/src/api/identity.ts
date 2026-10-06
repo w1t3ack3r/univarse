@@ -18,7 +18,9 @@ export const LoginBody = z.object({ username: Identifier, password: Password }).
 export const StepUpBody = z
   .object({ password: Password, code: TotpCode.optional(), recoveryCode: RecoveryCode.optional() })
   .strict()
-  .refine((v) => !(v.code && v.recoveryCode), 'Send either code or recoveryCode, not both');
+  .refine((v) => !(v.code && v.recoveryCode), 'Send either code or recoveryCode, not both')
+  // zod's JSON Schema output drops refinements; this states the same rule in the document (OA3).
+  .meta({ not: { required: ['code', 'recoveryCode'] } });
 
 export const MfaVerifyBody = z.union([z.object({ code: TotpCode }).strict(), z.object({ recoveryCode: RecoveryCode }).strict()]);
 export const MfaEnrolBody = z.object({ password: Password }).strict();

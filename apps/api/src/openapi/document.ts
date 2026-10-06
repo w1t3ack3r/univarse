@@ -70,9 +70,14 @@ export function toJsonSchema(schema: z.ZodType, io: 'input' | 'output', where: s
   }
 }
 
-const MEANINGFUL = ['type', 'const', 'enum', '$ref', 'anyOf', 'oneOf', 'allOf', 'not'];
+/** JSON Schema assertion keywords: a schema with none of them accepts anything (`z.unknown()`, `z.any()`). */
+const MEANINGFUL = [
+  'type', 'const', 'enum', '$ref', 'anyOf', 'oneOf', 'allOf', 'not',
+  'required', 'dependentRequired', 'minProperties', 'maxProperties', 'pattern', 'minLength', 'maxLength',
+  'minimum', 'maximum', 'exclusiveMinimum', 'exclusiveMaximum', 'multipleOf', 'minItems', 'maxItems',
+];
 
-/** OA3: lists every schema that says nothing (`{}`, `true`, or no type-like keyword), by JSON pointer. */
+/** OA3: lists every schema that says nothing (`{}`, `true`, or no assertion keyword), by JSON pointer. */
 export function emptySchemas(schema: unknown, pointer: string): string[] {
   if (schema === true || typeof schema !== 'object' || schema === null) return [pointer];
   const s = schema as Json;

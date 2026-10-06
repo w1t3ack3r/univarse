@@ -195,6 +195,18 @@ describe('login with MFA (M4–M7, M10)', () => {
     expect((await verify(challenge, { code: totpCode(u.secret) })).statusCode).toBe(401);
   });
 
+  it('[OA3] verify takes exactly one credential: both, or neither, is 400 request.invalid and spends nothing', async () => {
+    const u = await h.makeUser('demo', { role: 'STUDENT' });
+    const { secret, recoveryCodes } = await enrolViaApi(u.username);
+    const challenge = challengeOf(await h.login(D, u.username));
+    for (const body of [{}, { code: totpCode(secret), recoveryCode: recoveryCodes[0]! }]) {
+      const res = await verify(challenge, body);
+      expect([res.statusCode, res.json().code], `keys: ${Object.keys(body).join(',') || 'none'}`).toEqual([400, 'request.invalid']);
+    }
+    // Validation runs first: the challenge and the recovery code are both still good.
+    expect((await verify(challenge, { recoveryCode: recoveryCodes[0]! })).statusCode).toBe(200);
+  });
+
   it('[M7] a recovery code works exactly once and the user is emailed the remaining count', async () => {
     const u = await h.makeUser('demo', { role: 'STUDENT' });
     const { recoveryCodes } = await enrolViaApi(u.username);

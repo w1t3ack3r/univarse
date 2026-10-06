@@ -165,25 +165,37 @@ docs/02 and docs/06 already promise an OpenAPI document generated from zod, and 
   | `settings/{key}` | Enum of setting keys | `404 settings.unknown_key` |
 
   - Each parameter states its 404 as `x-invalid`. Schemas are documentation only: nothing validates the path before the guards or the use case.
-- **Refinements are not in the document.** zod's conversion drops refinements; they don't become `{}`, and they are still enforced at run time:
-  - step-up's "code or recovery code, never both";
-  - the unit-limits rule `min ≤ max`.
+  - **What the tests prove, and which test:**
+    - *The documented 404s:* called fully authorized, a malformed and an unknown value each get exactly the documented status and code.
+    - *Authorization order:* the same values **without credentials** get `401 auth.unauthenticated`, never the 404. The 404 is only reachable after authorization.
+- **zod's conversion drops refinements** (they don't become `{}`; they are simply absent). Each one is handled explicitly:
+  - **Step-up's "code or recovery code, never both"** is expressible, so the schema states it: `not: { required: ["code", "recoveryCode"] }`, added with `.meta()` on the same zod object.
+    - A test validates the **documented** schema with Ajv (2020-12) and the runtime zod validator on the same cases, and they must agree:
+      - password alone is accepted, for non-MFA users;
+      - password with a code, or with a recovery code, is accepted;
+      - both is refused;
+      - no password is refused.
+    - The API's response is unchanged and pinned: both credentials is `400 request.invalid`.
+  - **MFA verify needs exactly one credential.** That is already in the schema: an `anyOf` of two strict objects, so `{}` and both are refused. The same agreement test covers it. A new integration test shows both, or neither, is `400 request.invalid` and spends nothing: the same challenge and recovery code still work afterwards.
+  - **Unit limits' `min ≤ max`** can't be expressed in JSON Schema, which can't compare two fields. The value schema's `description` states it as a runtime rule, with its `422 settings.invalid_value`.
 - **Tests:**
 
   | Kind | What they cover |
   |---|---|
-  | 21 unit (`openapi/document.spec.ts`) | target versions; the committed file equals a fresh build (stale check); route sets; the named control routes; refusing a route without a contract, a parameter mismatch, an unrepresentable schema and an empty schema (with its JSON pointer); bodies equal their validators; strict bodies; the settings key → value tie and per-key permissions; security; step-up; enrolment-only; tenantless health; CSRF on exactly the unsafe operations |
-  | 10 integration (route sweep) | the routes the app serves minus `CONTROL_ROUTES` equal the document's; every documented parameterised route has a caller; for all 8 such routes, a malformed and an unknown value each get exactly the documented 404 and code, called fully authorized by a fresh user and never 400 |
-
-  API integration: 313 passed, 1 opt-in skipped.
-- **Mutations caught (6):**
+  | 24 unit (`openapi/document.spec.ts`) | target versions; the committed file equals a fresh build (stale check); route sets; the named control routes; refusing a route without a contract, a parameter mismatch, an unrepresentable schema and an empty schema (with its JSON pointer); bodies equal their validators; strict bodies; the second-factor rules (Ajv on the document agrees with zod); the `min ≤ max` runtime rule stated; the settings key → value tie and per-key permissions; security; step-up; enrolment-only; tenantless health; CSRF on exactly the unsafe operations |
+  | 18 integration (route sweep) | the routes the app serves minus `CONTROL_ROUTES` equal the document's; every documented parameterised route has a caller; for all 8 such routes, invalid and unknown values get the documented 404 when fully authorized, and 401 without credentials |
+  | 2 integration (identity) | MFA verify with both or neither credential is `400 request.invalid` and spends nothing (new); step-up with both pins `400 request.invalid` (existing test, now asserting the code) |
+- **Mutations caught (8):**
   - a handler without `@Contract` (generation refused, naming the route);
   - a body changed without regenerating;
   - `@AllowRestricted` removed from logout;
   - a controller parsing with another operation's schema;
   - a malformed file id answered 400 instead of 404;
-  - `@RequireStepUp` removed from TOTP disable.
+  - `@RequireStepUp` removed from TOTP disable;
+  - the step-up `not` clause removed (the document would allow both credentials);
+  - `GET /files/:id` skipping authorization (its 404 reachable without credentials).
 - **Found while building:**
+  - **The empty-schema check was too narrow.** It recognised only type-like keywords, so it flagged `not: { required: [...] }` as empty. It now recognises JSON Schema's assertion keywords; `{}`, and schemas carrying only `title` or `description`, are still refused.
   - **The generator crashed on a parameter mismatch.** It threw a `TypeError` instead of reporting the problem; a negative-control test found it, and it now reports and continues.
   - **`GET /admin/products` requires step-up.** Its permission, `settings.product.manage`, is step-up-flagged, so the document says so and the web app wraps the call in `withStepUp`.
 - **The stale check runs from now on.** OA9's comparison of the committed file with a fresh build is already a unit test, so CI fails on a stale `openapi.json` from this step. The separate `git diff` gate on the generated client types comes with step 5.

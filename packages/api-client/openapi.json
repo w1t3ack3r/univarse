@@ -646,7 +646,13 @@
                 "required": [
                   "password"
                 ],
-                "additionalProperties": false
+                "additionalProperties": false,
+                "not": {
+                  "required": [
+                    "code",
+                    "recoveryCode"
+                  ]
+                }
               }
             }
           }
@@ -1231,7 +1237,8 @@
           "min",
           "max"
         ],
-        "additionalProperties": false
+        "additionalProperties": false,
+        "description": "Runtime rule (not expressible in JSON Schema): min ≤ max, otherwise 422 settings.invalid_value."
       }
     }
   }
