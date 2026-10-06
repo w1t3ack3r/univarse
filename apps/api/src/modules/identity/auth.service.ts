@@ -1,3 +1,4 @@
+import { bucketName, securityFields } from '../../shared/observability/security.js';
 import { Injectable, Logger } from '@nestjs/common';
 import type { TenantTx } from '@univarse/db';
 import { AuditWriter } from '../../shared/audit/audit-writer.js';
@@ -71,6 +72,7 @@ export class AuthService {
   private async limit(key: string, rules: { limit: number; windowSec: number }[]): Promise<void> {
     const r = await this.limiter.hit(key, rules);
     if (!r.allowed) {
+      this.logger.warn(securityFields('auth.rate_limited', { bucket: bucketName(key), retryAfterSec: r.retryAfterSec }), 'Rate limit exceeded');
       throw Object.assign(new ProblemError(429, 'request.rate_limited', 'Too many attempts. Try again later.'), {
         retryAfterSec: r.retryAfterSec,
       });
@@ -259,6 +261,11 @@ export class AuthService {
   ) {
     await this.limitPasswordAttempt(tenant, meta.ip, normaliseIdentifier(actor.username).value);
     await this.limit(`${tenant.tenantId}:step-up:user:${actor.userId}`, [{ limit: 10, windowSec: 900 }]);
-    return withMinimumDuration(STEP_UP_FLOOR_MS, () => this.mfa.stepUp(tenant, actor, input, meta));
+    return withMinimumDuration(STEP_UP_FLOOR_MS, () => this.mfa.stepUp(tenant, actor, input, meta)).catch((err: unknown) => {
+      if (err instanceof ProblemError && (err.code === 'auth.invalid_credentials' || err.code === 'auth.mfa_invalid')) {
+        this.logger.warn(securityFields('auth.step_up.failed', { reason: err.code }), 'Step-up failed');
+      }
+      throw err;
+    });
   }
 }

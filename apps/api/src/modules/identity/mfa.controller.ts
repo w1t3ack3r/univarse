@@ -1,3 +1,5 @@
+import { Logger } from '@nestjs/common';
+import { bucketName, securityFields } from '../../shared/observability/security.js';
 import { Body, Controller, HttpCode, Post, Req, Res } from '@nestjs/common';
 import { MfaOps } from '@univarse/contracts';
 import { Contract } from '../../openapi/contract.js';
@@ -26,6 +28,8 @@ const meta = (req: FastifyRequest) => ({ ip: req.ip, userAgent: req.headers['use
 @Controller('api/v1/auth/mfa')
 @Product('core')
 export class MfaController {
+  private readonly logger = new Logger('Mfa');
+
   constructor(
     private readonly mfa: MfaService,
     private readonly limiter: RateLimiter,
@@ -34,6 +38,7 @@ export class MfaController {
   private async limit(key: string, limit: number, windowSec: number) {
     const r = await this.limiter.hit(key, [{ limit, windowSec }]);
     if (!r.allowed) {
+      this.logger.warn(securityFields('auth.rate_limited', { bucket: bucketName(key), retryAfterSec: r.retryAfterSec }), 'Rate limit exceeded');
       throw Object.assign(new ProblemError(429, 'request.rate_limited', 'Too many attempts. Try again later.'), {
         retryAfterSec: r.retryAfterSec,
       });

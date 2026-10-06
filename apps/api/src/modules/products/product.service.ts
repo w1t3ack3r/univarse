@@ -124,7 +124,7 @@ export class ProductService {
       await this.platform.tenantProduct.updateMany({ where: { id, enabled: from }, data: { enabled: to, updatedBy } });
     } catch (err) {
       // Residual risk: both databases failing in sequence. Loud, so operations can reconcile.
-      this.logger.error({ tenantProductId: id, err }, 'Compensation failed: product change is unaudited');
+      this.logger.error({ event: 'products.compensation_failed', tenantProductId: id, err }, 'Compensation failed: product change is unaudited');
     }
   }
 }

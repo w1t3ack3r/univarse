@@ -1,3 +1,4 @@
+import { securityFields } from '../../shared/observability/security.js';
 import { Injectable, Logger } from '@nestjs/common';
 import { isPermission } from '@univarse/contracts';
 import type { TenantTx } from '@univarse/db';
@@ -142,7 +143,7 @@ export class SessionService {
       });
       if (!session) {
         // Unknown, forged, or another tenant's token. Security signal — never log the token.
-        this.logger.warn(`Invalid session token presented tenant=${tenant.slug} requestId=${requestId}`);
+        this.logger.warn(securityFields('auth.session.invalid_token', { tenantId: tenant.tenantId, presentedRequestId: requestId }), 'Invalid session token presented');
         return null;
       }
       const expired = session.idleExpiresAt <= now || session.absoluteExpiresAt <= now;

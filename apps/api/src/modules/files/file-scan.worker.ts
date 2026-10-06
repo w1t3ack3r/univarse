@@ -1,3 +1,5 @@
+import { withLogContext } from '../../shared/observability/context.js';
+import { securityFields } from '../../shared/observability/security.js';
 // Spec 0010: the scanning worker (FU3, FU4, FU7, FU13, FU15, FU16) and cleanup. Runs in the worker
 // process beside the outbox and the key sweep, tenant by tenant under RLS.
 //
@@ -62,10 +64,13 @@ export class FileScanWorker {
     const tenants = await this.platform.tenant.findMany({ where: { status: { in: [...SERVABLE] } }, select: { id: true, shardId: true } });
     for (const t of tenants) {
       try {
-        await this.cleanup(t);
-        for (const o of await this.scanTenant(t)) total[o]++;
+        // Spec 0012 OB2: lines from anything this tenant's pass calls carry its tenantId.
+        await withLogContext({ tenantId: t.id }, async () => {
+          await this.cleanup(t);
+          for (const o of await this.scanTenant(t)) total[o]++;
+        });
       } catch (err) {
-        this.logger.error({ tenantId: t.id, error: (err as Error).name }, 'File scan pass failed for tenant');
+        this.logger.error({ event: 'files.scan.tenant_failed', tenantId: t.id, error: (err as Error).name }, 'File scan pass failed for tenant');
       }
     }
     return total;
@@ -115,7 +120,7 @@ export class FileScanWorker {
       // Ordinary ClamAV detection, whatever the signature; the name is recorded as data.
       const done = await this.finalize(t, f, { state: 'INFECTED', scanSignature: verdict.signature, release: true }, 'files.scan.infected', { signature: verdict.signature });
       if (done) {
-        this.logger.warn({ tenantId: t.id, fileId: f.id, signature: verdict.signature }, 'Security event: malware detected in an upload');
+        this.logger.warn(securityFields('files.scan.malware_detected', { tenantId: t.id, fileId: f.id, signature: verdict.signature }), 'Malware detected in an upload');
         await this.storage.remove(this.storage.quarantine, qKey).catch(() => undefined);
       }
       return done ? 'infected' : 'lost';
@@ -146,7 +151,7 @@ export class FileScanWorker {
 
   /** FU3: the scanner couldn't decide. Retry with backoff, then SCAN_FAILED. Never clean. */
   private async finishUnscanned(t: TenantRef, f: Claimed, detail: string): Promise<ScanOutcome> {
-    this.logger.warn({ tenantId: t.id, fileId: f.id, attempt: f.scan_attempts, detail }, 'Scan attempt failed');
+    this.logger.warn({ event: 'files.scan.attempt_failed', tenantId: t.id, fileId: f.id, attempt: f.scan_attempts, detail }, 'Scan attempt failed');
     if (f.scan_attempts < MAX_ATTEMPTS) {
       const wait = BACKOFF_MS[f.scan_attempts - 1] ?? 120_000;
       const n = await this.shards.tx(t.shardId, t.id, (tx) =>
@@ -247,7 +252,7 @@ export class FileScanWorker {
   start(intervalMs: number): void {
     const tick = () => {
       this.running = this.runOnce()
-        .catch((err: unknown) => this.logger.error({ error: (err as Error).name }, 'File scan pass failed'))
+        .catch((err: unknown) => this.logger.error({ event: 'files.scan.pass_failed', error: (err as Error).name }, 'File scan pass failed'))
         .finally(() => {
           if (this.timer !== null) this.timer = setTimeout(tick, intervalMs);
         });

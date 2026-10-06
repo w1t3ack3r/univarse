@@ -29,7 +29,7 @@ export class ProblemFilter implements ExceptionFilter {
     if (body.status === 429 && retryAfter) void reply.header('retry-after', String(retryAfter));
 
     if (body.status >= 500) {
-      this.logger.error({ requestId: req.id, err: exception }, 'Unhandled error');
+      this.logger.error({ event: 'http.unhandled_error', err: exception }, 'Unhandled error');
     }
     void reply.status(body.status).header('content-type', 'application/problem+json').send(body);
   }

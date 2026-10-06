@@ -42,9 +42,9 @@ export class ShardRegistry implements OnApplicationBootstrap, OnApplicationShutd
       await this.platform.$queryRaw`SELECT 1`;
       const shards = await this.platform.shard.findMany({ where: { isActive: true } });
       await Promise.all(shards.map(async (s) => (await this.client(s.id)).$queryRaw`SELECT 1`));
-      this.logger.log(`Warmed platform DB + ${shards.length} shard connection(s)`);
+      this.logger.log({ event: 'db.warmed', shards: shards.length }, 'Warmed platform DB and shard connections');
     } catch (err) {
-      this.logger.warn(`Connection warm-up failed: ${err instanceof Error ? err.message : String(err)}`);
+      this.logger.warn({ event: 'db.warm_up_failed', err }, 'Connection warm-up failed');
     }
   }
 

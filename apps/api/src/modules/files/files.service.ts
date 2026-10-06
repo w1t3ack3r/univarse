@@ -173,7 +173,7 @@ export class FilesService {
     const expected = Buffer.from(f.sha256);
     if (read.kind !== 'ok' || read.bytes.length !== Number(f.sizeBytes) || !createHash('sha256').update(read.bytes).digest().equals(expected)) {
       // Integrity event for humans; the caller gets nothing of the stored bytes.
-      this.logger.error({ tenantId: tenant.tenantId, fileId: f.id, read: read.kind }, 'Clean object failed verification; download refused');
+      this.logger.error({ event: 'files.download.verification_failed', tenantId: tenant.tenantId, fileId: f.id, read: read.kind }, 'Clean object failed verification; download refused');
       throw integrityFailure();
     }
     await this.shards.tx(tenant.shardId, tenant.tenantId, (tx) =>
@@ -215,7 +215,7 @@ export class FilesService {
       return f;
     });
     await this.purgeObjects(tenant, deleted.id, { quarantine: deleted.quarantineKey, clean: deleted.cleanKey }).catch((err: unknown) =>
-      this.logger.warn({ tenantId: tenant.tenantId, fileId: deleted.id, error: (err as Error).name }, 'Object removal deferred to cleanup'),
+      this.logger.warn({ event: 'files.delete.removal_deferred', tenantId: tenant.tenantId, fileId: deleted.id, error: (err as Error).name }, 'Object removal deferred to cleanup'),
     );
   }
 

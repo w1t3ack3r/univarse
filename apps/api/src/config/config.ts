@@ -3,6 +3,10 @@ import { z } from 'zod';
 // Boot-time config validation: the app refuses to start on invalid config (docs/02 §11).
 const schema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
+  /** Spec 0012: Pino level. Tests are silent unless a test captures lines. */
+  LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
+  /** The build's git SHA, stamped into every log line (`version`); `dev` locally. */
+  UNIVARSE_VERSION: z.string().regex(/^[A-Za-z0-9._-]{1,64}$/).default('dev'),
   HOST: z.string().default('127.0.0.1'),
   PORT: z.coerce.number().int().min(1).max(65535).default(8080),
   PLATFORM_DATABASE_URL: z.string().startsWith('postgresql://'),

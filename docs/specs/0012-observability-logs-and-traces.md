@@ -89,6 +89,41 @@ When something goes wrong in a deployed UniVarse, the first question is "what ha
 - **README:** a status row, and how to view traces locally.
 - **CLAUDE.md:** the start command change (`--import`).
 
+## Implementation notes
+### Logs (OB1–OB4, OB7; OB2's worker context) (2026-10-06)
+- **Code:** `apps/api/src/shared/observability/`:
+  - `logger.ts`: the shared Pino factory, redaction paths, the error serializer, the context mixin and `NestPinoLogger`;
+  - `context.ts`: `AsyncLocalStorage`;
+  - `scrub.ts`: string patterns, reused for traces;
+  - `http-logging.ts`: the context hook and the summary line;
+  - `security.ts`: `SECURITY_EVENTS` and `securityFields`.
+- **Wiring:**
+  - **`bootstrap.ts`:** gives the Pino instance to Fastify (`loggerInstance`) and to Nest (`NestPinoLogger`). Fastify's own request logging is off through `logController: new LogController({ disableRequestLogging: true })`; the top-level `disableRequestLogging` option is deprecated in Fastify 5.12 and printed a non-JSON warning.
+  - **`worker.ts`:** uses the same factory as service `worker`.
+  - **Config:** `LOG_LEVEL` and `UNIVARSE_VERSION`. Tests are silent unless they capture lines.
+  - **Request context:** `TenantGuard` and `AccessGuard` set `tenantId` and `userId`; the outbox and file-scan loops run each tenant's pass in its own context.
+- **Call sites:** all 35 migrated to `{ event, … }`. Strings that interpolated `tenant=…`/`user=…` became fields. Three security events had **no log line before** and now do:
+  - rate-limit violations (both 429 throw sites, logging the bucket *name* only, since the key embeds the IP and identifier);
+  - CSRF rejections;
+  - step-up failures.
+- **Two corrections found by tests:**
+  - **Hyphenated keys:** `set-cookie` needed bracket syntax in Pino `redact` paths; a quoted dot path silently matched nothing.
+  - **Error text:** a message taken from an `Error` is foreign text, so it gets the stronger scrub that also hides quoted literals.
+- **Deviation:** `code` is redacted, as the spec lists, so error codes are logged as `err.errorCode`, keeping Prisma's `P2002` and similar visible.
+- **Tests:**
+  - **Unit:** `logger.spec.ts` (19: OB1 every Nest and object-first signature, OB2 fields and null-when-unknown and no bleed between contexts, OB4 every path and pattern) and `call-sites.spec.ts` (6: OB2 every call has an `event`, nothing interpolates tenant or user, OB7 the exact event list, each logged somewhere).
+  - **Integration:** `logging.int.spec.ts` (7, against the real app: OB3 public 200, signed-in 404 by template with user from the session, query strings never logged, 5xx at error, health at debug; OB7 CSRF and 429 security lines).
+- **Mutations caught (7):**
+  - 5xx at `info`;
+  - the raw URL instead of the template;
+  - `userId` not set from the session;
+  - hyphenated keys back to quoted paths;
+  - a call site without `event`;
+  - the CSRF security line removed;
+  - the adapter taking a stack as the context.
+- **Compiled smoke:** `dist/main.js` and `dist/worker.js` wrote 47 and 5 lines, **all JSON**; the summary line carried `requestId`, `tenantId` and the route template.
+- **API integration:** 329 passed, 1 skipped.
+
 ## Out of scope (tracked)
 | Gap | Milestone |
 |---|---|

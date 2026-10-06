@@ -40,7 +40,7 @@ export class HealthController {
       await withTimeout(client.$queryRaw`SELECT 1`, 500);
     } catch (err) {
       // Reason goes to logs only; the public response stays generic.
-      this.logger.warn(`Not ready: ${err instanceof Error ? err.message : String(err)}`);
+      this.logger.warn({ event: 'health.not_ready', err }, 'Not ready');
       throw new ProblemError(503, 'server.not_ready', 'Service not ready');
     }
     return { status: 'ready' };

@@ -1,3 +1,5 @@
+import { securityFields } from '../../shared/observability/security.js';
+import { setLogContext } from '../../shared/observability/context.js';
 import {
   createParamDecorator,
   Injectable,
@@ -67,14 +69,14 @@ export class AccessGuard implements CanActivate {
     const access = this.reflector.getAllAndOverride<Access | undefined>(ACCESS, targets);
     const req = ctx.switchToHttp().getRequest<FastifyRequest>();
     if (!access) {
-      this.logger.error(`Route without access declaration: ${req.method} ${req.routeOptions.url}`);
+      this.logger.error(securityFields('access.route_undeclared', { method: req.method, route: req.routeOptions.url ?? null }), 'Route without access declaration');
       throw new ProblemError(403, 'auth.forbidden', 'Forbidden');
     }
     const explicitStepUp = this.reflector.getAllAndOverride<boolean | undefined>(REQUIRE_STEP_UP, targets) === true;
     if (access.kind === 'public') {
       // Step-up on a public route can never be satisfied; refuse rather than silently skip it.
       if (explicitStepUp) {
-        this.logger.error(`@RequireStepUp() on a public route: ${req.method} ${req.routeOptions.url}`);
+        this.logger.error(securityFields('access.step_up_on_public_route', { method: req.method, route: req.routeOptions.url ?? null }), '@RequireStepUp() on a public route');
         throw new ProblemError(403, 'auth.forbidden', 'Forbidden');
       }
       return true;
@@ -84,6 +86,7 @@ export class AccessGuard implements CanActivate {
     const actor = token && req.tenant ? await this.sessions.authenticate(req.tenant, token, req.id) : null;
     if (!actor) throw new ProblemError(401, 'auth.unauthenticated', 'Authentication required');
     req.actor = actor;
+    setLogContext({ userId: actor.userId }); // spec 0012 OB2: from the session only
 
     if (actor.restricted && !this.reflector.getAllAndOverride<boolean>(ALLOW_RESTRICTED, targets)) {
       throw new ProblemError(403, 'auth.mfa_enrolment_required', 'Set up multi-factor authentication to continue');

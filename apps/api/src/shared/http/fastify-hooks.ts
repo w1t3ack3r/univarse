@@ -1,3 +1,4 @@
+import { securityFields } from '../../shared/observability/security.js';
 import { randomUUID } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import { problemType } from '../errors/problem.js';
@@ -33,6 +34,7 @@ export function registerCsrfGuard(app: FastifyInstance): void {
       }
     }
     if (!ok) {
+      app.log.warn(securityFields('http.csrf_rejected', { method: req.method, route: req.routeOptions.url ?? null }), 'Cross-site request rejected');
       return reply.status(403).header('content-type', 'application/problem+json').send({
         type: problemType('request.csrf_rejected'),
         title: 'Cross-site request rejected',
