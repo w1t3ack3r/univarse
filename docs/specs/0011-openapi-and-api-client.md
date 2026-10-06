@@ -1,6 +1,6 @@
 # Spec 0011: OpenAPI contract and the generated `api-client`
 
-**Status:** Accepted (2026-10-06), owner review. D1–D4 decided, with conditions written into the criteria.
+**Status:** Implemented (2026-10-07): steps 1–5 in #29–#34, CI-verified; local E2E 32/32. Enforcement of `api-breaking-changes` as a required check follows the merge. Accepted 2026-10-06; D1–D4 decided, with conditions written into the criteria.
 **Phase:** 0 (roadmap: "OpenAPI generation", "`packages/api-client`").
 **Builds on:**
 - [docs/02 §2](../02-architecture.md): zod → OpenAPI → a typed client;
@@ -315,6 +315,38 @@ docs/02 and docs/06 already promise an OpenAPI document generated from zod, and 
   - **Proven:** a probe file with all five kinds of violation fails, and the migrated code passes.
 - **`pnpm contracts:gen`** now regenerates `openapi.json` and `schema.ts` together.
 - **New user message:** `server.unexpected_response`.
+
+### Step 5: CI gates (2026-10-07)
+- **Stale files (OA9).** `build-test` runs `tools/api-contract/check-fresh.sh` after the build. It runs `pnpm contracts:gen`, which writes `openapi.json` and `schema.ts`, then fails if `git status` shows either file changed, untracked or deleted. The error names the command to run.
+- **Breaking changes (OA12, D4).** The `api-contract` workflow (job `api-breaking-changes`) runs on `pull_request` events, including **`edited`**, so changing the description re-evaluates it:
+  - **The tool:** oasdiff 1.33.0, a checksum-verified download (like gitleaks), run with `--allow-external-refs=false` because the PR's spec is untrusted.
+  - **The comparison:** the PR's `openapi.json` against `base.sha`'s.
+  - **The verdict:** `tools/api-contract/check-breaking.mjs` writes every breaking change and warning to the job summary. It fails only when a breaking change (ERR) isn't acknowledged by an `## API breaking changes` section that names each broken operation as `METHOD /path` and gives a real `Open tabs:` explanation. Blank, placeholder or TODO text doesn't count.
+  - **Untrusted text:** the PR description reaches the script through the environment, never interpolated into it.
+- **The gate's own tests:** 7 `node:test` cases, run first in the workflow. One proves that the PR template's commented-out example never counts as an acknowledgement; without HTML-comment stripping it would. That was mutation-checked.
+- **Proof that the gates reject:**
+  - **Locally:**
+    - the stale gate passes on a clean tree, and fails on a contract changed without regenerating and on a hand-edited `schema.ts`;
+    - the breaking gate, with real oasdiff output, fails when unacknowledged (exit 1), passes acknowledged, and passes with no change.
+    - **The input was a contract break, not a runtime one.** It came from this repo's history: step 3 newly *documented* `If-Match` as required on `PUT`/`DELETE /settings/{key}`. The API already enforced it at run time (428), so no running client's behaviour changed.
+  - **In CI,** with throwaway draft PR #35 (into the gates branch; closed unmerged, branch deleted). One commit added a required `reason` to `PUT /api/v1/admin/products/{product}`, regenerated `openapi.json`, and deliberately left `schema.ts` stale:
+
+    | Run | Job | Result |
+    |---|---|---|
+    | 37506137342 | `build-test` | failed at "API contract files are regenerated and committed" (`schema.ts \| 1 +`) |
+    | 37506137364 | `api-breaking-changes` | failed: the gate's 7 tests passed, the summary listed `PUT /api/v1/admin/products/{product}`, and the verdict was "unacknowledged breaking change(s)" |
+    | 37507369201 | `api-breaking-changes` | the description edited to add the acknowledgement, **same commit** `a1f2394`: passed, "1 breaking change(s), acknowledged" |
+
+- **Not yet a required check.** The `api-breaking-changes` check blocks merging only once it is marked required in `main`'s branch protection. That is a repository setting for the owner; until then its result is advisory. The stale gate lives in the already-required `build-test`.
+- **Docs:** 02, 06 (§10 rewritten; the runtime `openapi.json` endpoint is dropped), 12, 13 (the acknowledgement rule; the PR template now exists), 17 §3 (the `@Contract` and client rules) and the README.
+
+### Status of the evidence
+- **CI-verified:** OA1–OA12, through #29–#34 and the #35 proof runs.
+- **Local E2E on the migrated web app: 32/32 passed** (desktop and mobile, 4.1 min), on the gates branch with the full stack healthy. This matches CI's 32/32 on #33.
+  - **Two earlier local runs failed for environmental reasons, not code:**
+    - **Docker Desktop not running** (10 passed, 22 failed): every failure traced to Vault, Valkey, SeaweedFS, ClamAV or Mailpit being down. The activation and MFA pages still showed the API's 500 with its support reference, so the client's error path worked.
+    - **Docker restarted mid-run, leaving the dev Vault sealed** (11 passed, 21 failed): every failure was `KeyUnavailableError` (503 or timeout). `node tools/vault-dev.mjs` unsealed it, and the rerun passed.
+- **The isolated crypto unit failure** (step 4, once, under parallel turbo load) remains **unexplained**. If it recurs, its output will be kept and investigated.
 
 ## Out of scope (tracked)
 | Gap | Milestone |

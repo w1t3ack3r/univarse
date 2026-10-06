@@ -23,7 +23,7 @@
 | Web apps | **Next.js 16 (App Router), React 19** | `apps/web` (tenant-facing), `apps/console` (platform) |
 | UI | Tailwind CSS v4, shadcn/ui (Radix), lucide-react, TanStack Query/Table, react-hook-form, Recharts | Shared in `packages/ui` |
 | API | **NestJS 11 on the Fastify adapter** | Modules, DI, guards and interceptors fit a large modular monolith |
-| Validation / contracts | **zod** schemas in `packages/contracts` → OpenAPI → generated typed client | One schema validates both API input and UI forms |
+| Validation / contracts | **zod** schemas in `packages/contracts` → OpenAPI 3.1.1 (`pnpm contracts:gen`, [spec 0011](specs/0011-openapi-and-api-client.md)) → `openapi-typescript` types + `openapi-fetch` client | The schema that validates a request is the one documented; the web app calls the API only through the generated client |
 | ORM | **Prisma** (latest major) with the `pg` driver adapter | Two schemas: `platform` and `tenant`. RLS policies in SQL migrations |
 | Database | **PostgreSQL 18** (managed in prod) | Native `uuidv7()`, RLS, `pg_trgm` for search |
 | Connection pooling | **PgBouncer** (transaction mode) | RLS context set with `SET LOCAL` inside each transaction |
@@ -111,7 +111,7 @@ univarse/
 │   ├── domain/              # PURE engines: grading, GPA, standing, fee calc, matric generator
 │   ├── db/                  # prisma/platform + prisma/tenant schemas, SQL (RLS), seeds, clients
 │   ├── ui/                  # design system components + tokens
-│   ├── api-client/          # generated typed client from OpenAPI
+│   ├── api-client/          # openapi.json (generated, committed) + generated types + the typed client
 │   └── config/              # tsconfig, eslint, prettier presets
 ├── infra/
 │   ├── docker/              # Dockerfiles (one per app)

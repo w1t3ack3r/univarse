@@ -6,7 +6,12 @@
 - **Trunk-based development:** short-lived branches (`feat/results-approval-flow`, `fix/gpa-rounding`, `chore/…`, `docs/…`, `sec/…`), merged within ~1–3 days. Big features hide behind feature flags rather than living on long branches.
 - **Branch protection on `main`:** PR required, all status checks green, linear history (squash merge), signed commits (SSH/GPG) required, no force pushes, CODEOWNERS for `packages/domain`, `packages/db`, `infra/`, `docs/08*`, `docs/09*`.
 - **Commits:** Conventional Commits (`feat(results): add HOD return action`). A commitlint hook enforces them. Scope = module name.
-- **PR template** includes: summary, linked roadmap item, screenshots, checklists from [08 §13](08-security.md) and [12 §8](12-testing-strategy.md), migration notes, rollback notes.
+- **PR template** (`.github/pull_request_template.md`) includes: summary, linked roadmap item, screenshots, checklists from [08 §13](08-security.md) and [12 §8](12-testing-strategy.md), migration notes, rollback notes, and the API breaking changes section.
+- **API breaking changes** ([spec 0011](specs/0011-openapi-and-api-client.md) D4, report-only):
+  - The `api-contract` workflow runs oasdiff on the PR's `openapi.json` against the base branch and writes every change to the job summary.
+  - **When it fails:** only when a breaking change (oasdiff level ERR) isn't acknowledged in the PR description.
+  - **What counts as acknowledged:** an `## API breaking changes` section that names each broken operation as `METHOD /path`, plus an `Open tabs:` line saying how a browser tab still running the previous web app copes. First-party clients can stay open across a deploy; the usual answer is expand → migrate → contract.
+  - **Re-evaluation:** the check re-runs when the description is edited.
 - **Review:** solo phase: self-review + AI review (`/code-review`) + CI. Every change to auth, RLS, payments or results engines gets a deliberate second pass the next day ("sleep on it" rule) or a second reviewer once the team grows.
 
 ## 2. Local quality gates (pre-commit via lefthook)
@@ -24,7 +29,7 @@ flowchart LR
     C --> D[build all<br/>+ no test helpers in dist]
     D --> E[integration tests<br/>Testcontainers]
     E --> F[migrations + RLS checker<br/>+ migration linter]
-    F --> G[contract diff<br/>OpenAPI + events]
+    D --> G[contract files fresh<br/>+ oasdiff vs base, acknowledged]
     B --> H[security: gitleaks · Semgrep · CodeQL · osv-scanner · license check · Checkov]
     D --> I[docker build · Trivy · SBOM]
     E --> J[E2E smoke Playwright]

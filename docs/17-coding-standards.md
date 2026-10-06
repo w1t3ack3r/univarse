@@ -48,6 +48,9 @@ modules/<context>/
 ```
 
 - **Controllers never touch Prisma.** Use cases never return Prisma objects to controllers.
+- **Every route handler has `@Contract(<Module>Ops.<operation>)`** from `packages/contracts/src/api` ([spec 0011](specs/0011-openapi-and-api-client.md)), and parses its body with that operation's own `body`.
+  - **Changing a route:** change its operation, then run `pnpm contracts:gen` and commit both generated files. Generation refuses a route without a contract and any schema that converts to `{}`.
+  - **In the web app:** call the API only through `@univarse/api-client` (`client`, `serverGet`). `fetch`, `XMLHttpRequest` and `/api/v1` strings are a lint error, except in `lib/server-api.ts` (transport) and `lib/storage-upload.ts` (the presigned POST to storage).
 - **One use case = one class with `execute()`**, one transaction boundary, explicit authorization, audit + outbox inside the transaction.
 - Use case template:
 ```ts

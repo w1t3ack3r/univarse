@@ -1,0 +1,47 @@
+# Spec 0011 OA12 (D4): breaking API changes are reported and must be acknowledged in the PR description.
+# Report-only for the change itself: a breaking change passes once the description has an
+# "## API breaking changes" section naming each broken operation and how open browser tabs cope.
+# Re-runs when the description is edited, so adding the acknowledgement re-evaluates it.
+name: api-contract
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, edited]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: api-contract-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  api-breaking-changes:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { fetch-depth: 0, persist-credentials: false }
+      - name: The gate's own tests
+        run: node --test tools/api-contract/check-breaking.test.mjs
+      - name: oasdiff (checksum-verified)
+        env:
+          OASDIFF_VERSION: 1.33.0
+          OASDIFF_SHA256: 43a4e328e2d13ba1552d760aa68d2485c75c5621f309f6ff64ae895188345247
+        run: |
+          curl -sSfLo oasdiff.tgz "https://github.com/oasdiff/oasdiff/releases/download/v${OASDIFF_VERSION}/oasdiff_${OASDIFF_VERSION}_linux_amd64.tar.gz"
+          echo "${OASDIFF_SHA256}  oasdiff.tgz" | sha256sum -c -
+          tar -xzf oasdiff.tgz oasdiff
+      - name: Breaking changes against the base branch, acknowledged in the PR description
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          # Passed through the environment, never interpolated into the script (untrusted text).
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          if ! git show "${BASE_SHA}:packages/api-client/openapi.json" > base.json 2>/dev/null; then
+            echo '{"openapi":"3.1.1","info":{"title":"none","version":"0"},"paths":{}}' > base.json
+          fi
+          # The PR's spec is untrusted input: no external $refs (SSRF).
+          ./oasdiff breaking base.json packages/api-client/openapi.json --format json --allow-external-refs=false > changes.json
+          printf '%s' "${PR_BODY}" > pr-body.md
+          node tools/api-contract/check-breaking.mjs changes.json pr-body.md
