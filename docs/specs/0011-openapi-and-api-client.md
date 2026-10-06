@@ -1,6 +1,6 @@
 # Spec 0011: OpenAPI contract and the generated `api-client`
 
-**Status:** Implemented (2026-10-07): steps 1–5 in #29–#34, CI-verified. Local E2E with the full stack is pending (see "Status of the evidence"). Accepted 2026-10-06; D1–D4 decided, with conditions written into the criteria.
+**Status:** Implemented (2026-10-07): steps 1–5 in #29–#34, CI-verified; local E2E 32/32. Enforcement of `api-breaking-changes` as a required check follows the merge. Accepted 2026-10-06; D1–D4 decided, with conditions written into the criteria.
 **Phase:** 0 (roadmap: "OpenAPI generation", "`packages/api-client`").
 **Builds on:**
 - [docs/02 §2](../02-architecture.md): zod → OpenAPI → a typed client;
@@ -327,7 +327,8 @@ docs/02 and docs/06 already promise an OpenAPI document generated from zod, and 
 - **Proof that the gates reject:**
   - **Locally:**
     - the stale gate passes on a clean tree, and fails on a contract changed without regenerating and on a hand-edited `schema.ts`;
-    - the breaking gate, with real oasdiff output and step 3's real `If-Match` break, fails when unacknowledged (exit 1), passes acknowledged, and passes with no change.
+    - the breaking gate, with real oasdiff output, fails when unacknowledged (exit 1), passes acknowledged, and passes with no change.
+    - **The input was a contract break, not a runtime one.** It came from this repo's history: step 3 newly *documented* `If-Match` as required on `PUT`/`DELETE /settings/{key}`. The API already enforced it at run time (428), so no running client's behaviour changed.
   - **In CI,** with throwaway draft PR #35 (into the gates branch; closed unmerged, branch deleted). One commit added a required `reason` to `PUT /api/v1/admin/products/{product}`, regenerated `openapi.json`, and deliberately left `schema.ts` stale:
 
     | Run | Job | Result |
@@ -341,18 +342,10 @@ docs/02 and docs/06 already promise an OpenAPI document generated from zod, and 
 
 ### Status of the evidence
 - **CI-verified:** OA1–OA12, through #29–#34 and the #35 proof runs.
-- **Local E2E on the migrated web app: pending, environmental.**
-  - With Playwright's Chromium installed, a local run on the gates branch (same web code as merged #33) gave 10 passed and 22 failed.
-  - **Cause: Docker Desktop was not running,** so Vault, Valkey, SeaweedFS, ClamAV and Mailpit were all down. Each failure traces to that:
-
-    | Failures | What happened |
-    |---|---|
-    | 10 | Test fixtures got `KeyUnavailableError … ECONNREFUSED` (Vault) |
-    | 4 | `fetch failed` from Mailpit (`ECONNREFUSED 127.0.0.1:8025`) |
-    | Activation, MFA setup | The page showed the API's 500 as "Something went wrong on our side … Support reference: …"; the client's error path itself worked |
-    | Documents | Files never reached "Ready" (storage and scanner down) |
-    | 2 | Click timeouts, on the step-up flow that depends on MFA setup |
-  - The CI E2E run for #33 (32/32, desktop and mobile) is the browser evidence until a local run with the stack up.
+- **Local E2E on the migrated web app: 32/32 passed** (desktop and mobile, 4.1 min), on the gates branch with the full stack healthy. This matches CI's 32/32 on #33.
+  - **Two earlier local runs failed for environmental reasons, not code:**
+    - **Docker Desktop not running** (10 passed, 22 failed): every failure traced to Vault, Valkey, SeaweedFS, ClamAV or Mailpit being down. The activation and MFA pages still showed the API's 500 with its support reference, so the client's error path worked.
+    - **Docker restarted mid-run, leaving the dev Vault sealed** (11 passed, 21 failed): every failure was `KeyUnavailableError` (503 or timeout). `node tools/vault-dev.mjs` unsealed it, and the rerun passed.
 - **The isolated crypto unit failure** (step 4, once, under parallel turbo load) remains **unexplained**. If it recurs, its output will be kept and investigated.
 
 ## Out of scope (tracked)

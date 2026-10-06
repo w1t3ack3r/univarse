@@ -4,7 +4,9 @@ import { readFileSync } from 'node:fs';
 import { describe, it } from 'node:test';
 import { ackSection, evaluate, summary } from './check-breaking.mjs';
 
-// Shaped like oasdiff 1.33 `breaking --format json` (a real break from this repo's history).
+// Shaped like oasdiff 1.33 `breaking --format json`, from this repo's history: step 3 newly DOCUMENTED
+// If-Match as required on settings writes. The API already enforced it at run time (428), so oasdiff
+// reports a contract break although no running client's behaviour changed.
 const PUT = { id: 'new-required-request-parameter', text: 'added the new required `header` request parameter `if-match`', level: 3, operation: 'PUT', path: '/api/v1/settings/{key}' };
 const DEL = { ...PUT, operation: 'DELETE' };
 const WARNING = { id: 'response-optional-property-removed', text: 'removed the optional property `hint`', level: 2, operation: 'GET', path: '/api/v1/files' };
@@ -27,7 +29,7 @@ describe('[OA12] the acknowledgement gate', () => {
   });
 
   it('[OA12] a section that does not name every broken operation fails, naming what is missing', () => {
-    const r = evaluate([PUT, DEL], body(`## API breaking changes\n- \`PUT /api/v1/settings/{key}\`: If-Match is now required.\n${TABS}`));
+    const r = evaluate([PUT, DEL], body(`## API breaking changes\n- \`PUT /api/v1/settings/{key}\`: If-Match is now documented as required.\n${TABS}`));
     assert.deepEqual(r.problems, ['Not named in "## API breaking changes": DELETE /api/v1/settings/{key}.']);
   });
 

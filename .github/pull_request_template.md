@@ -15,6 +15,6 @@ Only if the api-contract check reports breaking changes (spec 0011 OA12). Name e
 METHOD /path, and say how browser tabs still running the previous web app cope. Example:
 
 ## API breaking changes
-- `PUT /api/v1/settings/{key}`: If-Match is now required (428 without it).
+- `PUT /api/v1/settings/{key}`: If-Match is now documented as a required header. The API already enforced it (428 without it), so the documented contract changed, not the runtime behaviour.
 Open tabs: the web app already sends If-Match on every settings write, so tabs opened before this release keep working.
 -->
