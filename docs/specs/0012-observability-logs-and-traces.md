@@ -129,6 +129,55 @@ When something goes wrong in a deployed UniVarse, the first question is "what ha
 - **Compiled smoke:** `dist/main.js` and `dist/worker.js` wrote 47 and 5 lines, **all JSON**; the summary line carried `requestId`, `tenantId` and the route template.
 - **API integration:** 329 passed, 1 skipped.
 
+### Traces for the API (OB5, OB6, OB7's sampling proof, OB8 requests, OB9; OB11's no-endpoint check) (2026-10-07)
+- **Code:**
+  - `shared/observability/tracing.ts`:
+    - `NodeTracerProvider`, with an explicit processor list: the sanitizer, then a bounded `BatchSpanProcessor` only when an exporter exists;
+    - instrumentations: HTTP (no headers; the server span named by route template), `@fastify/otel`, `pg` (`enhancedDatabaseReporting` off), `ioredis` (command name only) and `@prisma/instrumentation`;
+    - the W3C trace-context propagator only (no baggage);
+    - the logger's span-id provider.
+  - `src/otel.ts`: the `--import` entry, used by `pnpm start`, `start:worker` and the E2E launcher.
+- **Request context:** the request's root span is `@fastify/otel`'s `request` span, held in the observability-only context. `request.id`, `tenant.id` (from the Host) and `user.id` (from the session) are set on it as they resolve. It's renamed to method + route template in `onRequest`, and the raw path never names a span.
+- **Fixes recorded:**
+  - **Preload deadlock.** `await waitForAllMessagesAcknowledged()` inside the `--import` preload never resolves: the compiled API hung silently before starting. `otel.ts` registers the hook without waiting, and the compiled smoke below shows every instrumentation active anyway. The in-process test helper does wait; there it resolves.
+  - **Vitest-only `ioredis` workaround.** Vitest imports externals through its own loader, and the `ioredis` instrumentation doesn't see that load (pg, reached through Prisma's adapter, is fine). A standalone Node probe showed `ioredis` instrumented normally. The test helper loads `ioredis` once through `require` after starting tracing, which patches Node's CommonJS cache that the app's later import reuses. Compiled processes need no workaround.
+  - **Test-induced timing.** Synchronous per-span export in the test helper slowed requests enough to hit Prisma's 2 s transaction wait (P2028) at 24 concurrent requests. The helper now batches like production (`flush()` before assertions), and all 24 overlapping requests pass, repeatedly. The underlying capacity question (24 authenticated requests on one shard against a pool of 10) is tracked separately.
+- **Evidence, kept distinct:**
+  - **In-process tests** cover sanitization, sampling and request-context isolation:
+    - `tracing.spec.ts` (7): OB5's allowlist with each drop reported once, SQL literals to `?` with `$n` kept, string scrubbing, and exception events reduced to type plus a scrubbed message; **OB7's sampling proof**, where a security event inside a span the sampler *dropped* is still logged with that trace id and nothing is exported; OB11's bounds.
+    - `tracing.int.spec.ts` (4): **OB9**, a login's root named `POST /api/v1/auth/login` with pg and Valkey descendants and logs carrying its trace id. **OB6**, the leak test: 15 secrets across lockout, 429, login, MFA verify, step-up, password reset, a settings write, and a presigned upload, scan and download. None appears in any of 75 log lines or ~2,550 spans, and every flow's summary line, root span, security events and pg, Valkey and Prisma scopes are present. **OB8**: 24 overlapping requests for tenants A and B, every line and root span attributed correctly with no shared traces; baggage naming tenant B on A's host changes nothing, and `traceparent` only parents.
+  - **The compiled API smoke shows instrumentation working outside Vitest:** `node --import ./dist/otel.js dist/main.js` against a local OTLP receiver sent 86 spans covering HTTP, Fastify, pg, `ioredis` and Prisma. Roots were named by template (`GET /api/v1/tenant/public-profile`, `POST /api/v1/auth/login`), and the query-string value sent was absent.
+  - **The compiled worker starts** with `--import`.
+  - **No endpoint, nothing exported (OB11, partial):** `no-export.int.spec.ts` spawns the **compiled** API and worker with no `OTEL_*` variables, while a receiver listens on the OTLP default port (4318). Under traffic and worker passes over 6 s, it gets **zero** requests.
+    - **Real traffic:** sent with `node:http`, because `fetch` won't send a custom `Host`. A first draft's "tenant" requests were silently 404s; the test now asserts each tenant request is a **200** with DB work.
+    - **Mutation:** setting the endpoint makes the test fail. The provider is built with explicit processors (no `NodeSDK`), so nothing auto-configures an exporter.
+- **Overhead, measured:** compiled API, login latency over `node:http`, 200 responses only, two rounds each:
+  - **Without tracing:** medians 101 and 80 ms.
+  - **With the preload at 100 % sampling:** medians 128 and 97 ms.
+
+  That's roughly +20–25 ms (about 20–25 %) per login with sampling at 100 %. Production's provisional 10 % sampling records fewer spans.
+- **Local E2E, A/B on the same machine and session:**
+  - **With the tracing preload:** two runs, 29 then 31 of 32 passed.
+  - **Without it:** 29 of 32.
+  - **The failures look the same either way:** a UI wait after an API call exceeding 5 s (sign-in, or an activation code request) on a loaded local machine, so they're environmental, not tracing. CI's E2E is the gate.
+- **Still open, owned by OB10–OB12:**
+  - request → job propagation (outbox, file scans) and sampling preserved in the worker;
+  - OB8's worker half (A/B rows in one pass);
+  - the unavailable and stalled collector tests and graceful shutdown flush;
+  - the separate-process proof against a real collector in CI.
+- **Unrelated flakes found and fixed while stress-testing** (every full parallel `pnpm test` run, with output kept):
+  - **The "unexplained" crypto failure, now explained.** The fake-Vault tests gave the client a 200 ms timeout, which fired for *answered* requests under parallel load. Three shapes were seen:
+    - an `ok` retry timed out;
+    - a first attempt timed out before reaching the server (1 call, not 2);
+    - a 403 arrived after the client had retried.
+
+    The fix is a 1.5 s default, so only scripted hangs time out. It's a test-margin issue, not a product bug.
+  - **Two default 5 s timeouts were too tight under load:** the domain property tests (6.6 s) and the api-client freshness check (16 s).
+  - After the fixes, **four consecutive full parallel runs passed:** domain 41, api-client 14, crypto 14, API 150.
+- **Also fixed:** the error-messages source scan treated any `['x.y', '…` literal as a filter default and picked up `'db.statement'`. It now anchors on the `400: ['code', 'Title']` shape; all 8 defaults still match, and nothing in `tracing.ts` does.
+- **Counts:** API unit 150; API integration 334 passed, 1 skipped.
+- **Status:** spec 0012 remains **in progress** until the propagation and collector evidence lands.
+
 ## Out of scope (tracked)
 | Gap | Milestone |
 |---|---|

@@ -9,7 +9,17 @@ import { withLogContext } from './context.js';
  */
 export function registerRequestContext(app: FastifyInstance): void {
   app.addHook('onRequest', (req, _reply, done) => {
-    withLogContext({ requestId: req.id }, done);
+    // The request's root span: @fastify/otel's `request` span when tracing runs (OB9), else none.
+    const otel = typeof req.opentelemetry === 'function' ? req.opentelemetry() : null;
+    const span = otel?.enabled ? otel.span : undefined;
+    const route = req.routeOptions.url ?? null;
+    if (span && route) {
+      span.updateName(`${req.method} ${route}`);
+      span.setAttribute('http.route', route);
+    }
+    // For the HTTP server span (named at its end by the http instrumentation): the template, never the path.
+    (req.raw as { univarseRoute?: string | null }).univarseRoute = route;
+    withLogContext({ requestId: req.id, span }, done);
   });
 }
 

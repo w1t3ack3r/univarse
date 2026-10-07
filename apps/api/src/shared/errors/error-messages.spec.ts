@@ -20,7 +20,9 @@ describe('[W4] error messages', () => {
     for (const file of sources(SRC)) {
       const text = readFileSync(file, 'utf8');
       for (const m of text.matchAll(/(?:ProblemError|super)\(\s*\d+,\s*'([a-z_.]+)'/g)) codes.add(m[1]!); // thrown
-      for (const m of text.matchAll(/\['([a-z_]+\.[a-z_.]+)',\s*'/g)) codes.add(m[1]!); // filter status defaults
+      // filter status defaults, shaped `400: ['request.invalid', 'Bad request']` (anchored on the status, so other
+      // dotted string arrays, e.g. span attribute names, aren't mistaken for codes)
+      for (const m of text.matchAll(/\b\d{3}:\s*\['([a-z_]+\.[a-z_.]+)',\s*'/g)) codes.add(m[1]!);
       for (const m of text.matchAll(/problemType\('([a-z_.]+)'\)/g)) codes.add(m[1]!); // filter literals
     }
     expect(codes.size).toBeGreaterThan(15); // the scan actually found the codes
