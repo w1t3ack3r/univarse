@@ -336,6 +336,8 @@ model OutboxEvent {
   /// Error class and codes only — never the message (may contain addresses).
   lastError     String?      @map("last_error")
 
+  /// Spec 0012 OB10: W3C trace context of the request that wrote this row (null before 2026-10-07).
+  traceparent   String?
   @@unique([tenantId, id])
   @@index([tenantId, publishedAt])
   @@index([tenantId, status, nextAttemptAt])
@@ -408,6 +410,8 @@ model FileObject {
   deletedAt       DateTime? @map("deleted_at") @db.Timestamptz(3)
   updatedAt       DateTime  @default(now()) @map("updated_at") @db.Timestamptz(3)
 
+  /// Spec 0012 OB10: W3C trace context of the request that wrote this row (null before 2026-10-07).
+  traceparent   String?
   @@unique([tenantId, id])
   @@unique([tenantId, bucketKey])
   @@index([tenantId, ownerType, ownerId])

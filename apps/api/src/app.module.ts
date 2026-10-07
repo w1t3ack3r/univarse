@@ -31,6 +31,7 @@ import { fieldCryptoProvider } from './shared/crypto/envelope.js';
 import { Outbox } from './shared/outbox/outbox.js';
 import { TenantGuard } from './shared/tenancy/tenant.guard.js';
 import { TenantResolver } from './shared/tenancy/tenant-resolver.service.js';
+import { shutdownHook } from './shared/observability/shutdown-hook.js';
 
 /**
  * Every production controller. `forRoot` serves exactly these (plus test-only extras), and the OpenAPI
@@ -53,6 +54,8 @@ export interface AppOverrides {
   /** Tests only: the route sweep's deliberately leaky control routes (spec 0009 RS8). Never in main.ts. */
   readonly extraControllers?: readonly Type[];
   readonly extraProviders?: readonly Provider[];
+  /** Runs last when the app closes: the API process flushes its traces here (spec 0012 OB11). */
+  readonly onShutdown?: () => Promise<void>;
 }
 
 @Module({})
@@ -94,6 +97,7 @@ export class AppModule {
         { provide: APP_GUARD, useClass: AccessGuard },
         { provide: APP_FILTER, useClass: ProblemFilter },
         ...(overrides.extraProviders ?? []),
+        ...(overrides.onShutdown ? [shutdownHook(overrides.onShutdown)] : []),
       ],
       exports: [APP_CONFIG],
     };

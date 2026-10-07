@@ -157,10 +157,22 @@ When something goes wrong in a deployed UniVarse, the first question is "what ha
   - **With the preload at 100 % sampling:** medians 128 and 97 ms.
 
   That's roughly +20–25 ms (about 20–25 %) per login with sampling at 100 %. Production's provisional 10 % sampling records fewer spans.
-- **Local E2E, A/B on the same machine and session:**
-  - **With the tracing preload:** two runs, 29 then 31 of 32 passed.
-  - **Without it:** 29 of 32.
-  - **The failures look the same either way:** a UI wait after an API call exceeding 5 s (sign-in, or an activation code request) on a loaded local machine, so they're environmental, not tracing. CI's E2E is the gate.
+- **Local E2E: cause measured; a clean local run is pending.** The failures **also reproduced without tracing**. They stay open until a local run passes 32/32. CI's E2E passed 32/32 on the merged commit. The failure output below is kept as-is.
+  - **The cause measured (2026-10-07, a separate investigation):**
+    - **Memory:** the laptop's memory was 96–97 % used, with 2,300–3,100 pages a second read back from disk. CPU was at or above 95 % in 99 % of samples.
+    - **The Docker/WSL VM** had 3.3 GB allocated but about 295 MB in RAM, so the containers it hosts (Valkey, Vault, ClamAV, Mailpit) were mostly swapped out.
+    - **Valkey latency:** an independent probe measured Valkey PING at p50 48 ms, p90 318 ms and max **3,720 ms**. Postgres `SELECT 1` on the same host stayed at p50 0.6 ms and max 3.4 ms.
+    - **Where a stalled login spent its time:** the browser, the edge and the API's own log each saw about 7.2 s, so the time was inside the API. Across the run's logins, about 68 % of login time was Valkey (three sequential rate-limit calls of 217–653 ms each). Pool acquisition was about 0.1 ms, and Postgres queries were 4 %.
+    - **The run:** zero 5xx and zero P2028 over 936 requests. The other failures (a Vault call in `makeUser`, a slow ClamAV scan, late emails with outbox delivery p90 7.4 s) all go through the same Docker VM.
+  - **A separate test bug, fixed separately:** an axe `color-contrast` race. The step-up dialog fades in over 280 ms, and axe could scan it while it was still partly transparent: 0.52 opacity at 30 ms gave 3 violations, and the scan was clean from 100 ms. The fix waits for finite animations before axe scans, with no timeout raised. It's not part of the tracing work.
+
+  | Run (2026-10-07) | Result | Failing tests | Failure |
+  |---|---|---|---|
+  | With the tracing preload, 1 | 29/32, 8.4 min | desktop `auth.e2e.ts:35` login → workspace; desktop `auth.e2e.ts:54` [W6] gated item; desktop `settings.e2e.ts:50` [ST13] | `toHaveURL` timed out after 5 s, still on `/login` with the button at "Signing in…" (disabled) |
+  | With the tracing preload, 2 | 31/32, 7.2 min | mobile `flows.e2e.ts:31` [W11][W15] activation | the "Check your email" heading wasn't visible 5 s after "Email me a code" |
+  | Without the preload (A/B) | 29/32, 5.8 min | desktop `auth.e2e.ts:35`; desktop `settings.e2e.ts:50`; mobile `auth.e2e.ts:74` [W10][W5] recovery code | the same shape: a UI wait after an API call exceeded 5 s |
+
+  For comparison, an earlier clean local run took 4.1 min (32/32), and the compiled API's login measured 80–130 ms over `node:http`.
 - **Still open, owned by OB10–OB12:**
   - request → job propagation (outbox, file scans) and sampling preserved in the worker;
   - OB8's worker half (A/B rows in one pass);
@@ -173,11 +185,138 @@ When something goes wrong in a deployed UniVarse, the first question is "what ha
     - a 403 arrived after the client had retried.
 
     The fix is a 1.5 s default, so only scripted hangs time out. It's a test-margin issue, not a product bug.
+    - **Production is unchanged:** `providers.ts` still has a 3 s timeout and 2 attempts, and its diff is empty.
+    - **The tests still catch real retry bugs** after the wider margin. Each mutation of `providers.ts` fails them:
+      - no retry: fails "retries a timeout or a 5xx once" and "fails closed after the retry";
+      - 4xx retried: fails "never retries a 4xx";
+      - timeout not transient: fails both hang tests.
   - **Two default 5 s timeouts were too tight under load:** the domain property tests (6.6 s) and the api-client freshness check (16 s).
   - After the fixes, **four consecutive full parallel runs passed:** domain 41, api-client 14, crypto 14, API 150.
 - **Also fixed:** the error-messages source scan treated any `['x.y', '…` literal as a filter default and picked up `'db.statement'`. It now anchors on the `400: ['code', 'Title']` shape; all 8 defaults still match, and nothing in `tracing.ts` does.
 - **Counts:** API unit 150; API integration 334 passed, 1 skipped.
 - **Status:** spec 0012 remains **in progress** until the propagation and collector evidence lands.
+
+### Request → worker propagation (OB10; OB8's worker half) (2026-10-07)
+- **Schema:** migration `20261007120000_trace_context` adds nullable `traceparent TEXT` (with a CHECK of at most 128 chars) to `outbox_event` and `file_object`. It's expand-only: no backfill, and old rows stay null. `rls:check` passes (14 tables). The app role gets no new UPDATE grant on `outbox_event.traceparent`, so the value is written once, on insert.
+- **Writes, in the business transaction:**
+  - `Outbox.enqueueEmail` writes `traceparent: currentTraceparent()` with the row;
+  - `FilesService.complete` writes it in the same update that sets `UPLOADED`.
+  - With tracing off there's no valid span, and the value is null.
+- **The format is W3C itself, not the global propagator** (`propagation.ts`), so what's stored or read never depends on what's registered. Unit tests (`propagation.spec.ts`) caught this when the registry was empty.
+- **Outbox:** `outbox.deliver` is a `CONSUMER` span whose parent is the stored context, so request → delivery → send is one trace. It carries `tenant.id`, the event id and type, and the outcome. Null or malformed values give a fresh root, and a malformed one warns `outbox.traceparent_malformed` once per row, without logging the value.
+- **File scans:** `files.scan` is a new root with a **link** to the stored context. `LinkAwareSampler` (wrapping `ParentBased(TraceIdRatio)`) samples a parentless, linked span exactly when its link was sampled. A malformed value gives an unlinked root and `files.scan.traceparent_malformed` once.
+- **Pass spans:** `outbox.pass`, `files.scan.pass` and `keys.sweep.pass` carry `univarse.claimed`.
+  - **Idle passes still emit a span (a deliberate choice).** Without it, each pass's claim queries would become their own root traces from the pg and Prisma instrumentations, so skipping idle passes would add noise, not remove it.
+  - **Volume:** at most one root per loop per `WORKER_POLL_MS`, sampled at the root ratio (10% in production).
+  - Revisit with metrics, which are out of scope here.
+- **Bug found by the OB8 worker test, and fixed:**
+  - **The bug:** the per-tenant `withLogContext` inside a pass tagged the *pass* span with `tenant.id`, and the last tenant won.
+  - **The fix:** per-tenant contexts in a pass now pass `span: undefined`, and only the row spans carry a tenant.
+- **Tests:**
+  - **`propagation.spec.ts` (4, unit):**
+    - null, valid and malformed stored values, including all-zero ids and over-long input;
+    - links only for valid values;
+    - the sampler follows a link either way and defers otherwise.
+  - **`propagation.int.spec.ts` (8, real API and worker modules in process):**
+    - **OB10 outbox, child span:** a reset request's row stores its `traceparent`. `outbox.deliver` is a CONSUMER child whose parent is the stored span and whose ancestry reaches the request root. The send runs inside that span with the tenant's log context.
+    - **OB10 outbox, unsampled:** an unsampled request (`-00`) stores `-00`; the email is sent; no span of that trace and no delivery span is exported.
+    - **OB10 outbox, old and malformed rows:** null and malformed rows both deliver under parentless roots, with exactly one warning that names the row, not the value.
+    - **OB10 outbox, pass span:** `outbox.pass` is a root, with its claim work beneath it.
+    - **OB8 worker half:** reset requests for tenants A, B, A, B, then **one** `runOnce()`. Every send ran under its own tenant's log context and its own request's trace (4 distinct traces), and the pass carries no tenant.
+    - **OB10 scan, linked root:** complete stores its `traceparent`. `files.scan` is a parentless root in a new trace, linked to exactly that span, with `tenant.id` and outcome `clean`.
+    - **OB10 scan, unsampled:** an unsampled upload leaves no `files.scan` span exported, and the file is still `CLEAN`.
+    - **OB10 scan, malformed:** an unlinked root, one warning, and the file is still `CLEAN`.
+- **Mutation checks:** each mutation was applied alone and the int file re-run; every one failed it.
+
+  | Mutation | Failing tests |
+  |---|---|
+  | M1 enqueue writes no `traceparent` | 4/8 |
+  | M2 delivery ignores the stored parent | 4/8 |
+  | M3 `LinkAwareSampler` removed | 4/8 |
+  | M4 scan parented instead of linked | 5/8 |
+  | M5 pass span tagged per tenant (the bug above) | 3/8 |
+  | M6 no per-row log context | 4/8 |
+  | M7 complete writes no `traceparent` | 4/8 |
+  | M8 malformed value not warned | 1/8 |
+- **Counts (local, 2026-10-07):** API unit 154 (150 + 4); API integration 342 passed, 1 skipped (334 + 8). Lint and typecheck are clean. CI counts are recorded with the PR.
+- **Not yet covered:**
+  - OB12 (separate compiled processes against a real collector in CI). In-process tests share one provider, so they can't show the API → worker hop across processes; OB12 does.
+
+### Collector failure (OB11) (2026-10-07)
+- **The export gate (`BoundedExportProcessor`, `tracing.ts`):**
+  - **The SDK's behaviour:** its `BatchSpanProcessor` drops overflow silently, with only a diag `debug` line.
+  - **What the gate adds:** it wraps the SDK processor and enforces the same `maxQueueSize` itself. It counts `queued`, `maxQueued`, `dropped`, `failed` and `exported`.
+  - **How `queued` is tracked:** it rises when a span is forwarded and falls when the processor hands the span to the exporter, so it mirrors the SDK buffer exactly.
+  - **Reporting:** drops and failed exports go through one callback, rate-limited to one call per `EXPORT_WARN_EVERY_MS` (60 s). Each report carries the counts since the previous one.
+  - **Where reports go:** `otel.ts` logs each report as a `warn` event, `otel.export_degraded`, on the process's own JSON stream. The report runs outside any trace context.
+  - **Failure isolation:** a throwing reporter never breaks span processing.
+- **Shutdown:**
+  - `Tracing.shutdown()` races the provider's shutdown against `SHUTDOWN_FLUSH_MS` (5 s). It's memoised, so a repeated signal shares one bounded shutdown.
+  - `main.ts` and `worker.ts` pass `onShutdown: shutdownTracing` to `AppModule`/`WorkerModule`. The modules register it as a Nest `onApplicationShutdown` hook (`shutdown-hook.ts`).
+  - That hook runs after the server and connections close, so the last spans have ended before the flush.
+  - Tests don't pass the hook, so closing a test app never stops the test process's tracing.
+- **Tests:**
+  - **`export-gate.spec.ts` (5, unit, fake exporters):**
+    - a stalled exporter: 500 spans, the queue peaks at its bound of 10, more than 400 dropped, exactly one report;
+    - a refusing exporter: failures counted; the second report is held until the window passes, then carries the remainder, with nothing lost;
+    - healthy: nothing dropped or reported, and unsampled spans never queued;
+    - a throwing reporter;
+    - nothing queued after shutdown.
+  - **`collector.int.spec.ts` (5):** the real OTLP/HTTP exporter and the gate, against a collector the test controls on one port. Bounds are queue 200, batch 20 and export timeout 3 s; the flush deadline is 1 s. Local run, 2026-10-07:
+
+    | Phase | Request median (20 authenticated requests) | Email journey | Queue / counters | Warnings |
+    |---|---|---|---|---|
+    | Healthy (baseline) | 27.9 ms | 99.8 ms | dropped 0, failed 0 | none |
+    | Stalled (accepts, never answers) | 24.8 / 26.2 ms | 47.3 ms | peaked at **200** (the bound), 1,881 dropped | **one** |
+    | Unavailable (refused) | 24.8 ms | 39.4 ms | failures counted | no further warning in the window |
+
+    - **The latency check:** each degraded median must be under `1.5 × baseline + 75 ms`. That's far below the 3 s export timeout a request waiting on export would show.
+    - **Shutdown with a full queue and a stalled collector** took **1,009 ms** against the 1,000 ms deadline. The test asserts it lands between deadline − 100 and deadline + 250 ms. Because the export timeout (3 s) is longer than the deadline, the deadline is what ended it. A second call returns at once.
+    - **The shutdown hooks:** closing an app made with `onShutdown` and a worker context made with it calls each hook exactly once. `main.ts` and `worker.ts` are checked to pass `shutdownTracing`.
+- **Mutation checks:** each mutation was applied alone; each failed the listed tests.
+
+  | Mutation | Unit tests failed | Integration tests failed |
+  |---|---|---|
+  | N1 gate doesn't enforce the bound | 2 | 3 |
+  | N2 nothing reported | 2 | 2 |
+  | N3 reports not rate-limited | 2 | 2 |
+  | N4 shutdown without the deadline | none | 1 |
+  | N5 failed exports not counted | 1 | 1 |
+  | N6 `AppModule` drops the shutdown hook | none | 2 |
+- **Compiled smoke (local):** `node --import ./dist/otel.js dist/worker.js` with `OTEL_EXPORTER_OTLP_ENDPOINT` pointed at a closed port.
+  - Every output line was JSON.
+  - One `otel.export_degraded` warning appeared, with `failed` counted and `traceId: null`.
+  - It takes about 7 to 20 s to appear: the OTLP exporter retries a refused connection with backoff for up to its 5 s timeout before reporting failure.
+  - **Not verified locally:** graceful signal shutdown of the compiled processes. On Windows, `kill('SIGINT')` terminates without running handlers. OB12's Linux CI job covers it.
+- **Counts (local, quiet stack, 2026-10-07):** API unit 159 (154 + 5). The full API integration run passed everything except tests needing ClamAV, which had been stopped mid-run (exit 143) to free memory. Those four files were re-run with ClamAV up: 132/132. The integration total is 347 + 1 skipped (342 + 5). CI counts will be recorded with the PR.
+- **No-endpoint check still passes** after `otel.ts` changed (`no-export.int.spec.ts`: compiled API and worker, 0 export attempts).
+
+### Separate compiled processes through a real collector (OB12) (2026-10-07)
+- **The collector:**
+  - `otel/opentelemetry-collector-contrib:0.162.0`, compose profile `traces`, started with `pnpm dev:traces` (`tools/traces-dev.mjs`).
+  - OTLP/HTTP on `127.0.0.1:14318`; `file` exporter to `infra/compose/otel/out/traces.jsonl` (git-ignored).
+  - Bounded: `mem_limit` 256 MB and a `memory_limiter` at 200 MiB. It measured 57 MiB after about 2,200 spans.
+  - **Optional Jaeger (D2):** `jaegertracing/jaeger:2.22.0`, profile `jaeger`, UI on `127.0.0.1:16686`, started with `pnpm dev:traces:jaeger`. It's local only and never in CI.
+- **The test:** `separate-process.ob12.spec.ts` (run with `pnpm --filter @univarse/api test:ob12`).
+  - It spawns `dist/main.js` and `dist/worker.js` as **two processes**, each with `--import ./dist/otel.js` and the collector endpoint.
+  - It drives them over `node:http`, using the harness only to create users and read rows.
+  - It reads the collector's file output, OTLP JSON, and checks **structure**:
+    - **Email:** the reset request's row stores a sampled `traceparent`. The worker's `outbox.deliver` (`service.name` `worker`, kind CONSUMER) has that span as its parent. Its parent chain is entirely `api` spans, includes the request's `@fastify/otel` span, and ends at the true root.
+    - **File scan:** `files.scan` (`worker`) is a parentless root in a new trace. Its only link is to exactly the span stored by `complete`, which is an `api` span in the completing request's trace.
+    - **Spans by process:** the API produced pg and ioredis spans; the worker produced pg spans, including pg work **inside** the delivery span. Only `api` and `worker` appear as services.
+    - **SIGTERM (Linux only; skipped on Windows, where `kill` doesn't run handlers):** both processes exit 0 within `SHUTDOWN_FLUSH_MS` + 3 s. A request made under 2 s (the batch delay) before the signal still reaches the collector, so only the shutdown flush could have exported it.
+- **Deviation from the AC, for the owner to accept or change: "both processes produced pg and Valkey child spans".** The worker has **no Valkey client**. Valkey is used only by the API's rate limiter and settings cache, so worker Valkey spans can't exist. The test asserts pg and Valkey for the API and pg for the worker.
+- **Local run (Windows, ClamAV started only for the run):** 4 passed and 1 skipped (SIGTERM). The collector received 2,195 spans: api 389, worker 1,806. Most worker spans are idle pass spans: three loops at 200–250 ms intervals and 100 % sampling, as recorded under OB10.
+- **Fixed during the run:**
+  - **The config:** `mergeConfig` *appended* the include list, so `test:ob12` ran the whole integration suite. The suite passed: 351 passed and 2 skipped, with only the race below failing. `vitest.ob12.config.ts` now replaces `include`.
+  - **A race in the test:** it looked up the linked API span before the API's 2 s export batch had arrived. It now waits for that span.
+- **Mutation checks:** each mutation was rebuilt and run against the real collector.
+
+  | Mutation | Failing tests |
+  |---|---|
+  | P1: delivery not parented to the stored context | 2 (email chain, worker pg inside the delivery) |
+  | P2: worker reports `service.name` `api` | 3 |
+- **CI:** a step after the API integration tests starts the same compose service (`node tools/traces-dev.mjs`) and runs `test:ob12` verbosely. Collector logs are printed on failure. The compiled-process CI evidence will be recorded here from the PR's latest-commit logs.
 
 ## Out of scope (tracked)
 | Gap | Milestone |

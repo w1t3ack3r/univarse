@@ -1,3 +1,5 @@
+import { context } from '@opentelemetry/api';
+import { withSpan } from '../observability/worker-spans.js';
 // Key sweep (spec 0006 E7, E9): brings every encrypted value of a tenant onto its active DEK version.
 // Runs in the worker (claimed from key_reencryption under a lease) and from the `keys` CLI.
 import { Inject, Injectable, Logger } from '@nestjs/common';
@@ -111,6 +113,15 @@ export class KeyMaintenance {
    * null when nothing was claimable. A failed sweep keeps its lease (10 min), which spaces retries.
    */
   async runOnce(): Promise<{ tenantId: string; ok: boolean; reencrypted: number; unreadable: number } | null> {
+    return withSpan('keys.sweep.pass', {}, context.active(), async (span) => {
+      const out = await this.runPass();
+      span.setAttribute('univarse.claimed', out ? 1 : 0);
+      if (out) span.setAttribute('tenant.id', out.tenantId);
+      return out;
+    });
+  }
+
+  private async runPass(): Promise<{ tenantId: string; ok: boolean; reencrypted: number; unreadable: number } | null> {
     const now = new Date();
     const claimed = await this.platform.$transaction(async (tx) => {
       const rows = await tx.$queryRaw<{ tenant_id: string; requested_at: Date; reason: string }[]>`
