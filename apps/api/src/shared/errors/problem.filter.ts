@@ -1,4 +1,5 @@
 import { ArgumentsHost, Catch, ExceptionFilter, HttpException, Logger } from '@nestjs/common';
+import { isConnectionUnavailable } from '@univarse/db';
 import { DomainError } from '@univarse/domain';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { ProblemError, problemType, type ProblemBody } from './problem.js';
@@ -14,6 +15,12 @@ const TITLES: Record<number, [string, string]> = {
   429: ['request.rate_limited', 'Too many requests'],
 };
 
+/**
+ * `Retry-After` on every 503 (ADR-026): about one transaction wait (2 s), long enough for a shard's
+ * connection queue to drain. Readiness 503s carry it too; probes ignore it.
+ */
+export const UNAVAILABLE_RETRY_AFTER_SEC = 2;
+
 /** Maps every error to application/problem+json. Never leaks stack traces or internals. */
 @Catch()
 export class ProblemFilter implements ExceptionFilter {
@@ -28,7 +35,12 @@ export class ProblemFilter implements ExceptionFilter {
     const retryAfter = (exception as { retryAfterSec?: number } | null)?.retryAfterSec;
     if (body.status === 429 && retryAfter) void reply.header('retry-after', String(retryAfter));
 
-    if (body.status >= 500) {
+    if (body.status === 503) void reply.header('retry-after', String(UNAVAILABLE_RETRY_AFTER_SEC));
+
+    if (body.code === 'server.busy') {
+      // ADR-026: no database connection in time. Backpressure, not a bug: a capacity signal for humans.
+      this.logger.warn({ event: 'db.connection_unavailable', err: exception }, 'No database connection available in time');
+    } else if (body.status >= 500) {
       this.logger.error({ event: 'http.unhandled_error', err: exception }, 'Unhandled error');
     }
     void reply.status(body.status).header('content-type', 'application/problem+json').send(body);
@@ -48,6 +60,9 @@ export class ProblemFilter implements ExceptionFilter {
     }
     if (e instanceof DomainError) {
       return { type: problemType(e.code), title: 'Business rule violation', status: 422, code: e.code, detail: e.message };
+    }
+    if (isConnectionUnavailable(e)) {
+      return { type: problemType('server.busy'), title: 'Service busy, retry shortly', status: 503, code: 'server.busy' };
     }
     if (e instanceof HttpException) {
       const status = e.getStatus();
