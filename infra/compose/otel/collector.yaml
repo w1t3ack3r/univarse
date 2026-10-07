@@ -1,0 +1,40 @@
+# OpenTelemetry Collector for local traces and the OB12 CI proof (spec 0012, D2).
+#   pnpm dev:traces          → this config: OTLP/HTTP in, JSON lines out to infra/compose/otel/out/traces.jsonl
+#   pnpm dev:traces:jaeger   → collector-jaeger.yaml: the same, plus Jaeger's UI on http://127.0.0.1:16686
+# Spans arrive already sanitized by the API/worker (OB5); the collector adds nothing and drops nothing.
+receivers:
+  otlp:
+    protocols:
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  # Bounded, like the SDK side: a slow disk or Jaeger can't grow the collector without limit.
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 200
+  batch:
+    timeout: 500ms
+
+exporters:
+  file:
+    path: /out/traces.jsonl
+    format: json
+    flush_interval: 500ms
+    rotation:
+      max_megabytes: 50
+      max_backups: 2
+
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:13133
+
+service:
+  extensions: [health_check]
+  telemetry:
+    logs: { level: warn }
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [file]

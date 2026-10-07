@@ -291,6 +291,33 @@ When something goes wrong in a deployed UniVarse, the first question is "what ha
 - **Counts (local, quiet stack, 2026-10-07):** API unit 159 (154 + 5). The full API integration run passed everything except tests needing ClamAV, which had been stopped mid-run (exit 143) to free memory. Those four files were re-run with ClamAV up: 132/132. The integration total is 347 + 1 skipped (342 + 5). CI counts will be recorded with the PR.
 - **No-endpoint check still passes** after `otel.ts` changed (`no-export.int.spec.ts`: compiled API and worker, 0 export attempts).
 
+### Separate compiled processes through a real collector (OB12) (2026-10-07)
+- **The collector:**
+  - `otel/opentelemetry-collector-contrib:0.162.0`, compose profile `traces`, started with `pnpm dev:traces` (`tools/traces-dev.mjs`).
+  - OTLP/HTTP on `127.0.0.1:14318`; `file` exporter to `infra/compose/otel/out/traces.jsonl` (git-ignored).
+  - Bounded: `mem_limit` 256 MB and a `memory_limiter` at 200 MiB. It measured 57 MiB after about 2,200 spans.
+  - **Optional Jaeger (D2):** `jaegertracing/jaeger:2.22.0`, profile `jaeger`, UI on `127.0.0.1:16686`, started with `pnpm dev:traces:jaeger`. It's local only and never in CI.
+- **The test:** `separate-process.ob12.spec.ts` (run with `pnpm --filter @univarse/api test:ob12`).
+  - It spawns `dist/main.js` and `dist/worker.js` as **two processes**, each with `--import ./dist/otel.js` and the collector endpoint.
+  - It drives them over `node:http`, using the harness only to create users and read rows.
+  - It reads the collector's file output, OTLP JSON, and checks **structure**:
+    - **Email:** the reset request's row stores a sampled `traceparent`. The worker's `outbox.deliver` (`service.name` `worker`, kind CONSUMER) has that span as its parent. Its parent chain is entirely `api` spans, includes the request's `@fastify/otel` span, and ends at the true root.
+    - **File scan:** `files.scan` (`worker`) is a parentless root in a new trace. Its only link is to exactly the span stored by `complete`, which is an `api` span in the completing request's trace.
+    - **Spans by process:** the API produced pg and ioredis spans; the worker produced pg spans, including pg work **inside** the delivery span. Only `api` and `worker` appear as services.
+    - **SIGTERM (Linux only; skipped on Windows, where `kill` doesn't run handlers):** both processes exit 0 within `SHUTDOWN_FLUSH_MS` + 3 s. A request made under 2 s (the batch delay) before the signal still reaches the collector, so only the shutdown flush could have exported it.
+- **Deviation from the AC, for the owner to accept or change: "both processes produced pg and Valkey child spans".** The worker has **no Valkey client**. Valkey is used only by the API's rate limiter and settings cache, so worker Valkey spans can't exist. The test asserts pg and Valkey for the API and pg for the worker.
+- **Local run (Windows, ClamAV started only for the run):** 4 passed and 1 skipped (SIGTERM). The collector received 2,195 spans: api 389, worker 1,806. Most worker spans are idle pass spans: three loops at 200–250 ms intervals and 100 % sampling, as recorded under OB10.
+- **Fixed during the run:**
+  - **The config:** `mergeConfig` *appended* the include list, so `test:ob12` ran the whole integration suite. The suite passed: 351 passed and 2 skipped, with only the race below failing. `vitest.ob12.config.ts` now replaces `include`.
+  - **A race in the test:** it looked up the linked API span before the API's 2 s export batch had arrived. It now waits for that span.
+- **Mutation checks:** each mutation was rebuilt and run against the real collector.
+
+  | Mutation | Failing tests |
+  |---|---|
+  | P1: delivery not parented to the stored context | 2 (email chain, worker pg inside the delivery) |
+  | P2: worker reports `service.name` `api` | 3 |
+- **CI:** a step after the API integration tests starts the same compose service (`node tools/traces-dev.mjs`) and runs `test:ob12` verbosely. Collector logs are printed on failure. The compiled-process CI evidence will be recorded here from the PR's latest-commit logs.
+
 ## Out of scope (tracked)
 | Gap | Milestone |
 |---|---|

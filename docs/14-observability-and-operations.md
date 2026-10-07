@@ -11,6 +11,22 @@
 - Dashboards and alerts are in **Grafana**, provisioned as code (`infra/observability/`).
 - Trace context propagates through queues: the job payload carries `traceparent`, so a webhook → job → notification is one trace.
 
+**Built so far ([spec 0012](specs/0012-observability-logs-and-traces.md)): logs and traces for the API and worker. Metrics come later.**
+- **Start-up:** tracing starts before any instrumented library loads. The compiled processes run `node --import ./dist/otel.js dist/main.js` (or `dist/worker.js`).
+- **Exporting:** spans go out by OTLP/HTTP only when `OTEL_EXPORTER_OTLP_ENDPOINT` is set. With none set, nothing is exported.
+- **Propagation:** W3C trace context only. Baggage is neither propagated nor read, and trace headers never establish tenant or identity.
+- **Requests to the worker:** the request writes its `traceparent` into the business row (`outbox_event`, `file_object`), in the same transaction.
+  - **Outbox:** `outbox.deliver` is a `CONSUMER` child of the request, so request → email is one trace.
+  - **File scans:** `files.scan` is its own trace, with a **link** to the upload.
+  - **Missing or bad context:** rows with a null or malformed value process normally under a fresh root. A malformed value logs one warning.
+  - **Passes:** each worker pass is a span (`outbox.pass`, `files.scan.pass`, `keys.sweep.pass`).
+- **Sampling (D3):**
+  - 100 % in dev and CI; a provisional 10 % in production (`OTEL_TRACES_SAMPLER_ARG`).
+  - Children follow their parent. A linked scan is sampled exactly when its upload was, and a delivery follows its request's decision.
+  - **Logs are never sampled.**
+- **When the collector fails (OB11):** the export queue is bounded at 2,048 spans. Overflow is dropped and counted, export failures are counted, and both are reported as one `warn` (`otel.export_degraded`) at most once a minute. Shutdown flushes for at most 5 s. Requests and jobs never wait on export.
+- **Locally:** `pnpm dev:traces` starts the collector (file output); `pnpm dev:traces:jaeger` adds Jaeger's UI ([10 §4](10-infrastructure-and-deployment.md)).
+
 ## 2. Logging standards
 
 Built in [spec 0012](specs/0012-observability-logs-and-traces.md).

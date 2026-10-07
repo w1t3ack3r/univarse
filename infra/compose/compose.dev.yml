@@ -122,6 +122,34 @@ services:
       retries: 30
       start_period: 120s
 
+  # Traces (spec 0012, D2): off by default. `pnpm dev:traces` starts the collector; the API and worker export
+  # to it when OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:14318 (14318, not 4318, so tests that guard the
+  # default port never see it). Output: infra/compose/otel/out/traces.jsonl (git-ignored). CI's OB12 job uses
+  # exactly this service.
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.162.0
+    profiles: [traces]
+    <<: *hardening
+    read_only: true
+    command: ['--config=/etc/otelcol/${OTEL_COLLECTOR_CONFIG:-collector.yaml}']
+    ports:
+      - '127.0.0.1:14318:4318' # OTLP/HTTP
+      - '127.0.0.1:13133:13133' # health
+    volumes:
+      - ./otel:/etc/otelcol:ro
+      - ./otel/out:/out
+    # The image runs as 10001; the output directory is created world-writable by tools/traces-dev.mjs.
+    mem_limit: 256m
+
+  # Jaeger's UI for local viewing only (D2): `pnpm dev:traces:jaeger`. Memory storage; never in CI or deploys.
+  jaeger:
+    image: jaegertracing/jaeger:2.22.0
+    profiles: [jaeger]
+    <<: *hardening
+    read_only: true
+    ports: ['127.0.0.1:16686:16686']
+    mem_limit: 512m
+
 volumes:
   vault-data:
   seaweedfs-data:
