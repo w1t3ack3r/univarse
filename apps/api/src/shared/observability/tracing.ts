@@ -1,7 +1,7 @@
 // Spec 0012 OB5/OB9/OB11: OpenTelemetry tracing for the API and worker. Started by `src/otel.ts` through
 // `node --import` BEFORE any instrumented library loads (OB9); tests start it in-process.
-import { context, propagation, trace, type Attributes, type AttributeValue } from '@opentelemetry/api';
-import { W3CTraceContextPropagator } from '@opentelemetry/core';
+import { context, propagation, ROOT_CONTEXT, trace, TraceFlags, type Attributes, type AttributeValue, type Context } from '@opentelemetry/api';
+import { ExportResultCode, W3CTraceContextPropagator } from '@opentelemetry/core';
 import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http';
 import { registerInstrumentations } from '@opentelemetry/instrumentation';
 import { HttpInstrumentation } from '@opentelemetry/instrumentation-http';
@@ -13,6 +13,7 @@ import {
   ParentBasedSampler,
   TraceIdRatioBasedSampler,
   type ReadableSpan,
+  type Span as SdkSpan,
   type Span,
   type SpanExporter,
   type SpanProcessor,
@@ -32,7 +33,104 @@ export const EXPORT_BOUNDS = {
   scheduledDelayMillis: 2_000,
   exportTimeoutMillis: 5_000,
 } as const;
+export type ExportBounds = { readonly [K in keyof typeof EXPORT_BOUNDS]: number };
 export const SHUTDOWN_FLUSH_MS = 5_000;
+/** OB11: at most one `otel.export_degraded` warning per window, carrying the counts since the last one. */
+export const EXPORT_WARN_EVERY_MS = 60_000;
+
+export interface ExportStats {
+  /** Spans handed to the batch processor and not yet handed to the exporter. Never exceeds `maxQueueSize`. */
+  queued: number;
+  /** The most `queued` ever reached. */
+  maxQueued: number;
+  /** Dropped because the queue was full. */
+  dropped: number;
+  /** Handed to the exporter, which reported failure (refused, timed out, rejected). */
+  failed: number;
+  exported: number;
+}
+export interface ExportDegraded {
+  readonly dropped: number;
+  readonly failed: number;
+  readonly maxQueueSize: number;
+}
+
+/**
+ * OB11: the SDK's batch processor, with its queue bound enforced and COUNTED here. The SDK drops overflow
+ * silently (a diag debug line); this gate drops it first, counts it, and reports drops and failed exports
+ * through one rate-limited callback. `queued` mirrors the batch processor's buffer exactly: spans in when
+ * forwarded, out when the processor hands them to the exporter. Requests never wait on export either way.
+ */
+export class BoundedExportProcessor implements SpanProcessor {
+  readonly stats: ExportStats = { queued: 0, maxQueued: 0, dropped: 0, failed: 0, exported: 0 };
+  private readonly batch: BatchSpanProcessor;
+  private pending = { dropped: 0, failed: 0 };
+  private lastWarn = Number.NEGATIVE_INFINITY;
+  private closed = false;
+
+  constructor(
+    exporter: SpanExporter,
+    private readonly bounds: ExportBounds,
+    private readonly onDegraded: (d: ExportDegraded) => void = () => undefined,
+    private readonly warnEveryMs = EXPORT_WARN_EVERY_MS,
+    private readonly now: () => number = Date.now,
+  ) {
+    const counting: SpanExporter = {
+      export: (spans, done) => {
+        this.stats.queued -= spans.length;
+        exporter.export(spans, (result) => {
+          if (result.code === ExportResultCode.SUCCESS) this.stats.exported += spans.length;
+          else this.note('failed', spans.length);
+          done(result);
+        });
+      },
+      shutdown: () => exporter.shutdown(),
+      forceFlush: () => exporter.forceFlush?.() ?? Promise.resolve(),
+    };
+    this.batch = new BatchSpanProcessor(counting, { ...bounds });
+  }
+
+  onStart(span: SdkSpan, parent: Context): void {
+    this.batch.onStart(span, parent);
+  }
+
+  onEnd(span: ReadableSpan): void {
+    // As the batch processor: unsampled spans, and anything after shutdown, are never queued.
+    if (this.closed || (span.spanContext().traceFlags & TraceFlags.SAMPLED) === 0) return;
+    if (this.stats.queued >= this.bounds.maxQueueSize) {
+      this.note('dropped', 1);
+      return;
+    }
+    this.stats.queued++;
+    if (this.stats.queued > this.stats.maxQueued) this.stats.maxQueued = this.stats.queued;
+    this.batch.onEnd(span);
+  }
+
+  forceFlush(): Promise<void> {
+    return this.batch.forceFlush();
+  }
+
+  shutdown(): Promise<void> {
+    this.closed = true;
+    return this.batch.shutdown();
+  }
+
+  private note(kind: 'dropped' | 'failed', n: number): void {
+    this.stats[kind] += n;
+    this.pending[kind] += n;
+    const t = this.now();
+    if (t - this.lastWarn < this.warnEveryMs) return;
+    this.lastWarn = t;
+    const report = { ...this.pending, maxQueueSize: this.bounds.maxQueueSize };
+    this.pending = { dropped: 0, failed: 0 };
+    try {
+      // Outside any trace: the report is about the exporter, not whichever span happened to be active.
+      context.with(ROOT_CONTEXT, () => this.onDegraded(report));
+    } catch {
+      // Reporting must never break span processing.
+    }
+  }
+}
 
 /** OB5: the only span attributes that may leave the process. Anything else is removed and reported. */
 const ALLOWED = new Set([
@@ -134,18 +232,34 @@ export interface TracingOptions {
   readonly exporter?: SpanExporter;
   readonly processor?: (exporter: SpanExporter) => SpanProcessor;
   readonly onDropped?: (key: string) => void;
+  /** OB11: export trouble (drops, failed exports), at most once per `warnEveryMs`. */
+  readonly onExportDegraded?: ((d: ExportDegraded) => void) | undefined;
+  /** Tests only: smaller bounds and deadlines, to reach them quickly. */
+  readonly bounds?: ExportBounds | undefined;
+  readonly shutdownFlushMs?: number | undefined;
+  readonly warnEveryMs?: number | undefined;
 }
 
 export interface Tracing {
   readonly provider: NodeTracerProvider;
+  /** The export gate's counters, when exporting over OTLP (OB11). */
+  readonly export: BoundedExportProcessor | undefined;
+  /** Flushes what it can and stops; never takes longer than the flush deadline (OB11). */
   shutdown(): Promise<void>;
 }
 
+let current: Tracing | undefined;
+/** Shuts down this process's tracing, if started. Process shutdown calls it last (OB11). */
+export const shutdownTracing = (): Promise<void> => current?.shutdown() ?? Promise.resolve();
+
 /** Starts tracing for this process. Call before importing anything instrumented. */
 export function startTracing(opts: TracingOptions): Tracing {
-  const exporter = opts.exporter ?? (opts.endpoint ? new OTLPTraceExporter({ url: `${opts.endpoint.replace(/\/$/, '')}/v1/traces`, timeoutMillis: EXPORT_BOUNDS.exportTimeoutMillis }) : undefined);
+  const bounds = opts.bounds ?? EXPORT_BOUNDS;
+  const exporter = opts.exporter ?? (opts.endpoint ? new OTLPTraceExporter({ url: `${opts.endpoint.replace(/\/$/, '')}/v1/traces`, timeoutMillis: bounds.exportTimeoutMillis }) : undefined);
   const processors: SpanProcessor[] = [new SanitizingSpanProcessor(opts.onDropped)];
-  if (exporter) processors.push(opts.processor ? opts.processor(exporter) : new BatchSpanProcessor(exporter, EXPORT_BOUNDS));
+  let gate: BoundedExportProcessor | undefined;
+  if (exporter && opts.processor) processors.push(opts.processor(exporter));
+  else if (exporter) processors.push((gate = new BoundedExportProcessor(exporter, bounds, opts.onExportDegraded, opts.warnEveryMs)));
 
   const provider = new NodeTracerProvider({
     resource: resourceFromAttributes({ [ATTR_SERVICE_NAME]: opts.service, [ATTR_SERVICE_VERSION]: opts.version, 'deployment.environment.name': opts.env }),
@@ -186,10 +300,19 @@ export function startTracing(opts: TracingOptions): Tracing {
     return ctx && trace.isSpanContextValid(ctx) ? { traceId: ctx.traceId, spanId: ctx.spanId } : { traceId: null, spanId: null };
   });
 
-  return {
+  const flushMs = opts.shutdownFlushMs ?? SHUTDOWN_FLUSH_MS;
+  let stopping: Promise<void> | undefined;
+  current = {
     provider,
-    shutdown: () => Promise.race([provider.shutdown(), new Promise<void>((r) => setTimeout(r, SHUTDOWN_FLUSH_MS).unref())]),
+    export: gate,
+    // A stalled collector must not hold the process: whatever isn't exported by the deadline is abandoned.
+    shutdown: () =>
+      (stopping ??= Promise.race([
+        provider.shutdown().catch(() => undefined),
+        new Promise<void>((r) => setTimeout(r, flushMs).unref()),
+      ])),
   };
+  return current;
 }
 
 /** The active span, for attributes such as tenant.id and user.id (set as they're resolved). */

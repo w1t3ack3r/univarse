@@ -9,11 +9,14 @@ import { FileScanWorker } from './modules/files/file-scan.worker.js';
 import { FileStorage } from './modules/files/file-storage.js';
 import { DbModule } from './shared/db/db.module.js';
 import { MAILER, SmtpMailer, type Mailer } from './shared/infra/mailer.js';
+import { shutdownHook } from './shared/observability/shutdown-hook.js';
 import { OutboxWorker } from './shared/outbox/outbox-worker.js';
 
 export interface WorkerOverrides {
   /** Tests capture outbound email instead of sending via SMTP. */
   readonly mailer?: Mailer;
+  /** Runs last when the context closes: the worker process flushes its traces here (spec 0012 OB11). */
+  readonly onShutdown?: () => Promise<void>;
 }
 
 /**
@@ -38,6 +41,7 @@ export class WorkerModule {
         FileStorage,
         ClamdScanner,
         FileScanWorker,
+        ...(overrides.onShutdown ? [shutdownHook(overrides.onShutdown)] : []),
       ],
       exports: [APP_CONFIG],
     };

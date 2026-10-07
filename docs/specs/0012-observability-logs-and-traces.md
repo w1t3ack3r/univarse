@@ -156,7 +156,20 @@ When something goes wrong in a deployed UniVarse, the first question is "what ha
   - **With the preload at 100 % sampling:** medians 128 and 97 ms.
 
   That's roughly +20–25 ms (about 20–25 %) per login with sampling at 100 %. Production's provisional 10 % sampling records fewer spans.
-- **Local E2E: unresolved.** The failures **also reproduced without tracing**. That doesn't establish an environmental cause, and it doesn't rule out an intermittent application bug. CI's E2E passed 32/32 on the merged commit. The failure output is kept here; investigation is tracked separately.
+- **D3 performance evidence, under load (2026-10-07, DB pool investigation, ADR-026):**
+  - **The machine:** these are measurements from the **memory-starved development laptop** (8 GB RAM, already at 100 % CPU with under 1 GB free before the run). They are not production throughput figures.
+  - **The load:** authenticated `GET /api/v1/files` against the compiled API, with pool 10 and a 2 s wait.
+  - **The result:** with tracing at 100 %, throughput was roughly half (10–45 vs 32–70 req/s), and pool-wait failures started 2–4× sooner (at 32–64 concurrent instead of 128 or never).
+  - **What it supports:** revisiting the sampling ratio, and re-measuring on staging hardware (ADR-026).
+  - **What it doesn't establish:** production throughput, or how much of the cost 10 % sampling would recover.
+- **Local E2E: cause measured; a clean local run is pending.** The failures **also reproduced without tracing**. They stay open until a local run passes 32/32. CI's E2E passed 32/32 on the merged commit. The failure output below is kept as-is.
+  - **The cause measured (2026-10-07, a separate investigation):**
+    - **Memory:** the laptop's memory was 96–97 % used, with 2,300–3,100 pages a second read back from disk. CPU was at or above 95 % in 99 % of samples.
+    - **The Docker/WSL VM** had 3.3 GB allocated but about 295 MB in RAM, so the containers it hosts (Valkey, Vault, ClamAV, Mailpit) were mostly swapped out.
+    - **Valkey latency:** an independent probe measured Valkey PING at p50 48 ms, p90 318 ms and max **3,720 ms**. Postgres `SELECT 1` on the same host stayed at p50 0.6 ms and max 3.4 ms.
+    - **Where a stalled login spent its time:** the browser, the edge and the API's own log each saw about 7.2 s, so the time was inside the API. Across the run's logins, about 68 % of login time was Valkey (three sequential rate-limit calls of 217–653 ms each). Pool acquisition was about 0.1 ms, and Postgres queries were 4 %.
+    - **The run:** zero 5xx and zero P2028 over 936 requests. The other failures (a Vault call in `makeUser`, a slow ClamAV scan, late emails with outbox delivery p90 7.4 s) all go through the same Docker VM.
+  - **A separate test bug, fixed separately:** an axe `color-contrast` race. The step-up dialog fades in over 280 ms, and axe could scan it while it was still partly transparent: 0.52 opacity at 30 ms gave 3 violations, and the scan was clean from 100 ms. The fix waits for finite animations before axe scans, with no timeout raised. It's not part of the tracing work.
 
   | Run (2026-10-07) | Result | Failing tests | Failure |
   |---|---|---|---|
@@ -232,8 +245,56 @@ When something goes wrong in a deployed UniVarse, the first question is "what ha
   | M8 malformed value not warned | 1/8 |
 - **Counts (local, 2026-10-07):** API unit 154 (150 + 4); API integration 342 passed, 1 skipped (334 + 8). Lint and typecheck are clean. CI counts are recorded with the PR.
 - **Not yet covered:**
-  - OB11 (unavailable and stalled collector; shutdown flush);
   - OB12 (separate compiled processes against a real collector in CI). In-process tests share one provider, so they can't show the API → worker hop across processes; OB12 does.
+
+### Collector failure (OB11) (2026-10-07)
+- **The export gate (`BoundedExportProcessor`, `tracing.ts`):**
+  - **The SDK's behaviour:** its `BatchSpanProcessor` drops overflow silently, with only a diag `debug` line.
+  - **What the gate adds:** it wraps the SDK processor and enforces the same `maxQueueSize` itself. It counts `queued`, `maxQueued`, `dropped`, `failed` and `exported`.
+  - **How `queued` is tracked:** it rises when a span is forwarded and falls when the processor hands the span to the exporter, so it mirrors the SDK buffer exactly.
+  - **Reporting:** drops and failed exports go through one callback, rate-limited to one call per `EXPORT_WARN_EVERY_MS` (60 s). Each report carries the counts since the previous one.
+  - **Where reports go:** `otel.ts` logs each report as a `warn` event, `otel.export_degraded`, on the process's own JSON stream. The report runs outside any trace context.
+  - **Failure isolation:** a throwing reporter never breaks span processing.
+- **Shutdown:**
+  - `Tracing.shutdown()` races the provider's shutdown against `SHUTDOWN_FLUSH_MS` (5 s). It's memoised, so a repeated signal shares one bounded shutdown.
+  - `main.ts` and `worker.ts` pass `onShutdown: shutdownTracing` to `AppModule`/`WorkerModule`. The modules register it as a Nest `onApplicationShutdown` hook (`shutdown-hook.ts`).
+  - That hook runs after the server and connections close, so the last spans have ended before the flush.
+  - Tests don't pass the hook, so closing a test app never stops the test process's tracing.
+- **Tests:**
+  - **`export-gate.spec.ts` (5, unit, fake exporters):**
+    - a stalled exporter: 500 spans, the queue peaks at its bound of 10, more than 400 dropped, exactly one report;
+    - a refusing exporter: failures counted; the second report is held until the window passes, then carries the remainder, with nothing lost;
+    - healthy: nothing dropped or reported, and unsampled spans never queued;
+    - a throwing reporter;
+    - nothing queued after shutdown.
+  - **`collector.int.spec.ts` (5):** the real OTLP/HTTP exporter and the gate, against a collector the test controls on one port. Bounds are queue 200, batch 20 and export timeout 3 s; the flush deadline is 1 s. Local run, 2026-10-07:
+
+    | Phase | Request median (20 authenticated requests) | Email journey | Queue / counters | Warnings |
+    |---|---|---|---|---|
+    | Healthy (baseline) | 27.9 ms | 99.8 ms | dropped 0, failed 0 | none |
+    | Stalled (accepts, never answers) | 24.8 / 26.2 ms | 47.3 ms | peaked at **200** (the bound), 1,881 dropped | **one** |
+    | Unavailable (refused) | 24.8 ms | 39.4 ms | failures counted | no further warning in the window |
+
+    - **The latency check:** each degraded median must be under `1.5 × baseline + 75 ms`. That's far below the 3 s export timeout a request waiting on export would show.
+    - **Shutdown with a full queue and a stalled collector** took **1,009 ms** against the 1,000 ms deadline. The test asserts it lands between deadline − 100 and deadline + 250 ms. Because the export timeout (3 s) is longer than the deadline, the deadline is what ended it. A second call returns at once.
+    - **The shutdown hooks:** closing an app made with `onShutdown` and a worker context made with it calls each hook exactly once. `main.ts` and `worker.ts` are checked to pass `shutdownTracing`.
+- **Mutation checks:** each mutation was applied alone; each failed the listed tests.
+
+  | Mutation | Unit tests failed | Integration tests failed |
+  |---|---|---|
+  | N1 gate doesn't enforce the bound | 2 | 3 |
+  | N2 nothing reported | 2 | 2 |
+  | N3 reports not rate-limited | 2 | 2 |
+  | N4 shutdown without the deadline | none | 1 |
+  | N5 failed exports not counted | 1 | 1 |
+  | N6 `AppModule` drops the shutdown hook | none | 2 |
+- **Compiled smoke (local):** `node --import ./dist/otel.js dist/worker.js` with `OTEL_EXPORTER_OTLP_ENDPOINT` pointed at a closed port.
+  - Every output line was JSON.
+  - One `otel.export_degraded` warning appeared, with `failed` counted and `traceId: null`.
+  - It takes about 7 to 20 s to appear: the OTLP exporter retries a refused connection with backoff for up to its 5 s timeout before reporting failure.
+  - **Not verified locally:** graceful signal shutdown of the compiled processes. On Windows, `kill('SIGINT')` terminates without running handlers. OB12's Linux CI job covers it.
+- **Counts (local, quiet stack, 2026-10-07):** API unit 159 (154 + 5). The full API integration run passed everything except tests needing ClamAV, which had been stopped mid-run (exit 143) to free memory. Those four files were re-run with ClamAV up: 132/132. The integration total is 347 + 1 skipped (342 + 5). CI counts will be recorded with the PR.
+- **No-endpoint check still passes** after `otel.ts` changed (`no-export.int.spec.ts`: compiled API and worker, 0 export attempts).
 
 ## Out of scope (tracked)
 | Gap | Milestone |
