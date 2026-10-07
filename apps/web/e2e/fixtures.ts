@@ -3,6 +3,7 @@
 import { createHmac, randomBytes } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { createPlatformClient, createTenantShardClient, forTenant } from '@univarse/db';
+import type { Page } from '@playwright/test';
 // API source (not dist): plain functions, no decorators; keeps hashing and TOTP identical to the server.
 import { hashPassword } from '../../api/src/modules/identity/password.js';
 import { enrolTestTotp, resetReplayGuard, totpCode } from '../../api/src/testing/mfa-helpers.js';
@@ -137,4 +138,22 @@ export async function cleanup(): Promise<void> {
   for (const c of created.splice(0)) await forTenant(shard, c.tenantId).userAccount.deleteMany({ where: { id: c.userId } });
   await shard.$disconnect();
   await platform.$disconnect();
+}
+
+/**
+ * Waits for entrance/exit transitions to end, so axe scans the resting page. `toBeVisible()` passes at
+ * opacity 0, and axe blends opacity into contrast: the step-up dialog's 280 ms `uv-rise` fade fails
+ * color-contrast during its first ~100 ms (reproduced 2026-10-07; seen on a loaded machine). Only short
+ * animations count (ours are ≤ 560 ms): spinners are infinite and the code-expiry bar (`uv-drain`) runs
+ * for the code's whole validity, so waiting on those would hang. A cancelled one counts as ended.
+ */
+export async function animationsSettled(page: Page): Promise<void> {
+  await page.evaluate(() =>
+    Promise.all(
+      document
+        .getAnimations()
+        .filter((a) => Number(a.effect?.getComputedTiming().endTime ?? Infinity) <= 2_000)
+        .map((a) => a.finished.catch(() => undefined)),
+    ),
+  );
 }

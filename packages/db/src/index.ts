@@ -4,3 +4,4 @@ export { createPlatformClient } from './platform.js';
 export type { PlatformClient } from './platform.js';
 export * as TenantModels from './generated/tenant/client.js';
 export * as PlatformModels from './generated/platform/client.js';
+export { isConnectionUnavailable, POOL_OPTIONS, TRANSACTION_OPTIONS } from './pool.js';

@@ -1,7 +1,7 @@
 // Tenant-scoped database access (docs/02 §7.2, docs/07 §3.2).
 // This is the ONLY sanctioned way to touch tenant data. Every operation runs in a
 // transaction whose first statement sets `app.tenant_id`, which RLS policies read.
-import { utcAdapter } from './pool.js';
+import { TRANSACTION_OPTIONS, utcAdapter } from './pool.js';
 import { PrismaClient } from './generated/tenant/client.js';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -12,7 +12,7 @@ function assertTenantId(tenantId: string): void {
 
 /** Raw client for one shard. Never use it for data access directly — wrap it with forTenant/withTenantTx. */
 export function createTenantShardClient(connectionString: string): PrismaClient {
-  return new PrismaClient({ adapter: utcAdapter(connectionString) });
+  return new PrismaClient({ adapter: utcAdapter(connectionString), transactionOptions: TRANSACTION_OPTIONS });
 }
 
 export type TenantShardClient = PrismaClient;

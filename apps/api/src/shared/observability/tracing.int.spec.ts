@@ -226,7 +226,7 @@ describe('[OB8] context stays isolated', () => {
     ];
     const results = await Promise.all(
       // 24 overlapping requests, 12 per tenant. (With synchronous per-span export this hit Prisma's 2 s
-      // transaction wait, P2028; the helper now batches like production. Capacity is tracked separately.)
+      // transaction wait, P2028; the helper now batches like production. Capacity: ADR-026, docs/10 §4.1; overflow is now 503 server.busy.)
       Array.from({ length: 24 }, (_, i) => who[i % 2]!).map(async (w) => ({ w, res: await inject({ url: '/api/v1/files', host: w.host, cookie: w.cookie }) })),
     );
     await settle();

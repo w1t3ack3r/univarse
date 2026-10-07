@@ -388,6 +388,7 @@ function errorResponses(op: ApiOperation, c: ErrorContext): Record<string, Respo
     add(412, 'precondition.failed');
   }
   add(500, 'server.internal');
+  add(503, 'server.busy'); // ADR-026: no database connection in time; any route can hit it
   for (const [status, list] of Object.entries(op.errors ?? {})) for (const code of list) add(Number(status), code);
 
   const out: Record<string, ResponseObject> = {};
@@ -402,6 +403,7 @@ function errorResponses(op: ApiOperation, c: ErrorContext): Record<string, Respo
       },
     };
     if (status === 429) res.headers = { 'Retry-After': { required: true, description: 'Seconds until the limit resets.', schema: { type: 'string', pattern: '^[0-9]+$' } } };
+    if (status === 503) res.headers = { 'Retry-After': { required: true, description: 'Seconds to wait before retrying.', schema: { type: 'string', pattern: '^[0-9]+$' } } };
     out[String(status)] = res;
   }
   return out;
