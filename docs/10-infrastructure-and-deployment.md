@@ -67,7 +67,7 @@ pnpm dev              # turbo: web :3000, console :3001, api :8080, worker
 ```
 Browse `http://demo-uni.univarse.localhost:3000`. `*.localhost` resolves to loopback in modern browsers, so no hosts-file edits are needed. Ports are bound to `127.0.0.1` only.
 
-### 4.1 Local resource budget (measured 2026-10-06, spec 0010 FU12)
+### 4.1 Local resource budget (measured 2026-10-06, spec 0010 FU12; database connections 2026-10-07, ADR-026)
 **What was measured:**
 - **Stack:** Valkey, Mailpit, Vault, SeaweedFS 4.48 and ClamAV 1.5.4 (fail-closed settings) in Docker; the API and worker on the host.
 - **Load:** 12 uploads (four of 4.5 MB) scanned while clean files were downloaded concurrently, with a ClamAV signature `RELOAD` triggered mid-burst. The opt-in test is `apps/api/src/modules/files/files.load.int.spec.ts`.
@@ -95,6 +95,26 @@ Browse `http://demo-uni.univarse.localhost:3000`. `*.localhost` resolves to loop
 - The ClamAV image ships with signatures, but **FreshClam still downloads updates** at start and daily (usually small diffs, sometimes a full database). Observed here: signatures 28136 (2026-09-27) updated to 28144 (2026-10-05) on first start. Image size is not a total download budget.
 - `CLAMAV_NO_FRESHCLAMD=true` in `.env` stops updates on a slow link. That is local only, with stale signatures, and never in CI or deployed environments.
 
+**Database connection capacity (measured 2026-10-07, [ADR-026](19-decision-log.md)):**
+- **Why:** the OB8 test (`tracing.int.spec.ts`) sent 24 concurrent authenticated `GET /api/v1/files` requests. With spans exported synchronously, some returned 500 with P2028: Prisma's 2 s transaction wait expired while session authentication waited for a connection.
+- **Machine:** the dev laptop, an i7-7500U (2 cores, 4 threads) with 8 GB RAM. Before the test it already ran at 100% CPU with 0.9 GB free (IDEs, browsers, the Docker VM). Postgres 18.1 native, one compiled API process (`dist/main.js`). These are a loaded machine's numbers, not a server's.
+- **Load:** `apps/api/scripts/load/session-auth.mjs`. Closed loop, 10 s per step, authenticated `GET /api/v1/files`, half `demo-uni` and half `test-poly`, both on `univarse_pool_01`. Each request runs two shard transactions: authentication and the list. "Tracing" means `--import ./dist/otel.js` exporting by batch to a local discard sink.
+
+| Configuration | First step with P2028 (of 16 → 128 concurrent) | Throughput | p95 at 64 concurrent |
+|---|---|---|---|
+| Pool 10, wait 2 s, no tracing (two runs) | **128** (23 of 521 requests) / none | 32–70 req/s | 2.2–2.4 s |
+| Pool 10, wait 2 s, tracing (two runs) | **64** (102 failed) / **32** (17 failed) | 10–45 req/s | 4.4–8.0 s |
+| Pool 20, wait 2 s, no tracing / tracing | **16** / **16** | 14–61 / 10–39 req/s | 3.5 / 4.3 s |
+| Pool 10, wait 5 s, no tracing / tracing | none / none | 23–64 / 34–72 req/s | 3.9 / 1.6 s |
+
+**What it shows:**
+- **The ceiling is the machine, not the pool.** Throughput stays flat as concurrency rises, whatever the settings, and the API process used only about 0.5 cores. A tenant transaction holds its connection about 9–15 ms through Prisma, against 2.7 ms for the same statements over raw `pg`; on a starved CPU every hop between statements grows. Tracing roughly halves throughput here, so P2028 starts 2–4× sooner.
+- **A bigger pool fails sooner.** The extra connections are opened under load, inside the 2 s wait. It also raised pg's own "connection timeout" errors.
+- **A longer wait only hides the queue.** No refusals, but p95 of 2–4 s with no more throughput. The run-to-run spread (the 5 s/tracing row beat the 2 s/no-tracing rows) is this machine's noise.
+- **Session authentication isn't the special case.** About 70% of the P2028s came from the list's batch transaction. Every transaction on a shard shares the same queue.
+
+**Decision ([ADR-026](19-decision-log.md)):** keep 10 connections and the 2 s wait, now explicit. Shed the overflow as **503 `server.busy` + `Retry-After`** instead of a 500 (see [07 §2](07-data-and-database.md)). Add capacity with API replicas and shard resources ([§6](#6-scaling)). Repeat this measurement on the staging hardware before pilot. Its numbers, not these, size the replicas and PgBouncer.
+
 ## 5. Deployment process
 
 1. Merge to `main` → CI builds, tests, scans, signs images → **staging deploy** (Helm upgrade, digests pinned) → migration job → smoke tests → e2e subset.
@@ -111,7 +131,7 @@ Browse `http://demo-uni.univarse.localhost:3000`. `*.localhost` resolves to loop
 | Component | Scaling signal | Limits |
 |-----------|---------------|--------|
 | web | CPU 60% / RPS | min 3, max 20 |
-| api | CPU 60% + p95 latency | min 3, max 30 |
+| api | CPU 60% + p95 latency + `server.busy` (503) rate ([ADR-026](19-decision-log.md)) | min 3, max 30. 10 connections per shard per replica |
 | worker | BullMQ queue depth & age (KEDA) | min 2, max 20. Per-queue concurrency caps |
 | PgBouncer | Connections | `default_pool_size` tuned so Σ pools < Postgres `max_connections` × 0.8 |
 | Postgres | CPU, IOPS, connections | Vertical first. Read replica for reporting. New pool shard at ~50 tenants / 500 GB / sustained CPU > 60% |

@@ -79,6 +79,7 @@ Multi-window, multi-burn-rate alerts on SLOs, plus symptom alerts:
 | Webhook signature failures spike | Page (security) | On-call |
 | Queue oldest job age > 10 min (any queue) | Page | On-call |
 | DB CPU > 80% for 15 min / connections > 85% / replication lag > 60 s | Page | On-call |
+| `server.busy` (503, log event `db.connection_unavailable`) > 0.5% of requests on a shard for 5 min ([ADR-026](19-decision-log.md)) | Page | On-call: scale API replicas or the shard, per [10 §4.1](10-infrastructure-and-deployment.md) |
 | Backup job failed / PITR lag | Page | On-call |
 | Certificate expiry < 14 days | Ticket | Ops |
 | Error rate per tenant anomaly | Ticket | Support |

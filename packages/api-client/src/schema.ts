@@ -615,6 +615,22 @@ export interface operations {
                     } & components["schemas"]["Problem"];
                 };
             };
+            /** @description server.busy */
+            503: {
+                headers: {
+                    /** @description Seconds to wait before retrying. */
+                    "Retry-After": string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 503;
+                        /** @enum {unknown} */
+                        code?: "server.busy";
+                    } & components["schemas"]["Problem"];
+                };
+            };
         };
     };
     setProductEnabled: {
@@ -776,6 +792,22 @@ export interface operations {
                     } & components["schemas"]["Problem"];
                 };
             };
+            /** @description server.busy */
+            503: {
+                headers: {
+                    /** @description Seconds to wait before retrying. */
+                    "Retry-After": string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 503;
+                        /** @enum {unknown} */
+                        code?: "server.busy";
+                    } & components["schemas"]["Problem"];
+                };
+            };
         };
     };
     confirmActivation: {
@@ -902,6 +934,22 @@ export interface operations {
                     } & components["schemas"]["Problem"];
                 };
             };
+            /** @description server.busy */
+            503: {
+                headers: {
+                    /** @description Seconds to wait before retrying. */
+                    "Retry-After": string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 503;
+                        /** @enum {unknown} */
+                        code?: "server.busy";
+                    } & components["schemas"]["Problem"];
+                };
+            };
         };
     };
     requestActivation: {
@@ -1013,6 +1061,22 @@ export interface operations {
                         status?: 500;
                         /** @enum {unknown} */
                         code?: "server.internal";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description server.busy */
+            503: {
+                headers: {
+                    /** @description Seconds to wait before retrying. */
+                    "Retry-After": string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 503;
+                        /** @enum {unknown} */
+                        code?: "server.busy";
                     } & components["schemas"]["Problem"];
                 };
             };
@@ -1157,6 +1221,22 @@ export interface operations {
                     } & components["schemas"]["Problem"];
                 };
             };
+            /** @description server.busy */
+            503: {
+                headers: {
+                    /** @description Seconds to wait before retrying. */
+                    "Retry-After": string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 503;
+                        /** @enum {unknown} */
+                        code?: "server.busy";
+                    } & components["schemas"]["Problem"];
+                };
+            };
         };
     };
     logout: {
@@ -1247,6 +1327,22 @@ export interface operations {
                     } & components["schemas"]["Problem"];
                 };
             };
+            /** @description server.busy */
+            503: {
+                headers: {
+                    /** @description Seconds to wait before retrying. */
+                    "Retry-After": string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 503;
+                        /** @enum {unknown} */
+                        code?: "server.busy";
+                    } & components["schemas"]["Problem"];
+                };
+            };
         };
     };
     me: {
@@ -1328,6 +1424,22 @@ export interface operations {
                         status?: 500;
                         /** @enum {unknown} */
                         code?: "server.internal";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description server.busy */
+            503: {
+                headers: {
+                    /** @description Seconds to wait before retrying. */
+                    "Retry-After": string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 503;
+                        /** @enum {unknown} */
+                        code?: "server.busy";
                     } & components["schemas"]["Problem"];
                 };
             };
@@ -1448,6 +1560,22 @@ export interface operations {
                         status?: 500;
                         /** @enum {unknown} */
                         code?: "server.internal";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description server.busy */
+            503: {
+                headers: {
+                    /** @description Seconds to wait before retrying. */
+                    "Retry-After": string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 503;
+                        /** @enum {unknown} */
+                        code?: "server.busy";
                     } & components["schemas"]["Problem"];
                 };
             };
@@ -1581,6 +1709,22 @@ export interface operations {
                     } & components["schemas"]["Problem"];
                 };
             };
+            /** @description server.busy */
+            503: {
+                headers: {
+                    /** @description Seconds to wait before retrying. */
+                    "Retry-After": string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 503;
+                        /** @enum {unknown} */
+                        code?: "server.busy";
+                    } & components["schemas"]["Problem"];
+                };
+            };
         };
     };
     disableTotp: {
@@ -1703,6 +1847,22 @@ export interface operations {
                         status?: 500;
                         /** @enum {unknown} */
                         code?: "server.internal";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description server.busy */
+            503: {
+                headers: {
+                    /** @description Seconds to wait before retrying. */
+                    "Retry-After": string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 503;
+                        /** @enum {unknown} */
+                        code?: "server.busy";
                     } & components["schemas"]["Problem"];
                 };
             };
@@ -1849,6 +2009,22 @@ export interface operations {
                     } & components["schemas"]["Problem"];
                 };
             };
+            /** @description server.busy */
+            503: {
+                headers: {
+                    /** @description Seconds to wait before retrying. */
+                    "Retry-After": string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 503;
+                        /** @enum {unknown} */
+                        code?: "server.busy";
+                    } & components["schemas"]["Problem"];
+                };
+            };
         };
     };
     verifyMfa: {
@@ -1986,6 +2162,22 @@ export interface operations {
                     } & components["schemas"]["Problem"];
                 };
             };
+            /** @description server.busy */
+            503: {
+                headers: {
+                    /** @description Seconds to wait before retrying. */
+                    "Retry-After": string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 503;
+                        /** @enum {unknown} */
+                        code?: "server.busy";
+                    } & components["schemas"]["Problem"];
+                };
+            };
         };
     };
     confirmPasswordReset: {
@@ -2112,6 +2304,22 @@ export interface operations {
                     } & components["schemas"]["Problem"];
                 };
             };
+            /** @description server.busy */
+            503: {
+                headers: {
+                    /** @description Seconds to wait before retrying. */
+                    "Retry-After": string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 503;
+                        /** @enum {unknown} */
+                        code?: "server.busy";
+                    } & components["schemas"]["Problem"];
+                };
+            };
         };
     };
     requestPasswordReset: {
@@ -2223,6 +2431,22 @@ export interface operations {
                         status?: 500;
                         /** @enum {unknown} */
                         code?: "server.internal";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description server.busy */
+            503: {
+                headers: {
+                    /** @description Seconds to wait before retrying. */
+                    "Retry-After": string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 503;
+                        /** @enum {unknown} */
+                        code?: "server.busy";
                     } & components["schemas"]["Problem"];
                 };
             };
@@ -2359,6 +2583,22 @@ export interface operations {
                     } & components["schemas"]["Problem"];
                 };
             };
+            /** @description server.busy */
+            503: {
+                headers: {
+                    /** @description Seconds to wait before retrying. */
+                    "Retry-After": string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 503;
+                        /** @enum {unknown} */
+                        code?: "server.busy";
+                    } & components["schemas"]["Problem"];
+                };
+            };
         };
     };
     listFiles: {
@@ -2460,6 +2700,22 @@ export interface operations {
                         status?: 500;
                         /** @enum {unknown} */
                         code?: "server.internal";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description server.busy */
+            503: {
+                headers: {
+                    /** @description Seconds to wait before retrying. */
+                    "Retry-After": string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 503;
+                        /** @enum {unknown} */
+                        code?: "server.busy";
                     } & components["schemas"]["Problem"];
                 };
             };
@@ -2568,6 +2824,22 @@ export interface operations {
                     } & components["schemas"]["Problem"];
                 };
             };
+            /** @description server.busy */
+            503: {
+                headers: {
+                    /** @description Seconds to wait before retrying. */
+                    "Retry-After": string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 503;
+                        /** @enum {unknown} */
+                        code?: "server.busy";
+                    } & components["schemas"]["Problem"];
+                };
+            };
         };
     };
     deleteFile: {
@@ -2656,6 +2928,22 @@ export interface operations {
                         status?: 500;
                         /** @enum {unknown} */
                         code?: "server.internal";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description server.busy */
+            503: {
+                headers: {
+                    /** @description Seconds to wait before retrying. */
+                    "Retry-After": string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 503;
+                        /** @enum {unknown} */
+                        code?: "server.busy";
                     } & components["schemas"]["Problem"];
                 };
             };
@@ -2778,6 +3066,22 @@ export interface operations {
                     } & components["schemas"]["Problem"];
                 };
             };
+            /** @description server.busy */
+            503: {
+                headers: {
+                    /** @description Seconds to wait before retrying. */
+                    "Retry-After": string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 503;
+                        /** @enum {unknown} */
+                        code?: "server.busy";
+                    } & components["schemas"]["Problem"];
+                };
+            };
         };
     };
     downloadFile: {
@@ -2892,6 +3196,22 @@ export interface operations {
                         status?: 500;
                         /** @enum {unknown} */
                         code?: "server.internal";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description server.busy */
+            503: {
+                headers: {
+                    /** @description Seconds to wait before retrying. */
+                    "Retry-After": string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 503;
+                        /** @enum {unknown} */
+                        code?: "server.busy";
                     } & components["schemas"]["Problem"];
                 };
             };
@@ -3057,6 +3377,22 @@ export interface operations {
                     } & components["schemas"]["Problem"];
                 };
             };
+            /** @description server.busy */
+            503: {
+                headers: {
+                    /** @description Seconds to wait before retrying. */
+                    "Retry-After": string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 503;
+                        /** @enum {unknown} */
+                        code?: "server.busy";
+                    } & components["schemas"]["Problem"];
+                };
+            };
         };
     };
     listActiveProducts: {
@@ -3146,6 +3482,22 @@ export interface operations {
                         status?: 500;
                         /** @enum {unknown} */
                         code?: "server.internal";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description server.busy */
+            503: {
+                headers: {
+                    /** @description Seconds to wait before retrying. */
+                    "Retry-After": string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 503;
+                        /** @enum {unknown} */
+                        code?: "server.busy";
                     } & components["schemas"]["Problem"];
                 };
             };
@@ -3281,6 +3633,22 @@ export interface operations {
                     } & components["schemas"]["Problem"];
                 };
             };
+            /** @description server.busy */
+            503: {
+                headers: {
+                    /** @description Seconds to wait before retrying. */
+                    "Retry-After": string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 503;
+                        /** @enum {unknown} */
+                        code?: "server.busy";
+                    } & components["schemas"]["Problem"];
+                };
+            };
         };
     };
     getSetting: {
@@ -3413,6 +3781,22 @@ export interface operations {
                         status?: 500;
                         /** @enum {unknown} */
                         code?: "server.internal" | "settings.stored_value_invalid";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description server.busy */
+            503: {
+                headers: {
+                    /** @description Seconds to wait before retrying. */
+                    "Retry-After": string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 503;
+                        /** @enum {unknown} */
+                        code?: "server.busy";
                     } & components["schemas"]["Problem"];
                 };
             };
@@ -3616,6 +4000,22 @@ export interface operations {
                     } & components["schemas"]["Problem"];
                 };
             };
+            /** @description server.busy */
+            503: {
+                headers: {
+                    /** @description Seconds to wait before retrying. */
+                    "Retry-After": string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 503;
+                        /** @enum {unknown} */
+                        code?: "server.busy";
+                    } & components["schemas"]["Problem"];
+                };
+            };
         };
     };
     resetSetting: {
@@ -3782,6 +4182,22 @@ export interface operations {
                     } & components["schemas"]["Problem"];
                 };
             };
+            /** @description server.busy */
+            503: {
+                headers: {
+                    /** @description Seconds to wait before retrying. */
+                    "Retry-After": string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 503;
+                        /** @enum {unknown} */
+                        code?: "server.busy";
+                    } & components["schemas"]["Problem"];
+                };
+            };
         };
     };
     publicProfile: {
@@ -3847,6 +4263,22 @@ export interface operations {
                         status?: 500;
                         /** @enum {unknown} */
                         code?: "server.internal";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description server.busy */
+            503: {
+                headers: {
+                    /** @description Seconds to wait before retrying. */
+                    "Retry-After": string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 503;
+                        /** @enum {unknown} */
+                        code?: "server.busy";
                     } & components["schemas"]["Problem"];
                 };
             };
@@ -3950,6 +4382,22 @@ export interface operations {
                     } & components["schemas"]["Problem"];
                 };
             };
+            /** @description server.busy */
+            503: {
+                headers: {
+                    /** @description Seconds to wait before retrying. */
+                    "Retry-After": string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 503;
+                        /** @enum {unknown} */
+                        code?: "server.busy";
+                    } & components["schemas"]["Problem"];
+                };
+            };
         };
     };
     live: {
@@ -3984,6 +4432,22 @@ export interface operations {
                         status?: 500;
                         /** @enum {unknown} */
                         code?: "server.internal";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description server.busy */
+            503: {
+                headers: {
+                    /** @description Seconds to wait before retrying. */
+                    "Retry-After": string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 503;
+                        /** @enum {unknown} */
+                        code?: "server.busy";
                     } & components["schemas"]["Problem"];
                 };
             };
@@ -4024,9 +4488,11 @@ export interface operations {
                     } & components["schemas"]["Problem"];
                 };
             };
-            /** @description server.not_ready */
+            /** @description server.busy, server.not_ready */
             503: {
                 headers: {
+                    /** @description Seconds to wait before retrying. */
+                    "Retry-After": string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -4034,7 +4500,7 @@ export interface operations {
                         /** @constant */
                         status?: 503;
                         /** @enum {unknown} */
-                        code?: "server.not_ready";
+                        code?: "server.busy" | "server.not_ready";
                     } & components["schemas"]["Problem"];
                 };
             };
