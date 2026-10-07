@@ -142,7 +142,8 @@ beforeAll(async () => {
 
 afterAll(async () => {
   for (const p of Object.values(procs)) if (p && p.exitCode === null) p.kill('SIGKILL');
-  await h.close();
+  // Undefined when beforeAll stopped early (no build, no collector): report that, not a TypeError.
+  await (h as Harness | undefined)?.close();
 });
 
 describe('[OB12] compiled API and worker, separate processes, real collector', () => {
