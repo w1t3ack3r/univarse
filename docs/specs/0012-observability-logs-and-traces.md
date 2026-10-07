@@ -156,10 +156,15 @@ When something goes wrong in a deployed UniVarse, the first question is "what ha
   - **With the preload at 100 % sampling:** medians 128 and 97 ms.
 
   That's roughly +20–25 ms (about 20–25 %) per login with sampling at 100 %. Production's provisional 10 % sampling records fewer spans.
-- **Local E2E, A/B on the same machine and session:**
-  - **With the tracing preload:** two runs, 29 then 31 of 32 passed.
-  - **Without it:** 29 of 32.
-  - **The failures look the same either way:** a UI wait after an API call exceeding 5 s (sign-in, or an activation code request) on a loaded local machine, so they're environmental, not tracing. CI's E2E is the gate.
+- **Local E2E: unresolved.** The failures **also reproduced without tracing**. That doesn't establish an environmental cause, and it doesn't rule out an intermittent application bug. CI's E2E passed 32/32 on the merged commit. The failure output is kept here; investigation is tracked separately.
+
+  | Run (2026-10-07) | Result | Failing tests | Failure |
+  |---|---|---|---|
+  | With the tracing preload, 1 | 29/32, 8.4 min | desktop `auth.e2e.ts:35` login → workspace; desktop `auth.e2e.ts:54` [W6] gated item; desktop `settings.e2e.ts:50` [ST13] | `toHaveURL` timed out after 5 s, still on `/login` with the button at "Signing in…" (disabled) |
+  | With the tracing preload, 2 | 31/32, 7.2 min | mobile `flows.e2e.ts:31` [W11][W15] activation | the "Check your email" heading wasn't visible 5 s after "Email me a code" |
+  | Without the preload (A/B) | 29/32, 5.8 min | desktop `auth.e2e.ts:35`; desktop `settings.e2e.ts:50`; mobile `auth.e2e.ts:74` [W10][W5] recovery code | the same shape: a UI wait after an API call exceeded 5 s |
+
+  For comparison, an earlier clean local run took 4.1 min (32/32), and the compiled API's login measured 80–130 ms over `node:http`.
 - **Still open, owned by OB10–OB12:**
   - request → job propagation (outbox, file scans) and sampling preserved in the worker;
   - OB8's worker half (A/B rows in one pass);
@@ -172,6 +177,11 @@ When something goes wrong in a deployed UniVarse, the first question is "what ha
     - a 403 arrived after the client had retried.
 
     The fix is a 1.5 s default, so only scripted hangs time out. It's a test-margin issue, not a product bug.
+    - **Production is unchanged:** `providers.ts` still has a 3 s timeout and 2 attempts, and its diff is empty.
+    - **The tests still catch real retry bugs** after the wider margin. Each mutation of `providers.ts` fails them:
+      - no retry: fails "retries a timeout or a 5xx once" and "fails closed after the retry";
+      - 4xx retried: fails "never retries a 4xx";
+      - timeout not transient: fails both hang tests.
   - **Two default 5 s timeouts were too tight under load:** the domain property tests (6.6 s) and the api-client freshness check (16 s).
   - After the fixes, **four consecutive full parallel runs passed:** domain 41, api-client 14, crypto 14, API 150.
 - **Also fixed:** the error-messages source scan treated any `['x.y', '…` literal as a filter default and picked up `'db.statement'`. It now anchors on the `400: ['code', 'Title']` shape; all 8 defaults still match, and nothing in `tracing.ts` does.
