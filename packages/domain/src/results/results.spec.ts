@@ -180,7 +180,8 @@ describe('standing and classification', () => {
   });
 });
 
-describe('properties', () => {
+// Property tests are CPU-heavy: 6.6 s under a fully parallel turbo run (2026-10-07), past the 5 s default.
+describe('properties', { timeout: 30_000 }, () => {
   // Prior attempts in semesters 1–7, current in semester 8; unique (course, semester) pairs.
   const arbHistory = (seqMin: number, seqMax: number) =>
     fc

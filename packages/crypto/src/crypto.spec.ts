@@ -78,8 +78,14 @@ describe('[E2][E3] key providers', () => {
   });
 });
 
-/** A stand-in Transit endpoint that answers each request from a script of behaviours. */
-async function fakeVault(script: ('hang' | 500 | 403 | 'ok')[]) {
+/**
+ * A stand-in Transit endpoint that answers each request from a script of behaviours. `timeoutMs` is the
+ * client's per-attempt timeout, long enough that only a scripted 'hang' ever times out. At 200 ms, under a
+ * fully parallel turbo run (2026-10-07), timeouts fired for answered requests too: an "ok" retry timed out;
+ * a first attempt timed out before reaching the server (1 call seen, not 2); a 403 arrived after the client
+ * had already given up and retried. Each looked like a retry-logic failure; none was.
+ */
+async function fakeVault(script: ('hang' | 500 | 403 | 'ok')[], timeoutMs = 1_500) {
   let calls = 0;
   const server = createServer((req, res) => {
     const step = script[Math.min(calls++, script.length - 1)]!;
@@ -91,7 +97,7 @@ async function fakeVault(script: ('hang' | 500 | 403 | 'ok')[]) {
   });
   await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
   const { port } = server.address() as AddressInfo;
-  const provider = new VaultTransitProvider({ addr: `http://127.0.0.1:${port}`, token: 't', mount: 'transit', key: 'k', timeoutMs: 200, retryDelayMs: 1 });
+  const provider = new VaultTransitProvider({ addr: `http://127.0.0.1:${port}`, token: 't', mount: 'transit', key: 'k', timeoutMs, retryDelayMs: 1 });
   return { provider, calls: () => calls, close: () => {
       server.closeAllConnections(); // drops the hung sockets
       return new Promise((r) => server.close(r));

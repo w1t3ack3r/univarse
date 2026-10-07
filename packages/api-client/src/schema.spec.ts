@@ -11,5 +11,5 @@ describe('[OA9] generated types are fresh', () => {
     const ast = await openapiTS(JSON.parse(read('../openapi.json')) as Parameters<typeof openapiTS>[0]);
     const fresh = COMMENT_HEADER + astToString(ast);
     expect(read('./schema.ts').replace(/\r\n/g, '\n'), 'packages/api-client/src/schema.ts is stale: run pnpm contracts:gen').toBe(fresh);
-  });
+  }, 60_000); // ~1 s alone, but 16 s under a fully parallel turbo run (2026-10-07): the 5 s default was too tight
 });
