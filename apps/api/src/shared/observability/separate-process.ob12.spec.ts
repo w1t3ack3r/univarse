@@ -245,13 +245,20 @@ describe('[OB12] compiled API and worker, separate processes, real collector', (
     const rid = String(last.headers['x-request-id']);
     const t0 = Date.now();
     const exits = (['api', 'worker'] as const).map(
-      (n) => new Promise<{ n: string; code: number | null; ms: number }>((r) => procs[n]!.once('exit', (code) => r({ n, code, ms: Date.now() - t0 }))),
+      (n) =>
+        new Promise<{ n: string; code: number | null; signal: NodeJS.Signals | null; ms: number }>((r) =>
+          procs[n]!.once('exit', (code, signal) => r({ n, code, signal, ms: Date.now() - t0 })),
+        ),
     );
     for (const n of ['api', 'worker'] as const) procs[n]!.kill('SIGTERM');
     const done = await Promise.all(exits);
-    process.stdout.write(`[OB12] shutdown: ${done.map((d) => `${d.n} exit ${String(d.code)} in ${String(d.ms)} ms`).join(', ')}\n`);
+    process.stdout.write(`[OB12] shutdown: ${done.map((d) => `${d.n} exit ${String(d.code)} signal ${String(d.signal)} in ${String(d.ms)} ms`).join(', ')}\n`);
     for (const d of done) {
-      expect(d.code, d.n).toBe(0);
+      // The worker exits 0 itself. The API uses Nest's enableShutdownHooks: it closes the app (running the
+      // trace-flush hook) and then re-raises SIGTERM, so it ends BY the signal. Either is a clean shutdown; an
+      // unclean one (a crash, a non-zero code) is not. Whether the hooks really ran is decided below: spans
+      // that only the shutdown flush could have exported must arrive.
+      expect(d.code === 0 || (d.code === null && d.signal === 'SIGTERM'), `${d.n}: code ${String(d.code)}, signal ${String(d.signal)}`).toBe(true);
       expect(d.ms, d.n).toBeLessThan(SHUTDOWN_FLUSH_MS + 3_000);
     }
     await waitFor('the last request’s spans, flushed at shutdown', () => spans().find((s) => s.attributes['request.id'] === rid), 10_000);
