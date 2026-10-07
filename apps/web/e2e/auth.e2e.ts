@@ -4,7 +4,7 @@
  */
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
-import { cleanup, clearReplayGuard, currentTotp, hostUrl, makeUser, PASSWORD, randomClientIp } from './fixtures';
+import { animationsSettled, cleanup, clearReplayGuard, currentTotp, hostUrl, makeUser, PASSWORD, randomClientIp } from './fixtures';
 
 const DEMO = hostUrl('demo-uni');
 const POLY = hostUrl('test-poly');
@@ -28,6 +28,7 @@ async function signIn(page: Page, base: string, username: string, password = PAS
 const problemAlert = (page: Page) => page.locator('.uv-notice[role="alert"]');
 
 async function seriousA11yViolations(page: Page): Promise<string[]> {
+  await animationsSettled(page);
   const r = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21aa', 'wcag22aa']).analyze();
   return r.violations.filter((v) => v.impact === 'serious' || v.impact === 'critical').map((v) => `${v.id}: ${v.help}`);
 }

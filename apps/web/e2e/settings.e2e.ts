@@ -5,7 +5,7 @@
  */
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Browser, type Page } from '@playwright/test';
-import { cleanup, clearReplayGuardFor, currentTotp, hostUrl, makeUser, PASSWORD, randomClientIp, setProductEnabled } from './fixtures';
+import { animationsSettled, cleanup, clearReplayGuardFor, currentTotp, hostUrl, makeUser, PASSWORD, randomClientIp, setProductEnabled } from './fixtures';
 
 const DEMO = hostUrl('demo-uni');
 
@@ -15,6 +15,7 @@ test.afterAll(async () => {
 });
 
 async function seriousA11y(page: Page) {
+  await animationsSettled(page);
   const r = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21aa', 'wcag22aa']).analyze();
   return r.violations.filter((v) => v.impact === 'serious' || v.impact === 'critical').map((v) => `${v.id}: ${v.help}`);
 }

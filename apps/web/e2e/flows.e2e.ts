@@ -4,7 +4,7 @@
  */
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
-import { cleanup, clearReplayGuardFor, emailedCode, hostUrl, makeUser, PASSWORD, randomClientIp, totpFromKey } from './fixtures';
+import { animationsSettled, cleanup, clearReplayGuardFor, emailedCode, hostUrl, makeUser, PASSWORD, randomClientIp, totpFromKey } from './fixtures';
 
 const DEMO = hostUrl('demo-uni');
 const NEW_PASSWORD = 'Kola nut on a Tuesday 4';
@@ -18,6 +18,7 @@ test.afterAll(async () => {
 
 const notice = (page: Page) => page.locator('.uv-notice[role="alert"]');
 async function seriousA11y(page: Page) {
+  await animationsSettled(page);
   const r = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21aa', 'wcag22aa']).analyze();
   return r.violations.filter((v) => v.impact === 'serious' || v.impact === 'critical').map((v) => `${v.id}: ${v.help}`);
 }
