@@ -279,3 +279,32 @@ Alternatives considered: option — why not.
 - Behaviour differences between SeaweedFS and the production provider are caught by the contract tests, not assumed away.
 - Re-evaluate if SeaweedFS stops releasing. The S3 API keeps a swap cheap.
 
+## ADR-026 — Database connection pool: 10 connections, 2 s wait, and load shedding as 503 `server.busy`
+**Status:** Accepted (2026-10-07).
+
+**Context:**
+- Every tenant operation runs in a transaction (`ShardRegistry.forTenant` / `tx`, [07 §3.2](07-data-and-database.md)), and every authenticated request opens one for session authentication.
+- Each Prisma client uses pg's default pool of 10 connections, and Prisma's default 2 s wait for a transaction to get one. Neither was stated anywhere.
+- Under 24 concurrent requests with synchronous span export, the OB8 test (spec 0012) got 500s: P2028 raised from `AccessGuard` during session authentication.
+- We measured where P2028 starts, with and without tracing, and with a bigger pool and a longer wait. Figures in [10 §4.1](10-infrastructure-and-deployment.md).
+
+**Options:**
+
+| Option | Finding |
+|---|---|
+| Larger pool (20) | No more throughput. Failed sooner, from 16 concurrent, because new connections were opened under load inside the 2 s wait. Each extra connection per process costs every shard `replicas × Δmax` Postgres connections: 50 processes × 10 is already 500 per shard, past the default `max_connections` of 100 |
+| Longer `maxWait` (5 s) | No P2028 up to 128 concurrent, but p95 of 2–4 s at the same throughput, with requests piling up in memory. It hides overload instead of signalling it, and our read SLO is p95 < 300 ms ([14 §4](14-observability-and-operations.md)) |
+| Session authentication without an interactive transaction | About 70% of the P2028s came from the handler's single-operation (batch) transaction. The queue is per shard, shared by every transaction, so this would move the failures, not remove them. Authentication also has to read the session under the tenant's RLS context, which needs a transaction |
+| **Backpressure: a bounded wait, then shed with 503 + `Retry-After`** | The pool's FIFO queue with a 2 s deadline is already a bounded queue. What was wrong was the signal: a 500 and an "unhandled error" log for what is overload |
+
+**Decision:**
+- `packages/db/src/pool.ts` sets the pool size (`POOL_OPTIONS.max = 10`) and the transaction wait (`TRANSACTION_OPTIONS.maxWait = 2_000`) explicitly, for the platform client and every shard client.
+- `isConnectionUnavailable(err)` recognises two failures: the transaction wait expiring (P2028 "Unable to start a transaction in the given time"), and pg failing to open a connection within 5 s. Other P2028s, such as a transaction that outlived its timeout, stay 500s: those are bugs.
+- `ProblemFilter` answers those failures with **503 `server.busy`**, logs `db.connection_unavailable` at `warn` (not `http.unhandled_error`), and sends **`Retry-After: 2` on every 503**. The OpenAPI document lists 503 `server.busy` with a required `Retry-After` on every operation.
+- Capacity comes from API replicas and shard resources ([10 §6](10-infrastructure-and-deployment.md)), with PgBouncer multiplexing connections before staging (ADR-015). The `server.busy` rate is an alert ([14 §5](14-observability-and-operations.md)) and a scaling signal.
+
+**Consequences:**
+- Overload is visible as overload: retryable, alertable, and not mistaken for bugs. It still counts against the availability SLO, as it should.
+- One shard's pool is shared by every product in a process. Per-product connection budgets (ADR-020 bulkheads) stay planned work: per-role PgBouncer pools and runtime roles.
+- The web app shows `server.busy` as "unavailable" with its message. It doesn't retry by itself yet.
+- The local figures come from a CPU-starved laptop. Repeat the load test on staging hardware before pilot, and revisit `max` and `maxWait` only with such a measurement and an update to this ADR.

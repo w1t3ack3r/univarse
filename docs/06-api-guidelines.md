@@ -69,6 +69,7 @@ Content-Type: application/problem+json
 | 428 | Step-up authentication required (`code: auth.step_up_required`) |
 | 429 | Rate limited (`Retry-After`) |
 | 500/503 | Unexpected / dependency down. Never leak stack traces or SQL |
+| 503 `server.busy` | No database connection became free within the transaction wait (2 s): load shed, not a bug ([ADR-026](19-decision-log.md)). Every 503 carries `Retry-After`; a client may retry an idempotent request once after it |
 
 Every API response carries the request id in the `x-request-id` header, so a client can still show the support reference when the body is not problem+json.
 

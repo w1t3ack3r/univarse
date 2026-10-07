@@ -248,11 +248,13 @@ const responses = (o: Op) => (o as unknown as { responses: Record<string, Res> }
 const codesOf = (r: Res | undefined) => (r?.content?.['application/problem+json']?.schema.properties as { code?: { enum: string[] } } | undefined)?.code?.enum ?? [];
 
 describe('[OA4] every response, including every error', () => {
-  it('[OA4] each operation documents exactly one success status, and 500 server.internal', () => {
+  it('[OA4] each operation documents exactly one success status, 500 server.internal, and 503 server.busy with Retry-After', () => {
     for (const { op } of ops) {
       const statuses = Object.keys(responses(op)).map(Number);
       expect(statuses.filter((s) => s < 300), op.operationId).toHaveLength(1);
       expect(codesOf(responses(op)['500']), op.operationId).toContain('server.internal');
+      expect(codesOf(responses(op)['503']), op.operationId).toContain('server.busy'); // ADR-026
+      expect(responses(op)['503']?.headers?.['Retry-After']?.required, op.operationId).toBe(true);
     }
   });
 
