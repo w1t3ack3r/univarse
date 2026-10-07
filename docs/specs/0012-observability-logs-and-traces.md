@@ -157,12 +157,6 @@ When something goes wrong in a deployed UniVarse, the first question is "what ha
   - **With the preload at 100 % sampling:** medians 128 and 97 ms.
 
   That's roughly +20–25 ms (about 20–25 %) per login with sampling at 100 %. Production's provisional 10 % sampling records fewer spans.
-- **D3 performance evidence, under load (2026-10-07, DB pool investigation, ADR-026):**
-  - **The machine:** these are measurements from the **memory-starved development laptop** (8 GB RAM, already at 100 % CPU with under 1 GB free before the run). They are not production throughput figures.
-  - **The load:** authenticated `GET /api/v1/files` against the compiled API, with pool 10 and a 2 s wait.
-  - **The result:** with tracing at 100 %, throughput was roughly half (10–45 vs 32–70 req/s), and pool-wait failures started 2–4× sooner (at 32–64 concurrent instead of 128 or never).
-  - **What it supports:** revisiting the sampling ratio, and re-measuring on staging hardware (ADR-026).
-  - **What it doesn't establish:** production throughput, or how much of the cost 10 % sampling would recover.
 - **Local E2E: cause measured; a clean local run is pending.** The failures **also reproduced without tracing**. They stay open until a local run passes 32/32. CI's E2E passed 32/32 on the merged commit. The failure output below is kept as-is.
   - **The cause measured (2026-10-07, a separate investigation):**
     - **Memory:** the laptop's memory was 96–97 % used, with 2,300–3,100 pages a second read back from disk. CPU was at or above 95 % in 99 % of samples.
