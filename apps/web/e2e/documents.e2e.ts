@@ -5,7 +5,7 @@
 import { createHash, randomBytes } from 'node:crypto';
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
-import { cleanup, hostUrl, makeUser, PASSWORD, randomClientIp } from './fixtures';
+import { animationsSettled, cleanup, hostUrl, makeUser, PASSWORD, randomClientIp } from './fixtures';
 
 const DEMO = hostUrl('demo-uni');
 const MARKER = ['UNIVARSE', 'CLAMAV', 'TEST', 'MARKER', '7d41c2e9a05b'].join('-');
@@ -18,6 +18,7 @@ test.afterAll(async () => {
 });
 
 async function seriousA11y(page: Page) {
+  await animationsSettled(page);
   const r = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21aa', 'wcag22aa']).analyze();
   return r.violations.filter((v) => v.impact === 'serious' || v.impact === 'critical').map((v) => `${v.id}: ${v.help}`);
 }
