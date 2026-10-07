@@ -35,6 +35,28 @@ export const EXPORT_BOUNDS = {
 } as const;
 export type ExportBounds = { readonly [K in keyof typeof EXPORT_BOUNDS]: number };
 export const SHUTDOWN_FLUSH_MS = 5_000;
+
+/**
+ * The standard OpenTelemetry `OTEL_BSP_*` variables, each overriding one bound when it is a positive integer.
+ * Production sets none of them, so EXPORT_BOUNDS applies. The OB12 shutdown test sets a delay longer than the
+ * test, so only the shutdown flush can export. (Explicit config makes the SDK ignore these variables; this
+ * reads them for it, validated.)
+ */
+export function exportBoundsFromEnv(env: Record<string, string | undefined>): ExportBounds {
+  const pick = (key: string, fallback: number) => {
+    const raw = env[key];
+    const n = raw === undefined ? Number.NaN : Number(raw);
+    return Number.isSafeInteger(n) && n > 0 ? n : fallback;
+  };
+  const maxQueueSize = pick('OTEL_BSP_MAX_QUEUE_SIZE', EXPORT_BOUNDS.maxQueueSize);
+  return {
+    maxQueueSize,
+    // A batch can't be larger than the queue (the SDK would cap it anyway).
+    maxExportBatchSize: Math.min(pick('OTEL_BSP_MAX_EXPORT_BATCH_SIZE', EXPORT_BOUNDS.maxExportBatchSize), maxQueueSize),
+    scheduledDelayMillis: pick('OTEL_BSP_SCHEDULE_DELAY', EXPORT_BOUNDS.scheduledDelayMillis),
+    exportTimeoutMillis: pick('OTEL_BSP_EXPORT_TIMEOUT', EXPORT_BOUNDS.exportTimeoutMillis),
+  };
+}
 /** OB11: at most one `otel.export_degraded` warning per window, carrying the counts since the last one. */
 export const EXPORT_WARN_EVERY_MS = 60_000;
 

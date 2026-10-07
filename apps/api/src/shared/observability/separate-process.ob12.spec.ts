@@ -27,11 +27,11 @@ let offset = 0;
 const procs: Record<'api' | 'worker', ChildProcess | undefined> = { api: undefined, worker: undefined };
 const output: Record<'api' | 'worker', string> = { api: '', worker: '' };
 
-function start(name: 'api' | 'worker'): void {
+function start(name: 'api' | 'worker', extra: Record<string, string> = {}): void {
   const env = Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith('OTEL_')));
   const p = spawn(process.execPath, ['--import', './dist/otel.js', `dist/${name === 'api' ? 'main' : 'worker'}.js`], {
     cwd: API_DIR,
-    env: { ...env, NODE_ENV: 'development', LOG_LEVEL: 'warn', OTEL_EXPORTER_OTLP_ENDPOINT: ENDPOINT, PORT: String(PORT), WORKER_POLL_MS: '200', FILE_SCAN_INTERVAL_MS: '250' },
+    env: { ...env, NODE_ENV: 'development', LOG_LEVEL: 'warn', OTEL_EXPORTER_OTLP_ENDPOINT: ENDPOINT, PORT: String(PORT), WORKER_POLL_MS: '200', FILE_SCAN_INTERVAL_MS: '250', ...extra },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   p.stdout.on('data', (d: Buffer) => (output[name] += d.toString()));
@@ -238,29 +238,68 @@ describe('[OB12] compiled API and worker, separate processes, real collector', (
     process.stdout.write(`\n[OB12] collector spans: ${String(all.length)} (api ${String(all.filter((s) => s.service === 'api').length)}, worker ${String(all.filter((s) => s.service === 'worker').length)})\n`);
   });
 
-  it.skipIf(process.platform === 'win32')('[OB11][OB12] SIGTERM: both exit cleanly within the flush deadline, exporting spans that ended just before', async () => {
-    // Ended < 2 s (the batch delay) before SIGTERM: only the shutdown flush can export it.
-    const last = await call('GET', '/api/v1/tenant/public-profile');
-    expect(last.status).toBe(200);
-    const rid = String(last.headers['x-request-id']);
-    const t0 = Date.now();
-    const exits = (['api', 'worker'] as const).map(
-      (n) =>
-        new Promise<{ n: string; code: number | null; signal: NodeJS.Signals | null; ms: number }>((r) =>
-          procs[n]!.once('exit', (code, signal) => r({ n, code, signal, ms: Date.now() - t0 })),
-        ),
-    );
-    for (const n of ['api', 'worker'] as const) procs[n]!.kill('SIGTERM');
-    const done = await Promise.all(exits);
-    process.stdout.write(`[OB12] shutdown: ${done.map((d) => `${d.n} exit ${String(d.code)} signal ${String(d.signal)} in ${String(d.ms)} ms`).join(', ')}\n`);
-    for (const d of done) {
-      // The worker exits 0 itself. The API uses Nest's enableShutdownHooks: it closes the app (running the
-      // trace-flush hook) and then re-raises SIGTERM, so it ends BY the signal. Either is a clean shutdown; an
-      // unclean one (a crash, a non-zero code) is not. Whether the hooks really ran is decided below: spans
-      // that only the shutdown flush could have exported must arrive.
-      expect(d.code === 0 || (d.code === null && d.signal === 'SIGTERM'), `${d.n}: code ${String(d.code)}, signal ${String(d.signal)}`).toBe(true);
-      expect(d.ms, d.n).toBeLessThan(SHUTDOWN_FLUSH_MS + 3_000);
-    }
-    await waitFor('the last request’s spans, flushed at shutdown', () => spans().find((s) => s.attributes['request.id'] === rid), 10_000);
-  }, 30_000);
+  it.skipIf(process.platform === 'win32')(
+    '[OB11][OB12] SIGTERM: known API and worker spans that the timer could not have exported arrive only through the shutdown flush, within its deadline',
+    async () => {
+      // A fresh pair whose batch timer can't fire during the test, and whose batches never fill: from now on
+      // ONLY the shutdown flush can export. Production sets none of these (EXPORT_BOUNDS apply).
+      for (const n of ['api', 'worker'] as const) {
+        const p = procs[n]!;
+        if (p.exitCode === null && p.signalCode === null) {
+          const gone = new Promise((r) => p.once('exit', r));
+          p.kill('SIGKILL');
+          await gone;
+        }
+      }
+      const longDelay = { OTEL_BSP_SCHEDULE_DELAY: '600000', OTEL_BSP_MAX_EXPORT_BATCH_SIZE: '50000', OTEL_BSP_MAX_QUEUE_SIZE: '100000' };
+      start('api', longDelay);
+      start('worker', longDelay);
+      await waitFor('the long-delay API', async () => (await call('GET', '/health/live')).status === 200 || undefined);
+
+      // Known spans in both processes: a reset request (api) whose email the worker delivers (worker).
+      const u = await h.makeUser('demo', { role: 'STUDENT' });
+      const db = (await import('@univarse/db')).forTenant(h.shard, h.tenants.demo);
+      const reset = await call('POST', '/api/v1/auth/password-reset/request', { body: { username: u.username } });
+      expect(reset.status).toBe(202);
+      const rid = String(reset.headers['x-request-id']);
+      const row = await waitFor('the long-delay worker to deliver', async () => {
+        const r = await db.outboxEvent.findFirst({ where: { traceparent: { not: null } }, orderBy: { occurredAt: 'desc' } });
+        return r?.status === 'SENT' && r.traceparent?.split('-')[1] ? r : undefined;
+      });
+      const traceId = row.traceparent!.split('-')[1];
+      const apiSpan = () => spans().find((s) => s.attributes['request.id'] === rid);
+      const workerSpan = () => spans().find((s) => s.name === 'outbox.deliver' && s.traceId === traceId);
+
+      // Longer than production's 2 s timer plus the collector's own 0.5 s batching and file flush: had the
+      // timer been running, these spans would be in the file by now. They must not be.
+      await new Promise((r) => setTimeout(r, 4_000));
+      expect(apiSpan(), 'API span exported before SIGTERM').toBeUndefined();
+      expect(workerSpan(), 'worker span exported before SIGTERM').toBeUndefined();
+
+      const t0 = Date.now();
+      const exits = (['api', 'worker'] as const).map(
+        (n) =>
+          new Promise<{ n: string; code: number | null; signal: NodeJS.Signals | null; ms: number }>((r) =>
+            procs[n]!.once('exit', (code, signal) => r({ n, code, signal, ms: Date.now() - t0 })),
+          ),
+      );
+      for (const n of ['api', 'worker'] as const) procs[n]!.kill('SIGTERM');
+      const done = await Promise.all(exits);
+      for (const d of done) {
+        // The worker exits 0 itself. The API uses Nest's enableShutdownHooks: it closes the app (running the
+        // trace-flush hook) and then re-raises SIGTERM, so it ends BY the signal. Both are clean shutdowns.
+        expect(d.code === 0 || (d.code === null && d.signal === 'SIGTERM'), `${d.n}: code ${String(d.code)}, signal ${String(d.signal)}`).toBe(true);
+        expect(d.ms, `${d.n} exit time`).toBeLessThanOrEqual(SHUTDOWN_FLUSH_MS);
+      }
+      // Both processes have exited: whatever arrives now was sent by their shutdown flush. Allow the
+      // collector's own 0.5 s batch + 0.5 s file flush on top of the process deadline.
+      const a = await waitFor('the API span, sent by the shutdown flush', apiSpan, SHUTDOWN_FLUSH_MS + 1_500);
+      const w = await waitFor('the worker span, sent by the shutdown flush', workerSpan, SHUTDOWN_FLUSH_MS + 1_500);
+      const arrived = Date.now() - t0;
+      expect([a.service, w.service]).toEqual(['api', 'worker']);
+      process.stdout.write(`[OB12] shutdown: ${done.map((d) => `${d.n} exit ${String(d.code)} signal ${String(d.signal)} in ${String(d.ms)} ms`).join(', ')}; both known spans at the collector ${String(arrived)} ms after SIGTERM (none before it)
+`);
+    },
+    60_000,
+  );
 });

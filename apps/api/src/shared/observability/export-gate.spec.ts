@@ -92,3 +92,22 @@ describe('[OB11] the export gate', () => {
     expect(gate.stats.queued).toBe(0);
   });
 });
+
+describe('[OB11] export bounds from the standard OTEL_BSP_* variables', () => {
+  it('[OB11] unset (production): exactly EXPORT_BOUNDS', async () => {
+    const { EXPORT_BOUNDS, exportBoundsFromEnv } = await import('./tracing.js');
+    expect(exportBoundsFromEnv({})).toEqual(EXPORT_BOUNDS);
+  });
+
+  it('[OB11] positive integers override one bound each; anything else is ignored; a batch never exceeds the queue', async () => {
+    const { EXPORT_BOUNDS, exportBoundsFromEnv } = await import('./tracing.js');
+    expect(exportBoundsFromEnv({ OTEL_BSP_SCHEDULE_DELAY: '600000', OTEL_BSP_MAX_EXPORT_BATCH_SIZE: '50000', OTEL_BSP_MAX_QUEUE_SIZE: '100000' })).toEqual({
+      ...EXPORT_BOUNDS,
+      scheduledDelayMillis: 600_000,
+      maxExportBatchSize: 50_000,
+      maxQueueSize: 100_000,
+    });
+    for (const bad of ['', '0', '-5', '1.5', 'abc', '1e400']) expect(exportBoundsFromEnv({ OTEL_BSP_SCHEDULE_DELAY: bad }), bad).toEqual(EXPORT_BOUNDS);
+    expect(exportBoundsFromEnv({ OTEL_BSP_MAX_EXPORT_BATCH_SIZE: '9999' }).maxExportBatchSize).toBe(EXPORT_BOUNDS.maxQueueSize);
+  });
+});

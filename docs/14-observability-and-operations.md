@@ -24,7 +24,7 @@
   - 100 % in dev and CI; a provisional 10 % in production (`OTEL_TRACES_SAMPLER_ARG`).
   - Children follow their parent. A linked scan is sampled exactly when its upload was, and a delivery follows its request's decision.
   - **Logs are never sampled.**
-- **When the collector fails (OB11):** the export queue is bounded at 2,048 spans. Overflow is dropped and counted, export failures are counted, and both are reported as one `warn` (`otel.export_degraded`) at most once a minute. Shutdown flushes for at most 5 s. Requests and jobs never wait on export.
+- **When the collector fails (OB11):** the export queue is bounded at 2,048 spans. Overflow is dropped and counted, export failures are counted, and both are reported as one `warn` (`otel.export_degraded`) at most once a minute. Shutdown flushes for at most 5 s. Requests and jobs never wait on export. The standard `OTEL_BSP_*` variables (schedule delay, batch size, queue size, export timeout) override these bounds when set to positive integers. Production sets none of them; the OB12 shutdown test uses them to switch the timer off.
 - **Locally:** `pnpm dev:traces` starts the collector (file output); `pnpm dev:traces:jaeger` adds Jaeger's UI ([10 §4](10-infrastructure-and-deployment.md)).
 
 ## 2. Logging standards
