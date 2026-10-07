@@ -6,6 +6,7 @@ import { FieldCrypto } from '@univarse/crypto';
 import type { TenantTx } from '@univarse/db';
 import { randomUUID } from 'node:crypto';
 import type { OutboundEmail } from '../infra/mailer.js';
+import { currentTraceparent } from '../observability/propagation.js';
 
 export const EMAIL_EVENT = 'email.send';
 
@@ -21,7 +22,15 @@ export class Outbox {
     const id = randomUUID();
     const plaintext = Buffer.from(JSON.stringify({ to: mail.to, subject: mail.subject, text: mail.text }), 'utf8');
     await tx.outboxEvent.create({
-      data: { id, tenantId, type: EMAIL_EVENT, product, payloadEnc: await this.fieldCrypto.encrypt(tenantId, plaintext, outboxAad(tenantId, id)) },
+      data: {
+        id,
+        tenantId,
+        type: EMAIL_EVENT,
+        product,
+        payloadEnc: await this.fieldCrypto.encrypt(tenantId, plaintext, outboxAad(tenantId, id)),
+        // Spec 0012 OB10: the request's trace context, so the delivery joins its trace (null if tracing is off).
+        traceparent: currentTraceparent(),
+      },
     });
     return id;
   }

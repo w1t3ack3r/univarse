@@ -188,6 +188,53 @@ When something goes wrong in a deployed UniVarse, the first question is "what ha
 - **Counts:** API unit 150; API integration 334 passed, 1 skipped.
 - **Status:** spec 0012 remains **in progress** until the propagation and collector evidence lands.
 
+### Request → worker propagation (OB10; OB8's worker half) (2026-10-07)
+- **Schema:** migration `20261007120000_trace_context` adds nullable `traceparent TEXT` (with a CHECK of at most 128 chars) to `outbox_event` and `file_object`. It's expand-only: no backfill, and old rows stay null. `rls:check` passes (14 tables). The app role gets no new UPDATE grant on `outbox_event.traceparent`, so the value is written once, on insert.
+- **Writes, in the business transaction:**
+  - `Outbox.enqueueEmail` writes `traceparent: currentTraceparent()` with the row;
+  - `FilesService.complete` writes it in the same update that sets `UPLOADED`.
+  - With tracing off there's no valid span, and the value is null.
+- **The format is W3C itself, not the global propagator** (`propagation.ts`), so what's stored or read never depends on what's registered. Unit tests (`propagation.spec.ts`) caught this when the registry was empty.
+- **Outbox:** `outbox.deliver` is a `CONSUMER` span whose parent is the stored context, so request → delivery → send is one trace. It carries `tenant.id`, the event id and type, and the outcome. Null or malformed values give a fresh root, and a malformed one warns `outbox.traceparent_malformed` once per row, without logging the value.
+- **File scans:** `files.scan` is a new root with a **link** to the stored context. `LinkAwareSampler` (wrapping `ParentBased(TraceIdRatio)`) samples a parentless, linked span exactly when its link was sampled. A malformed value gives an unlinked root and `files.scan.traceparent_malformed` once.
+- **Pass spans:** `outbox.pass`, `files.scan.pass` and `keys.sweep.pass` carry `univarse.claimed`.
+  - **Idle passes still emit a span (a deliberate choice).** Without it, each pass's claim queries would become their own root traces from the pg and Prisma instrumentations, so skipping idle passes would add noise, not remove it.
+  - **Volume:** at most one root per loop per `WORKER_POLL_MS`, sampled at the root ratio (10% in production).
+  - Revisit with metrics, which are out of scope here.
+- **Bug found by the OB8 worker test, and fixed:**
+  - **The bug:** the per-tenant `withLogContext` inside a pass tagged the *pass* span with `tenant.id`, and the last tenant won.
+  - **The fix:** per-tenant contexts in a pass now pass `span: undefined`, and only the row spans carry a tenant.
+- **Tests:**
+  - **`propagation.spec.ts` (4, unit):**
+    - null, valid and malformed stored values, including all-zero ids and over-long input;
+    - links only for valid values;
+    - the sampler follows a link either way and defers otherwise.
+  - **`propagation.int.spec.ts` (8, real API and worker modules in process):**
+    - **OB10 outbox, child span:** a reset request's row stores its `traceparent`. `outbox.deliver` is a CONSUMER child whose parent is the stored span and whose ancestry reaches the request root. The send runs inside that span with the tenant's log context.
+    - **OB10 outbox, unsampled:** an unsampled request (`-00`) stores `-00`; the email is sent; no span of that trace and no delivery span is exported.
+    - **OB10 outbox, old and malformed rows:** null and malformed rows both deliver under parentless roots, with exactly one warning that names the row, not the value.
+    - **OB10 outbox, pass span:** `outbox.pass` is a root, with its claim work beneath it.
+    - **OB8 worker half:** reset requests for tenants A, B, A, B, then **one** `runOnce()`. Every send ran under its own tenant's log context and its own request's trace (4 distinct traces), and the pass carries no tenant.
+    - **OB10 scan, linked root:** complete stores its `traceparent`. `files.scan` is a parentless root in a new trace, linked to exactly that span, with `tenant.id` and outcome `clean`.
+    - **OB10 scan, unsampled:** an unsampled upload leaves no `files.scan` span exported, and the file is still `CLEAN`.
+    - **OB10 scan, malformed:** an unlinked root, one warning, and the file is still `CLEAN`.
+- **Mutation checks:** each mutation was applied alone and the int file re-run; every one failed it.
+
+  | Mutation | Failing tests |
+  |---|---|
+  | M1 enqueue writes no `traceparent` | 4/8 |
+  | M2 delivery ignores the stored parent | 4/8 |
+  | M3 `LinkAwareSampler` removed | 4/8 |
+  | M4 scan parented instead of linked | 5/8 |
+  | M5 pass span tagged per tenant (the bug above) | 3/8 |
+  | M6 no per-row log context | 4/8 |
+  | M7 complete writes no `traceparent` | 4/8 |
+  | M8 malformed value not warned | 1/8 |
+- **Counts (local, 2026-10-07):** API unit 154 (150 + 4); API integration 342 passed, 1 skipped (334 + 8). Lint and typecheck are clean. CI counts are recorded with the PR.
+- **Not yet covered:**
+  - OB11 (unavailable and stalled collector; shutdown flush);
+  - OB12 (separate compiled processes against a real collector in CI). In-process tests share one provider, so they can't show the API → worker hop across processes; OB12 does.
+
 ## Out of scope (tracked)
 | Gap | Milestone |
 |---|---|

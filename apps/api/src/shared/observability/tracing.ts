@@ -22,6 +22,7 @@ import { ATTR_SERVICE_NAME, ATTR_SERVICE_VERSION } from '@opentelemetry/semantic
 import { FastifyOtelInstrumentation } from '@fastify/otel';
 import { PrismaInstrumentation } from '@prisma/instrumentation';
 import { setActiveSpanIdsProvider } from './logger.js';
+import { LinkAwareSampler } from './propagation.js';
 import { scrub, scrubForeign } from './scrub.js';
 
 /** OB11: the batch processor's bounds, and how long shutdown may spend flushing. */
@@ -148,7 +149,8 @@ export function startTracing(opts: TracingOptions): Tracing {
 
   const provider = new NodeTracerProvider({
     resource: resourceFromAttributes({ [ATTR_SERVICE_NAME]: opts.service, [ATTR_SERVICE_VERSION]: opts.version, 'deployment.environment.name': opts.env }),
-    sampler: new ParentBasedSampler({ root: new TraceIdRatioBasedSampler(opts.ratio) }),
+    // D3: parent-based with a ratio at the root; a linked root (a file scan) follows its link (OB10).
+    sampler: new LinkAwareSampler(new ParentBasedSampler({ root: new TraceIdRatioBasedSampler(opts.ratio) })),
     spanProcessors: processors,
   });
   // OB8: W3C trace context only. Baggage isn't propagated or read: it can't carry tenant or identity.

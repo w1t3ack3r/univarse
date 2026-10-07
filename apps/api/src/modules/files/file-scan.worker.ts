@@ -1,3 +1,6 @@
+import { context, ROOT_CONTEXT } from '@opentelemetry/api';
+import { linkTo, storedContext } from '../../shared/observability/propagation.js';
+import { MalformedOnce, withSpan } from '../../shared/observability/worker-spans.js';
 import { withLogContext } from '../../shared/observability/context.js';
 import { securityFields } from '../../shared/observability/security.js';
 // Spec 0010: the scanning worker (FU3, FU4, FU7, FU13, FU15, FU16) and cleanup. Runs in the worker
@@ -32,6 +35,7 @@ interface Claimed {
   size_bytes: bigint;
   scan_attempts: number;
   lease_token: string;
+  traceparent: string | null;
 }
 
 export type ScanOutcome = 'clean' | 'infected' | 'rejected' | 'retry' | 'failed' | 'lost';
@@ -43,6 +47,7 @@ interface TenantRef {
 
 @Injectable()
 export class FileScanWorker {
+  private readonly malformed = new MalformedOnce();
   private readonly logger = new Logger('FileScan');
   private timer: NodeJS.Timeout | null = null;
   private running: Promise<unknown> | null = null;
@@ -60,12 +65,21 @@ export class FileScanWorker {
   ) {}
 
   async runOnce(): Promise<Record<ScanOutcome, number>> {
+    return withSpan('files.scan.pass', {}, context.active(), async (span) => {
+      const total = await this.runPass();
+      span.setAttribute('univarse.claimed', Object.values(total).reduce((a, b) => a + b, 0));
+      return total;
+    });
+  }
+
+  private async runPass(): Promise<Record<ScanOutcome, number>> {
     const total: Record<ScanOutcome, number> = { clean: 0, infected: 0, rejected: 0, retry: 0, failed: 0, lost: 0 };
     const tenants = await this.platform.tenant.findMany({ where: { status: { in: [...SERVABLE] } }, select: { id: true, shardId: true } });
     for (const t of tenants) {
       try {
         // Spec 0012 OB2: lines from anything this tenant's pass calls carry its tenantId.
-        await withLogContext({ tenantId: t.id }, async () => {
+        // `span: undefined`: the pass spans every tenant, so it must not be tagged with one (OB8).
+        await withLogContext({ tenantId: t.id, span: undefined }, async () => {
           await this.cleanup(t);
           for (const o of await this.scanTenant(t)) total[o]++;
         });
@@ -90,11 +104,29 @@ export class FileScanWorker {
               OR (state = 'SCANNING' AND lease_until < now()))
           ORDER BY next_scan_at NULLS FIRST, id
           LIMIT ${SCAN_BATCH} FOR UPDATE SKIP LOCKED)
-        RETURNING id::text, quarantine_key, mime, size_bytes, scan_attempts, lease_token::text`,
+        RETURNING id::text, quarantine_key, mime, size_bytes, scan_attempts, lease_token::text, traceparent`,
     );
     const outcomes: ScanOutcome[] = [];
-    for (const f of claimed) outcomes.push(await this.scanOne(t, f));
+    for (const f of claimed) outcomes.push(await this.scanTraced(t, f));
     return outcomes;
+  }
+
+  /**
+   * Spec 0012 OB10: a scan is its own unit of work, so it's a NEW trace with a LINK to the upload that
+   * completed it; it's sampled exactly when that upload was (LinkAwareSampler). No context: a fresh root.
+   */
+  private scanTraced(t: TenantRef, f: Claimed): Promise<ScanOutcome> {
+    const stored = storedContext(f.traceparent);
+    if (stored.kind === 'malformed' && this.malformed.first(f.id)) {
+      this.logger.warn({ event: 'files.scan.traceparent_malformed', tenantId: t.id, fileId: f.id }, 'Stored trace context is malformed; scanning under a new trace');
+    }
+    return withSpan('files.scan', { root: true, links: linkTo(stored), attributes: { 'univarse.file.id': f.id } }, ROOT_CONTEXT, (span) =>
+      withLogContext({ tenantId: t.id }, async () => {
+        const outcome = await this.scanOne(t, f);
+        span.setAttribute('univarse.scan.outcome', outcome);
+        return outcome;
+      }),
+    );
   }
 
   private async scanOne(t: TenantRef, f: Claimed): Promise<ScanOutcome> {
