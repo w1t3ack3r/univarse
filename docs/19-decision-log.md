@@ -342,3 +342,41 @@ Alternatives considered: option — why not.
 **Alternatives considered:**
 - **All scopes now:** there are no resources to check against, so this would add untestable code.
 - **Deferring `PolicyService` too:** its absence doesn't depend on missing academic entities, and centralising now keeps every later scope in one place.
+
+## ADR-029 — Container images: private GHCR, keyless signing pinned to the `main` workflow, and zero HIGH/CRITICAL findings
+**Status:** Accepted (2026-10-11, owner decision). Implements [spec 0013](specs/0013-container-images-scan-sign.md) D1, D2 and D4.
+
+**Context:**
+- Phase 0's exit asks for signed images with no high or critical findings.
+- Staging is deferred (ADR-024), so there's no deployment registry yet.
+- The repository is public; images may later contain unreleased code.
+- docs/13 rules out long-lived CI keys.
+
+**Decision:**
+- **Registry (D1):** GitHub Container Registry, **private packages initially**.
+  - Images are pushed only from `push` to `main`, with the workflow's `GITHUB_TOKEN`, so there's no new account or long-lived credential.
+  - Visibility changes are the owner's action.
+  - Retention keeps the newest 20 eligible unused versions per image, protecting deployed and rollback versions and their signatures and attestations. Nothing is deleted until deployments exist.
+- **Signing (D2):**
+  - **Signature:** cosign keyless, using the workflow's OIDC token.
+  - **Attestations:** SLSA provenance and the SPDX SBOM, as GitHub artifact attestations.
+  - **Verification** accepts only certificate identity `https://github.com/w1t3ack3r/univarse/.github/workflows/ci.yml@refs/heads/main` with issuer `https://token.actions.githubusercontent.com`, and checks both attestations. Any other valid signature is rejected.
+  - **What gets signed:** only the digest of the exact image that passed tests and scans. It's never rebuilt.
+- **Findings (D4):**
+  - **Any HIGH or CRITICAL vulnerability blocks publication, whether or not a fix exists.** Trivy's `ignore-unfixed` isn't used, and a policy check forbids it.
+  - **Secrets:** any secret finding blocks, with coverage that includes `node_modules` and the image's configuration and history.
+  - **Misconfiguration:** HIGH and CRITICAL block.
+  - **Exceptions** name the finding and package (or path and rule), with evidence, an owner and an expiry of at most 30 days.
+  - **Visibility:** while any exception is active, the risk stays listed and the roadmap's "0 high/critical findings" exit **can't be claimed**.
+  - **Fail closed:** a scanner or database failure blocks publication.
+
+**Consequences:**
+- **Evidence:** every published image can be traced to one `main` workflow run and verified offline against the public Sigstore log. That log records the repository, workflow, ref and digest, which reveals nothing new for a public repository.
+- **Access:** private packages need a registry login (read) to pull or verify.
+- **Blocking cost:** an unfixed upstream HIGH/CRITICAL blocks publication until it's fixed, removed or excepted with evidence. That's deliberate.
+
+**Alternatives considered:**
+- **No registry until staging:** nothing to attach signatures to, so the exit criterion can't be met.
+- **Public packages from the start:** a visibility choice the owner hasn't made.
+- **Signing with a long-lived key:** a secret to store and rotate, against docs/13.
+- **Failing only on fixable findings:** hides unfixed risk, contrary to the owner's D4.
