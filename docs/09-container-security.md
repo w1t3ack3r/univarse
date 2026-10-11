@@ -12,7 +12,7 @@ Scope: everything from `package.json` to a running pod — dependencies, images,
 |---------|----------------|
 | Reproducible installs | `pnpm install --frozen-lockfile` everywhere (CI, Docker). Lockfile committed and reviewed |
 | Delay fresh releases | `.npmrc` / `pnpm-workspace.yaml`: `minimumReleaseAge: 4320` (3 days). New versions are unusable until they've been public for 72h, which defends against worm/hijack incidents that are usually caught within hours |
-| Block install scripts | pnpm `onlyBuiltDependencies` allowlist (e.g. `prisma`, `@prisma/engines`, `argon2`, `esbuild`). Every other package's lifecycle scripts are disabled |
+| Block install scripts | pnpm `onlyBuiltDependencies` allowlist (e.g. `prisma`, `@prisma/engines`, `esbuild`). Password hashing uses Node's built-in `crypto.argon2()` ([ADR-016](19-decision-log.md)), not the native `argon2` package. Every other package's lifecycle scripts are disabled |
 | Vulnerability scanning | `osv-scanner` + `pnpm audit --prod` in CI. Fail on **critical/high with a fix available**. Anything else goes to a tracked backlog with an expiry |
 | Update hygiene | Renovate: weekly batched updates, grouped by ecosystem, auto-merge **patch** updates of dev-deps only after CI passes. Majors need a manual PR |
 | Minimise dependencies | New runtime dependency = justify in the PR (maintenance, downloads, maintainers, license). Prefer the platform/stdlib |
@@ -24,7 +24,7 @@ Scope: everything from `package.json` to a running pod — dependencies, images,
 
 ### 2.1 Rules (MUST)
 1. **Multi-stage builds.** Build tools, dev dependencies and source never reach the runtime stage.
-2. **Minimal runtime base:** distroless Node (`gcr.io/distroless/nodejs24-debian12` or the current Debian-based equivalent) or Chainguard/Wolfi `node`. No shell or package manager in runtime images.
+2. **Minimal runtime base:** distroless Node (`gcr.io/distroless/nodejs24-debian13:nonroot`, the maintained supported listing; Debian 12 is superseded) or Chainguard/Wolfi `node`. No shell or package manager in runtime images.
 3. **Pin base images by digest** (`@sha256:…`). Renovate updates the digests.
 4. **Run as non-root** (UID/GID 65532 or `nonroot`), with numeric UID so Kubernetes `runAsNonRoot` can verify it.
 5. **No secrets in build args, layers or the final image.** Use BuildKit `--mount=type=secret` if a build needs a secret (it shouldn't).
@@ -37,8 +37,9 @@ Scope: everything from `package.json` to a running pod — dependencies, images,
 ### 2.2 Reference Dockerfile (`infra/docker/api.Dockerfile`)
 ```dockerfile
 # syntax=docker/dockerfile:1.10
-ARG NODE_IMAGE=node:24-bookworm-slim@sha256:<pinned>
-ARG RUNTIME_IMAGE=gcr.io/distroless/nodejs24-debian12:nonroot@sha256:<pinned>
+# Builder and runtime on the same Debian release (13, trixie), so anything with platform binaries matches the runtime's glibc.
+ARG NODE_IMAGE=node:24-trixie-slim@sha256:<pinned>
+ARG RUNTIME_IMAGE=gcr.io/distroless/nodejs24-debian13:nonroot@sha256:<pinned>
 
 FROM ${NODE_IMAGE} AS base
 ENV PNPM_HOME=/pnpm PATH=/pnpm:$PATH CI=true
