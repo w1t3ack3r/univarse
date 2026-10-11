@@ -33,7 +33,7 @@ jobs:
 
   build-test:
     runs-on: ubuntu-24.04
-    timeout-minutes: 25
+    timeout-minutes: 40 # spec 0013 adds two image builds and their checks
     services:
       postgres:
         image: postgres:18
@@ -162,3 +162,37 @@ jobs:
         run: pnpm --filter @univarse/web exec playwright install --with-deps chromium
       - name: E2E — edge → web → API → DB, desktop + mobile (spec 0005 W10)
         run: pnpm --filter @univarse/web test:e2e
+
+      # Spec 0013: the images UniVarse builds (API/worker and web). Built once here; every check below runs
+      # against that build. PR runs never push or sign (this job is contents: read only).
+      - name: Verify the distroless base image's upstream signature (spec 0013 CS3)
+        env:
+          COSIGN_VERSION: 3.1.3
+          COSIGN_SHA256: 4629c757b7618056f8ddd7e2625ae9fdd94c0372a65049520bc7d9df9efc7f71
+        run: |
+          curl -sSfLo cosign "https://github.com/sigstore/cosign/releases/download/v${COSIGN_VERSION}/cosign-linux-amd64"
+          echo "${COSIGN_SHA256}  cosign" | sha256sum -c -
+          chmod +x cosign
+          api_base=$(grep -oP '^ARG RUNTIME_IMAGE=\K\S+' infra/docker/api.Dockerfile)
+          web_base=$(grep -oP '^ARG RUNTIME_IMAGE=\K\S+' infra/docker/web.Dockerfile)
+          test "$api_base" = "$web_base" || { echo "api and web pin different runtime bases"; exit 1; }
+          echo "Runtime base: $api_base"
+          ./cosign verify "$api_base" \
+            --certificate-identity keyless@distroless.iam.gserviceaccount.com \
+            --certificate-oidc-issuer https://accounts.google.com > /dev/null
+          echo "Upstream signature verified for $api_base" | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Build the API and web images once (spec 0013 CS1, CS2)
+        run: |
+          created=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          for img in api web; do
+            docker buildx build --load -f "infra/docker/${img}.Dockerfile" -t "univarse-${img}:ci" \
+              --build-arg REVISION="${{ github.sha }}" --build-arg CREATED="$created" --build-arg VERSION="sha-${GITHUB_SHA::7}" .
+            echo "univarse-${img}:ci image id $(docker image inspect -f '{{.Id}}' univarse-${img}:ci), size $(docker image inspect -f '{{.Size}}' univarse-${img}:ci) bytes" | tee -a "$GITHUB_STEP_SUMMARY"
+          done
+      - name: Inspect the images — user, labels, no shell, no UniVarse source/test/env files, ownership (spec 0013 CS1, CS2)
+        run: |
+          node --test tools/images/rules.test.mjs
+          node tools/images/inspect.mjs univarse-api:ci --root app
+          node tools/images/inspect.mjs univarse-web:ci --root app
+      - name: Hardened runtime smoke — read-only, UID 65532, no capabilities (spec 0013 CS4)
+        run: node tools/images/smoke.mjs --api univarse-api:ci --web univarse-web:ci

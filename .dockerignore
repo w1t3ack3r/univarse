@@ -1,0 +1,23 @@
+# Spec 0013 / docs/09 §2.1 rule 6: what never enters a build context. The images are built from source
+# inside the builder stage, so local build outputs and installs are excluded too.
+.git
+.github
+.claude
+**/node_modules
+**/dist
+**/.next
+**/.turbo
+**/coverage
+**/test-results
+**/playwright-report
+**/*.tsbuildinfo
+**/src/generated
+.env
+.env.*
+**/*.pem
+**/*.key
+.vault-dev.json
+docs
+infra/compose/otel/out
+infra/compose/seaweedfs/s3.json
+apps/web/e2e

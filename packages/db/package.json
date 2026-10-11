@@ -4,6 +4,9 @@
   "private": true,
   "description": "Prisma schemas (platform + tenant), RLS, migrations and tenant-scoped clients.",
   "type": "module",
+  "files": [
+    "dist"
+  ],
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
