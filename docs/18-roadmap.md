@@ -56,7 +56,8 @@ Each roadmap line checked against the repository, CI and the decision log.
   - 🟡 **partial**;
   - ❌ **not built**;
   - ⏸ **deferred** by a named ADR.
-- **What counts as met:** CI-verified unless stated. Local E2E has its cause measured, but a clean local 32/32 run is still pending ([spec 0012](specs/0012-observability-logs-and-traces.md)). CI's 32/32 doesn't replace that.
+- **What counts as met:** CI-verified unless stated.
+- **An ADR defers work; it doesn't satisfy the criterion.** Deferred items are listed separately below and stay unmet.
 
 **Build items**
 
@@ -69,14 +70,14 @@ Each roadmap line checked against the repository, CI and the decision log.
 | `packages/db`: schemas, roles/grants, RLS template + checker, `forTenant`, `withTenantTx`, `ShardRegistry` | ✅ | Platform and tenant Prisma schemas; `db:setup` least-privilege roles; `rls:check` with a negative control ([12 §3](12-testing-strategy.md) layer 1); `forTenant`/`withTenantTx` in `packages/db`; `ShardRegistry` in the API. Pool limits per [ADR-026](19-decision-log.md). |
 | API skeleton: NestJS/Fastify, config validation, tenant resolver, Problem Details, rate limiting, security headers, health, OTel + Pino, OpenAPI, `api-client` | ✅ | Tenant from the Host; zod config at boot; Problem Details filter (503 `server.busy` per ADR-026); Valkey rate limits; security headers; `/health/live` and `/health/ready`. Logs and traces: [spec 0012](specs/0012-observability-logs-and-traces.md), complete. Contract and client: [spec 0011](specs/0011-openapi-and-api-client.md), complete. |
 | Identity: users, argon2id, OTP activation, login/logout, cookie sessions, password reset, TOTP MFA, step-up | ✅ | Specs 0001 and 0005, ADR-016. MFA secrets under envelope encryption (spec 0006). Login, MFA and step-up E2E in CI. |
-| Identity: roles/permissions **scoped assignments**, `PolicyService` | 🟡 | **Built:** roles, the permission catalog and assignments. The schema has six scope types (`INSTITUTION`, `ORG_UNIT`, `PROGRAMME`, `COHORT`, `COURSE_OFFERING`, `HOSTEL`). **Not built:** permission checks honour **`INSTITUTION` only** (`apps/api/src/modules/identity/actor.ts`), and there's **no `PolicyService`**; the checks live in `AccessGuard` and the actor. The other scopes need org units, programmes and offerings, which are Phase 2+ entities. |
+| Identity: roles/permissions **scoped assignments**, `PolicyService` | 🟡 / ⏸ / ❌ | Split by [ADR-028](19-decision-log.md):<br>• **Institution scope: ✅ enforced.** Roles, the permission catalog and assignments are built. Checks honour only `scopeType === 'INSTITUTION'` (`apps/api/src/modules/identity/actor.ts`), so a grant with any other scope gives no institution-wide access.<br>• **Resource scopes:** ⏸ deferred to each scope's first consuming module (`ORG_UNIT`, `PROGRAMME`, `COHORT`, `COURSE_OFFERING`, `HOSTEL`). **Not met.**<br>• **Central `PolicyService`:** ❌ remaining work, built now by reusing the existing permission logic.<br>• **Negative tests:** ❌ none yet prove that a non-institution grant fails an institution-wide check. They're part of the `PolicyService` work. |
 | Audit (hash chain) | ✅ | Spec 0002 Part A. |
 | Outbox + relay + **BullMQ** worker skeleton | ✅ / ⏸ | **Outbox:** a durable worker (claim with `SKIP LOCKED`, backoff, dead state, encrypted payloads; spec 0002 Part B), with request → delivery tracing (spec 0012 OB10). **BullMQ:** ⏸ deferred by [ADR-019](19-decision-log.md), with its revisit trigger recorded. |
 | Files (presigned upload, ClamAV scan) | ✅ | [Spec 0010](specs/0010-file-uploads.md), against real SeaweedFS and ClamAV. |
 | Settings module with typed keys | ✅ | Spec 0007: one key end to end, plus the registry. |
 | Web: auth pages, workspace shell with permission-driven nav | ✅ | Spec 0005: login, MFA verify, activation, reset, MFA enrolment, the step-up dialog, and the workspace shell with gated nav (W6). E2E desktop and mobile in CI. A per-request nonce CSP is sent locally (`apps/web/src/proxy.ts`). |
 | Web: design system in `packages/ui` with brand tokens | ✅ | `packages/ui` (`tokens.css`, components, icons). |
-| Web: **Storybook** | ❌ | Not installed. |
+| Web: **Storybook** | ⏸ | Not installed. Deferred by [ADR-027](19-decision-log.md), to be revisited before Phase 2's UI expands. **Not met.** |
 | Staging environment | ⏸ | [ADR-024](19-decision-log.md). |
 
 **Exit criteria**
@@ -84,8 +85,8 @@ Each roadmap line checked against the repository, CI and the decision log.
 | Criterion | Status | Evidence / what's missing |
 |---|---|---|
 | Two seeded tenants | ✅ | `demo-uni`, `test-poly`; seeding runs twice in CI to prove it's idempotent. |
-| Cross-tenant suite, all 5 layers of [12 §3](12-testing-strategy.md) | 🟡 | **Layers 1–3:** ✅ (RLS checker, generic DB sweep, API route sweep for today's routes).<br>**Layer 4 (jobs):** ✅ for the **outbox** worker (B8, B10; OB8 worker half). ❌ **No cross-tenant claim test** for the two newer job types, the **file-scan worker** and the **key sweep**; layer 4 says to repeat it per job type.<br>**Layer 5 (caches/files):** 🟡. Files are complete for the first slice. The product cache across instances (P7), key-forget broadcast and shred ledger are still open. |
-| Login + MFA + step-up E2E green | ✅ CI / 🟡 local | CI 32/32 on every recent merge. A clean **local** run is still pending (cause measured: memory pressure). |
+| Cross-tenant suite, all 5 layers of [12 §3](12-testing-strategy.md) | 🟡 | **Layers 1–3:** ✅ (RLS checker, generic DB sweep, API route sweep: 30 real routes, 4 resource-by-id routes).<br>**Layer 4 (jobs):** 🟡 **partial**. The **outbox** worker is covered (B8, B10; OB8 worker half). The **file-scan worker** and the **key sweep** are pending: no cross-tenant claim test yet.<br>**Layer 5 (caches/files):** 🟡. Files are complete for the first slice. Still open: **product-cache invalidation** across instances (P7) and **key-forget propagation**. |
+| Login + MFA + step-up E2E green | ✅ | Green in CI on every recent merge (32/32, desktop and mobile). A clean **local** run is a separate follow-up (cause measured; [spec 0012](specs/0012-observability-logs-and-traces.md)), not an extra exit requirement. |
 | CSP enforced on staging | ⏸ | ADR-024. A nonce CSP is already enforced locally by the web app; HTTPS-cookie and CSP rehearsal is possible in ADR-024's local staging profile. |
 | Images signed, 0 high/critical findings | ❌ | No images are built yet. [Spec 0013](specs/0013-container-images-scan-sign.md) (draft #46): **all** HIGH/CRITICAL block, fixed or unfixed. While any exception is active, this criterion can't be claimed. |
 | Staging deploy automatic from `main` | ⏸ | ADR-024. |
@@ -94,23 +95,29 @@ Each roadmap line checked against the repository, CI and the decision log.
 **Also deferred with staging (ADR-024):** backups with a rehearsed restore; ADR-018's closure, since [ADR-023](19-decision-log.md) closes it "once staging runs it"; PgBouncer in the deployed path (ADR-015).
 
 **Tracked gaps that stay open:**
-- product cache across instances (spec 0003 P7);
-- `GET /users` pagination;
-- key-forget broadcast;
-- shred ledger.
+- **Cache isolation (layer 5):** product-cache invalidation across instances (spec 0003 P7), and key-forget propagation (spec 0006).
+- **Crypto-shredding and restore safety:** the shred ledger (spec 0006). It makes sure a restored backup can't bring back a shredded key's data. It isn't itself a cross-tenant cache-isolation check, and it's built with backups.
+- `GET /users` pagination.
 
-**To close Phase 0 locally**, the not-built and partial items each need to be **built** or **explicitly deferred by an ADR**:
-1. Image build, scan, SBOM and signing (spec 0013, under review).
-2. CI security scans: Semgrep, CodeQL, osv-scanner, license check, Checkov.
-3. Cross-tenant job tests for the file-scan worker and the key sweep.
-4. The PgBouncer isolation job in CI (ADR-015).
-5. lefthook + commitlint.
-6. Storybook.
-7. Scoped-assignment enforcement and `PolicyService`.
-8. The layer-5 gaps.
-9. A clean local E2E run.
+**Phase 0 status: open.** It's not closed locally or otherwise. Three separate lists follow.
 
-Staging's criteria remain deferred.
+**Completed:** every ✅ row above.
+
+**Remaining work, in order:**
+1. **Spec 0013:** image build, test, scan, SBOM, sign and verify (draft #46, with the review corrections applied). This is the next implementation slice, and it's what the "Images signed, 0 high/critical findings" criterion needs.
+2. **Job isolation:** cross-tenant claim tests for the file-scan worker and the key sweep (layer 4).
+3. **Cache isolation:** product-cache invalidation (P7) and key-forget propagation (layer 5).
+4. **PgBouncer:** isolation tests through the intended pooling mode (transaction pooling), as a CI job (ADR-015).
+5. **CI and local gates:** the remaining CI security scans (Semgrep, CodeQL, osv-scanner, license check, Checkov), plus lefthook and commitlint.
+6. **Authorization:** the central `PolicyService`, reusing the existing logic, with negative tests for non-institution scopes (ADR-028).
+
+**Deferred requirements: not met, and not counted as done:**
+- **Staging (ADR-024):** staging itself; CSP and HTTPS cookies on staging; the automatic deploy from `main`; backups with a rehearsed restore; ADR-018's closure; PgBouncer in the deployed path.
+- **BullMQ** (ADR-019), with its revisit trigger recorded.
+- **Storybook** (ADR-027), to be revisited before Phase 2's UI expands.
+- **Resource-scope enforcement** (ADR-028), with each scope's first consuming module.
+
+**Separate follow-up, not an exit requirement:** a clean local E2E run.
 
 ## Phase 1 — Platform control plane (~4 wks)
 
