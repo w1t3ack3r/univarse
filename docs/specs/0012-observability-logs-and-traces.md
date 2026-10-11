@@ -194,7 +194,7 @@ When something goes wrong in a deployed UniVarse, the first question is "what ha
   - After the fixes, **four consecutive full parallel runs passed:** domain 41, api-client 14, crypto 14, API 150.
 - **Also fixed:** the error-messages source scan treated any `['x.y', '…` literal as a filter default and picked up `'db.statement'`. It now anchors on the `400: ['code', 'Title']` shape; all 8 defaults still match, and nothing in `tracing.ts` does.
 - **Counts:** API unit 150; API integration 334 passed, 1 skipped.
-- **Status:** spec 0012 remains **in progress** until the propagation and collector evidence lands.
+- **Status (updated 2026-10-11):** the OB1–OB12 evidence has landed: #38 logs, #39 API traces, #42 OB10–OB12 with the Linux shutdown proof. Spec 0012 stays **in progress** until the owner decides the OB12 deviation: the worker has no Valkey client, so the test asserts Valkey spans for the API only. Local E2E ("cause measured; clean local run pending") is tracked separately and doesn't gate this spec.
 
 ### Request → worker propagation (OB10; OB8's worker half) (2026-10-07)
 - **Schema:** migration `20261007120000_trace_context` adds nullable `traceparent TEXT` (with a CHECK of at most 128 chars) to `outbox_event` and `file_object`. It's expand-only: no backfill, and old rows stay null. `rls:check` passes (14 tables). The app role gets no new UPDATE grant on `outbox_event.traceparent`, so the value is written once, on insert.
@@ -336,7 +336,11 @@ When something goes wrong in a deployed UniVarse, the first question is "what ha
 - **Compiled-process CI evidence (#42 at `955b7ff`, run 37586975328), read from the logs:**
   - Unit: 5, 34, 41, 14, API 161, 14. DB integration 30. Crypto 10.
   - API integration **348 passed, 1 skipped**. OB12 **5/5**, every test by name. E2E **32/32**. gitleaks found no leaks.
-  - The final commit's run will be added on merge.
+  - **Final commit `7dfc95d`, run [38160272688](https://github.com/w1t3ack3r/univarse/actions/runs/38160272688):** identical counts.
+    - Unit: 5, 41, 34, 14, API 161, 14. DB 30. Crypto 10.
+    - API integration 348 passed, 1 skipped. OB12 5/5. E2E 32/32. No leaks.
+    - **Shutdown:** the API ended by SIGTERM in 48 ms and the worker exited 0 in 67 ms; both known spans reached the collector 358 ms after SIGTERM, none before it.
+    - Merged as #42 (`75f8221`).
 
 ## Out of scope (tracked)
 | Gap | Milestone |
