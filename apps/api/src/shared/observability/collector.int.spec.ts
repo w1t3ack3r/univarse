@@ -130,8 +130,11 @@ describe('[OB11] a failing collector never degrades the API or the worker', () =
     const r = await burst();
     const mail = await emailJourney();
     // The OTLP exporter retries a refused connection with backoff until its export timeout, so a failure is
-    // counted only after up to exportTimeoutMillis. Wait for the count to rise (bounded), not a fixed time:
-    // a fixed 1 s passed locally but saw 0 failures on a fast CI runner (#44, run 38161219073).
+    // counted only after up to exportTimeoutMillis. Wait for the count to rise, not a fixed time: a fixed 1 s
+    // passed locally but saw 0 failures on a fast CI runner (#44, run 38161219073).
+    // The wait is bounded at 2 × exportTimeoutMillis + 1 s, about 7 s with this test's 3 s timeout: one full
+    // export attempt (retries included) can take the whole timeout, the next batch can start just after the
+    // burst and take it again, and 1 s covers scheduling. Test-only: production bounds are unchanged.
     const until = Date.now() + BOUNDS.exportTimeoutMillis * 2 + 1_000;
     while (stats().failed <= failedBefore && Date.now() < until) await new Promise((res) => setTimeout(res, 100));
     process.stdout.write(`[OB11] unavailable: median ${r.median.toFixed(1)} ms, email ${mail.toFixed(1)} ms, failed ${String(stats().failed)}\n`);
