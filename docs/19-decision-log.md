@@ -309,3 +309,36 @@ Alternatives considered: option — why not.
 - One shard's pool is shared by every product in a process. Per-product connection budgets (ADR-020 bulkheads) stay planned work: per-role PgBouncer pools and runtime roles.
 - The web app shows `server.busy` as "unavailable" with its message. It doesn't retry by itself yet.
 - The local figures come from a CPU-starved laptop. Repeat the load test on staging hardware before pilot, and revisit `max` and `maxWait` only with such a measurement and an update to this ADR.
+
+## ADR-027 — Defer Storybook until before Phase 2's UI expands
+**Status:** Accepted (2026-10-11, owner decision). Defers one Phase 0 build line ([18](18-roadmap.md)); it does **not** satisfy it.
+
+**Context:** Phase 0 lists "design system in `packages/ui` with brand tokens, Storybook". `packages/ui` exists (tokens, components, icons), and the screens built so far are covered by E2E on desktop and mobile. Storybook adds dependencies and a build of its own, and pays off once there are many components and screens to review in isolation.
+
+**Decision:** Don't add Storybook in Phase 0. **Revisit point:** before Phase 2's UI expands, meaning before the first Phase 2 screen (org units, programmes, curricula, settings UI) is built. At that point, add Storybook for `packages/ui` with stories for the existing components and the brand tokens.
+
+**Consequences:** The Phase 0 Storybook line stays **unmet and deferred**; the reconciliation in [18](18-roadmap.md) reports it that way, not as done. Visual review continues through E2E screenshots until then.
+
+**Alternatives considered:** add it now, which costs dependencies and maintenance before there's enough UI to justify it; drop it, which loses component review just as the UI grows.
+
+## ADR-028 — Authorization: institution-scope enforcement and a central `PolicyService` now; resource scopes with their first consuming modules
+**Status:** Accepted (2026-10-11, owner decision). Splits one Phase 0 build line ("roles/permissions/scoped assignments, `PolicyService`").
+
+**Context:**
+- The schema has six assignment scopes: `INSTITUTION`, `ORG_UNIT`, `PROGRAMME`, `COHORT`, `COURSE_OFFERING` and `HOSTEL`.
+- Today's permission checks (`apps/api/src/modules/identity/actor.ts`) honour only `scopeType === 'INSTITUTION'`. So a grant with any other scope gives **no** institution-wide access: the safe failure.
+- The other scopes need entities that arrive later: org units, programmes and offerings (Phase 2+), and hostels (Phase 7).
+- There's no central `PolicyService`. The checks live in `AccessGuard` and the actor, and that doesn't depend on any missing entity.
+
+**Decision:**
+- **Now: a central `PolicyService`.** Built by **reusing** the existing permission logic, not rewriting it. Every permission check goes through it; behaviour is unchanged.
+- **Now: explicit negative coverage.** A grant scoped to `ORG_UNIT`, `PROGRAMME`, `COHORT`, `COURSE_OFFERING` or `HOSTEL` must not pass an institution-wide check. **No such test exists yet**, so it's part of the `PolicyService` work.
+- **Deferred: each resource scope with its first consuming module.** Scope checks against the **loaded resource** ([08](08-security.md), CLAUDE.md invariant 2) arrive with the module that first assigns that scope, with its own positive and negative tests. Until then, such a grant stays inert.
+
+**Consequences:**
+- The Phase 0 line is reported as **partly met**: institution scope is enforced. `PolicyService` and the negative tests are remaining work, and the resource scopes are **deferred, not met**.
+- No one can be granted a resource-scoped role that silently works or silently over-grants before its module exists.
+
+**Alternatives considered:**
+- **All scopes now:** there are no resources to check against, so this would add untestable code.
+- **Deferring `PolicyService` too:** its absence doesn't depend on missing academic entities, and centralising now keeps every later scope in one place.
