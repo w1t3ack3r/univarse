@@ -101,7 +101,12 @@ Revisit the threat model at the start of every roadmap phase. New modules add ro
 - **CSV/XLSX exports:** prefix cells starting with `= + - @ \t \r` with `'`.
 - **Logging:** never log passwords, OTPs, session IDs, tokens, full NIN, card data or gateway secrets.
   - **How it's enforced:** Pino redaction paths **and** a string scrubber (query strings, header values, cookie values, bearer tokens, signed storage credentials, quoted literals in error text) are configured centrally in `apps/api/src/shared/observability/`, with unit tests for each path and pattern ([spec 0012](specs/0012-observability-logs-and-traces.md) OB4).
-  - **Traces:** they're protected separately, because span attributes aren't covered by log redaction (OB5).
+  - **Traces:** they're protected separately, because span attributes aren't covered by log redaction (OB5). Sanitization happens **in the process, before any exporter sees a span**: `SanitizingSpanProcessor` in `apps/api/src/shared/observability/tracing.ts` runs at span end.
+    - **Attributes:** only an allowlist of keys survives (plus the `fastify.`, `hook.`, `prisma.` and `univarse.` prefixes); anything else is removed and counted.
+    - **Statements:** SQL literals become `?`. Valkey spans carry the command name only, never keys or values.
+    - **Headers:** none are recorded.
+    - **Text:** span names, exception messages and event attributes go through the same scrubber as logs.
+    - **Tested** by unit tests of the allowlist and statement scrubbing (`tracing.spec.ts`), and by the OB6 leak test (`tracing.int.spec.ts`). That test runs real flows (lockout, 429, MFA, step-up, reset, a settings write, a presigned upload, scan and download) and finds none of 15 secrets in any log line or span. It also checks that useful output is present.
 - **Error responses:** Problem Details only. No stack traces, SQL or internal hostnames.
 - Cardholder data **never** touches UniVarse. Card entry happens on gateway-hosted pages/popups only, which keeps UniVarse out of PCI DSS scope for card data (SAQ-A-style posture).
 

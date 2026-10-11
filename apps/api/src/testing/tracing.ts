@@ -1,9 +1,9 @@
 // Spec 0012: tracing for in-process tests. Call (and await) BEFORE importing anything instrumented —
 // the harness, the app, pg, ioredis — so the ESM hook and the instrumentations see those modules load.
 import { createRequire, register } from 'node:module';
-import { BatchSpanProcessor, InMemorySpanExporter } from '@opentelemetry/sdk-trace-base';
+import { BatchSpanProcessor, InMemorySpanExporter, type SpanExporter } from '@opentelemetry/sdk-trace-base';
 import { createAddHookMessageChannel } from 'import-in-the-middle';
-import type { Tracing } from '../shared/observability/tracing.js';
+import type { ExportBounds, ExportDegraded, Tracing } from '../shared/observability/tracing.js';
 
 export interface TestTracing {
   readonly exporter: InMemorySpanExporter;
@@ -14,7 +14,17 @@ export interface TestTracing {
   flush(): Promise<void>;
 }
 
-export async function startTestTracing(opts: { ratio?: number; service?: 'api' | 'worker' } = {}): Promise<TestTracing> {
+export interface TestTracingOptions {
+  ratio?: number;
+  service?: 'api' | 'worker';
+  /** OB11: export to this OTLP/HTTP endpoint instead of in memory. */
+  endpoint?: string;
+  bounds?: ExportBounds;
+  shutdownFlushMs?: number;
+  onExportDegraded?: (d: ExportDegraded) => void;
+}
+
+export async function startTestTracing(opts: TestTracingOptions = {}): Promise<TestTracing> {
   const { registerOptions, waitForAllMessagesAcknowledged } = createAddHookMessageChannel();
   // eslint-disable-next-line @typescript-eslint/no-deprecated -- import-in-the-middle's hook is an async loader; it needs `register` (registerHooks is synchronous, in-thread)
   register('import-in-the-middle/hook.mjs', import.meta.url, registerOptions);
@@ -26,10 +36,15 @@ export async function startTestTracing(opts: { ratio?: number; service?: 'api' |
     env: 'test',
     version: 'test',
     ratio: opts.ratio ?? 1,
-    exporter,
-    // Batched, like production: synchronous per-span export slowed requests enough to hit Prisma's 2 s
-    // transaction wait under concurrency (P2028). A short delay keeps tests quick; flush() before asserting.
-    processor: (e) => new BatchSpanProcessor(e, { scheduledDelayMillis: 50, maxQueueSize: 100_000, maxExportBatchSize: 10_000 }),
+    ...(opts.endpoint
+      ? // OB11: real OTLP/HTTP through the production export gate; the in-memory exporter stays empty.
+        { endpoint: opts.endpoint, bounds: opts.bounds, shutdownFlushMs: opts.shutdownFlushMs, onExportDegraded: opts.onExportDegraded }
+      : {
+          exporter,
+          // Batched, like production: synchronous per-span export slowed requests enough to hit Prisma's 2 s
+          // transaction wait under concurrency (P2028). A short delay keeps tests quick; flush() before asserting.
+          processor: (e: SpanExporter) => new BatchSpanProcessor(e, { scheduledDelayMillis: 50, maxQueueSize: 100_000, maxExportBatchSize: 10_000 }),
+        }),
     onDropped: (k) => dropped.push(k),
   });
   await waitForAllMessagesAcknowledged();

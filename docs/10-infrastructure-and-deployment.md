@@ -67,6 +67,19 @@ pnpm dev              # turbo: web :3000, console :3001, api :8080, worker
 ```
 Browse `http://demo-uni.univarse.localhost:3000`. `*.localhost` resolves to loopback in modern browsers, so no hosts-file edits are needed. Ports are bound to `127.0.0.1` only.
 
+**Traces, optional and off by default ([spec 0012](specs/0012-observability-logs-and-traces.md) D2):**
+- **Starting it:**
+  - `pnpm dev:traces` starts the **OpenTelemetry Collector** (`otel/opentelemetry-collector-contrib:0.162.0`, compose profile `traces`).
+  - It accepts OTLP/HTTP on `127.0.0.1:14318`. That's not 4318, so the no-endpoint test that guards the default port never sees it.
+  - It writes JSON lines to `infra/compose/otel/out/traces.jsonl` (git-ignored, rotated at 50 MB × 2).
+  - Run the API and worker with `OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:14318`.
+- **Jaeger:** `pnpm dev:traces:jaeger` also starts **Jaeger** 2.22.0 (profile `jaeger`, in-memory storage) with its UI on `http://127.0.0.1:16686`. This is for local viewing only; CI and deployments never run it.
+- **Memory:**
+  - **The collector:** limited to 256 MB (`mem_limit`, plus a `memory_limiter` at 200 MiB). It measured **57 MiB** after about 2,200 spans (2026-10-07).
+  - **Jaeger:** limited to 512 MB.
+  - **On the 8 GB laptop,** start these only when you're looking at traces, and stop them after (`docker compose … stop otel-collector jaeger`), as with ClamAV.
+- **CI:** the OB12 step starts the same collector service.
+
 ### 4.1 Local resource budget (measured 2026-10-06, spec 0010 FU12; database connections 2026-10-07, ADR-026)
 **What was measured:**
 - **Stack:** Valkey, Mailpit, Vault, SeaweedFS 4.48 and ClamAV 1.5.4 (fail-closed settings) in Docker; the API and worker on the host.

@@ -5,7 +5,7 @@
 UniVarse: the multi-tenant operating platform for Nigerian tertiary institutions — a suite of independent products (Core, Admissions, Bursary, Academics, Teaching & Learning, Assessment/CA CBT, Student Affairs, Helpdesk & Comms, Reporting) with CIA (confidentiality, integrity, availability) as the first design constraint. The full blueprint is in `docs/`. **Read the relevant doc before changing a module.** Start at `docs/README.md`.
 
 ## Stack
-TypeScript everywhere · pnpm + Turborepo · Next.js 16 (`apps/web`, `apps/console`) · NestJS 11/Fastify (`apps/api`: `main.ts` HTTP, `worker.ts` jobs) · Prisma + PostgreSQL 18 with RLS · Valkey/Redis + BullMQ · S3-compatible storage (SeaweedFS locally, ADR-025) · Gotenberg · ClamAV.
+TypeScript everywhere · pnpm + Turborepo · Next.js 16 (`apps/web`, `apps/console`) · NestJS 11/Fastify (`apps/api`: `main.ts` HTTP, `worker.ts` jobs; both start with `node --import ./dist/otel.js` so tracing loads first) · Prisma + PostgreSQL 18 with RLS · Valkey/Redis + BullMQ · S3-compatible storage (SeaweedFS locally, ADR-025) · Gotenberg · ClamAV.
 
 ## Commands
 ```bash
@@ -19,6 +19,8 @@ pnpm test:int           # integration (Testcontainers)
 pnpm test:e2e           # Playwright
 pnpm rls:check          # RLS/tenant_id checker — must pass
 pnpm contracts:gen      # regenerate packages/api-client/openapi.json after contract/route changes (a unit test fails if stale)
+pnpm dev:traces         # optional: local OTel Collector (spans → infra/compose/otel/out); set OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:14318
+pnpm --filter @univarse/api test:ob12   # compiled API + worker traced through the collector (needs build + dev:traces)
 ```
 Local tenant URL: `http://demo-uni.univarse.localhost:3000`
 

@@ -1,3 +1,4 @@
+import { currentTraceparent } from '../../shared/observability/propagation.js';
 // Spec 0010: own documents. Upload slot (quota reserved atomically) → complete → scanned by the worker
 // → download (verified before any byte is sent) → delete (wins over any scan in flight).
 import { createHash, randomUUID } from 'node:crypto';
@@ -132,7 +133,8 @@ export class FilesService {
         throw new ProblemError(409, 'file.upload_incomplete', 'Upload slot expired');
       }
       const now = new Date();
-      const updated = await tx.fileObject.update({ where: { id: f.id }, data: { state: 'UPLOADED', completedAt: now, nextScanAt: now, updatedAt: now } });
+      // Spec 0012 OB10: the completing request's trace context; the scan links back to it.
+      const updated = await tx.fileObject.update({ where: { id: f.id }, data: { state: 'UPLOADED', completedAt: now, nextScanAt: now, updatedAt: now, traceparent: currentTraceparent() } });
       await this.audit.write(tx, tenant.tenantId, {
         actorType: 'USER',
         actorId: actor.userId,

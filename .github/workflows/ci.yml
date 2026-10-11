@@ -145,6 +145,19 @@ jobs:
       - name: API integration tests
         # Verbose: every test's result is in the log, not just totals (spec 0010 completion record).
         run: pnpm --filter @univarse/api test:int --reporter=verbose
+      # Spec 0012 OB12: the compiled API and worker as two separate processes, each initialized by its own
+      # `--import ./dist/otel.js`, exporting to the same collector service as dev (pinned image, file output).
+      # Asserts trace structure (parent chain across the outbox, scan link, pg/Valkey spans, service.name)
+      # and, on Linux, the SIGTERM shutdown flush. Runs after the integration tests: it shares their DB.
+      - name: Start the OpenTelemetry Collector (compose, same as dev)
+        run: node tools/traces-dev.mjs
+      - name: Traces across separate compiled processes, through a real collector (spec 0012 OB12)
+        run: pnpm --filter @univarse/api test:ob12 --reporter=verbose
+      - name: Collector logs (on failure)
+        if: failure()
+        run: |
+          docker logs --tail 60 univarse-dev-otel-collector-1 || true
+          ls -la infra/compose/otel/out || true
       - name: Install Playwright Chromium (spec 0005 W10)
         run: pnpm --filter @univarse/web exec playwright install --with-deps chromium
       - name: E2E — edge → web → API → DB, desktop + mobile (spec 0005 W10)

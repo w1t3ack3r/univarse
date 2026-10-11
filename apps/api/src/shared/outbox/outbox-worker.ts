@@ -1,3 +1,6 @@
+import { context, ROOT_CONTEXT, SpanKind } from '@opentelemetry/api';
+import { storedContext } from '../observability/propagation.js';
+import { MalformedOnce, withSpan } from '../observability/worker-spans.js';
 import { withLogContext } from '../observability/context.js';
 // Outbox delivery (spec 0002 B3–B10). Runs in the worker process only (src/worker.ts).
 import { Inject, Injectable, Logger } from '@nestjs/common';
@@ -36,10 +39,12 @@ interface ClaimedRow {
   type: string;
   payload_enc: string | null;
   attempts: number;
+  traceparent: string | null;
 }
 
 @Injectable()
 export class OutboxWorker {
+  private readonly malformed = new MalformedOnce();
   private readonly logger = new Logger('Outbox');
   private readonly mailDomain: string;
   private timer: NodeJS.Timeout | null = null;
@@ -58,6 +63,14 @@ export class OutboxWorker {
 
   /** One pass over every servable tenant. Tenants are independent: one failing doesn't stop the rest. */
   async runOnce(): Promise<BatchCounts> {
+    return withSpan('outbox.pass', {}, context.active(), async (span) => {
+      const counts = await this.runPass();
+      span.setAttribute('univarse.claimed', counts.claimed);
+      return counts;
+    });
+  }
+
+  private async runPass(): Promise<BatchCounts> {
     const total: BatchCounts = { claimed: 0, sent: 0, retried: 0, dead: 0 };
     const tenants = await this.platform.tenant.findMany({
       where: { status: { in: [...SERVABLE] } },
@@ -66,7 +79,8 @@ export class OutboxWorker {
     for (const tenant of tenants) {
       try {
         // Spec 0012 OB2: lines from anything this tenant's batch calls carry its tenantId.
-        const c = await withLogContext({ tenantId: tenant.id }, () => this.runTenant(tenant));
+        // `span: undefined`: the pass spans every tenant, so it must not be tagged with one (OB8).
+        const c = await withLogContext({ tenantId: tenant.id, span: undefined }, () => this.runTenant(tenant));
         for (const k of Object.keys(total) as (keyof BatchCounts)[]) total[k] += c[k];
       } catch (err) {
         this.logger.error({ event: 'outbox.tenant_failed', tenantId: tenant.id, error: errorSummary(err) }, 'Outbox pass failed for tenant');
@@ -86,14 +100,14 @@ export class OutboxWorker {
       tenant.id,
       async (tx) => {
         const rows = await tx.$queryRaw<ClaimedRow[]>`
-          SELECT id, type, payload_enc, attempts FROM outbox_event
+          SELECT id, type, payload_enc, attempts, traceparent FROM outbox_event
           WHERE tenant_id = ${tenant.id}::uuid AND status = 'PENDING' AND next_attempt_at <= now()
             AND product = ANY(${active}::text[])
           ORDER BY next_attempt_at, id
           LIMIT ${BATCH}
           FOR UPDATE SKIP LOCKED`;
         const c: BatchCounts = { claimed: rows.length, sent: 0, retried: 0, dead: 0 };
-        for (const row of rows) c[await this.deliver(tx, tenant.id, row)]++;
+        for (const row of rows) c[await this.deliverTraced(tx, tenant.id, row)]++;
         return c;
       },
       { timeoutMs: TX_TIMEOUT_MS },
@@ -101,6 +115,26 @@ export class OutboxWorker {
     // B9: counts only, never payloads or recipients.
     if (counts.claimed > 0) this.logger.log({ event: 'outbox.batch', tenantId: tenant.id, ...counts }, 'Outbox batch');
     return counts;
+  }
+
+  /**
+   * Spec 0012 OB10: the delivery is a CHILD of the request that wrote the row (one trace, and the request's
+   * sampling decision); a row without a valid context (older rows, tracing off, malformed) gets a fresh root.
+   */
+  private deliverTraced(tx: TenantTx, tenantId: string, row: ClaimedRow): Promise<'sent' | 'retried' | 'dead'> {
+    const stored = storedContext(row.traceparent);
+    if (stored.kind === 'malformed' && this.malformed.first(row.id)) {
+      this.logger.warn({ event: 'outbox.traceparent_malformed', tenantId, eventId: row.id }, 'Stored trace context is malformed; delivering under a new trace');
+    }
+    const parent = stored.kind === 'valid' ? stored.context : ROOT_CONTEXT;
+    const attributes = { 'univarse.outbox.event_id': row.id, 'univarse.outbox.type': row.type };
+    return withSpan('outbox.deliver', { kind: SpanKind.CONSUMER, attributes }, parent, (span) =>
+      withLogContext({ tenantId }, async () => {
+        const outcome = await this.deliver(tx, tenantId, row);
+        span.setAttribute('univarse.outbox.outcome', outcome);
+        return outcome;
+      }),
+    );
   }
 
   private async deliver(tx: TenantTx, tenantId: string, row: ClaimedRow): Promise<'sent' | 'retried' | 'dead'> {

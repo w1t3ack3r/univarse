@@ -14,7 +14,8 @@
     "keys": "node --enable-source-maps dist/cli/keys.js",
     "openapi": "node --enable-source-maps dist/cli/openapi.js",
     "test": "vitest run",
-    "test:int": "vitest run --config vitest.int.config.ts"
+    "test:int": "vitest run --config vitest.int.config.ts",
+    "test:ob12": "vitest run --config vitest.ob12.config.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1146.0",

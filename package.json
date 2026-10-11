@@ -22,6 +22,8 @@
     "dev:secrets": "node tools/dev-secrets.mjs",
     "dev:infra": "node tools/storage-dev.mjs config && docker compose -f infra/compose/compose.dev.yml --env-file .env up -d --wait && node tools/vault-dev.mjs && node tools/storage-dev.mjs buckets",
     "dev:infra:docs": "docker compose -f infra/compose/compose.dev.yml --env-file .env --profile docs up -d",
+    "dev:traces": "node tools/traces-dev.mjs",
+    "dev:traces:jaeger": "node tools/traces-dev.mjs jaeger",
     "dev:infra:down": "docker compose -f infra/compose/compose.dev.yml --env-file .env down",
     "test:e2e": "turbo run test:e2e",
     "dev:vault": "node tools/vault-dev.mjs"
