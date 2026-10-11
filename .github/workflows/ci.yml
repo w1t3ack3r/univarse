@@ -150,8 +150,10 @@ jobs:
       # Asserts trace structure (parent chain across the outbox, scan link, pg/Valkey spans, service.name)
       # and, on Linux, the SIGTERM shutdown flush. Runs after the integration tests: it shares their DB.
       - name: Start the OpenTelemetry Collector (compose, same as dev)
+        if: ${{ !cancelled() }} # PROOF BRANCH ONLY: run OB12 even though the wiring check fails first
         run: node tools/traces-dev.mjs
       - name: Traces across separate compiled processes, through a real collector (spec 0012 OB12)
+        if: ${{ !cancelled() }} # PROOF BRANCH ONLY: run OB12 even though the wiring check fails first
         run: pnpm --filter @univarse/api test:ob12 --reporter=verbose
       - name: Collector logs (on failure)
         if: failure()
