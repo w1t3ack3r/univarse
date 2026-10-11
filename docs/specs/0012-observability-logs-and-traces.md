@@ -304,7 +304,10 @@ When something goes wrong in a deployed UniVarse, the first question is "what ha
     - **Email:** the reset request's row stores a sampled `traceparent`. The worker's `outbox.deliver` (`service.name` `worker`, kind CONSUMER) has that span as its parent. Its parent chain is entirely `api` spans, includes the request's `@fastify/otel` span, and ends at the true root.
     - **File scan:** `files.scan` (`worker`) is a parentless root in a new trace. Its only link is to exactly the span stored by `complete`, which is an `api` span in the completing request's trace.
     - **Spans by process:** the API produced pg and ioredis spans; the worker produced pg spans, including pg work **inside** the delivery span. Only `api` and `worker` appear as services.
-    - **SIGTERM (Linux only; skipped on Windows, where `kill` doesn't run handlers):** both processes exit 0 within `SHUTDOWN_FLUSH_MS` + 3 s. A request made under 2 s (the batch delay) before the signal still reaches the collector, so only the shutdown flush could have exported it.
+    - **SIGTERM, with no timer race (Linux only; Windows `kill` doesn't run handlers):**
+      - **Setup:** the test starts its own API and worker with `OTEL_BSP_SCHEDULE_DELAY=600000`, a batch size of 50,000 and a queue of 100,000, so the batch timer can't fire and batches never fill. `otel.ts` reads the standard `OTEL_BSP_*` variables, validated; production sets none, so `EXPORT_BOUNDS` apply. Unit tests cover both.
+      - **Before SIGTERM:** a reset email gives a known API span (the request) and a known worker span (`outbox.deliver`). After 4 s, longer than production's 2 s timer plus the collector's own batching, **neither** may be at the collector.
+      - **After SIGTERM:** both processes exit within `SHUTDOWN_FLUSH_MS`, and both spans must then arrive. Allowed exits: the worker exits 0; the API ends **by** SIGTERM, because Nest's `enableShutdownHooks` closes the app, running the flush hook, and then re-raises the signal.
 - **Deviation from the AC, for the owner to accept or change: "both processes produced pg and Valkey child spans".** The worker has **no Valkey client**. Valkey is used only by the API's rate limiter and settings cache, so worker Valkey spans can't exist. The test asserts pg and Valkey for the API and pg for the worker.
 - **Local run (Windows, ClamAV started only for the run):** 4 passed and 1 skipped (SIGTERM). The collector received 2,195 spans: api 389, worker 1,806. Most worker spans are idle pass spans: three loops at 200–250 ms intervals and 100 % sampling, as recorded under OB10.
 - **Fixed during the run:**
@@ -316,7 +319,24 @@ When something goes wrong in a deployed UniVarse, the first question is "what ha
   |---|---|
   | P1: delivery not parented to the stored context | 2 (email chain, worker pg inside the delivery) |
   | P2: worker reports `service.name` `api` | 3 |
-- **CI:** a step after the API integration tests starts the same compose service (`node tools/traces-dev.mjs`) and runs `test:ob12` verbosely. Collector logs are printed on failure. The compiled-process CI evidence will be recorded here from the PR's latest-commit logs.
+- **CI:** a step after the API integration tests starts the same compose service (`node tools/traces-dev.mjs`) and runs `test:ob12` verbosely. Collector logs are printed on failure.
+- **Fixed in CI before the shutdown proof:**
+  - **Config:** the unit config's `src/**/*.spec.ts` picked up the OB12 spec. It now excludes `*.ob12.spec.ts` (`85f67bb`).
+  - **Exit status:** the first Linux run showed the API ending with code `null`, signal SIGTERM. That's Nest's re-raise, so the test now accepts it (`d1fd425`).
+- **Shutdown flush: Linux mutation proof (2026-10-11, owner-requested, throwaway PR #43, closed unmerged).**
+
+  | Run | Commit | Code | SIGTERM test |
+  |---|---|---|---|
+  | [37586975328](https://github.com/w1t3ack3r/univarse/actions/runs/37586975328) | `955b7ff` (#42) | hook in place | **passed**: API ended by SIGTERM in 57 ms, worker exited 0 in 69 ms; both known spans reached the collector **606 ms after SIGTERM, none before it** |
+  | [38159322847](https://github.com/w1t3ack3r/univarse/actions/runs/38159322847) | `6c0e3e1` (#43) | **only** `onShutdown: shutdownTracing` removed from `main.ts` and `worker.ts` | **failed**: *timed out waiting for the API span, sent by the shutdown flush*. The pre-SIGTERM check and the exit checks passed. |
+
+  - **Independent detection:** on #43 the integration suite's wiring check also failed by itself ("`main.ts` … to match `/onShutdown: shutdownTracing/`"; 347 passed, 1 failed).
+  - **How the OB12 steps ran on #43:** that branch alone set them to `if: !cancelled()`, so they ran after that failure.
+  - **No estimated window:** the result doesn't depend on the earlier "≈ 2 % timer window" estimate, which this design removes.
+- **Compiled-process CI evidence (#42 at `955b7ff`, run 37586975328), read from the logs:**
+  - Unit: 5, 34, 41, 14, API 161, 14. DB integration 30. Crypto 10.
+  - API integration **348 passed, 1 skipped**. OB12 **5/5**, every test by name. E2E **32/32**. gitleaks found no leaks.
+  - The final commit's run will be added on merge.
 
 ## Out of scope (tracked)
 | Gap | Milestone |
