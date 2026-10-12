@@ -1,0 +1,10 @@
+# Spec 0013 CS7 / ADR-029: accepted exceptions to the image gates. EMPTY BY DEFAULT.
+# Every HIGH/CRITICAL vulnerability blocks publication, fixed or not; any secret blocks; HIGH/CRITICAL
+# misconfigurations block. An entry here keeps the risk visible and, while any entry is active, the roadmap's
+# "0 high/critical findings" exit can't be claimed.
+# Each entry needs: id; purls (vulnerabilities) or paths (secrets, misconfigurations); statement (the evidence);
+# owner; expired_at (YYYY-MM-DD, at most 30 days ahead). tools/images/exceptions.mjs rejects anything else,
+# and an expired entry fails the gate.
+vulnerabilities: []
+secrets: []
+misconfigurations: []
