@@ -13,7 +13,9 @@ RUN --mount=type=cache,id=pnpm,target=/pnpm/store pnpm fetch --frozen-lockfile
 COPY . .
 RUN --mount=type=cache,id=pnpm,target=/pnpm/store \
     pnpm install --frozen-lockfile --offline \
- && pnpm turbo run build --filter=@univarse/web... \n && chmod -R go-w apps/web/.next apps/web/public  # Next writes some build files 664; nothing may be writable but by root
+ && pnpm turbo run build --filter=@univarse/web... \
+ && chmod -R go-w apps/web/.next apps/web/public
+# chmod: Next.js writes some build files 664; nothing may be writable but by root (docs/09 §2.1 rule 7).
 
 FROM ${RUNTIME_IMAGE} AS runtime
 ARG REVISION=unknown

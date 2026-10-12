@@ -18,7 +18,9 @@ COPY . .
 RUN --mount=type=cache,id=pnpm,target=/pnpm/store \
     pnpm install --frozen-lockfile --offline \
  && pnpm turbo run build --filter=@univarse/api... \
- && pnpm --filter=@univarse/api deploy --prod --legacy /out \n && chmod -R go-w /out  # nothing may be writable but by root (docs/09 §2.1 rule 7)
+ && pnpm --filter=@univarse/api deploy --prod --legacy /out \
+ && chmod -R go-w /out
+# chmod: nothing may be writable but by root (docs/09 §2.1 rule 7).
 
 FROM ${RUNTIME_IMAGE} AS runtime
 ARG REVISION=unknown
