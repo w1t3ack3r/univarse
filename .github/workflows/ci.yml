@@ -261,3 +261,143 @@ jobs:
       - name: Remove the journey containers (always)
         if: always()
         run: docker rm -f uv-e2e-api uv-e2e-web uv-e2e-worker uv-smoke-api uv-smoke-web uv-smoke-worker > /dev/null 2>&1 || true
+      # Spec 0013 CS6/CS10: hand the exact tested images to the publish job (main only). No rebuild anywhere after this.
+      - name: Save the tested images for publication (main only)
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          docker save univarse-api:ci univarse-web:ci | gzip -1 > images.tar.gz
+          printf 'api %s\nweb %s\n' "$API_IMAGE_ID" "$WEB_IMAGE_ID" > image-ids.txt
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        with:
+          name: tested-images
+          path: |
+            images.tar.gz
+            image-ids.txt
+            sbom-*.spdx.json
+          retention-days: 1
+
+  # Spec 0013 CS10 / ADR-029: push the tested images by digest to private GHCR packages, sign them keylessly and
+  # attach provenance and SBOM attestations. The ONLY job with packages/id-token/attestations write, and it runs
+  # only on push to main, after every gate in build-test passed (CS9, CS12).
+  publish-images:
+    needs: build-test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    outputs:
+      api-digest: ${{ steps.push.outputs.api-digest }}
+      web-digest: ${{ steps.push.outputs.web-digest }}
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: tested-images
+      - name: Load the tested images and confirm they are the ones that passed (spec 0013 CS6)
+        run: |
+          gunzip -c images.tar.gz | docker load
+          while read -r img want; do
+            got=$(docker image inspect -f '{{.Id}}' "univarse-${img}:ci")
+            test "$got" = "$want" || { echo "univarse-${img}:ci is $got, but $want passed the gates"; exit 1; }
+          done < image-ids.txt
+      - name: Install cosign (checksum-verified)
+        env:
+          COSIGN_VERSION: 3.1.3
+          COSIGN_SHA256: 4629c757b7618056f8ddd7e2625ae9fdd94c0372a65049520bc7d9df9efc7f71
+        run: |
+          curl -sSfLo cosign "https://github.com/sigstore/cosign/releases/download/v${COSIGN_VERSION}/cosign-linux-amd64"
+          echo "${COSIGN_SHA256}  cosign" | sha256sum -c -
+          chmod +x cosign
+      - name: Push by digest; the pushed config digest must equal the tested image ID (spec 0013 CS6, CS10)
+        id: push
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          echo "${{ github.token }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          while read -r img want; do
+            repo="ghcr.io/w1t3ack3r/univarse-${img}"
+            docker tag "univarse-${img}:ci" "${repo}:sha-${GITHUB_SHA::7}"
+            docker push "${repo}:sha-${GITHUB_SHA::7}"
+            digest=$(docker image inspect -f '{{range .RepoDigests}}{{println .}}{{end}}' "univarse-${img}:ci" | grep "^${repo}@" | head -1 | cut -d@ -f2)
+            config=$(docker buildx imagetools inspect --raw "${repo}@${digest}" | jq -r .config.digest)
+            test "$config" = "$want" || { echo "pushed ${repo}@${digest} has config ${config}, not the tested ${want}"; exit 1; }
+            echo "${img}-digest=${digest}" >> "$GITHUB_OUTPUT"
+            echo "${repo}@${digest} (tested image ${want})" | tee -a "$GITHUB_STEP_SUMMARY"
+            # D1: private packages initially. Visibility changes are the owner's action, never this workflow's.
+            vis=$(gh api "/users/w1t3ack3r/packages/container/univarse-${img}" --jq .visibility)
+            test "$vis" = private || { echo "univarse-${img} is ${vis}, expected private (ADR-029 D1)"; exit 1; }
+          done < image-ids.txt
+      - name: Sign each digest keylessly with the workflow's OIDC token (spec 0013 CS10)
+        run: |
+          ./cosign sign --yes "ghcr.io/w1t3ack3r/univarse-api@${{ steps.push.outputs.api-digest }}"
+          ./cosign sign --yes "ghcr.io/w1t3ack3r/univarse-web@${{ steps.push.outputs.web-digest }}"
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ghcr.io/w1t3ack3r/univarse-api
+          subject-digest: ${{ steps.push.outputs.api-digest }}
+          push-to-registry: true
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ghcr.io/w1t3ack3r/univarse-web
+          subject-digest: ${{ steps.push.outputs.web-digest }}
+          push-to-registry: true
+      - uses: actions/attest-sbom@c604332985a26aa8cf1bdc465b92731239ec6b9e # v4.1.0
+        with:
+          subject-name: ghcr.io/w1t3ack3r/univarse-api
+          subject-digest: ${{ steps.push.outputs.api-digest }}
+          sbom-path: sbom-api.spdx.json
+          push-to-registry: true
+      - uses: actions/attest-sbom@c604332985a26aa8cf1bdc465b92731239ec6b9e # v4.1.0
+        with:
+          subject-name: ghcr.io/w1t3ack3r/univarse-web
+          subject-digest: ${{ steps.push.outputs.web-digest }}
+          sbom-path: sbom-web.spdx.json
+          push-to-registry: true
+
+  # Spec 0013 CS11 / ADR-029: verification pinned to the exact signer. Read-only.
+  verify-images:
+    needs: publish-images
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: read
+      attestations: read
+    env:
+      IDENTITY: https://github.com/w1t3ack3r/univarse/.github/workflows/ci.yml@refs/heads/main
+      ISSUER: https://token.actions.githubusercontent.com
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Install cosign (checksum-verified)
+        env:
+          COSIGN_VERSION: 3.1.3
+          COSIGN_SHA256: 4629c757b7618056f8ddd7e2625ae9fdd94c0372a65049520bc7d9df9efc7f71
+        run: |
+          curl -sSfLo cosign "https://github.com/sigstore/cosign/releases/download/v${COSIGN_VERSION}/cosign-linux-amd64"
+          echo "${COSIGN_SHA256}  cosign" | sha256sum -c -
+          chmod +x cosign
+      - name: Verify signatures and attestations against the exact identity and issuer (spec 0013 CS11)
+        env:
+          API_REF: ghcr.io/w1t3ack3r/univarse-api@${{ needs.publish-images.outputs.api-digest }}
+          WEB_REF: ghcr.io/w1t3ack3r/univarse-web@${{ needs.publish-images.outputs.web-digest }}
+        run: |
+          echo "${{ github.token }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          for ref in "$API_REF" "$WEB_REF"; do
+            ./cosign verify --certificate-identity "$IDENTITY" --certificate-oidc-issuer "$ISSUER" "$ref" > /dev/null
+            for predicate in https://slsa.dev/provenance/v1 https://spdx.dev/Document/v2.3; do
+              gh attestation verify "oci://$ref" --repo w1t3ack3r/univarse \
+                --cert-identity "$IDENTITY" --cert-oidc-issuer "$ISSUER" --predicate-type "$predicate" > /dev/null
+            done
+            echo "verified $ref: signature, provenance and SBOM; signer $IDENTITY" | tee -a "$GITHUB_STEP_SUMMARY"
+            # Negative: another identity must be rejected, even though the signature itself is valid.
+            wrong="https://github.com/w1t3ack3r/univarse/.github/workflows/ci.yml@refs/heads/not-main"
+            if ./cosign verify --certificate-identity "$wrong" --certificate-oidc-issuer "$ISSUER" "$ref" > /dev/null 2>&1; then
+              echo "a wrong identity was accepted for $ref"; exit 1
+            fi
+            echo "rejected as expected: $ref under identity $wrong" | tee -a "$GITHUB_STEP_SUMMARY"
+          done
