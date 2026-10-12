@@ -90,9 +90,20 @@ async function main() {
   record.gates.exceptions = exc.stdout.includes('none active') ? 'none active' : 'ACTIVE — zero-findings can NOT be claimed';
 
   step('vulnerability, secret and misconfiguration gates, SBOM (CS7, CS8) — Trivy reads tarballs, never the Docker socket');
-  const trivy = (args) => sh('docker', ['run', '--rm', '-v', 'uv-trivy-cache:/root/.cache/trivy', '-v', `${hostPath(WORK)}:/work`, '-v', `${hostPath(REPO)}:/repo:ro`, '-w', '/repo', TRIVY_IMAGE, ...args], { stdio: 'inherit' });
+  const trivyRun = (args, opts = {}) =>
+    sh('docker', ['run', '--rm', '-v', 'uv-trivy-cache:/root/.cache/trivy', '-v', `${hostPath(WORK)}:/work`, '-v', `${hostPath(REPO)}:/repo:ro`, '-w', '/repo', TRIVY_IMAGE, ...args], { stdio: 'inherit', ...opts });
+  const trivy = (args) => trivyRun(args[0] === 'clean' ? args : [args[0], '--no-progress', ...args.slice(1)]);
   trivy(['clean', '--vuln-db']); // fresh vulnerability data for every release (LR10)
-  trivy(['image', '--download-db-only']);
+  // A broken download is retried (Trivy's official mirrors, in order); if every attempt fails, the release fails:
+  // it never scans without fresh data (CS9).
+  const DB_REPOS = 'mirror.gcr.io/aquasec/trivy-db:2,ghcr.io/aquasecurity/trivy-db:2,public.ecr.aws/aquasecurity/trivy-db:2';
+  let fetched = false;
+  for (let attempt = 1; attempt <= 3 && !fetched; attempt++) {
+    const r = trivyRun(['image', '--no-progress', '--download-db-only', '--db-repository', DB_REPOS], { allowFail: true });
+    fetched = r.status === 0;
+    if (!fetched) console.log(`[release] vulnerability DB download failed (attempt ${attempt} of 3)`);
+  }
+  if (!fetched) throw new Error('could not download a fresh vulnerability database after 3 attempts; nothing was scanned or published (CS9)');
   const ver = sh('docker', ['run', '--rm', '-v', 'uv-trivy-cache:/root/.cache/trivy', TRIVY_IMAGE, 'version', '--format', 'json']);
   const db = JSON.parse(ver.stdout).VulnerabilityDB ?? {};
   record.gates.trivy = { version: JSON.parse(ver.stdout).Version, dbUpdatedAt: db.UpdatedAt, dbDownloadedAt: db.DownloadedAt };
