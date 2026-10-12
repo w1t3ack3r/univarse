@@ -4,6 +4,10 @@
   "private": true,
   "description": "The API's OpenAPI document and the typed client generated from it (spec 0011).",
   "type": "module",
+  "files": [
+    "dist",
+    "openapi.json"
+  ],
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",

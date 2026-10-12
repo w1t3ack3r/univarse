@@ -4,6 +4,9 @@
   "private": true,
   "description": "UniVarse API (NestJS on Fastify). Entrypoints: dist/main.js (HTTP), dist/worker.js (outbox + key sweep worker), dist/cli/keys.js (key operations).",
   "type": "module",
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
