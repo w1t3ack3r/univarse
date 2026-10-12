@@ -61,3 +61,6 @@ apps/web/.impeccable/questions/
 # Local SeaweedFS identity file (tools/storage-dev.mjs, from .env); never commit
 infra/compose/seaweedfs/s3.json
 infra/compose/otel/out/
+
+# Local release records (spec 0013 LR7): an index, never proof; kept locally
+releases/

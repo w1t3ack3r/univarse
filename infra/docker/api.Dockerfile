@@ -1,4 +1,4 @@
-# syntax=docker/dockerfile:1.10
+# syntax=docker/dockerfile:1.10@sha256:865e5dd094beca432e8c0a1d5e1c465db5f998dca4e439981029b3b81fb39ed5
 # Spec 0013 CS1: one image for the API and the worker (docs/09 §2.1). Builder and runtime are both Debian 13
 # (trixie), so anything shipping platform binaries matches the runtime's glibc. Password hashing uses Node's
 # built-in crypto.argon2() (ADR-016): nothing native is compiled for it. Both bases are pinned by digest; the

@@ -24,6 +24,8 @@
     "dev:infra:docs": "docker compose -f infra/compose/compose.dev.yml --env-file .env --profile docs up -d",
     "dev:traces": "node tools/traces-dev.mjs",
     "dev:traces:jaeger": "node tools/traces-dev.mjs jaeger",
+    "images:release": "node tools/images/release.mjs",
+    "images:verify": "node tools/images/verify-release.mjs",
     "dev:infra:down": "docker compose -f infra/compose/compose.dev.yml --env-file .env down",
     "test:e2e": "turbo run test:e2e",
     "dev:vault": "node tools/vault-dev.mjs"

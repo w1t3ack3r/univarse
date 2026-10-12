@@ -5,6 +5,7 @@
 // is root-owned and not group/other-writable. Exits non-zero naming every violation.
 import { spawn, spawnSync } from 'node:child_process';
 import { forbiddenReason, ownershipReason, SHELLS } from './rules.mjs';
+import { tarParser } from './tar.mjs';
 
 const [image, ...rest] = process.argv.slice(2);
 const arg = (name, fallback) => {
@@ -86,62 +87,3 @@ if (problems.length > 0) {
   process.exit(1);
 }
 console.log('[inspect] PASS: user, labels, no shell, no UniVarse source/test/env files, root-owned and not writable');
-
-/** A streaming ustar/pax/GNU tar header reader: calls onEntry({ path, type, uid, gid, mode }). */
-function tarParser(onEntry) {
-  let buf = Buffer.alloc(0);
-  let skip = 0; // bytes of file data (rounded to 512) still to skip
-  let paxPath = null;
-  let gnuLong = null;
-  let pending = null; // header waiting for its pax/longname data
-  const oct = (b) => {
-    const s = b.toString('latin1').replace(/\0.*$/, '').trim();
-    return s ? parseInt(s, 8) : 0;
-  };
-  return {
-    push(chunk) {
-      buf = Buffer.concat([buf, chunk]);
-      for (;;) {
-        if (skip > 0) {
-          const n = Math.min(skip, buf.length);
-          if (pending) pending.data.push(buf.subarray(0, n));
-          buf = buf.subarray(n);
-          skip -= n;
-          if (skip > 0) return;
-          if (pending) {
-            const data = Buffer.concat(pending.data).subarray(0, pending.size).toString('utf8');
-            if (pending.kind === 'x') {
-              const m = /(?:^|\n)\d+ path=([^\n]*)\n/.exec(data);
-              if (m) paxPath = m[1];
-            } else gnuLong = data.replace(/\0+$/, '');
-            pending = null;
-          }
-        }
-        if (buf.length < 512) return;
-        const h = buf.subarray(0, 512);
-        buf = buf.subarray(512);
-        if (h.every((x) => x === 0)) continue;
-        const name = h.subarray(0, 100).toString('utf8').replace(/\0.*$/, '');
-        const prefix = h.subarray(345, 500).toString('utf8').replace(/\0.*$/, '');
-        const size = oct(h.subarray(124, 136));
-        const flag = String.fromCharCode(h[156] || 48);
-        const padded = Math.ceil(size / 512) * 512;
-        if (flag === 'x' || flag === 'L') {
-          pending = { kind: flag, size, data: [] };
-          skip = padded;
-          continue;
-        }
-        if (flag === 'g') {
-          skip = padded;
-          continue;
-        }
-        const path = paxPath ?? gnuLong ?? (prefix ? `${prefix}/${name}` : name);
-        paxPath = null;
-        gnuLong = null;
-        const type = flag === '5' ? 'dir' : flag === '2' ? 'symlink' : flag === '1' ? 'hardlink' : 'file';
-        onEntry({ path, type, size, uid: oct(h.subarray(108, 116)), gid: oct(h.subarray(116, 124)), mode: oct(h.subarray(100, 108)) });
-        skip = padded;
-      }
-    },
-  };
-}
