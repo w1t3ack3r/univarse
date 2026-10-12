@@ -72,6 +72,36 @@ This slice builds the images UniVarse owns and puts each one through the same st
 | CS15 | *Required check.* Once CS1–CS13 are green, the PR-side job (e.g. `image-scan`) becomes a required status check in the `protect-main` ruleset, alongside `build-test`, `secrets-scan` and `api-breaking-changes`. |
 | CS16 | *Evidence.* The completion record holds:<br>• latest-commit run IDs for the PR build/test/scan, the `main` publish, and verify;<br>• each CS13 proof with the gate and message it failed on;<br>• the tested image IDs and published manifest digests (showing CS6 held);<br>• image sizes;<br>• Trivy counts by severity, fixed and unfixed;<br>• any active exceptions;<br>• SBOM component counts.<br>The record states **explicitly** whether the roadmap's zero-findings exit is met. |
 
+## Local release (ADR-030): draft for owner review, 2026-10-12
+
+ADR-030 replaces CS10 and CS11's hosted publication with a **local** one. CS1–CS9 stay as built, and CI keeps running them on every PR as independent evidence, publishing nothing. The criteria below **replace CS10, CS11, CS14 and CS15**. CS12 and CS13 are re-scoped as noted, and CS16 stays.
+
+**The local release:** one command (`pnpm images:release`) runs the whole pipeline on the developer machine. It builds **once**, gates that build, then publishes, signs and verifies that same image. A failure at any stage stops it; nothing is published or signed after a failed or skipped gate.
+
+| ID | Criterion |
+|---|---|
+| LR1 | *Build once, locally.* The API and web images are built from the current clean commit with the same Dockerfiles as CI. Their image IDs are recorded, and **every** later stage re-checks them (CS6). The release refuses to run if the working tree has uncommitted changes, or if the commit isn't on `main`. |
+| LR2 | *The same gates as CI, on that build.* In order, on the recorded image IDs:<br>• inspection (CS1/CS2);<br>• the exception and policy check;<br>• the vulnerability gate (zero HIGH/CRITICAL, fixed or not);<br>• the secret gate (including `node_modules`, image config and history);<br>• the misconfiguration gate;<br>• the SBOM;<br>• the hardened smoke run (CS4);<br>• the **browser journeys** against the containerised API, worker and web (CS5).<br>ClamAV and the other services start only for the run and stop afterwards (memory). |
+| LR3 | *A local registry.* A `registry` service in compose (profile `release`), pinned by digest, listening only on `127.0.0.1:5000`, with its own volume. It has no authentication, because it accepts loopback connections only. |
+| LR4 | *Publish by digest, without rebuilding.* The gated images are pushed to the local registry. The pushed manifest's config digest must equal the recorded image ID, or the release fails (CS6). The manifest digests are recorded. |
+| LR5 | *Sign with the owner's local key (ADR-030).*<br>• **The signature:** `cosign sign --key` over each manifest digest.<br>• **The key:** the private key is encrypted and lives **outside the repository** (L3). Its password is entered by the owner at signing time and never stored by the tooling.<br>• **Attestations, signed with the same key:** the SPDX SBOM (`cosign attest --type spdxjson`) and a locally generated provenance statement (`--type slsaprovenance1`). The statement records the commit, the base-image digests, the Dockerfile, the build arguments, the tool versions, and that the build ran locally. |
+| LR6 | *Verify against the committed public key.*<br>• `cosign verify` and `cosign verify-attestation` (both types) run with `--key infra/signing/cosign.pub` for each digest.<br>• **Negative checks:** verification with a different key must fail, and so must an unsigned digest pushed to the local registry for the check.<br>• The release prints the verified digests. |
+| LR7 | *Record.* The release writes a local record, `releases/<date>-<short-sha>.json` (git-ignored). It holds the commit, the image IDs, the digests, the Trivy counts by severity (fixed/unfixed), any active exceptions, the SBOM package counts, and the verification results. The local deploy (ADR-030) reads only digests that appear in a verified record. |
+| LR8 | *Retention (replaces CS14).* Nothing is deleted automatically. A manual `pnpm images:prune` keeps the newest 20 verified releases, plus any digest the local deploy uses, plus their signatures and attestations. |
+| CS12 (re-scoped) | *Least privilege.* With no CI publish job, CI's workflows stay `contents: read` and use `pull_request` only. The fixture-based workflow-policy check still runs; it now also fails on any job that requests `packages`, `id-token` or `attestations` write. **Policy verification; no live fork test.** |
+| CS13 (re-scoped) | *Every gate fails for its intended reason.* Proved locally (and in CI where the gate also runs), with run IDs or local release records kept:<br>• the inspection, vulnerability, exception, secret-canary, misconfiguration and `ignore-unfixed` mutations, as specified;<br>• a substituted image between gating and push;<br>• a wrong key, and an unsigned digest, at verification;<br>• the policy fixtures. |
+| CS15 (replaces) | *Required check.* The CI job that builds and gates the images stays part of the required `build-test` check. There's no separate publish check. |
+
+### Decisions for the owner (local release)
+
+| # | Question | Options | Recommendation |
+|---|---|---|---|
+| L1 | Where does the signed image come from? | **a.** Built locally by the release, then gated locally (LR1–LR2). **b.** The image CI tested, downloaded and imported by its recorded ID. | **a.** It's fully local and needs no artifact download. CI's run stays independent evidence for the same commit. Base images pull fine now (the distroless runtime took 14 s on 2026-10-12). |
+| L2 | How are Trivy and cosign run locally? | **a.** As their official container images, pinned by digest (nothing installed on Windows). **b.** As host binaries, checksum-verified. | **a.** Nothing to install, and the same versions as CI (Trivy 0.75.0, cosign 3.1.3). Both are downloads from their projects' official registries. I'll pull them only with your OK. |
+| L3 | The signing key. | You run `cosign generate-key-pair` yourself (through the pinned cosign image) and choose the password. **I never see or handle it.** The private key goes in `%USERPROFILE%\.univarse\signing\` (outside the repo); `cosign.pub` is committed. Backup is yours. If the key is lost or leaked, re-key and commit the new public key in a PR that says why. | As described. The password is typed at each release (or set by you in your own shell); the tooling never writes it anywhere. |
+| L4 | The local registry image. | `registry:3` (CNCF Distribution), pinned by digest, `127.0.0.1:5000` only. | As described. |
+| L5 | Journeys in every local release (LR2), given the 8 GB machine? | **a.** Always. **b.** Smoke always; journeys only with `--full`. | **a.** That's what CS5 requires of the signed image. The release starts ClamAV only for the journeys and stops it afterwards. |
+
 ## Design notes
 
 - **One API image, two commands** (docs/09 §2.1 rule 10): the worker is the same build with `dist/worker.js`. The `--import ./dist/otel.js` preload stays in both commands, so tracing still loads first.
