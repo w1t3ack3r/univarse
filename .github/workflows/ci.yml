@@ -189,11 +189,65 @@ jobs:
               --build-arg REVISION="${{ github.sha }}" --build-arg CREATED="$created" --build-arg VERSION="sha-${GITHUB_SHA::7}" .
             echo "univarse-${img}:ci image id $(docker image inspect -f '{{.Id}}' univarse-${img}:ci), size $(docker image inspect -f '{{.Size}}' univarse-${img}:ci) bytes" | tee -a "$GITHUB_STEP_SUMMARY"
           done
+          # CS6: every later check runs against exactly these images; each re-checks the ID first.
+          echo "API_IMAGE_ID=$(docker image inspect -f '{{.Id}}' univarse-api:ci)" >> "$GITHUB_ENV"
+          echo "WEB_IMAGE_ID=$(docker image inspect -f '{{.Id}}' univarse-web:ci)" >> "$GITHUB_ENV"
       - name: Inspect the images — user, labels, no shell, no UniVarse source/test/env files, ownership (spec 0013 CS1, CS2)
         run: |
           node --test tools/images/rules.test.mjs
           node tools/images/inspect.mjs univarse-api:ci --root app
           node tools/images/inspect.mjs univarse-web:ci --root app
+      # Spec 0013 CS7–CS9 / ADR-029. Fail closed: each gate is its own step and the job stops at the first one
+      # that fails or errors (a scanner or DB failure is a failure, never "no findings").
+      - name: Install Trivy (checksum-verified) and check exceptions and policy (spec 0013 CS7)
+        env:
+          TRIVY_VERSION: 0.75.0
+          TRIVY_SHA256: c6e65abddb348e25f10549df887045629cf28cc72453cd1c63acb717316b3f3f
+        run: |
+          curl -sSfLo trivy.tgz "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz"
+          echo "${TRIVY_SHA256}  trivy.tgz" | sha256sum -c -
+          tar -xzf trivy.tgz trivy
+          node --test tools/images/exceptions.test.mjs
+          node tools/images/exceptions.mjs | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Vulnerability gate — zero HIGH/CRITICAL, fixed or not (spec 0013 CS6, CS7)
+        env:
+          TRIVY_DB_REPOSITORY: ghcr.io/aquasecurity/trivy-db:2,public.ecr.aws/aquasecurity/trivy-db:2
+        run: |
+          for img in api web; do
+            want=$([ "$img" = api ] && echo "$API_IMAGE_ID" || echo "$WEB_IMAGE_ID")
+            test "$(docker image inspect -f '{{.Id}}' "univarse-${img}:ci")" = "$want" || { echo "univarse-${img}:ci is not the image that was built and tested"; exit 1; }
+            # Every severity, for the record (the DB is fetched fresh here; a fetch failure fails the step).
+            ./trivy image --scanners vuln --format json --output "trivy-${img}.json" "univarse-${img}:ci"
+            node tools/images/trivy-summary.mjs "trivy-${img}.json" "univarse-${img}:ci" | tee -a "$GITHUB_STEP_SUMMARY"
+            # The gate: any HIGH or CRITICAL, fixed or unfixed, fails. Only exceptions in .trivyignore.yaml apply.
+            ./trivy image --skip-db-update --scanners vuln --severity HIGH,CRITICAL --ignorefile .trivyignore.yaml --exit-code 1 "univarse-${img}:ci"
+          done
+      - name: Secret gate — any finding blocks; node_modules, image config and history included (spec 0013 CS7)
+        run: |
+          for img in api web; do
+            ./trivy image --skip-db-update --scanners secret --secret-config tools/images/trivy-secret.yaml \
+              --image-config-scanners secret --ignorefile .trivyignore.yaml --exit-code 1 "univarse-${img}:ci"
+          done
+      - name: Misconfiguration gate — Dockerfiles and image configuration, HIGH/CRITICAL block (spec 0013 CS7)
+        run: |
+          ./trivy config --severity HIGH,CRITICAL --ignorefile .trivyignore.yaml --exit-code 1 infra/docker
+          for img in api web; do
+            ./trivy image --skip-db-update --scanners misconfig --image-config-scanners misconfig \
+              --severity HIGH,CRITICAL --ignorefile .trivyignore.yaml --exit-code 1 "univarse-${img}:ci"
+          done
+      - name: SBOM from each built image, SPDX JSON (spec 0013 CS8)
+        run: |
+          for img in api web; do
+            ./trivy image --skip-db-update --format spdx-json --output "sbom-${img}.spdx.json" "univarse-${img}:ci"
+            echo "univarse-${img}:ci SBOM: $(node -e "console.log(JSON.parse(require('fs').readFileSync('sbom-${img}.spdx.json','utf8')).packages.length)") packages" | tee -a "$GITHUB_STEP_SUMMARY"
+          done
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: sbom-and-scan-reports
+          path: |
+            sbom-*.spdx.json
+            trivy-*.json
+          retention-days: 30
       - name: Hardened runtime smoke — read-only, UID 65532, no capabilities (spec 0013 CS4)
         run: node tools/images/smoke.mjs --api univarse-api:ci --web univarse-web:ci
       - name: Browser journeys against the containerised API, worker and web — desktop + mobile (spec 0013 CS5)
