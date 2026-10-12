@@ -1,4 +1,4 @@
-# syntax=docker/dockerfile:1.10
+# syntax=docker/dockerfile:1.10@sha256:865e5dd094beca432e8c0a1d5e1c465db5f998dca4e439981029b3b81fb39ed5
 # Spec 0013 CS2: the tenant web app as Next.js standalone output, on the same Debian 13 distroless base as the
 # API (docs/09 §2.1). Both bases are pinned by digest; the runtime's upstream signature is verified in CI (CS3).
 ARG BUILD_IMAGE=node:24-trixie-slim@sha256:173f125896c3b47ddf056734c7ea789d04595a6a08769a8f78e0df642781fb66

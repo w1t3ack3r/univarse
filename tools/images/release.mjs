@@ -9,6 +9,7 @@ import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
+import { proveSecretCoverage } from './canary.mjs';
 import { readFromTar } from './tar.mjs';
 import {
   COMPOSE, COSIGN_IMAGE, cosign, DEFAULT_KEY, DEFAULT_PUB, HOST_REGISTRY, hostPath, IDENTITY, IDENTITY_ISSUER, PREDICATES,
@@ -123,6 +124,14 @@ async function main() {
   }
   trivy(['config', '--severity', 'HIGH,CRITICAL', '--ignorefile', '.trivyignore.yaml', '--exit-code', '1', 'infra/docker']);
   record.gates.vulnerability = record.gates.secret = record.gates.misconfiguration = 'pass';
+
+  step('secret-gate coverage canaries (CS13): app file, a deployed @univarse package in node_modules, config env and label, history');
+  await recheck();
+  const canaries = await proveSecretCoverage('univarse-api:release', WORK);
+  for (const [what, ok] of canaries.expected) console.log(`${ok ? 'found' : 'MISSED'}: ${what}`);
+  if (!canaries.gateFailed) throw new Error('the secret gate did not fail on the canary image (CS13)');
+  if (canaries.expected.some(([, ok]) => !ok)) throw new Error('a secret canary was not reported at its location: the secret gate does not cover what it promises (CS13)');
+  record.gates.secretCanaries = { gateFailedOnCanaryImage: true, found: canaries.expected.map(([what]) => what) };
 
   step('hardened smoke run (CS4)');
   await recheck();

@@ -35,6 +35,12 @@ Scope: everything from `package.json` to a running pod — dependencies, images,
 10. One process per container. API and worker use the same image with a different `CMD`.
 
 ### 2.2 Reference Dockerfile (`infra/docker/api.Dockerfile`)
+
+**As built ([spec 0013](specs/0013-container-images-scan-sign.md)):** `infra/docker/api.Dockerfile` (API and worker) and `infra/docker/web.Dockerfile` (Next.js standalone).
+- **Pins:** the `# syntax` frontend, the `node:24-trixie-slim` builder and the `gcr.io/distroless/nodejs24-debian13:nonroot` runtime are all pinned by digest.
+- **Ownership:** `/app` is created and populated as root, then the image drops to `65532:65532`, so nothing in it is writable by the app.
+
+The sketch below shows the pattern.
 ```dockerfile
 # syntax=docker/dockerfile:1.10
 # Builder and runtime on the same Debian release (13, trixie), so anything with platform binaries matches the runtime's glibc.
@@ -73,6 +79,16 @@ Web (`apps/web`) uses Next.js `output: 'standalone'` with the same pattern (`CMD
 Gotenberg, ClamAV, Caddy, PgBouncer, Valkey, SeaweedFS: official images **pinned by digest**, scanned like ours, run with the same runtime hardening (§4), and never exposed publicly.
 
 ## 3. Build pipeline: scan, SBOM, sign, attest
+
+**As built (spec 0013, [ADR-030](19-decision-log.md) fully local):**
+- **CI** (`build-test`, read-only, on PRs and pushes to `main`) builds each image once and runs every gate: inspection, Trivy vulnerability, secret and misconfiguration gates, SBOM, the hardened smoke run and the browser journeys. It **publishes nothing**.
+- **Publication is local:** `pnpm images:release` repeats the same gates on a local build, then:
+  - pushes by digest to a registry on `127.0.0.1:5000`;
+  - signs and attests with the **owner's cosign key**. It runs offline, on an internal-only Docker network, with `--tlog-upload=false --use-signing-config=false`, so there's no transparency log and no public Sigstore.
+  - verifies against `infra/signing/cosign.pub`, which must also reject a different key and an unsigned digest.
+- **Deploying:** `pnpm images:verify <record>` is what the local deploy runs. The release record is an index, never proof.
+
+The diagram below is the original hosted design, superseded by ADR-030 for publication and signing.
 
 ```mermaid
 flowchart LR

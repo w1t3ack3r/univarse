@@ -116,6 +116,57 @@ ADR-030 replaces CS10 and CS11's hosted publication with a **local** one. CS1–
 | L4 | The local registry image. | `registry:3` (CNCF Distribution), pinned by digest, `127.0.0.1:5000` only. | As described. |
 | L5 | Journeys in every local release (LR2), given the 8 GB machine? | **a.** Always. **b.** Smoke always; journeys only with `--full`. | **a.** That's what CS5 requires of the signed image. The release starts ClamAV only for the journeys and stops it afterwards. |
 
+## Implementation evidence: the local release (2026-10-12)
+
+**Built (`feat/images-local-release`):**
+- **Commands:** `pnpm images:release` (`tools/images/release.mjs`) and `pnpm images:verify` (`verify-release.mjs`, what the deploy runs).
+- **Stages and helpers:** the canary stage (`canary.mjs`), a shared tar reader (`tar.mjs`), the `registry` service, and the internal-only `release` network in compose.
+- **`infra/signing/README.md`:** the owner's offline key-generation command.
+- **Offline flags:**
+  - **Signing and attesting:** `--tlog-upload=false --use-signing-config=false --allow-http-registry`.
+  - **Verifying:** `--insecure-ignore-tlog=true` against the key alone.
+
+**Findings that shaped the tool:**
+- **Digests:** Docker Desktop's containerd image store pushes a different manifest digest from the one `docker image inspect` reports. Digests are therefore taken **from the registry**.
+- **Same-image check:** it compares **config digests**, read from the `docker save` export, so it works with both Docker image stores.
+- **The Dockerfile frontend** (`# syntax=docker/dockerfile:1.10`) was the one unpinned image found in the tally of pulled versus pinned images. It's now pinned: `docker/dockerfile:1.10@sha256:865e5dd094beca432e8c0a1d5e1c465db5f998dca4e439981029b3b81fb39ed5`.
+
+**Rehearsal of commit `2fb3a158443f146f5c30f4b86c9941db587296c8`**, run with `--rehearsal` and a **throwaway test key** (not the owner's), on Docker Desktop for Windows. It ran 13:12–13:52 UTC, and its record is `releases/2026-10-12-2fb3a15-rehearsal.json`, kept locally.
+
+| Stage | Result |
+|---|---|
+| Base image upstream signature | verified, `gcr.io/distroless/nodejs24-debian13:nonroot@sha256:9eeb7f5887d0e239e78264b06f7f11d2e14be534050481803a9e4728fcdd278e` |
+| Vulnerability database | fresh: downloaded 13:29:42Z; DB updated 09:47:21Z; Trivy 0.75.0 |
+| Inspection; exceptions | pass; none active |
+| Vulnerability gate | **0 HIGH/CRITICAL** in both images (23 MEDIUM and 8 LOW each, all unfixed) |
+| Secret and misconfiguration gates; SBOM | pass; SBOM packages: API 329, web 36 |
+| Hardened smoke | pass |
+| Browser journeys (containerised) | **31 passed, 1 flaky**, passed on Playwright's automatic retry. The flaky test was desktop `auth.e2e.ts:143` [W9]: `toHaveURL /login/verify` timed out after 5 s. **Suspected cause: memory pressure** on the 8 GB machine, as measured on 2026-10-07 (spec 0012). **Not measured in this run.** |
+| Published, API | manifest `sha256:b4427c22e14183fa9351a8c5411072126bfbcc6ba6414f599712a6de378ab7cb`, config `sha256:1c9e98b9032adf146ea48badcc42a69022cef315ed04946d329074e9d2e8ca39` |
+| Published, web | manifest `sha256:08c351e823f114168ecf015d91039c7cce89af374b7bf1cf8f08f958efeeb27f`, config `sha256:551f03c572eee091ddb9f492d4fded13f9d30c4df5af600670e043f4b9829be3` |
+| Same-image check | pushed config digests equal the gated ones |
+| Signing and attestation | offline: the tool containers were attached only to the internal network, and the release confirmed they had no route to `rekor.sigstore.dev` |
+| Verification against the public key | signature, SBOM and provenance verified offline (test public key sha256 `083769bb…`) |
+| Negatives | **different key**: rejected ("accepted signatures do not match threshold, Found: 0"); **edited record pointing at an unsigned digest**: rejected ("no signatures found") |
+| Cleanup | stopped ClamAV and the registry, which the release had started; Valkey, Vault, Mailpit and SeaweedFS, already running, were left alone |
+
+Image sizes from Docker Desktop's containerd store (API 809 MB, web 273 MB) aren't comparable with CI's classic-store sizes (API 549 MB).
+
+**Secret-gate coverage canaries (CS13).** These were run against the gated API image after that rehearsal. The canary stage is now part of every release.
+- **What it does:** harmless, secret-shaped values are generated at run time and never committed. They're planted in a throwaway image built `FROM` the gated image. Each location gets a different rule:
+  1. an app file, `/app/canary-app.js` (GitHub token);
+  2. a file in the **real directory of the deployed `@univarse/db` package**, `/app/node_modules/.pnpm/@univarse+db@…/node_modules/@univarse/db/dist/` (GitHub token; the shorter `node_modules/@univarse/db` paths are symlinks to it);
+  3. an environment variable (AWS key ID);
+  4. a label (Stripe key);
+  5. a `RUN` step, which exists only in the history (GitHub token).
+- **Result:** the gate **failed** on the canary image, and **all five were reported at their locations**. The env and label canaries appear twice, because `ENV`/`LABEL` are also recorded in the history.
+- **Mutation:** with `skip-patterns: ["**/node_modules/**"]` (Trivy's default restored), **only the `@univarse` package canary was MISSED** and the proof failed. The configuration was restored afterwards.
+
+**Still to come before LR10 is met:**
+1. a final rehearsal on the final commit of this PR (recorded below once run);
+2. the owner's public-key PR;
+3. the **real** release on `main` in the owner's terminal, with the owner's key and password.
+
 ## Design notes
 
 - **One API image, two commands** (docs/09 §2.1 rule 10): the worker is the same build with `dist/worker.js`. The `--import ./dist/otel.js` preload stays in both commands, so tracing still loads first.

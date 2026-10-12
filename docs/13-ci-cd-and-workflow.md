@@ -48,6 +48,10 @@ flowchart LR
   end
 ```
 
+- **Images ([spec 0013](specs/0013-container-images-scan-sign.md), [ADR-030](19-decision-log.md)):**
+  - **In CI:** the read-only `build-test` job builds the API/worker and web images once. It verifies the base image's upstream signature, inspects the images, runs the Trivy gates (zero HIGH/CRITICAL, fixed or not; secrets; misconfiguration), produces SBOMs, and runs the hardened smoke run and the browser journeys against the containers.
+  - **No push or sign in CI:** there's no CI job with `packages`, `id-token` or `attestations` write.
+  - **Signing and publication are local:** they happen through `pnpm images:release`, against a local registry, with the owner's key.
 - **Turborepo remote cache** keeps PR CI under ~10 min. Affected-only execution for lint/test on large changes.
 - **Required checks** block merge: lint, typecheck, unit, integration, RLS, contract diff (unless labelled `breaking-approved`), security scans (no new high/critical), Trivy, E2E smoke.
 - **CI security:**
