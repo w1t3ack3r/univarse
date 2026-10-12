@@ -1,11 +1,9 @@
 // Spec 0013 CS4: run the built images under the hardened runtime against the CI services, and check they work.
 //   node tools/images/smoke.mjs --api <image> --web <image>
-// Each container: --read-only, --user 65532:65532, --cap-drop ALL, --security-opt no-new-privileges, a 64 MB /tmp
-// tmpfs, --network host (so 127.0.0.1 reaches the services). Values come from the repo-root .env plus the
-// current environment and are passed as `-e NAME` only: no secret ever appears on a command line or in a log.
+// Hardening and environment come from container.mjs (shared with the CS5 browser journeys).
 import { spawnSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
 import { request } from 'node:http';
+import { dockerRun, WORKER_CMD } from './container.mjs';
 
 const arg = (name) => {
   const i = process.argv.indexOf(`--${name}`);
@@ -17,28 +15,15 @@ if (!API_IMAGE || !WEB_IMAGE) {
   console.error('usage: smoke.mjs --api <image> --web <image>');
   process.exit(2);
 }
-const rootEnv = new URL('../../.env', import.meta.url);
-if (existsSync(rootEnv)) process.loadEnvFile(rootEnv);
 
 const API_PORT = '8090';
 const WEB_PORT = '3090';
 const HOST = 'demo-uni.univarse.localhost';
-// What the API and worker read (apps/api/src/config/config.ts). Only names that are set are passed.
-const APP_ENV = [
-  'PLATFORM_DATABASE_URL', 'VALKEY_URL', 'SESSION_PEPPER', 'DATA_ENCRYPTION_KEY', 'DATA_ENCRYPTION_KEY_ID', 'KEY_PROVIDER',
-  'VAULT_ADDR', 'VAULT_TOKEN', 'VAULT_TRANSIT_MOUNT', 'VAULT_TRANSIT_KEY', 'SMTP_URL', 'MAIL_FROM', 'S3_ENDPOINT', 'S3_REGION',
-  'S3_PUBLIC_ENDPOINT', 'S3_ACCESS_KEY', 'S3_SECRET_KEY', 'S3_QUARANTINE_BUCKET', 'S3_CLEAN_BUCKET', 'STORAGE_UPLOAD_ORIGIN', 'CLAMD_HOST', 'CLAMD_PORT',
-];
-const tenantPoolKeys = Object.keys(process.env).filter((k) => /^TENANT_POOL_\d+_DATABASE_URL$/.test(k));
-const HARDENED = ['--read-only', '--user', '65532:65532', '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges', '--tmpfs', '/tmp:rw,noexec,nosuid,size=64m', '--network', 'host'];
 
 const names = [];
-function run(name, image, env, cmd = []) {
-  const passed = [...new Set([...APP_ENV, ...tenantPoolKeys, ...Object.keys(env)])].filter((k) => (env[k] ?? process.env[k]) !== undefined);
-  const r = spawnSync('docker', ['run', '-d', '--name', name, ...HARDENED, ...passed.flatMap((k) => ['-e', k]), image, ...cmd], {
-    env: { ...process.env, ...env },
-    encoding: 'utf8',
-  });
+function run(name, image, extra, cmd = []) {
+  const { args, env } = dockerRun({ name, image, extra, cmd, detach: true });
+  const r = spawnSync('docker', args, { env, encoding: 'utf8' });
   if (r.status !== 0) throw new Error(`docker run ${name} failed: ${r.stderr.trim()}`);
   names.push(name);
 }
@@ -65,7 +50,7 @@ async function waitFor(what, check, ms = 60_000) {
 const problems = [];
 try {
   run('uv-smoke-api', API_IMAGE, { PORT: API_PORT, HOST: '127.0.0.1' });
-  run('uv-smoke-worker', API_IMAGE, {}, ['--enable-source-maps', '--import', './dist/otel.js', 'dist/worker.js']);
+  run('uv-smoke-worker', API_IMAGE, {}, WORKER_CMD);
   run('uv-smoke-web', WEB_IMAGE, { PORT: WEB_PORT, HOSTNAME: '127.0.0.1', API_INTERNAL_URL: `http://127.0.0.1:${API_PORT}` });
 
   await waitFor('API /health/live', async () => (await get(API_PORT, '/health/live')) === 200);
