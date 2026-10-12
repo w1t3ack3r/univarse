@@ -92,7 +92,8 @@ async function main() {
   step('vulnerability, secret and misconfiguration gates, SBOM (CS7, CS8) — Trivy reads tarballs, never the Docker socket');
   const trivyRun = (args, opts = {}) =>
     sh('docker', ['run', '--rm', '-v', 'uv-trivy-cache:/root/.cache/trivy', '-v', `${hostPath(WORK)}:/work`, '-v', `${hostPath(REPO)}:/repo:ro`, '-w', '/repo', TRIVY_IMAGE, ...args], { stdio: 'inherit', ...opts });
-  const trivy = (args) => trivyRun(args[0] === 'clean' ? args : [args[0], '--no-progress', ...args.slice(1)]);
+  // --no-progress exists only on `trivy image` (`trivy config` rejects it).
+  const trivy = (args) => trivyRun(args[0] === 'image' ? [args[0], '--no-progress', ...args.slice(1)] : args);
   trivy(['clean', '--vuln-db']); // fresh vulnerability data for every release (LR10)
   // A broken download is retried (Trivy's official mirrors, in order); if every attempt fails, the release fails:
   // it never scans without fresh data (CS9).
