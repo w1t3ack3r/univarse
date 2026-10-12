@@ -66,6 +66,15 @@ if (sh.status === 0) problems.push('running "sh" succeeded: the image has a shel
 
 const appFiles = entries.filter((e) => e.type === 'file' && e.path.replace(/^\.?\/+/, '').startsWith(`${root}/`)).length;
 console.log(`[inspect] ${image}: user ${config.User}; ${entries.length} entries, ${appFiles} files under /${root}; image id ${meta.Id}`);
+// Where the size goes (spec 0013 CS16 evidence): the largest packages in the app's node_modules.
+const bySize = new Map();
+for (const e of entries) {
+  const m = /^\.?\/?(?:[^/]+\/)*?node_modules\/\.pnpm\/([^/]+)\//.exec(e.path);
+  if (m && e.type === 'file') bySize.set(m[1], (bySize.get(m[1]) ?? 0) + (e.size ?? 0));
+}
+const top = [...bySize].sort((a, b) => b[1] - a[1]).slice(0, 8).map(([k, v]) => `${k} ${(v / 1e6).toFixed(1)} MB`);
+if (top.length > 0) console.log(`[inspect] largest packages: ${top.join('; ')}`);
+
 if (problems.length > 0) {
   // Long lists are summarised by reason; the first few paths of each are shown.
   const byReason = new Map();
@@ -130,7 +139,7 @@ function tarParser(onEntry) {
         paxPath = null;
         gnuLong = null;
         const type = flag === '5' ? 'dir' : flag === '2' ? 'symlink' : flag === '1' ? 'hardlink' : 'file';
-        onEntry({ path, type, uid: oct(h.subarray(108, 116)), gid: oct(h.subarray(116, 124)), mode: oct(h.subarray(100, 108)) });
+        onEntry({ path, type, size, uid: oct(h.subarray(108, 116)), gid: oct(h.subarray(116, 124)), mode: oct(h.subarray(100, 108)) });
         skip = padded;
       }
     },

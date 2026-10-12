@@ -25,6 +25,9 @@ LABEL org.opencontainers.image.source="https://github.com/w1t3ack3r/univarse" \
       org.opencontainers.image.version="${VERSION}" \
       org.opencontainers.image.title="univarse-web"
 ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1 PORT=3000 HOSTNAME=127.0.0.1
+# The nonroot base already runs as 65532, so WORKDIR would create /app owned by the app user. Create it
+# (and copy in) as root, then drop to 65532: the app can't write its own code (docs/09 §2.1 rule 7).
+USER 0:0
 WORKDIR /app
 # Standalone server and its traced node_modules, then the static assets and public files it doesn't copy.
 COPY --from=build --chown=0:0 /repo/apps/web/.next/standalone /app

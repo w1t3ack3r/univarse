@@ -30,6 +30,9 @@ LABEL org.opencontainers.image.source="https://github.com/w1t3ack3r/univarse" \
       org.opencontainers.image.version="${VERSION}" \
       org.opencontainers.image.title="univarse-api"
 ENV NODE_ENV=production UNIVARSE_VERSION=${VERSION}
+# The nonroot base already runs as 65532, so WORKDIR would create /app owned by the app user. Create it
+# (and copy in) as root, then drop to 65532: the app can't write its own code (docs/09 §2.1 rule 7).
+USER 0:0
 WORKDIR /app
 # Root-owned and not writable by the app user (docs/09 §2.1 rule 7).
 COPY --from=build --chown=0:0 /out /app
