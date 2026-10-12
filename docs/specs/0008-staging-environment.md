@@ -1,6 +1,6 @@
 # Spec 0008 — Staging environment (revision 2: phased, credit-sized start)
 
-**Status:** **Draft for owner review** (revision 2, 2026-10-11; owner decisions recorded 2026-10-12 in §7, one still open). Cloud staging is still **deferred** by [ADR-024](../19-decision-log.md), and nothing in this spec is being built. The owner has asked to **start planning** it, with a **$100 AWS credit** they already hold as the starting budget. They expect it won't be enough on its own.
+**Status:** **Paused** (2026-10-12) by [ADR-030](../19-decision-log.md): the owner decided everything stays fully local, with nothing hosted or staged. This plan is kept as a reference only. Any future hosting needs a new ADR. (Previously: draft for owner review, revision 2, owner decisions recorded 2026-10-12.)
 - **Revision 1 (2026-10-05):** one recommended configuration, about $190/month, 52% verified by value.
 - **Revision 2 (this one):**
   - every price is re-checked against AWS's public price list (now **fully verified** for the lines that matter);

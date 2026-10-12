@@ -38,15 +38,18 @@ gantt
 - **Identity:** users, argon2id, activation via OTP, login/logout, sessions (cookie), password reset, TOTP MFA, step-up, roles/permissions/scoped assignments, `PolicyService`
 - **Audit** (hash chain), **outbox** + relay + BullMQ worker skeleton, **files** (presigned upload, ClamAV scan), **settings** module with typed keys
 - Web skeleton: auth pages, workspace shell with permission-driven nav, design system in `packages/ui` with brand tokens, Storybook
-- Staging environment (single VM, hardened compose, managed Postgres)
+- ~~Staging environment (single VM, hardened compose, managed Postgres)~~ → **local production-like stack** ([ADR-030](19-decision-log.md), 2026-10-12): hardened compose running the verified images by digest, local HTTPS, PgBouncer, Vault with TLS, local backups
 
 **Exit criteria:**
 - Two seeded tenants. The cross-tenant test suite passes (all 5 layers of [12 §3](12-testing-strategy.md))
-- Login + MFA + step-up E2E green. CSP enforced on staging
-- Images signed, 0 high/critical findings. Staging deploy is automatic from `main`
+- Login + MFA + step-up E2E green. CSP enforced over **local HTTPS** (ADR-030; was "on staging")
+- Images signed, 0 high/critical findings. A **local deploy** runs only verified digests (ADR-030; was "staging deploy automatic from `main`")
 - ADRs 001–012 accepted
 
-**Deferred by [ADR-024](19-decision-log.md) (local-first, 2026-10-05):** the staging-only criteria above wait for cloud staging. They are CSP and HTTPS cookies on staging, the automatic staging deploy, backups and restore, and ADR-018's closure. They are not met. Image scanning and signing run in CI meanwhile. Phase 0 is **not** closed locally yet; see the reconciliation below.
+**Fully local ([ADR-030](19-decision-log.md), 2026-10-12, owner decision):**
+- **The change:** nothing is hosted or staged, and ADR-024's deferral of the staging criteria is superseded. There's **no deferred staging list**.
+- **The criteria now:** each former staging criterion is a local one, and Phase 0 closes only when they're all met on the developer machine: HTTPS with CSP and `Secure` cookies, a local deploy of verified digests, PgBouncer, Vault with TLS and its audit device, and backups with a rehearsed restore.
+- **Status:** Phase 0 is **not** closed yet; see the reconciliation below.
 
 ### Phase 0 reconciliation (2026-10-11, `main` at `0fe02f9`)
 
@@ -78,7 +81,7 @@ Each roadmap line checked against the repository, CI and the decision log.
 | Web: auth pages, workspace shell with permission-driven nav | ✅ | Spec 0005: login, MFA verify, activation, reset, MFA enrolment, the step-up dialog, and the workspace shell with gated nav (W6). E2E desktop and mobile in CI. A per-request nonce CSP is sent locally (`apps/web/src/proxy.ts`). |
 | Web: design system in `packages/ui` with brand tokens | ✅ | `packages/ui` (`tokens.css`, components, icons). |
 | Web: **Storybook** | ⏸ | Not installed. Deferred by [ADR-027](19-decision-log.md), to be revisited before Phase 2's UI expands. **Not met.** |
-| Staging environment | ⏸ | [ADR-024](19-decision-log.md). |
+| Staging environment → **local production-like stack** | ❌ | ADR-030. Not built yet: hardened compose running the verified images by digest, local HTTPS edge, PgBouncer, Vault with TLS. |
 
 **Exit criteria**
 
@@ -87,12 +90,15 @@ Each roadmap line checked against the repository, CI and the decision log.
 | Two seeded tenants | ✅ | `demo-uni`, `test-poly`; seeding runs twice in CI to prove it's idempotent. |
 | Cross-tenant suite, all 5 layers of [12 §3](12-testing-strategy.md) | 🟡 | **Layers 1–3:** ✅ (RLS checker, generic DB sweep, API route sweep: 30 real routes, 4 resource-by-id routes).<br>**Layer 4 (jobs):** 🟡 **partial**. The **outbox** worker is covered (B8, B10; OB8 worker half). The **file-scan worker** and the **key sweep** are pending: no cross-tenant claim test yet.<br>**Layer 5 (caches/files):** 🟡. Files are complete for the first slice. Still open: **product-cache invalidation** across instances (P7) and **key-forget propagation**. |
 | Login + MFA + step-up E2E green | ✅ | Green in CI on every recent merge (32/32, desktop and mobile). A clean **local** run is a separate follow-up (cause measured; [spec 0012](specs/0012-observability-logs-and-traces.md)), not an extra exit requirement. |
-| CSP enforced on staging | ⏸ | ADR-024. A nonce CSP is already enforced locally by the web app; HTTPS-cookie and CSP rehearsal is possible in ADR-024's local staging profile. |
-| Images signed, 0 high/critical findings | ❌ | No images are built yet. [Spec 0013](specs/0013-container-images-scan-sign.md) (draft #46): **all** HIGH/CRITICAL block, fixed or unfixed. While any exception is active, this criterion can't be claimed. |
-| Staging deploy automatic from `main` | ⏸ | ADR-024. |
+| CSP enforced → **over local HTTPS** | ❌ | ADR-030. The web app already enforces a nonce CSP locally over HTTP. Still to do: a local HTTPS edge with a local certificate authority, so `Secure`/`__Host-` cookies and the CSP run over HTTPS. |
+| Images signed, 0 high/critical findings | 🟡 | [Spec 0013](specs/0013-container-images-scan-sign.md).<br>**Built (#49–#51):** both images build, pass inspection and the hardened smoke run, and pass the 32 journeys. **0 HIGH/CRITICAL** findings (run 38234354821; 23 MEDIUM and 8 LOW unfixed, from the base). Secret and misconfiguration gates are clean; no exceptions are active.<br>**Not yet:** signing with the local key, the local registry and verification (ADR-030 amends ADR-029), and the CS13 proofs, including the canaries that prove secret-scan coverage. |
+| Staging deploy → **local deploy of verified digests** | ❌ | ADR-030. Not built yet: a local deploy command that runs only digests verified with the committed public key, then smoke-checks the stack. |
 | ADRs 001–012 accepted | ✅ | All accepted on 2026-09-30 ([19](19-decision-log.md)). |
 
-**Also deferred with staging (ADR-024):** backups with a rehearsed restore; ADR-018's closure, since [ADR-023](19-decision-log.md) closes it "once staging runs it"; PgBouncer in the deployed path (ADR-015).
+**Formerly deferred to staging, now local requirements (ADR-030):**
+- backups with a rehearsed restore;
+- ADR-018's closure, by running the `vault` provider with TLS in the local stack;
+- PgBouncer in the deployed path (ADR-015).
 
 **Tracked gaps that stay open:**
 - **Cache isolation (layer 5):** product-cache invalidation across instances (spec 0003 P7), and key-forget propagation (spec 0006).
@@ -104,15 +110,20 @@ Each roadmap line checked against the repository, CI and the decision log.
 **Completed:** every ✅ row above.
 
 **Remaining work, in order:**
-1. **Spec 0013:** image build, test, scan, SBOM, sign and verify (draft #46, with the review corrections applied). This is the next implementation slice, and it's what the "Images signed, 0 high/critical findings" criterion needs.
+1. **Spec 0013, locally:** steps 1–3 are done. Next come the local registry, local key signing and verification (amended by ADR-030), then the CS12–CS13 policy checks and proofs, including the secret-scan canaries.
 2. **Job isolation:** cross-tenant claim tests for the file-scan worker and the key sweep (layer 4).
 3. **Cache isolation:** product-cache invalidation (P7) and key-forget propagation (layer 5).
 4. **PgBouncer:** isolation tests through the intended pooling mode (transaction pooling), as a CI job (ADR-015).
 5. **CI and local gates:** the remaining CI security scans (Semgrep, CodeQL, osv-scanner, license check, Checkov), plus lefthook and commitlint.
 6. **Authorization:** the central `PolicyService`, reusing the existing logic, with negative tests for non-institution scopes (ADR-028).
+7. **The local production-like stack (ADR-030),** in this order:
+   1. PgBouncer in the deployed path;
+   2. local HTTPS edge with a local certificate authority (CSP and `Secure` cookies over HTTPS);
+   3. Vault with TLS and its audit device, running the `vault` provider (closes ADR-018);
+   4. a local deploy of verified digests;
+   5. local backups with a rehearsed restore, and the shred ledger.
 
 **Deferred requirements: not met, and not counted as done:**
-- **Staging (ADR-024):** staging itself; CSP and HTTPS cookies on staging; the automatic deploy from `main`; backups with a rehearsed restore; ADR-018's closure; PgBouncer in the deployed path.
 - **BullMQ** (ADR-019), with its revisit trigger recorded.
 - **Storybook** (ADR-027), to be revisited before Phase 2's UI expands.
 - **Resource-scope enforcement** (ADR-028), with each scope's first consuming module.
@@ -261,5 +272,5 @@ Postgraduate school · polytechnic (ND/HND) & college of education (NCE) structu
 1. **Plan:** for each module, read [05](05-modules-and-features.md) → confirm rules in [04](04-business-rules.md) → add entities to [03](03-domain-model.md) if needed → threat-model delta ([08 §2](08-security.md)).
 2. **Slice:** pick the thinnest end-to-end slice (e.g. "HOD approves one score sheet") → contract → migration → domain → use case → API → UI → tests.
 3. **Harden:** edge cases, authorization matrix, load checks, docs, runbook.
-4. **Demo** on staging with seed data. Collect feedback from the pilot contact.
+4. **Demo** on the local production-like stack with seed data ([ADR-030](19-decision-log.md)). Collect feedback from the pilot contact.
 5. **Close the phase** only when its exit criteria are demonstrably met (a link to evidence goes in the phase issue).
