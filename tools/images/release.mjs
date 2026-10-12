@@ -5,16 +5,17 @@
 //   options: --key <path to cosign.key>  --pub <path to cosign.pub>
 // For producing a verified local deployment — NOT part of the everyday loop (pnpm dev, tests and PR CI are).
 // The signing password is read once (hidden) or from COSIGN_PASSWORD, and reaches cosign only by environment.
-import { createHash } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 import { proveSecretCoverage } from './canary.mjs';
 import { readFromTar } from './tar.mjs';
 import {
-  COMPOSE, COSIGN_IMAGE, cosign, DEFAULT_KEY, DEFAULT_PUB, HOST_REGISTRY, hostPath, IDENTITY, IDENTITY_ISSUER, PREDICATES,
+  COMPOSE, COSIGN_IMAGE, cosign, DEFAULT_KEY, DEFAULT_PUB, HOST_REGISTRY, hostPath, IDENTITY, IDENTITY_ISSUER, PREDICATES, ROLES,
   registryConfigDigest, registryDigest, REPO, sh, SIGN_FLAGS, TOOL_REGISTRY, TRIVY_IMAGE,
 } from './release-lib.mjs';
+import { cleanupRun, ensureService as ensure, newRun, stopIfStarted as stopStarted } from './release-cleanup.mjs';
 import { verifyRelease } from './verify-release.mjs';
 
 const argv = process.argv.slice(2);
@@ -24,8 +25,12 @@ const rehearsal = flag('rehearsal');
 const KEY = opt('key', DEFAULT_KEY);
 const PUB = opt('pub', DEFAULT_PUB);
 const WORK = join(tmpdir(), `univarse-release-${Date.now()}`);
-const IMAGES = { api: 'infra/docker/api.Dockerfile', web: 'infra/docker/web.Dockerfile' };
-const started = []; // services this release started, and only these, are stopped at the end (LR10)
+// The images and Dockerfiles come from the trusted ROLES table (release-lib), the same one verification uses.
+const IMAGES = Object.fromEntries(Object.entries(ROLES).map(([role, r]) => [role, r.dockerfile]));
+// This run's ID: every container it starts is labelled with it, and cleanup removes only those (LR10). Children
+// (smoke, journeys, run-container) read it from the environment for their labels and container names.
+const RUN = newRun(`${Date.now().toString(36)}${randomBytes(3).toString('hex')}`);
+process.env.UV_RELEASE_RUN = RUN.runId;
 const record = { schema: 1, rehearsal, startedAt: new Date().toISOString(), images: {}, gates: {}, negatives: {} };
 const step = (n) => console.log(`\n[release] ── ${n}`);
 
@@ -64,7 +69,7 @@ async function main() {
     sh('docker', ['save', `univarse-${name}:release`, '-o', tar]);
     const manifest = JSON.parse((await readFromTar(tar, 'manifest.json')).toString('utf8'));
     const configDigest = configOf(manifest);
-    record.images[name] = { repo: `univarse-${name}`, dockerfile: file, configDigest, sizeBytes: Number(sh('docker', ['image', 'inspect', '-f', '{{.Size}}', `univarse-${name}:release`]).stdout.trim()) };
+    record.images[name] = { repo: ROLES[name].repo, dockerfile: file, configDigest, sizeBytes: Number(sh('docker', ['image', 'inspect', '-f', '{{.Size}}', `univarse-${name}:release`]).stdout.trim()) };
     console.log(`univarse-${name}:release config ${configDigest}`);
   }
   // Every later stage re-checks that the tag is still that image (CS6).
@@ -178,7 +183,8 @@ async function main() {
 
   // ── LR6: verify against the committed public key, with negatives
   step('verify offline against the committed public key (LR6, LR9)');
-  const v = verifyRelease(record, { pub: PUB, commit: record.commit });
+  // The release may verify its own rehearsal; the deploy never accepts one (the flag is in the signed provenance).
+  const v = verifyRelease(record, { pub: PUB, commit: record.commit, allowRehearsal: rehearsal });
   if (!v.ok) throw new Error(`verification failed:\n  ${v.problems.join('\n  ')}`);
   for (const ref of Object.values(v.results)) console.log(`verified ${ref}`);
   record.verification = { publicKeySha256: createHash('sha256').update(readFileSync(PUB)).digest('hex'), result: 'signature, SBOM and provenance verified offline' };
@@ -187,20 +193,49 @@ async function main() {
   const other = join(WORK, 'other-key');
   mkdirSync(other);
   sh('docker', ['run', '--rm', '--network', 'none', '-e', 'COSIGN_PASSWORD', '-v', `${hostPath(other)}:/k`, '-w', '/k', COSIGN_IMAGE, 'generate-key-pair'], { env: { COSIGN_PASSWORD: 'throwaway-negative-check' } });
-  const wrongKey = verifyRelease(record, { pub: join(other, 'cosign.pub'), commit: record.commit });
-  if (wrongKey.ok) throw new Error('a different public key verified the release (LR6 negative failed)');
-  sh('docker', ['tag', COSIGN_IMAGE, `${HOST_REGISTRY}/univarse-unsigned-check:${tag}`]);
-  sh('docker', ['push', `${HOST_REGISTRY}/univarse-unsigned-check:${tag}`]);
-  const unsigned = await registryDigest('univarse-unsigned-check', tag);
+  const wrongKey = verifyRelease(record, { pub: join(other, 'cosign.pub'), commit: record.commit, allowRehearsal: rehearsal });
+  expectRejected(wrongKey, /api: signature does not verify/, 'a different public key (LR6)');
+  // An unsigned image pushed into the TRUSTED api repository, so the only thing wrong is the missing signature.
+  const unsignedTag = `unsigned-check-${tag}`;
+  sh('docker', ['tag', COSIGN_IMAGE, `${HOST_REGISTRY}/${ROLES.api.repo}:${unsignedTag}`]);
+  sh('docker', ['push', `${HOST_REGISTRY}/${ROLES.api.repo}:${unsignedTag}`]);
+  const unsigned = await registryDigest(ROLES.api.repo, unsignedTag);
   const edited = structuredClone(record);
-  edited.images.api = { ...edited.images.api, repo: 'univarse-unsigned-check', digest: unsigned };
-  const tampered = verifyRelease(edited, { pub: PUB, commit: record.commit });
-  if (tampered.ok) throw new Error('an edited record pointing at an unsigned digest was accepted (LR9 negative failed)');
+  edited.images.api = { ...edited.images.api, digest: unsigned };
+  const tampered = verifyRelease(edited, { pub: PUB, commit: record.commit, allowRehearsal: rehearsal });
+  // A web image substituted for the API, fully signed. Signatures live per repository (cosign 3 stores them as
+  // referrers; `cosign copy`/`load` can't move them into this HTTP registry), so the web image is pushed into the
+  // trusted api repository and signed there with the same key, with its own SBOM and its GENUINE provenance
+  // (role web, web Dockerfile). Every signed statement is true; only the role binding can reject it — the property
+  // under test. This is the only extra signing a release does, and its tag says what it is.
+  const swapTag = `role-swap-check-${tag}`;
+  sh('docker', ['tag', 'univarse-web:release', `${HOST_REGISTRY}/${ROLES.api.repo}:${swapTag}`]);
+  sh('docker', ['push', `${HOST_REGISTRY}/${ROLES.api.repo}:${swapTag}`]);
+  const swapDigest = await registryDigest(ROLES.api.repo, swapTag);
+  const swapRef = `${TOOL_REGISTRY}/${ROLES.api.repo}@${swapDigest}`;
+  cosign(['sign', '--key', keyIn, ...SIGN_FLAGS, swapRef], { mounts: keyMounts, env: { COSIGN_PASSWORD: password } });
+  cosign(['attest', '--key', keyIn, '--type', PREDICATES.sbom, '--predicate', '/work/sbom-web.spdx.json', ...SIGN_FLAGS, swapRef], { mounts: keyMounts, env: { COSIGN_PASSWORD: password } });
+  cosign(['attest', '--key', keyIn, '--type', PREDICATES.provenance, '--predicate', '/work/provenance-web.json', ...SIGN_FLAGS, swapRef], { mounts: keyMounts, env: { COSIGN_PASSWORD: password } });
+  const swapped = structuredClone(record);
+  swapped.images.api = { ...swapped.images.api, digest: swapDigest };
+  const roleSwap = verifyRelease(swapped, { pub: PUB, commit: record.commit, allowRehearsal: rehearsal });
+  // Deploy mode: a rehearsal is never deployable, whatever the record's JSON says.
+  let deployRehearsal = null;
+  if (rehearsal) {
+    const asDeploy = structuredClone(record);
+    asDeploy.rehearsal = false; // an edited flag changes nothing: the signed provenance says rehearsal
+    deployRehearsal = verifyRelease(asDeploy, { pub: PUB, commit: record.commit });
+    expectRejected(deployRehearsal, /rehearsal is never deployable/, 'a rehearsal in deploy mode (LR9)');
+  }
+  expectRejected(tampered, /api: signature does not verify.*no signatures found/, 'an edited record pointing at an unsigned digest (LR9)');
+  expectRejected(roleSwap, /api: signed provenance does not name role api/, 'the signed web image in the api slot (LR9)');
   record.negatives = {
     differentKey: `rejected: ${wrongKey.problems[0]}`,
     editedRecordUnsignedDigest: `rejected: ${tampered.problems[0]}`,
+    webImageInApiSlot: `rejected: ${roleSwap.problems[0]}`,
+    ...(deployRehearsal ? { rehearsalInDeployMode: `rejected: ${deployRehearsal.problems[0]}` } : {}),
   };
-  console.log(`rejected as required:\n  ${record.negatives.differentKey}\n  ${record.negatives.editedRecordUnsignedDigest}`);
+  console.log(`rejected as required:\n  ${Object.values(record.negatives).join('\n  ')}`);
   // Offline proof: the signing tools could not reach the internet.
   const reach = sh('docker', ['run', '--rm', '--network', 'univarse-dev_release', '--entrypoint', 'sh', TRIVY_IMAGE, '-c', 'wget -qO- -T 5 https://rekor.sigstore.dev >/dev/null 2>&1 && echo reachable || echo blocked']);
   if (reach.stdout.trim() !== 'blocked') throw new Error('the release network can reach the internet; LR5 requires it to be internal');
@@ -222,11 +257,18 @@ function configOf(manifest) {
   return `sha256:${hex}`;
 }
 
+/** A negative must fail, and fail for its intended reason: a rejection for any other reason proves nothing. */
+function expectRejected(result, reason, what) {
+  if (result.ok) throw new Error(`${what} was ACCEPTED`);
+  if (!result.problems.some((p) => reason.test(p))) throw new Error(`${what} was rejected for another reason, not the one under test: ${result.problems.join(' | ')}`);
+}
+
 function provenance(name, img, base, created) {
   return {
     buildDefinition: {
       buildType: 'https://univarse.local/release/v1',
-      externalParameters: { commit: record.commit, branch: record.branch, dockerfile: img.dockerfile, buildArgs: { REVISION: record.commit, CREATED: created, VERSION: `sha-${record.commit.slice(0, 7)}` } },
+      // role, dockerfile and rehearsal are signed here, so verification can bind them (LR9): the record can't.
+      externalParameters: { role: name, rehearsal, commit: record.commit, branch: record.branch, dockerfile: ROLES[name].dockerfile, buildArgs: { REVISION: record.commit, CREATED: created, VERSION: `sha-${record.commit.slice(0, 7)}` } },
       resolvedDependencies: [{ uri: `oci://${base}`, digest: { sha256: base.split('@sha256:')[1] } }, { uri: 'git+local', digest: { gitCommit: record.commit } }],
     },
     runDetails: {
@@ -236,21 +278,15 @@ function provenance(name, img, base, created) {
   };
 }
 
+const cleanupDeps = { sh, compose: COMPOSE };
 async function ensureService(name, profile = []) {
-  const running = sh('docker', [...COMPOSE, ...profile, 'ps', '--status', 'running', '--services'], { allowFail: true }).stdout.split('\n').includes(name);
-  if (running) return;
-  sh('docker', [...COMPOSE, ...profile, 'up', '-d', '--wait', name], { stdio: 'inherit' });
-  started.push({ name, profile });
+  ensure(RUN, name, { ...cleanupDeps, profile });
 }
 async function stopIfStarted(name) {
-  const i = started.findIndex((s) => s.name === name);
-  if (i < 0) return;
-  const [s] = started.splice(i, 1);
-  sh('docker', [...COMPOSE, ...s.profile, 'stop', name], { allowFail: true });
+  stopStarted(RUN, name, cleanupDeps);
 }
 function cleanup() {
-  for (const s of [...started].reverse()) sh('docker', [...COMPOSE, ...s.profile, 'stop', s.name], { allowFail: true });
-  sh('docker', ['rm', '-f', 'uv-smoke-api', 'uv-smoke-web', 'uv-smoke-worker', 'uv-e2e-api', 'uv-e2e-web', 'uv-e2e-worker'], { allowFail: true });
+  cleanupRun(RUN, cleanupDeps); // only this run's services and labelled containers (LR10)
   rmSync(WORK, { recursive: true, force: true });
 }
 

@@ -183,6 +183,50 @@ Image sizes from Docker Desktop's containerd store (API 809 MB, web 273 MB) aren
 
 **This is a rehearsal with a test key. It doesn't meet LR10.**
 
+**Review fixes, 2026-10-13** (owner's review of `e43e32f`/`cb074ea`, confirmed with mocked process calls). The fixes are in a follow-up PR, because #55 had already merged.
+1. **Rehearsal status is signed.**
+   - **The release** writes `role` and `rehearsal` into the provenance it signs.
+   - **`verifyRelease`** (the deploy's check) accepts only signed provenance with `rehearsal: false`; a missing flag is rejected. Only the release verifying its own rehearsal passes `allowRehearsal`. Editing the record's JSON flag changes nothing.
+2. **Image roles are pinned in trusted code (`ROLES` in `release-lib.mjs`).**
+   - **The record** must name exactly `api` and `web`, each with its trusted repository.
+   - **The signed provenance** must name that role and the trusted Dockerfile, never the record's own value.
+   - **Rejected:** a web image in the api slot, a web-only record, and an unknown extra role.
+3. **Cleanup is ownership-scoped (`release-cleanup.mjs`).**
+   - **Containers:** each run has a unique ID. Its containers carry it as a label and a name suffix, and cleanup removes only containers with that label; nothing is removed by name. A dirty-tree failure removes nothing.
+   - **Services:** a service is recorded as started by the run **before** `up --wait`, so a failed startup is still stopped. Services that were already running are never touched.
+
+**Regression tests** (CI): `verify-release.test.mjs` (8) and `release-cleanup.test.mjs` (5).
+- **Mutations:** each original bug put back makes its tests fail:
+  - no rehearsal check: 2 tests fail;
+  - no exact-role check: 1;
+  - provenance checked against the record: 1;
+  - service recorded after `up`: 1;
+  - removal by fixed names: 2.
+- **New live negatives in every release:**
+  - **A fully signed web image in the api slot.** Signatures live per repository; cosign 3 stores them as referrers, and `cosign copy`/`cosign load` can't move them into this plain-HTTP registry (both tried on 2026-10-13). So the release pushes the web image into the trusted `univarse-api` repository and signs it there with the same key, with its own SBOM and its **genuine** provenance (role `web`, the web Dockerfile).
+    - **Disclosure:** this is **the only extra signing a release does**. Every statement it signs is true, and its tag (`role-swap-check-…`) says what it is.
+    - **What it proves:** only the role binding can reject it.
+  - **For a rehearsal:** verification in deploy mode.
+  - **The unsigned-digest negative** pushes into the trusted `univarse-api` repository, so the only fault is the missing signature.
+- **Rehearsal of commit `c8ab9bcae4bed63760ee2c30fe708af220f48bbf`** (the fix PR's last code commit), run with the throwaway test key on Docker Desktop for Windows. It took 21:53:14–22:32:48 UTC, and its record is `releases/2026-10-12-c8ab9bc-rehearsal.json`.
+  - **The vulnerability DB:** the first download attempt failed. The **retry fetched it fresh** (downloaded 22:09:32Z; DB updated 19:08:28Z).
+  - **Gates:** 0 HIGH/CRITICAL (23 MEDIUM and 8 LOW each, all unfixed), and all five canaries found.
+  - **Smoke:** pass.
+  - **Journeys:** **31 passed, 1 flaky**, which passed on retry. It was desktop `documents.e2e.ts:28` [FU9], upload → scan → download. Suspected cause: ClamAV had just been started by the release, plus machine load. Not measured.
+  - **Published:**
+    - **API:** manifest `sha256:ec77ee0d86e3673f56ee58dd7bad76c5918f8f38db4236a64d1014af9d228064`, config `sha256:bb30cf2f573693344a01f5677973f5409f9cb5066ca15e3bb619885968a79e2c`;
+    - **web:** manifest `sha256:0328d78f9f9f9d5ed7e20d5588bc8a46701915df0b92902168c4dd7a6b0a6399`, config `sha256:295f0bc1878616127d01b2d55ad4e5de6a3ae0d9e4fbe08b3c7edd18b14767e7`.
+  - **Signing:** both signed, attested and verified offline.
+  - **All four negatives rejected for their intended reason:**
+    - different key: "accepted signatures do not match threshold, Found: 0";
+    - unsigned digest in the api repository: "no signatures found";
+    - **fully signed web image in the api slot: "signed provenance does not name role api … it names: role web, infra/docker/web.Dockerfile"**;
+    - rehearsal in deploy mode: "a rehearsal is never deployable".
+  - **Cleanup:** no containers labelled with the run were left; the four services already running were untouched.
+- **Every negative must fail for its intended reason** (`expectRejected`): a different key → signature mismatch; unsigned → "no signatures found"; role swap → "does not name role api"; rehearsal → "rehearsal is never deployable".
+- **Why the reasons are checked:** the first rehearsal of `42503bd` (2026-10-12, otherwise green: 32/32 journeys, canaries found, offline signing) showed the role-swap negative rejected for the **wrong** reason ("no signatures found", because the web digest had no signatures under the api repository). That led to the change above. A pre-check against that rehearsal's images confirmed that a signed web image in the api slot is now rejected by the role check ("it names: role web, infra/docker/web.Dockerfile").
+
+
 **Still to come before LR10 is met:**
 1. the owner's public-key PR;
 2. the **real** release on `main` in the owner's terminal, with the owner's key and password.

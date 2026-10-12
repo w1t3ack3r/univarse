@@ -128,7 +128,7 @@ Each roadmap line checked against the repository, CI and the decision log.
 - **Storybook** (ADR-027), to be revisited before Phase 2's UI expands.
 - **Resource-scope enforcement** (ADR-028), with each scope's first consuming module.
 
-**Separate follow-up, not an exit requirement:** a clean local E2E run.
+**Separate follow-up, not an exit requirement:** a clean local E2E run. **Closed 2026-10-13 with containerised evidence:** the local release rehearsal of `12524dd` (spec 0013) ran the full browser suite locally against the containerised API, worker and web: **32 passed, no flakes**. The owner accepted that run as closing this follow-up. It is containerised evidence, not a run of `pnpm test:e2e` against the dev servers.
 
 ## Phase 1 — Platform control plane (~4 wks)
 

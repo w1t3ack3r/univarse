@@ -195,6 +195,8 @@ jobs:
       - name: Inspect the images — user, labels, no shell, no UniVarse source/test/env files, ownership (spec 0013 CS1, CS2)
         run: |
           node --test tools/images/rules.test.mjs
+          node --test tools/images/verify-release.test.mjs
+          node --test tools/images/release-cleanup.test.mjs
           node tools/images/inspect.mjs univarse-api:ci --root app
           node tools/images/inspect.mjs univarse-web:ci --root app
       # Spec 0013 CS7–CS9 / ADR-029. Fail closed: each gate is its own step and the job stops at the first one
