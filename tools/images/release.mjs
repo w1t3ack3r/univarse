@@ -194,7 +194,7 @@ async function main() {
   mkdirSync(other);
   sh('docker', ['run', '--rm', '--network', 'none', '-e', 'COSIGN_PASSWORD', '-v', `${hostPath(other)}:/k`, '-w', '/k', COSIGN_IMAGE, 'generate-key-pair'], { env: { COSIGN_PASSWORD: 'throwaway-negative-check' } });
   const wrongKey = verifyRelease(record, { pub: join(other, 'cosign.pub'), commit: record.commit, allowRehearsal: rehearsal });
-  if (wrongKey.ok) throw new Error('a different public key verified the release (LR6 negative failed)');
+  expectRejected(wrongKey, /api: signature does not verify/, 'a different public key (LR6)');
   // An unsigned image pushed into the TRUSTED api repository, so the only thing wrong is the missing signature.
   const unsignedTag = `unsigned-check-${tag}`;
   sh('docker', ['tag', COSIGN_IMAGE, `${HOST_REGISTRY}/${ROLES.api.repo}:${unsignedTag}`]);
@@ -203,20 +203,32 @@ async function main() {
   const edited = structuredClone(record);
   edited.images.api = { ...edited.images.api, digest: unsigned };
   const tampered = verifyRelease(edited, { pub: PUB, commit: record.commit, allowRehearsal: rehearsal });
-  // A web image substituted for the API (both are signed): the signed provenance names the wrong role.
+  // A web image substituted for the API, fully signed. Signatures live per repository (cosign 3 stores them as
+  // referrers; `cosign copy`/`load` can't move them into this HTTP registry), so the web image is pushed into the
+  // trusted api repository and signed there with the same key, with its own SBOM and its GENUINE provenance
+  // (role web, web Dockerfile). Every signed statement is true; only the role binding can reject it — the property
+  // under test. This is the only extra signing a release does, and its tag says what it is.
+  const swapTag = `role-swap-check-${tag}`;
+  sh('docker', ['tag', 'univarse-web:release', `${HOST_REGISTRY}/${ROLES.api.repo}:${swapTag}`]);
+  sh('docker', ['push', `${HOST_REGISTRY}/${ROLES.api.repo}:${swapTag}`]);
+  const swapDigest = await registryDigest(ROLES.api.repo, swapTag);
+  const swapRef = `${TOOL_REGISTRY}/${ROLES.api.repo}@${swapDigest}`;
+  cosign(['sign', '--key', keyIn, ...SIGN_FLAGS, swapRef], { mounts: keyMounts, env: { COSIGN_PASSWORD: password } });
+  cosign(['attest', '--key', keyIn, '--type', PREDICATES.sbom, '--predicate', '/work/sbom-web.spdx.json', ...SIGN_FLAGS, swapRef], { mounts: keyMounts, env: { COSIGN_PASSWORD: password } });
+  cosign(['attest', '--key', keyIn, '--type', PREDICATES.provenance, '--predicate', '/work/provenance-web.json', ...SIGN_FLAGS, swapRef], { mounts: keyMounts, env: { COSIGN_PASSWORD: password } });
   const swapped = structuredClone(record);
-  swapped.images.api = { ...swapped.images.api, digest: record.images.web.digest };
+  swapped.images.api = { ...swapped.images.api, digest: swapDigest };
   const roleSwap = verifyRelease(swapped, { pub: PUB, commit: record.commit, allowRehearsal: rehearsal });
-  if (roleSwap.ok) throw new Error('a web image in the api slot was accepted (LR9 negative failed)');
   // Deploy mode: a rehearsal is never deployable, whatever the record's JSON says.
   let deployRehearsal = null;
   if (rehearsal) {
     const asDeploy = structuredClone(record);
     asDeploy.rehearsal = false; // an edited flag changes nothing: the signed provenance says rehearsal
     deployRehearsal = verifyRelease(asDeploy, { pub: PUB, commit: record.commit });
-    if (deployRehearsal.ok) throw new Error('a rehearsal verified in deploy mode (LR9 negative failed)');
+    expectRejected(deployRehearsal, /rehearsal is never deployable/, 'a rehearsal in deploy mode (LR9)');
   }
-  if (tampered.ok) throw new Error('an edited record pointing at an unsigned digest was accepted (LR9 negative failed)');
+  expectRejected(tampered, /api: signature does not verify.*no signatures found/, 'an edited record pointing at an unsigned digest (LR9)');
+  expectRejected(roleSwap, /api: signed provenance does not name role api/, 'the signed web image in the api slot (LR9)');
   record.negatives = {
     differentKey: `rejected: ${wrongKey.problems[0]}`,
     editedRecordUnsignedDigest: `rejected: ${tampered.problems[0]}`,
@@ -243,6 +255,12 @@ function configOf(manifest) {
   const hex = /([0-9a-f]{64})(?:\.json)?$/.exec(manifest[0].Config)?.[1];
   if (!hex) throw new Error(`can't read the config digest from manifest.json (${manifest[0].Config})`);
   return `sha256:${hex}`;
+}
+
+/** A negative must fail, and fail for its intended reason: a rejection for any other reason proves nothing. */
+function expectRejected(result, reason, what) {
+  if (result.ok) throw new Error(`${what} was ACCEPTED`);
+  if (!result.problems.some((p) => reason.test(p))) throw new Error(`${what} was rejected for another reason, not the one under test: ${result.problems.join(' | ')}`);
 }
 
 function provenance(name, img, base, created) {

@@ -202,7 +202,14 @@ Image sizes from Docker Desktop's containerd store (API 809 MB, web 273 MB) aren
   - provenance checked against the record: 1;
   - service recorded after `up`: 1;
   - removal by fixed names: 2.
-- **New live negatives in every release:** a web image in the api slot; for a rehearsal, verification in deploy mode. The unsigned-digest negative now pushes into the **trusted** `univarse-api` repository, so the only fault is the missing signature.
+- **New live negatives in every release:**
+  - **A fully signed web image in the api slot.** Signatures live per repository; cosign 3 stores them as referrers, and `cosign copy`/`cosign load` can't move them into this plain-HTTP registry (both tried on 2026-10-13). So the release pushes the web image into the trusted `univarse-api` repository and signs it there with the same key, with its own SBOM and its **genuine** provenance (role `web`, the web Dockerfile).
+    - **Disclosure:** this is **the only extra signing a release does**. Every statement it signs is true, and its tag (`role-swap-check-…`) says what it is.
+    - **What it proves:** only the role binding can reject it.
+  - **For a rehearsal:** verification in deploy mode.
+  - **The unsigned-digest negative** pushes into the trusted `univarse-api` repository, so the only fault is the missing signature.
+- **Every negative must fail for its intended reason** (`expectRejected`): a different key → signature mismatch; unsigned → "no signatures found"; role swap → "does not name role api"; rehearsal → "rehearsal is never deployable".
+- **Why the reasons are checked:** the first rehearsal of `42503bd` (2026-10-12, otherwise green: 32/32 journeys, canaries found, offline signing) showed the role-swap negative rejected for the **wrong** reason ("no signatures found", because the web digest had no signatures under the api repository). That led to the change above. A pre-check against that rehearsal's images confirmed that a signed web image in the api slot is now rejected by the role check ("it names: role web, infra/docker/web.Dockerfile").
 
 
 **Still to come before LR10 is met:**
