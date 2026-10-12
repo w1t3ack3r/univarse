@@ -4,6 +4,9 @@
   "private": true,
   "description": "Pure domain engines (grading, GPA/CGPA, standing, classification). No IO.",
   "type": "module",
+  "files": [
+    "dist"
+  ],
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",

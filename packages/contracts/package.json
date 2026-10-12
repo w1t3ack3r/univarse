@@ -4,6 +4,9 @@
   "private": true,
   "description": "Shared API contracts: permission catalog, error codes, schemas.",
   "type": "module",
+  "files": [
+    "dist"
+  ],
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",

@@ -4,6 +4,9 @@
   "private": true,
   "description": "Envelope encryption (spec 0006, ADR-023): per-tenant DEKs wrapped by a KEK in Vault Transit; field cipher format; platform audit.",
   "type": "module",
+  "files": [
+    "dist"
+  ],
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
