@@ -1,6 +1,6 @@
 # Spec 0008 — Staging environment (revision 2: phased, credit-sized start)
 
-**Status:** **Draft for owner review** (revision 2, 2026-10-11). Cloud staging is still **deferred** by [ADR-024](../19-decision-log.md), and nothing in this spec is being built. The owner has asked to **start planning** it, with a **$100 AWS credit** they already hold as the starting budget. They expect it won't be enough on its own.
+**Status:** **Draft for owner review** (revision 2, 2026-10-11; owner decisions recorded 2026-10-12 in §7, one still open). Cloud staging is still **deferred** by [ADR-024](../19-decision-log.md), and nothing in this spec is being built. The owner has asked to **start planning** it, with a **$100 AWS credit** they already hold as the starting budget. They expect it won't be enough on its own.
 - **Revision 1 (2026-10-05):** one recommended configuration, about $190/month, 52% verified by value.
 - **Revision 2 (this one):**
   - every price is re-checked against AWS's public price list (now **fully verified** for the lines that matter);
@@ -32,7 +32,7 @@
 - **The owner does every cloud-account action:** creating or upgrading accounts, entering payment details, enabling regions, billing settings, and holding root or admin credentials. Anything that needs the AWS console or CLI with write access is written below as **owner steps**.
 - **No long-lived cloud keys in GitHub or on hosts.** CI deploys through an **OIDC role**; hosts use **instance roles**.
 - **Synthetic data only** in staging. No real personal data, ever, at any phase of this spec.
-- **No secrets, account IDs, IPs or personal data in the repo.** That includes this spec, IaC, logs and fixtures. Identifiers are placeholders (`<staging-domain>`, `<account-id>`).
+- **No secrets, account IDs, IPs or personal data in the repo.** That includes this spec, IaC, logs and fixtures. Identifiers are placeholders (`<domain>`, `<account-id>`).
 
 ## 1. Price check (2026-10-11)
 
@@ -110,9 +110,9 @@ flowchart LR
 | **D · Pilot-ready** | **≈ $190+ always on** (revision 1's shape, verified in §1.3), plus temporary larger instances for load tests | Nothing in Phase 0. It serves the pilot: UAT, DAST, and the ADR-026 load test on staging hardware |
 
 **Credit runway (Phases B and C, Cape Town):**
-- **Scheduled** (≈ $50/month): $100 covers about **2 months**. That's enough to build B and probably C.
+- **Scheduled** (≈ $50–55/month, §4.1): $100 covers about **1.8 months**. That's enough to build B and probably C.
 - **Always on** (≈ $121/month): about **25 days**.
-- **After the credit:** a run-rate of **≈ $50/month scheduled** until the pilot needs Phase D.
+- **After the credit:** either a run-rate of **≈ $50–55/month scheduled** until the pilot needs Phase D, or a teardown before the credit runs out. **Still open** (§7, D1b), and decided before Phase B starts.
 
 **Phase 0 stays open after C anyway.** Other items remain, listed in [18](../18-roadmap.md):
 - the four tracked gaps: product cache P7, `GET /users` pagination, key-forget broadcast, and the shred ledger (until C builds it);
@@ -131,6 +131,7 @@ flowchart LR
 | **IaC** in `infra/terraform/` (OpenTofu-compatible), with Checkov/Trivy config scanning in CI, **plan only, never applied by CI in this phase**. Remote state in an encrypted, versioned S3 bucket with locking, created by the owner's bootstrap step (§5) | docs/09 §7; SG8's budget as code |
 | **Deploy script**, run on the host by SSM:<br>• pull the given digests;<br>• `cosign verify` with ADR-029's exact identity, plus the attestations;<br>• the migration one-shot;<br>• `compose up`;<br>• health checks.<br>Tested against the local staging profile | SG3, SG10 |
 | **Runbooks drafted:** deploy, rollback, restore (with the crypto-shred re-apply), Vault unseal and snapshot, cost guard | SG5, SG6 |
+| **Configurable tenant hostnames for staging.** The resolver already matches exact hostnames (`apps/api/src/shared/tenancy/tenant-resolver.service.ts`), but the seed hard-codes `<slug>.univarse.localhost` (`packages/db/scripts/seed.ts`). Add a hostname pattern setting so staging seeds first-level names (D5), and test that only seeded hosts resolve | SG2 |
 | **Spec 0013 publishing signed images from `main`** | A prerequisite for B (in progress in another session) |
 
 ### 2.2 Phase B: first staging (the credit starts here)
@@ -194,7 +195,7 @@ flowchart LR
 4. It runs the host's deploy script by **SSM Run Command**, passing **digests only**. No credentials go through command parameters, because SSM records them.
 5. The host verifies the signature identity **before** pulling into compose.
 6. It runs migrations as a one-shot container, then rolls the stack.
-7. CI's **smoke E2E** runs against `demo-uni.<staging-domain>` through Cloudflare Access: login, MFA, step-up, and upload → scan → download.
+7. CI's **smoke E2E** runs against `demo-uni-staging.<domain>` through Cloudflare Access: login, MFA, step-up, and upload → scan → download.
 8. A failed smoke run **stops the deploy**, rolls back to the previous digests (kept on the host) and fails the workflow, so GitHub notifies the owner.
 
 **How the host pulls images (D7):** GHCR packages are private (ADR-029), so the host needs read access.
@@ -339,6 +340,7 @@ flowchart LR
 3. **Budgets (SG8):**
    - a monthly **cost budget at the D1 ceiling**, with alerts at **50%, 80% and 100% of actual cost** and a **forecast** alert at 100%;
    - **credits excluded from the budget's charges,** so alerts track real usage while the credit hides it;
+   - a **budget action** at 100% that stops the tagged EC2 and RDS instances (SG8);
    - **Cost Anomaly Detection** on.
 4. **Terraform state bootstrap:** an S3 bucket (versioned, encrypted, public access blocked) for state, with S3-native locking.
 5. **GitHub OIDC:**
@@ -351,7 +353,7 @@ flowchart LR
 6. **The first `apply`:**
    - **Who runs it:** the owner, from their machine, with their own credentials, reviewing the plan that CI produced.
    - **Credentials:** they are never shared with Claude or pasted into chat or the repo.
-7. **Cloudflare:** the staging domain added to Cloudflare; the tunnel created (its token stored by the owner in Parameter Store); Access applications for the staging hostnames, with a service token for CI stored as a GitHub environment secret.
+7. **Cloudflare:** the staging domain (D5) on Cloudflare; the tunnel created (its token stored by the owner in Parameter Store); Access applications for the staging hostnames, with a service token for CI stored as a GitHub environment secret.
 8. **Vault:** initialise Vault and keep the **recovery keys and the root token** offline. Revoke the root token after setup. Create the key-admin token, held by the operator and never on a VM.
 
 **Claude's part:** IaC, compose, scripts, runbooks and pipeline code in PRs; reading plans and logs the owner shares (with secrets redacted). Claude never holds cloud, Vault or registry credentials (D6).
@@ -362,32 +364,35 @@ Built in Phases B–C after the decisions. Each criterion's phase is listed.
 | ID | Phase | Acceptance criterion |
 |----|----|---|
 | SG1 | B | *Same shape as production, smaller.* The edge (TLS) in front of web, API and worker; PostgreSQL 18 (platform + one pool shard) behind **PgBouncer in transaction pooling**; Valkey; Vault; Mailpit. **Synthetic data only.** |
-| SG2 | B | *Real TLS and browser security.*<br>• `demo-uni.<staging-domain>` serves only HTTPS with HSTS.<br>• `__Host-` cookies are `Secure`, `HttpOnly` and `SameSite`.<br>• The CSP is **enforced** (not report-only), with per-request nonces.<br>• **Checked automatically against staging after each deploy.**<br>**Closes** Phase 0's "CSP + HTTPS cookies on staging". |
+| SG2 | B | *Real TLS and browser security.*<br>• The staging tenant host (first-level, e.g. `demo-uni-staging.<domain>`; D5) serves only HTTPS with HSTS.<br>• `__Host-` cookies are `Secure`, `HttpOnly` and `SameSite`.<br>• The CSP is **enforced** (not report-only), with per-request nonces.<br>• **Checked automatically against staging after each deploy.**<br>**Closes** Phase 0's "CSP + HTTPS cookies on staging". |
 | SG3 | B | *Automatic deploy from `main`.* A merge runs spec 0013's pipeline, then deploys **by digest**. It starts stopped instances, runs migrations, then the smoke E2E. A failed smoke run rolls back and fails the workflow. **Closes** "automatic deploy from `main`". |
 | SG4 | B | *Secrets.*<br>• None in the repo or images.<br>• Runtime secrets come from Parameter Store `SecureString` (B–C) through the instance role, which is scoped to its own path.<br>• The Vault AppRole secret and the Postgres role passwords are per environment.<br>• No long-lived AWS keys anywhere: CI uses OIDC, hosts use instance roles. |
 | SG5 | B | *Vault in a staging-grade setup.*<br>• Its own VM (unless D4 says otherwise).<br>• KMS auto-unseal, TLS, the audit device on.<br>• Daily Raft snapshot to the backup bucket.<br>• The app token can only call Transit `encrypt`/`decrypt`. The key-admin token is held outside both VMs.<br>• The app runs `KEY_PROVIDER=vault`, and a test proves a destroyed tenant DEK makes that tenant's values undecryptable **on staging**.<br>**Closes ADR-018.** |
 | SG6 | C | *Backups and a rehearsed restore.*<br>• RDS PITR, 7 days.<br>• An Object Lock backup bucket holding Vault snapshots and the **shred ledger**.<br>• One rehearsed restore that **re-applies crypto-shreds**, recorded in `docs/ops/drills/`.<br>**Closes** "backups with a rehearsed restore", and the shred-ledger gap. |
 | SG7 | B | *Host hardening* ([09 §4.2, §5](../09-container-security.md)).<br>• **No inbound** security-group rules on the app VM (Cloudflare Tunnel). The Vault VM allows only 8200 from the app's security group.<br>• SSM Session Manager instead of SSH; unattended security updates; chrony.<br>• Containers: non-root, read-only root filesystems, dropped capabilities.<br>• No data port published. An **external port scan shows nothing open.** |
-| SG8 | A–B | *Cost guard.*<br>• An AWS Budget at the D1 ceiling, on actual cost excluding credits, with alerts at 50%, 80% and 100%, a forecast alert, and anomaly detection.<br>• The office-hours schedule is on.<br>• `t3` instances in `standard` credit mode.<br>• **Monthly spend recorded** in this spec's completion record. |
+| SG8 | A–B | *Cost guard.*<br>• An AWS Budget at the D1 ceiling, on actual cost excluding credits, with alerts at 50%, 80% and 100%, a forecast alert, and anomaly detection.<br>• **Alerts don't stop spending.** A **budget action** at 100% stops the tagged EC2 and RDS instances. It isn't a hard cap: billing data lags by hours, and storage keeps billing while stopped.<br>• The office-hours schedule is on.<br>• `t3` instances in `standard` credit mode.<br>• **Monthly spend recorded** in this spec's completion record. |
 | SG9 | B | *PgBouncer.* The isolation suite passes **through PgBouncer in transaction pooling**: in CI (Phase A) and as the deployed path (Phase B). **Closes** ADR-015's two obligations. |
 | SG10 | B | *Only verified images run.* The host refuses to run any digest whose `cosign verify` with ADR-029's exact identity, or whose attestation verification, fails. Third-party images run by digest, scanned under spec 0013's rules. A negative test deploys an unsigned digest and must fail. |
 
 **Also proved in B, but not as Phase 0 criteria:** the D3 role and grant check on RDS, and ADR-025's storage contract tests against S3.
 
-## 7. Decisions needed from the owner
-| # | Decision | Recommendation |
-|---|---|---|
-| **D0** | **When Phase B starts** (this amends ADR-024 with a new ADR) | Finish **Phase A first**, then start B. If the credit expires sooner than A can finish, start B earlier with what's ready rather than lose the credit |
-| **D1** | **Monthly ceiling** for B–C after the credit | **$60/month** (scheduled ≈ $50–55, plus margin). Revisit for D (~$190+) before pilot UAT |
-| **D2** | **Region** | `af-south-1`, if the credit applies there and the owner enables it. Otherwise `eu-west-1`. Either way, IaC stays region-parameterised and portable for in-country deployments |
-| **D3** | **Database** | RDS PostgreSQL 18, `db.t4g.micro`, Single-AZ. Before B, the owner confirms availability with `aws rds describe-orderable-db-instance-options --engine postgres --region af-south-1` (read-only), filtered to version 18 and the class. Self-managed only if the no-superuser setup check fails |
-| **D4** | **Vault placement and product** | **Its own `t3.micro` with KMS auto-unseal** (~$6/month scheduled more than co-located). **Vault versus OpenBao:** staying on Vault 2.1.1 matches what's integrated and tested; OpenBao avoids a later licence-driven migration. Recommendation: **Vault for B** (no new integration risk), with OpenBao re-tested in CI as the exit |
-| **D5** | **Domain and TLS** | A **separate staging domain** on Cloudflare (first-level wildcard `*.<staging-domain>` covered by Universal SSL; cookies separate from production). Cloudflare Tunnel plus Access |
-| **D6** | **Who holds which credential** | Unchanged from revision 1: the owner holds the root, admin, Vault recovery and key-admin credentials; CI uses OIDC; hosts use instance roles; Claude holds none |
-| **D7** | **How the host pulls private images** | **(a) Mirror verified digests to ECR** with `cosign copy`, pulled by the instance role. Alternatives: (b) a read-only GitHub token in Parameter Store; (c) public packages (an ADR-029 visibility decision) |
+## 7. Owner decisions (recorded 2026-10-12)
+These record the owner's choices for the plan. **None of them starts Phase B:** that needs the D0 ADR and a review of the deployment plan. Each one still depends on the checks named in its row.
 
-## 8. Docs to update when the decisions are made
-- **docs/19:** a new ADR amending ADR-024 (D0), with region (D2) and Vault placement (D4); and one for Cloudflare Tunnel plus SSM-only access, if accepted.
+| # | Decision | Owner's choice | Condition or open point |
+|---|---|---|---|
+| **D0** | **When Phase B starts** | **Finish Phase A and spec 0013's signed-image pipeline first.** Then review the deployment plan before launching B | A new ADR amending ADR-024, written when B is approved |
+| **D1a** | **Monthly ceiling** | **$60/month planning target**, on the office-hours schedule | Enforced by SG8's budget alerts and its budget action, which isn't a hard cap |
+| **D1b** | **After the credit** | **Open.** Either keep staging at up to $60/month, or tear it down before the credit runs out. A teardown keeps the IaC and runbooks, but loses database and Vault data unless snapshots are kept (small storage cost) | **Decided before Phase B starts.** A Paid-plan account bills once the credit is used up |
+| **D2** | **Region** | **`af-south-1` (Cape Town)** | After the owner confirms the credit applies there and enables the region (§5). Otherwise `eu-west-1`, with no design change. IaC stays region-parameterised |
+| **D3** | **Database** | **RDS PostgreSQL 18, `db.t4g.micro`, Single-AZ** | After the owner confirms availability (`aws rds describe-orderable-db-instance-options --engine postgres --region af-south-1`, read-only, filtered to version 18 and the class), and after the `db:setup` role and grant check passes without superuser. Otherwise self-managed (§4.2) |
+| **D4** | **Vault** | **Vault on its own `t3.micro` with KMS auto-unseal** | Vault 2.1.1 as integrated. OpenBao stays the tested exit |
+| **D5** | **Domain and TLS** | **An existing domain the owner holds.** It's named outside this public repo and written here as `<domain>`. Staging uses **first-level hostnames** such as `demo-uni-staging.<domain>`, so Cloudflare's free Universal SSL covers them. A two-level name such as `demo-uni.staging.<domain>` isn't covered | **Phase A:** the configurable seed hostname pattern (§2.1). **Same-site caution:** if `<domain>` also serves production, staging and production hosts are *same-site*. Host-only `__Host-` cookies don't cross hosts, but `SameSite` would no longer separate a less-hardened staging host from production. **Revisit D5 if production is planned on `<domain>`** (docs/10 names a different production domain) |
+| **D6** | **Credentials** | **Unchanged:** the owner holds root, admin, Vault recovery and key-admin credentials; CI uses OIDC; servers use limited IAM roles; Claude holds none | |
+| **D7** | **Images** | **Mirror verified digests and their signatures to ECR** with `cosign copy`; servers pull with their IAM role | No GitHub credential on any server |
+
+## 8. Docs to update when Phase B is approved
+- **docs/19:** a new ADR amending ADR-024 (D0), with the after-credit decision (D1b), region (D2) and Vault placement (D4); and one for Cloudflare Tunnel plus SSM-only access, if accepted.
 - **docs/10 §2, §7–8:** the staging row (scheduled, tunnel, Parameter Store), and staging PITR.
 - **docs/09 §4.2:** link to `compose.staging.yml` once it exists.
 - **docs/18:** Phase 0's deferred criteria marked as closed **only** when SG2, SG3, SG5, SG6 and SG9 have evidence.
