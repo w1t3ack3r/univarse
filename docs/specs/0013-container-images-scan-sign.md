@@ -162,10 +162,30 @@ Image sizes from Docker Desktop's containerd store (API 809 MB, web 273 MB) aren
 - **Result:** the gate **failed** on the canary image, and **all five were reported at their locations**. The env and label canaries appear twice, because `ENV`/`LABEL` are also recorded in the history.
 - **Mutation:** with `skip-patterns: ["**/node_modules/**"]` (Trivy's default restored), **only the `@univarse` package canary was MISSED** and the proof failed. The configuration was restored afterwards.
 
+**Final rehearsal of commit `12524dd0d1f22905154e8806d3cdcce9c5191361`**, the tooling PR's last code commit. It includes the canary stage and the pinned Dockerfile frontend. It ran with `--rehearsal` and the throwaway test key, on Docker Desktop for Windows. It took 14:34:05–20:21:47 UTC (5 h 48 min); the build stage was slowed by npm requests that took over 80 s each. Its record is `releases/2026-10-12-12524dd-rehearsal.json`, kept locally.
+
+| Stage | Result |
+|---|---|
+| Base image upstream signature | verified (`…nodejs24-debian13:nonroot@sha256:9eeb7f58…`) |
+| Vulnerability database | fresh: downloaded 14:54:51Z; DB updated 13:18:23Z; Trivy 0.75.0 |
+| Inspection; exceptions | pass; none active |
+| Vulnerability gate | **0 HIGH/CRITICAL** in both images (23 MEDIUM and 8 LOW each, all unfixed) |
+| Secret and misconfiguration gates; SBOM | pass; API 329 packages, web 36 |
+| **Secret-coverage canaries** | the gate **failed** on the canary image, and **all five were found**: app file; `/app/node_modules/.pnpm/@univarse+db@…/node_modules/@univarse/db/dist/canary-pkg.js`; config env; config label; history-only RUN step |
+| Hardened smoke | pass |
+| Browser journeys (containerised) | **32 passed** (5.3 min), no flakes |
+| Published, API | manifest `sha256:2ad00bcee54e669481fa965934bf649ef45e27f672c6cc7cc2148ccec95b171c`, config `sha256:43f4744d18d954cc1b3034d3f3809c71bcd5df051bf09a1d39036be46766a918` |
+| Published, web | manifest `sha256:d233d3b0c1d1fa6013288359ea3a49b7530c738be28abc0d44695133be599486`, config `sha256:249a8ef781ffc949bebf4a6e0a85d25f5cecfbbd7b18430f58bb6563e4338a82` |
+| Same-image check | pushed config digests equal the gated ones |
+| Offline signing, attestation, verification | signed and attested on the internal network only, with no route to public Sigstore; signature, SBOM and provenance verified against the test public key (sha256 `083769bb…`) |
+| Negatives | different key **rejected**; edited record pointing at an unsigned digest **rejected** ("no signatures found") |
+| Cleanup | ClamAV and the registry, which the release started, were stopped; the four services already running were left alone |
+
+**This is a rehearsal with a test key. It doesn't meet LR10.**
+
 **Still to come before LR10 is met:**
-1. a final rehearsal on the final commit of this PR (recorded below once run);
-2. the owner's public-key PR;
-3. the **real** release on `main` in the owner's terminal, with the owner's key and password.
+1. the owner's public-key PR;
+2. the **real** release on `main` in the owner's terminal, with the owner's key and password.
 
 ## Design notes
 
