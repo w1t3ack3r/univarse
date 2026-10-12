@@ -230,7 +230,7 @@ Alternatives considered: option — why not.
 - **Secret-manager KEK:** the KEK sits in process memory. Acceptable only as a stop-gap, and not chosen.
 
 ## ADR-024 — Local-first until the application is complete; cloud staging deferred
-**Status:** Accepted (2026-10-05, owner decision).
+**Status:** Accepted (2026-10-05, owner decision). **Superseded in part by ADR-030 (below, 2026-10-12):** the staging criteria are no longer deferred; they're local requirements.
 
 **Context:** [Spec 0008](specs/0008-staging-environment.md) planned AWS staging at about $190/month (partly verified). The application work (settings, the API isolation route sweep, uploads, API contracts, observability) doesn't need the cloud.
 
@@ -344,7 +344,7 @@ Alternatives considered: option — why not.
 - **Deferring `PolicyService` too:** its absence doesn't depend on missing academic entities, and centralising now keeps every later scope in one place.
 
 ## ADR-029 — Container images: private GHCR, keyless signing pinned to the `main` workflow, and zero HIGH/CRITICAL findings
-**Status:** Accepted (2026-10-11, owner decision). Implements [spec 0013](specs/0013-container-images-scan-sign.md) D1, D2 and D4.
+**Status:** Accepted (2026-10-11, owner decision). Implements [spec 0013](specs/0013-container-images-scan-sign.md) D1, D2 and D4. **D1 and D2 amended by ADR-030 (2026-10-12):** a local registry and a local cosign key replace private GHCR and keyless signing. D4 stands.
 
 **Context:**
 - Phase 0's exit asks for signed images with no high or critical findings.
@@ -380,3 +380,50 @@ Alternatives considered: option — why not.
 - **Public packages from the start:** a visibility choice the owner hasn't made.
 - **Signing with a long-lived key:** a secret to store and rotate, against docs/13.
 - **Failing only on fixable findings:** hides unfixed risk, contrary to the owner's D4.
+
+## ADR-030 — Fully local: development, deployment and operation stay on the owner's machine
+**Status:** Accepted (2026-10-12, owner decision).
+- **Supersedes** ADR-024's deferral of the staging criteria: there's no deferred staging list any more.
+- **Amends** ADR-029 D1 and D2: no hosted registry, no public transparency log.
+- **Pauses** [spec 0008](specs/0008-staging-environment.md), which stays as a reference.
+
+**Context:**
+- ADR-024 put cloud staging off until the application was complete, and recorded Phase 0's staging-only exit criteria as *deferred*.
+- A staging plan sized to an AWS credit was drafted (spec 0008 revision 2, #48).
+- The owner has decided: all development, deployment and everything else for UniVarse is done **locally**, one step after another, with nothing hosted or staged.
+
+**Decision:**
+- **Nothing hosted or staged.**
+  - No cloud environment, no hosted container registry, and no public transparency-log entries for UniVarse images.
+  - GitHub stays what it is today: the source repository, pull requests and CI. CI builds, tests and scans, and **publishes nothing**.
+- **Phase 0's staging criteria become local criteria.** The "local staging profile" ADR-024 described as optional becomes the required target. Each item is met locally, or Phase 0 stays open; none is deferred to staging:
+
+  | Was (staging) | Now (local) |
+  |---|---|
+  | Staging environment | A **local production-like stack**: the hardened compose of [09 §4.2](09-container-security.md) running the verified images by digest, on the developer machine. |
+  | CSP and HTTPS cookies on staging | A local edge with **HTTPS from a local certificate authority**, so `Secure`/`__Host-` cookies and the enforced CSP are exercised over HTTPS. |
+  | Automatic deploy from `main` | A **local deploy command** that runs only verified image digests and rolls the local stack, with a smoke check. |
+  | Backups with a rehearsed restore | **Local backups** (database and object storage) to local disk, with a rehearsed restore, and the shred ledger ([07](07-data-and-database.md), spec 0006). |
+  | ADR-018 closure ("once staging runs it") | **Local Vault with TLS and its audit device**, running the `vault` key provider in the local production-like stack. |
+  | PgBouncer in the deployed path (ADR-015) | **PgBouncer in transaction pooling** in the local stack, plus a CI job running the isolation suite through it. |
+- **Images (amends ADR-029):**
+  - **D1, registry:** a **local registry** in compose (`127.0.0.1` only) replaces private GHCR.
+  - **D2, signing:** images are signed with a **local cosign key pair**.
+    - The private key is encrypted, kept **outside the repository**, and its password is held by the owner.
+    - The public key is committed.
+    - Verification is pinned to that public key.
+    - SBOM and provenance are attached as attestations signed with the same key.
+  - **D4, findings, is unchanged:** zero HIGH/CRITICAL, fixed or not.
+  - **One artifact, unchanged:** the image that's signed and deployed is the one that passed the gates, with no rebuild. Where the image comes from (built locally, or the CI-tested image imported by ID) is settled in spec 0013's local publication step.
+- **Order of work:** one after the other, locally first.
+
+**Consequences:**
+- **Phase 0's exit is fully local** and fully testable on this machine. Nothing is "met on staging later".
+- **Local is the only environment.** It holds synthetic data only (ADR-024's rule stands), and backups protect it.
+- **The developer machine is memory-starved** (spec 0012's local E2E record). The production-like stack and ClamAV start only when needed.
+- **Security property traded away:** keyless signing's public, independent record is given up for a key the owner holds. The key's protection (encrypted, outside git, password with the owner) becomes part of the threat model ([08](08-security.md) T13).
+- **Revisit trigger:** any decision to host, stage or publish anything outside the machine needs a new ADR.
+
+**Alternatives considered:**
+- **Keep GHCR and keyless signing:** a hosted registry and a public log entry, which the owner ruled out.
+- **Hold signing entirely:** leaves "images signed" unmet with no local path to it.

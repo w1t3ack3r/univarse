@@ -1,6 +1,14 @@
 # Spec 0013: Container images — build, scan, SBOM, sign
 
 **Status:** Accepted (2026-10-11), owner review of revision 3 (`ee3590f`). D1–D6 decided, with the conditions written into the criteria; the registry, signing and findings decisions are recorded as ADR-029. **Pending until it passes in CI:** verification of the base image's upstream signature (CS3). Implementation starts with the image-build slice.
+
+**Amended 2026-10-12 by [ADR-030](../19-decision-log.md) (fully local):**
+- **Registry and signing:** CS10/CS11 publish to a **local registry** (`127.0.0.1` only) and sign with a **local cosign key** (private key encrypted, outside the repository; public key committed). Verification is pinned to that key, and the attestations are signed with it.
+- **CI publishes nothing.**
+- **D1 and D2 are superseded** as described; D3–D6 stand.
+- **Steps 1–3 are done in CI** (#49–#51: CS1–CS9).
+- **Still to do:** the local publication step, then CS12–CS16.
+- **Rewritten in the local step:** CS12's permission split (there's no CI publish job any more) and CS15's required check.
 - **Revision 2:** corrected D4 (zero HIGH/CRITICAL includes unfixed findings), and tightened three criteria: real journeys inside the images, one artifact from test to signature, and every failure reaching its intended gate.
 - **Revision 3:**
   - the maintained Debian 13 base, with its digest resolved;
