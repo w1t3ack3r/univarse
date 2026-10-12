@@ -196,3 +196,14 @@ jobs:
           node tools/images/inspect.mjs univarse-web:ci --root app
       - name: Hardened runtime smoke — read-only, UID 65532, no capabilities (spec 0013 CS4)
         run: node tools/images/smoke.mjs --api univarse-api:ci --web univarse-web:ci
+      - name: Browser journeys against the containerised API, worker and web — desktop + mobile (spec 0013 CS5)
+        # The same Playwright suite as source-mode E2E, but the API, worker and web are the images built above,
+        # under the CI hardening, behind the same edge: login, MFA (TOTP, recovery code), step-up, reset via
+        # Mailpit, upload → ClamAV scan → download.
+        env:
+          E2E_API_IMAGE: univarse-api:ci
+          E2E_WEB_IMAGE: univarse-web:ci
+        run: pnpm --filter @univarse/web test:e2e
+      - name: Remove the journey containers (always)
+        if: always()
+        run: docker rm -f uv-e2e-api uv-e2e-web uv-e2e-worker uv-smoke-api uv-smoke-web uv-smoke-worker > /dev/null 2>&1 || true

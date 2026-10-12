@@ -7,6 +7,11 @@ const reuse = !process.env.CI;
 // Optional installed browser instead of Playwright's download, e.g. PW_CHANNEL=msedge locally.
 const channel = process.env.PW_CHANNEL ? { channel: process.env.PW_CHANNEL } : {};
 const repo = new URL('../..', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1');
+// Spec 0013 CS5: with E2E_API_IMAGE and E2E_WEB_IMAGE set, the API, web and worker run as the built images under
+// the CI hardening (tools/images/container.mjs) instead of from dist/ and .next. Same ports, same edge, same tests.
+const apiImage = process.env.E2E_API_IMAGE;
+const webImage = process.env.E2E_WEB_IMAGE;
+const images = Boolean(apiImage && webImage);
 
 export default defineConfig({
   testDir: './e2e',
@@ -24,14 +29,16 @@ export default defineConfig({
   ],
   webServer: [
     {
-      command: 'node tools/dev-edge/start-api.mjs',
+      command: images ? `node tools/images/run-container.mjs uv-e2e-api ${apiImage} PORT=8099 TRUSTED_PROXIES=127.0.0.1` : 'node tools/dev-edge/start-api.mjs',
       cwd: repo,
       url: 'http://127.0.0.1:8099/health/live',
       reuseExistingServer: reuse,
       timeout: 60_000,
     },
     {
-      command: 'pnpm --filter @univarse/web start',
+      command: images
+        ? `node tools/images/run-container.mjs uv-e2e-web ${webImage} PORT=3000 HOSTNAME=127.0.0.1 API_INTERNAL_URL=http://127.0.0.1:8099`
+        : 'pnpm --filter @univarse/web start',
       cwd: repo,
       url: 'http://127.0.0.1:3000/login',
       reuseExistingServer: reuse,

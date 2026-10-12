@@ -5,11 +5,15 @@ import { fileURLToPath } from 'node:url';
 
 export default function globalSetup(): () => void {
   const repo = fileURLToPath(new URL('../../..', import.meta.url));
-  const worker = spawn(process.execPath, ['apps/api/dist/worker.js'], {
-    cwd: repo,
-    stdio: 'ignore',
-    env: { ...process.env, WORKER_POLL_MS: '500' },
-  });
+  // Spec 0013 CS5: with E2E_API_IMAGE set, the worker is the built image under the CI hardening.
+  const image = process.env.E2E_API_IMAGE;
+  const worker = image
+    ? spawn(process.execPath, ['tools/images/run-container.mjs', 'uv-e2e-worker', image, '--worker', 'WORKER_POLL_MS=500'], { cwd: repo, stdio: 'ignore' })
+    : spawn(process.execPath, ['apps/api/dist/worker.js'], {
+        cwd: repo,
+        stdio: 'ignore',
+        env: { ...process.env, WORKER_POLL_MS: '500' },
+      });
   return () => {
     worker.kill();
   };
