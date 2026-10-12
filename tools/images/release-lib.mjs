@@ -28,7 +28,9 @@ export const hostPath = (p) => (process.platform === 'win32' ? p.replace(/\//g, 
 
 /** Runs a command; returns { status, stdout, stderr }. Throws on non-zero unless allowFail. */
 export function sh(cmd, args, { env, allowFail = false, stdio, cwd = REPO, input } = {}) {
-  const r = spawnSync(cmd, args, { cwd, env: { ...process.env, MSYS_NO_PATHCONV: '1', ...env }, encoding: 'utf8', stdio, input, maxBuffer: 256 * 1024 * 1024 });
+  // pnpm is a .cmd shim on Windows, which Node can only start through a shell. Arguments here are fixed strings.
+  const shell = process.platform === 'win32' && cmd === 'pnpm';
+  const r = spawnSync(cmd, args, { cwd, shell, env: { ...process.env, MSYS_NO_PATHCONV: '1', ...env }, encoding: 'utf8', stdio, input, maxBuffer: 256 * 1024 * 1024 });
   if (r.error) throw r.error;
   if (r.status !== 0 && !allowFail) {
     const err = (r.stderr || r.stdout || '').trim().split('\n').slice(-12).join('\n');
