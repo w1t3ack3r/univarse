@@ -4,6 +4,7 @@
 import { spawnSync } from 'node:child_process';
 import { request } from 'node:http';
 import { dockerRun, WORKER_CMD } from './container.mjs';
+import { runSuffix } from './release-lib.mjs';
 
 const arg = (name) => {
   const i = process.argv.indexOf(`--${name}`);
@@ -19,6 +20,8 @@ if (!API_IMAGE || !WEB_IMAGE) {
 const API_PORT = '8090';
 const WEB_PORT = '3090';
 const HOST = 'demo-uni.univarse.localhost';
+// Unique per release run (see release-lib runSuffix), so this never touches another run's or anyone's containers.
+const N = { api: `uv-smoke-api${runSuffix()}`, worker: `uv-smoke-worker${runSuffix()}`, web: `uv-smoke-web${runSuffix()}` };
 
 const names = [];
 function run(name, image, extra, cmd = []) {
@@ -49,20 +52,20 @@ async function waitFor(what, check, ms = 60_000) {
 
 const problems = [];
 try {
-  run('uv-smoke-api', API_IMAGE, { PORT: API_PORT, HOST: '127.0.0.1' });
-  run('uv-smoke-worker', API_IMAGE, {}, WORKER_CMD);
-  run('uv-smoke-web', WEB_IMAGE, { PORT: WEB_PORT, HOSTNAME: '127.0.0.1', API_INTERNAL_URL: `http://127.0.0.1:${API_PORT}` });
+  run(N.api, API_IMAGE, { PORT: API_PORT, HOST: '127.0.0.1' });
+  run(N.worker, API_IMAGE, {}, WORKER_CMD);
+  run(N.web, WEB_IMAGE, { PORT: WEB_PORT, HOSTNAME: '127.0.0.1', API_INTERNAL_URL: `http://127.0.0.1:${API_PORT}` });
 
   await waitFor('API /health/live', async () => (await get(API_PORT, '/health/live')) === 200);
   for (const [path, want] of [['/health/live', 200], ['/health/ready', 200], ['/api/v1/tenant/public-profile', 200]]) {
     const got = await get(API_PORT, path);
     if (got !== want) problems.push(`API ${path}: ${got}, expected ${want}`);
   }
-  await waitFor('worker.started', async () => logs('uv-smoke-worker').includes('"event":"worker.started"'), 30_000).catch((e) => problems.push(String(e)));
+  await waitFor('worker.started', async () => logs(N.worker).includes('"event":"worker.started"'), 30_000).catch((e) => problems.push(String(e)));
   await waitFor('web /login', async () => (await get(WEB_PORT, '/login')) === 200, 60_000).catch((e) => problems.push(String(e)));
 
   // API and worker: stdout is JSON lines only (spec 0012 OB1). The web image isn't held to this (spec 0013 CS4).
-  for (const n of ['uv-smoke-api', 'uv-smoke-worker']) {
+  for (const n of [N.api, N.worker]) {
     const out = spawnSync('docker', ['logs', n], { encoding: 'utf8' }).stdout;
     const bad = out.split('\n').filter((l) => l.trim() && !isJson(l));
     if (bad.length > 0) problems.push(`${n}: ${bad.length} non-JSON stdout line(s), first: ${bad[0].slice(0, 160)}`);

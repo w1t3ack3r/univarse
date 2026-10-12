@@ -157,7 +157,8 @@ When something goes wrong in a deployed UniVarse, the first question is "what ha
   - **With the preload at 100 % sampling:** medians 128 and 97 ms.
 
   That's roughly +20–25 ms (about 20–25 %) per login with sampling at 100 %. Production's provisional 10 % sampling records fewer spans.
-- **Local E2E: cause measured; a clean local run is pending.** The failures **also reproduced without tracing**. They stay open until a local run passes 32/32. CI's E2E passed 32/32 on the merged commit. The failure output below is kept as-is.
+- **Local E2E: closed 2026-10-13 (containerised evidence).** **Closed 2026-10-13 with containerised evidence:** the local release rehearsal of `12524dd` (spec 0013) ran the full browser suite locally against the containerised API, worker and web: **32 passed, no flakes**. The owner accepted that run as closing this follow-up. It is containerised evidence, not a run of `pnpm test:e2e` against the dev servers. The original record follows.
+- **Local E2E: cause measured; a clean local run is pending (superseded by the line above).** The failures **also reproduced without tracing**. They stay open until a local run passes 32/32. CI's E2E passed 32/32 on the merged commit. The failure output below is kept as-is.
   - **The cause measured (2026-10-07, a separate investigation):**
     - **Memory:** the laptop's memory was 96–97 % used, with 2,300–3,100 pages a second read back from disk. CPU was at or above 95 % in 99 % of samples.
     - **The Docker/WSL VM** had 3.3 GB allocated but about 295 MB in RAM, so the containers it hosts (Valkey, Vault, ClamAV, Mailpit) were mostly swapped out.

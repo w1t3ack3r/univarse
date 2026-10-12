@@ -12,6 +12,8 @@ const repo = new URL('../..', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/
 const apiImage = process.env.E2E_API_IMAGE;
 const webImage = process.env.E2E_WEB_IMAGE;
 const images = Boolean(apiImage && webImage);
+// Inside a local release run, container names carry the run's ID, so only that run's containers are touched.
+const run = process.env.UV_RELEASE_RUN ? `-${process.env.UV_RELEASE_RUN}` : '';
 
 export default defineConfig({
   testDir: './e2e',
@@ -29,7 +31,7 @@ export default defineConfig({
   ],
   webServer: [
     {
-      command: images ? `node tools/images/run-container.mjs uv-e2e-api ${apiImage} PORT=8099 TRUSTED_PROXIES=127.0.0.1` : 'node tools/dev-edge/start-api.mjs',
+      command: images ? `node tools/images/run-container.mjs uv-e2e-api${run} ${apiImage} PORT=8099 TRUSTED_PROXIES=127.0.0.1` : 'node tools/dev-edge/start-api.mjs',
       cwd: repo,
       url: 'http://127.0.0.1:8099/health/live',
       reuseExistingServer: reuse,
@@ -37,7 +39,7 @@ export default defineConfig({
     },
     {
       command: images
-        ? `node tools/images/run-container.mjs uv-e2e-web ${webImage} PORT=3000 HOSTNAME=127.0.0.1 API_INTERNAL_URL=http://127.0.0.1:8099`
+        ? `node tools/images/run-container.mjs uv-e2e-web${run} ${webImage} PORT=3000 HOSTNAME=127.0.0.1 API_INTERNAL_URL=http://127.0.0.1:8099`
         : 'pnpm --filter @univarse/web start',
       cwd: repo,
       url: 'http://127.0.0.1:3000/login',

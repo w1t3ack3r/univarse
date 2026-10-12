@@ -33,7 +33,9 @@ export function dockerRun({ name, image, extra = {}, cmd = [], detach = false })
   const env = { ...process.env, ...extra };
   const names = [...new Set([...APP_ENV, ...Object.keys(process.env).filter((k) => /^TENANT_POOL_\d+_DATABASE_URL$/.test(k)), ...Object.keys(extra)])];
   const passed = names.filter((k) => env[k] !== undefined && env[k] !== '');
-  const args = ['run', ...(detach ? ['-d'] : ['--rm']), '--name', name, ...HARDENED, ...passed.flatMap((k) => ['-e', k]), image, ...cmd];
+  // Inside a release run, every container is labelled with the run's ID so cleanup removes only what this run owns.
+  const owner = process.env.UV_RELEASE_RUN ? ['--label', `univarse.release.run=${process.env.UV_RELEASE_RUN}`] : [];
+  const args = ['run', ...(detach ? ['-d'] : ['--rm']), '--name', name, ...owner, ...HARDENED, ...passed.flatMap((k) => ['-e', k]), image, ...cmd];
   return { args, env };
 }
 

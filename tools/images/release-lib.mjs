@@ -14,6 +14,18 @@ export const HOST_REGISTRY = 'localhost:5000'; // where the host's Docker pushes
 export const TOOL_REGISTRY = 'registry:5000'; // how the offline tools reach the same registry
 export const DEFAULT_KEY = join(homedir(), '.univarse', 'signing', 'cosign.key');
 export const DEFAULT_PUB = join(REPO, 'infra', 'signing', 'cosign.pub');
+/**
+ * The ONLY images a release may contain, with their repositories and Dockerfiles. Trusted code: verification
+ * compares records and provenance against this table, never against the record's own (editable) values.
+ */
+export const ROLES = Object.freeze({
+  api: Object.freeze({ repo: 'univarse-api', dockerfile: 'infra/docker/api.Dockerfile' }),
+  web: Object.freeze({ repo: 'univarse-web', dockerfile: 'infra/docker/web.Dockerfile' }),
+});
+/** Every container a release starts carries this label with the run's ID; cleanup removes only those (LR10). */
+export const RUN_LABEL = 'univarse.release.run';
+/** Container-name suffix for this release run ('' outside a release, e.g. in CI, where names stay as they were). */
+export const runSuffix = () => (process.env.UV_RELEASE_RUN ? `-${process.env.UV_RELEASE_RUN}` : '');
 export const IDENTITY = 'keyless@distroless.iam.gserviceaccount.com';
 export const IDENTITY_ISSUER = 'https://accounts.google.com';
 

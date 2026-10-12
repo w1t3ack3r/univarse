@@ -183,6 +183,28 @@ Image sizes from Docker Desktop's containerd store (API 809 MB, web 273 MB) aren
 
 **This is a rehearsal with a test key. It doesn't meet LR10.**
 
+**Review fixes, 2026-10-13** (owner's review of `e43e32f`/`cb074ea`, confirmed with mocked process calls). The fixes are in a follow-up PR, because #55 had already merged.
+1. **Rehearsal status is signed.**
+   - **The release** writes `role` and `rehearsal` into the provenance it signs.
+   - **`verifyRelease`** (the deploy's check) accepts only signed provenance with `rehearsal: false`; a missing flag is rejected. Only the release verifying its own rehearsal passes `allowRehearsal`. Editing the record's JSON flag changes nothing.
+2. **Image roles are pinned in trusted code (`ROLES` in `release-lib.mjs`).**
+   - **The record** must name exactly `api` and `web`, each with its trusted repository.
+   - **The signed provenance** must name that role and the trusted Dockerfile, never the record's own value.
+   - **Rejected:** a web image in the api slot, a web-only record, and an unknown extra role.
+3. **Cleanup is ownership-scoped (`release-cleanup.mjs`).**
+   - **Containers:** each run has a unique ID. Its containers carry it as a label and a name suffix, and cleanup removes only containers with that label; nothing is removed by name. A dirty-tree failure removes nothing.
+   - **Services:** a service is recorded as started by the run **before** `up --wait`, so a failed startup is still stopped. Services that were already running are never touched.
+
+**Regression tests** (CI): `verify-release.test.mjs` (8) and `release-cleanup.test.mjs` (5).
+- **Mutations:** each original bug put back makes its tests fail:
+  - no rehearsal check: 2 tests fail;
+  - no exact-role check: 1;
+  - provenance checked against the record: 1;
+  - service recorded after `up`: 1;
+  - removal by fixed names: 2.
+- **New live negatives in every release:** a web image in the api slot; for a rehearsal, verification in deploy mode. The unsigned-digest negative now pushes into the **trusted** `univarse-api` repository, so the only fault is the missing signature.
+
+
 **Still to come before LR10 is met:**
 1. the owner's public-key PR;
 2. the **real** release on `main` in the owner's terminal, with the owner's key and password.
