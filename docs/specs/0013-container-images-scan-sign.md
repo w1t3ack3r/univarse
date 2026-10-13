@@ -384,7 +384,9 @@ The owner removed 14 accumulated rehearsal tags and trimmed the build cache (16.
   - `univarse-api`: `sha-12083b8`, `unsigned-check-sha-12083b8`, `role-swap-check-sha-12083b8`, the signature indexes of `8af794d2…` and `1d0c627d…`, and the unowned `latest`/`role-swap-check-test` with their signature index;
   - `univarse-web`: `sha-12083b8` and its signature index;
   - `univarse-unsigned-check`: no tags.
-- **Deploy check:** `pnpm images:verify releases/2026-10-12-12083b8.json --commit 12083b8ebe7362db3123a8d67a1b4c3b2a09907f`, against `infra/signing/cosign.pub` (sha256 `386c0f55f82e60005a03526454cd287d10eb87534d4e829c1dd7e774900de194`). **Both images' signature, SBOM and provenance verified offline.**
+- **Deploy check:** the exact command run was `pnpm -s images:verify releases/2026-10-12-12083b8.json --commit 12083b8ebe7362db3123a8d67a1b4c3b2a09907f`.
+  - **Why `--commit`:** `images:verify` checks against `HEAD` unless told otherwise, and the checkout was then at `af72e43`, the #60 merge on which the apply ran. That commit is **not** the release's. The flag names the commit the release's provenance is signed for, so the signed `commit` must match it. The prune's own before/after verifications likewise use each kept release's signed commit.
+  - **Verified against:** `infra/signing/cosign.pub` (sha256 `386c0f55f82e60005a03526454cd287d10eb87534d4e829c1dd7e774900de194`). **Both images' signature, SBOM and provenance verified offline.**
 - **Blobs:** every blob of the 20 manifests reachable from tags is present: configs, layers and signature/attestation layers, **164 present, 0 missing**. (`cosign verify` doesn't fetch image layers, so this checks what collection could have removed.)
 
 
