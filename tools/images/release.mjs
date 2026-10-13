@@ -16,6 +16,7 @@ import {
   registryConfigDigest, registryDigest, REPO, sh, SIGN_FLAGS, TOOL_REGISTRY, TRIVY_IMAGE,
 } from './release-lib.mjs';
 import { cleanupRun, ensureService as ensure, newRun, stopIfStarted as stopStarted } from './release-cleanup.mjs';
+import { acquireRegistryLock } from './registry-lock.mjs';
 import { verifyRelease } from './verify-release.mjs';
 
 const argv = process.argv.slice(2);
@@ -31,7 +32,18 @@ const IMAGES = Object.fromEntries(Object.entries(ROLES).map(([role, r]) => [role
 // (smoke, journeys, run-container) read it from the environment for their labels and container names.
 const RUN = newRun(`${Date.now().toString(36)}${randomBytes(3).toString('hex')}`);
 process.env.UV_RELEASE_RUN = RUN.runId;
-const record = { schema: 1, rehearsal, startedAt: new Date().toISOString(), images: {}, gates: {}, negatives: {} };
+// schema 2: `refs` lists every registry tag this release pushed. Informational only: `pnpm images:prune` (LR8)
+// never trusts a record to authorise a deletion.
+const record = { schema: 2, rehearsal, startedAt: new Date().toISOString(), images: {}, gates: {}, negatives: {}, refs: [] };
+/** The host's local `localhost:5000/…` tag copies; removed at cleanup (the registry keeps the pushed images). */
+const hostTags = [];
+function pushTag(local, repo, tag, opts) {
+  const ref = `${HOST_REGISTRY}/${repo}:${tag}`;
+  sh('docker', ['tag', local, ref]);
+  hostTags.push(ref);
+  record.refs.push({ repo, tag });
+  sh('docker', ['push', ref], opts);
+}
 const step = (n) => console.log(`\n[release] ── ${n}`);
 
 async function main() {
@@ -159,8 +171,7 @@ async function main() {
   await recheck();
   const tag = `sha-${record.commit.slice(0, 7)}${rehearsal ? '-rehearsal' : ''}`;
   for (const [name, img] of Object.entries(record.images)) {
-    sh('docker', ['tag', `univarse-${name}:release`, `${HOST_REGISTRY}/${img.repo}:${tag}`]);
-    sh('docker', ['push', `${HOST_REGISTRY}/${img.repo}:${tag}`], { stdio: 'inherit' });
+    pushTag(`univarse-${name}:release`, img.repo, tag, { stdio: 'inherit' });
     img.tag = tag;
     img.digest = await registryDigest(img.repo, tag);
     const pushedConfig = await registryConfigDigest(img.repo, img.digest);
@@ -197,8 +208,7 @@ async function main() {
   expectRejected(wrongKey, /api: signature does not verify/, 'a different public key (LR6)');
   // An unsigned image pushed into the TRUSTED api repository, so the only thing wrong is the missing signature.
   const unsignedTag = `unsigned-check-${tag}`;
-  sh('docker', ['tag', COSIGN_IMAGE, `${HOST_REGISTRY}/${ROLES.api.repo}:${unsignedTag}`]);
-  sh('docker', ['push', `${HOST_REGISTRY}/${ROLES.api.repo}:${unsignedTag}`]);
+  pushTag(COSIGN_IMAGE, ROLES.api.repo, unsignedTag);
   const unsigned = await registryDigest(ROLES.api.repo, unsignedTag);
   const edited = structuredClone(record);
   edited.images.api = { ...edited.images.api, digest: unsigned };
@@ -209,8 +219,7 @@ async function main() {
   // (role web, web Dockerfile). Every signed statement is true; only the role binding can reject it — the property
   // under test. This is the only extra signing a release does, and its tag says what it is.
   const swapTag = `role-swap-check-${tag}`;
-  sh('docker', ['tag', 'univarse-web:release', `${HOST_REGISTRY}/${ROLES.api.repo}:${swapTag}`]);
-  sh('docker', ['push', `${HOST_REGISTRY}/${ROLES.api.repo}:${swapTag}`]);
+  pushTag('univarse-web:release', ROLES.api.repo, swapTag);
   const swapDigest = await registryDigest(ROLES.api.repo, swapTag);
   const swapRef = `${TOOL_REGISTRY}/${ROLES.api.repo}@${swapDigest}`;
   cosign(['sign', '--key', keyIn, ...SIGN_FLAGS, swapRef], { mounts: keyMounts, env: { COSIGN_PASSWORD: password } });
@@ -286,8 +295,14 @@ async function stopIfStarted(name) {
   stopStarted(RUN, name, cleanupDeps);
 }
 function cleanup() {
-  cleanupRun(RUN, cleanupDeps); // only this run's services and labelled containers (LR10)
-  rmSync(WORK, { recursive: true, force: true });
+  try {
+    cleanupRun(RUN, cleanupDeps); // only this run's services and labelled containers (LR10)
+    // Untag only (the images stay under their other names); the registry keeps what was pushed.
+    if (hostTags.length) sh('docker', ['image', 'rm', ...hostTags], { allowFail: true });
+    rmSync(WORK, { recursive: true, force: true });
+  } finally {
+    lock?.release(); // last, after the registry this run may have started is stopped; even if cleanup fails
+  }
 }
 
 function askHidden(prompt) {
@@ -315,7 +330,10 @@ function askHidden(prompt) {
   });
 }
 
+// One registry writer at a time (LR8): held for the whole release, so a prune or deploy never interleaves with it.
+let lock;
 try {
+  lock = acquireRegistryLock(join(REPO, 'releases'), rehearsal ? 'release --rehearsal' : 'release');
   await main();
   cleanup();
 } catch (e) {

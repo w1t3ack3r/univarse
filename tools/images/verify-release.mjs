@@ -14,7 +14,7 @@ import { cosign as realCosign, DEFAULT_PUB, PREDICATES, predicatesFrom, ROLES, s
 
 const gitHead = () => sh('git', ['rev-parse', 'HEAD']).stdout.trim();
 
-export function verifyRelease(record, { pub = DEFAULT_PUB, commit, allowRehearsal = false, cosign = realCosign, head = gitHead } = {}) {
+export function verifyRelease(record, { pub = DEFAULT_PUB, commit, allowRehearsal = false, cosign = realCosign, head = gitHead, registry = TOOL_REGISTRY } = {}) {
   const problems = [];
   const expectedCommit = commit ?? head();
   if (record.commit !== expectedCommit) problems.push(`record commit ${record.commit} is not the expected ${expectedCommit}`);
@@ -38,7 +38,7 @@ export function verifyRelease(record, { pub = DEFAULT_PUB, commit, allowRehearsa
       problems.push(`${role}: "${img.digest}" is not a sha256 digest`);
       continue;
     }
-    const ref = `${TOOL_REGISTRY}/${trusted.repo}@${img.digest}`;
+    const ref = `${registry}/${trusted.repo}@${img.digest}`;
     const sig = cosign(['verify', '--key', key, ...VERIFY_FLAGS, ref], { mounts, allowFail: true });
     if (sig.status !== 0) {
       problems.push(`${role}: signature does not verify against ${basename(pub)} (${ref}): ${lastLine(sig)}`);
