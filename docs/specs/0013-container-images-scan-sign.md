@@ -253,7 +253,7 @@ Image sizes from Docker Desktop's containerd store (API 809 MB, web 273 MB) aren
 **Images-signed exit:** met. Both images are signed with the owner's key, with 0 HIGH/CRITICAL findings and no active exceptions.
 
 **What remains of spec 0013, so it stays open:**
-- the **CS13** image-mutation proofs: an image running as root, an image containing a shell, and a known fixable and a known unfixed HIGH/CRITICAL;
+- **CS13**, implemented (see below): it is met once the proof PR is reviewed, the proofs pass in CI on its latest commit, and a clean-tree local record shows every proof passing;
 
 The owner removed 14 accumulated rehearsal tags and trimmed the build cache (16.8 GB → 4.2 GB) on 2026-10-13. The `registry-data` volume must not be pruned: it holds the signed release.
 
@@ -267,6 +267,7 @@ The owner removed 14 accumulated rehearsal tags and trimmed the build cache (16.
 | Permissions | no workflow-level `permissions` (the token default may be write); `read-all`/`write-all`; **any** `write`, with `packages`, `id-token` and `attestations` named as publish/sign/attest; unknown levels |
 | Credentials | in a PR-reachable workflow: any `secrets.*` other than `GITHUB_TOKEN`; `secrets: inherit`; calls to reusable workflows (whose permissions can't be checked here) |
 | Publishing | in a PR-reachable workflow: `docker login`/`push`, `buildx build --push`, `cosign sign`/`attest`/`copy`, `crane`/`oras`/`skopeo` push or copy |
+| Shell (owner review of #62) | every `run` step's effective shell (step, else job, else workflow `defaults.run.shell`) must be exactly `bash`. Without it GitHub runs `bash -e {0}` on Linux, with no `pipefail`, so `failing-command \| tee …` would pass. `sh` and the default are both rejected. |
 | Supply chain (beyond the spec) | an action not pinned to a full commit SHA (or an image digest); `actions/checkout` without `persist-credentials: false` |
 
 **Proof (`tools/ci-policy/workflow-policy.test.mjs`, 7 tests):**
@@ -389,6 +390,61 @@ The owner removed 14 accumulated rehearsal tags and trimmed the build cache (16.
   - **Verified against:** `infra/signing/cosign.pub` (sha256 `386c0f55f82e60005a03526454cd287d10eb87534d4e829c1dd7e774900de194`). **Both images' signature, SBOM and provenance verified offline.**
 - **Blobs:** every blob of the 20 manifests reachable from tags is present: configs, layers and signature/attestation layers, **164 present, 0 missing**. (`cosign verify` doesn't fetch image layers, so this checks what collection could have removed.)
 
+
+### CS13 (re-scoped): every gate fails for its intended reason — implemented; pending review and CI
+
+**One gate code path.** The gate commands now live in one module, `tools/images/gates.mjs`, used by the release (`release.mjs`), the secret-canary proof (`canary.mjs`) and the CS13 harness. A proof therefore exercises exactly what a release runs. A unit test fails if `release.mjs` or `canary.mjs` grows its own Trivy command again.
+
+**The harness: `pnpm images:proofs` (`tools/images/gate-proofs.mjs`).**
+- **Mutants:** each proof builds **one harmless mutant at run time**, on the same pinned runtime base. Nothing vulnerable-looking is committed: a committed `package.json` naming an old `lodash` would set off the repository's own dependency alerts.
+- **Pass condition:** each proof runs the real gate and requires three things:
+  - the gate **fails**;
+  - **for its intended reason**: the expected message, and no other violation;
+  - **a clean control**, identical but for the mutation, **passes** the same gate.
+- **Isolation:** its own Trivy cache volume, a fresh DB first (it refuses to prove anything without one), a throwaway tmpfs registry on a random loopback port, and run-labelled images and containers, all removed at the end. It never touches the release registry or the release's Trivy cache.
+- **The record:** `releases/proofs/<date>-<sha7>.json` (git-ignored). It holds each proof's gate, mutation, expected message, an excerpt of the actual failure, and the control result.
+
+| Proof | Mutation (one change from the clean control) | Gate | Failed with |
+|---|---|---|---|
+| CS1-root-user | `USER 0:0` | inspection | `user is "0:0", expected "65532:65532"` (the only violation) |
+| CS1-shell | dash copied to `/bin/sh` (the base links `/bin` → `/usr/bin`) | inspection | **both** detections: `shell present: /usr/bin/sh` (file listing) and `running "sh" succeeded` (execution); nothing else |
+| CS7-fixable | `lodash` 4.17.4 (`package.json` only) | vulnerability | `CVE-2019-10744` CRITICAL, fixed in 4.17.12; every HIGH/CRITICAL finding is that package |
+| CS7-unfixed | `ip` 2.0.1 (`package.json` only) | vulnerability | `CVE-2024-29415` HIGH, **no fixed version** (status `affected`): unfixed findings block |
+| CS7-misconfiguration | a Dockerfile whose last `USER` is `root` | Dockerfile misconfiguration (`trivy config`) | `DS-0002 (HIGH): Last USER command in Dockerfile should not be 'root'` |
+| CS7-exception-expired | an exception past its `expired_at` | exceptions | `expired on 2026-10-01` (the only failure) |
+| CS7-exception-incomplete | an exception without `statement` and `owner` | exceptions | `missing statement`, `missing owner` (exactly those two) |
+| CS7-ignore-unfixed | `--ignore-unfixed` in a workflow | exceptions and policy | `uses ignore-unfixed (ADR-029 …)` |
+| CS9-db-unreachable | no network to any DB mirror | fresh vulnerability DB | Trivy `failed to download vulnerability DB` on every attempt; the release then stops before scanning |
+| CS6-substituted-before-push | the gated tag re-pointed after gating | artifact consistency, re-checked before every later stage | `changed since it was gated: config …, not the gated …` |
+| CS6-substituted-at-push | a different image pushed under the release tag (throwaway registry) | artifact consistency at push | `pushed … has config …, not the gated …` |
+
+**Proved elsewhere, and cited by the record rather than re-run:**
+- **Secret-gate canaries:** every release, through the same `gates.secret`. Five locations, including `node_modules/@univarse` and the image configuration and history (LR10 record).
+- **At verification:** a different key, an unsigned digest and a role swap, in every release, each rejected for its intended reason (LR6, LR9; LR10 record).
+- **Workflow policy:** the fixtures (CS12, in CI).
+
+**Gate-flag tests:** `tools/images/gates.test.mjs`, 7 tests, which stop a later edit weakening a gate. They check:
+- the vulnerability gate keeps `--severity HIGH,CRITICAL --exit-code 1`, with no `ignore-unfixed`;
+- the secret gate keeps image-config scanning and its config, and its report scans exactly what it gates;
+- the misconfiguration gates keep HIGH/CRITICAL;
+- the fresh-DB step cleans first, bounds its retries and reports failure;
+- the push check compares configs;
+- the release and the canary proof use only `gates.mjs`.
+
+**Mutation checks:**
+- **Flags:** six gate weakenings, each caught by its intended test: no `--exit-code`, `--ignore-unfixed` added, no image-config secret scanning, no DB clean, a DB failure ignored, severity dropped from the misconfiguration gate.
+- **End to end:** with the real vulnerability gate broken (no `--exit-code 1`), the harness itself reports the vulnerability proofs **NOT PROVED** and exits non-zero.
+
+**Owner review of `e7a96e8`: two failure paths fixed.**
+1. **The DB cleanup result was discarded.** `freshDb()` ignored a failed `trivy clean --vuln-db`, so a mocked failed cleanup followed by a successful download returned `ok: true`. It now stops with "could not remove the old vulnerability database": no download runs, and the release throws before any scan. A regression test pins this; the mutation that ignores the cleanup result again is caught.
+2. **CI could hide a failed proof run.** Steps piping into `tee` ran under GitHub's default `bash -e`, without `pipefail`. That also masked **the exceptions-and-policy check** (`node tools/images/exceptions.mjs | tee …`); the workflow-policy CLI was partly covered by its own test running first.
+   - **The fix:** both workflows now set `defaults.run.shell: bash` (`-eo pipefail`), and the CS12 policy rejects any `run` step whose effective shell isn't `bash`.
+   - **The behavioural test:** it runs the real `ci.yml` lines for the gate proofs and the exceptions check, the way GitHub would, with the command made to fail. Configured as committed, both steps fail. Under `bash -e` they would pass, which shows the test can tell the difference.
+   - **Mutations caught:** removing the workflow default; removing the policy rule; a `bash` template without `pipefail`.
+
+**Harness faults found while building it:**
+- **The shell proof's expected pattern** looked for `shell present: /bin/sh` and was satisfied by the execution check alone. The listing check had in fact caught the shell at `/usr/bin/sh`, because the base's `/bin` is a symlink. The proof now requires both detections. This was a proof fault, not a gate gap.
+- **Unparseable mutants:** every mutant is parse-checked, so a mutant that doesn't parse is never mistaken for a surviving one.
 
 ## Design notes
 

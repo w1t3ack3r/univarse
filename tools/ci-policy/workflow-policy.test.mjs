@@ -4,7 +4,19 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
-import { dirProblems, fileProblems, permissionProblems, triggersOf } from './workflow-policy.mjs';
+import { spawnSync } from 'node:child_process';
+import { mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import yaml from 'js-yaml';
+import {
+  dirProblems,
+  effectiveShell,
+  fileProblems,
+  permissionProblems,
+  shellCommand,
+  triggersOf,
+} from './workflow-policy.mjs';
 
 const fixture = (name) =>
   fileProblems(readFileSync(new URL(`./fixtures/${name}.yml`, import.meta.url), 'utf8'), name);
@@ -103,4 +115,57 @@ test('[CS12] rules in isolation: trigger forms, unknown triggers and permission 
   );
   assert.match(permissionProblems({ contents: 'admin' }, 'p').join(), /unknown level/);
   assert.match(fileProblems('on: [push\n', 'w').join(), /does not parse/);
+});
+
+test('[CS12] every run step needs bash with pipefail: the default shell and sh are rejected', () => {
+  rejectedExactly('pipe-default-shell', [
+    /runs under GitHub's default shell \(bash -e, no pipefail\)/,
+  ]);
+  rejectedExactly('step-shell-sh', [/runs under shell "sh"/]);
+});
+
+/** Runs the line of a real ci.yml step that holds `command`, the way GitHub would, with `command` failing. */
+function runStep(stepMatch, command, { shellOverride } = {}) {
+  const wf = yaml.load(
+    readFileSync(new URL('../../.github/workflows/ci.yml', import.meta.url), 'utf8'),
+  );
+  for (const job of Object.values(wf.jobs)) {
+    const step = (job.steps ?? []).find(
+      (st) => typeof st.run === 'string' && st.run.includes(stepMatch),
+    );
+    if (!step) continue;
+    assert.ok(step.run.includes(command), `the step runs ${command}`);
+    const shell = shellOverride === undefined ? effectiveShell(wf, job, step) : shellOverride.value;
+    const dir = mkdtempSync(join(tmpdir(), 'uv-step-'));
+    const script = join(dir, 'step.sh');
+    // Exactly the step's line that runs the command (other lines, e.g. downloads, would fail for other reasons).
+    const line = step.run.split('\n').find((l) => l.includes(command));
+    writeFileSync(script, `${line.replace(command, 'node -e "process.exit(3)"')}\n`);
+    const [cmd, ...args] = shellCommand(shell);
+    return spawnSync(cmd, [...args, script], {
+      env: { ...process.env, GITHUB_STEP_SUMMARY: join(dir, 'summary') },
+      encoding: 'utf8',
+    });
+  }
+  throw new Error(`no ci.yml step runs ${stepMatch}`);
+}
+
+test('[CS13] a failing gate-proof run, or exceptions check, fails its CI step as configured; the default shell would hide it', () => {
+  for (const [match, command] of [
+    ['tools/images/gate-proofs.mjs', 'node tools/images/gate-proofs.mjs'],
+    ['node tools/images/exceptions.mjs |', 'node tools/images/exceptions.mjs'],
+  ]) {
+    const configured = runStep(match, command);
+    assert.notEqual(
+      configured.status,
+      0,
+      `${command}: the configured step must fail (${configured.stderr})`,
+    );
+    const unprotected = runStep(match, command, { shellOverride: { value: undefined } });
+    assert.equal(
+      unprotected.status,
+      0,
+      `${command}: under bash -e the pipe would mask the failure (the test can tell the difference)`,
+    );
+  }
 });

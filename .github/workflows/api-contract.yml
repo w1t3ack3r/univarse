@@ -11,6 +11,12 @@ on:
 permissions:
   contents: read
 
+# Every run step uses `bash --noprofile --norc -eo pipefail`: without an explicit shell GitHub runs `bash -e`, and a
+# failing command piped into `tee` would pass (spec 0013 CS12/CS13; the workflow policy rejects any other shell).
+defaults:
+  run:
+    shell: bash
+
 concurrency:
   group: api-contract-${{ github.event.pull_request.number }}
   cancel-in-progress: true

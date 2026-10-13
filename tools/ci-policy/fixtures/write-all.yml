@@ -3,6 +3,9 @@
 name: fixture
 on: push
 permissions: write-all
+defaults:
+  run:
+    shell: bash
 jobs:
   build:
     runs-on: ubuntu-24.04

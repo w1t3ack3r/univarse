@@ -1,0 +1,10 @@
+# Spec 0013 CS12 fixture: test DATA, never a workflow (outside .github/workflows, GitHub never runs it).
+# Expected rejection: a piped run step under GitHub's default shell (bash -e, no pipefail)
+name: fixture
+on: pull_request
+permissions: { contents: read }
+jobs:
+  proofs:
+    runs-on: ubuntu-24.04
+    steps:
+      - run: node tools/images/gate-proofs.mjs | tee -a "$GITHUB_STEP_SUMMARY"

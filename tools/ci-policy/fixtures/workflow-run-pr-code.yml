@@ -6,6 +6,9 @@ on:
     workflows: [ci]
     types: [completed]
 permissions: { contents: read }
+defaults:
+  run:
+    shell: bash
 jobs:
   report:
     runs-on: ubuntu-24.04

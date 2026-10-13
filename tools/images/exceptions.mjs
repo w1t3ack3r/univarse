@@ -1,12 +1,16 @@
 // Spec 0013 CS7 / ADR-029: the exception file and the "no ignore-unfixed" policy, checked before any scan.
-//   node tools/images/exceptions.mjs [--today YYYY-MM-DD]
+//   node tools/images/exceptions.mjs [--today YYYY-MM-DD] [--root DIR]
+// --root checks another tree laid out like the repository (the CS13 gate proofs use fixture trees).
 // Fails when: an entry lacks id, purls/paths, statement (evidence), owner or expired_at; an expiry is past or
 // more than 30 days ahead; or `ignore-unfixed` appears in the workflows or the Trivy config. Prints every
 // active exception, because an active exception means the zero-findings exit can't be claimed.
 import { readFileSync, readdirSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 const MAX_DAYS = 30;
-const repo = new URL('../../', import.meta.url);
+const rootArg = process.argv.indexOf('--root');
+const repo = rootArg >= 0 ? pathToFileURL(`${resolve(process.argv[rootArg + 1])}/`) : new URL('../../', import.meta.url);
 const todayArg = process.argv.indexOf('--today');
 const today = todayArg >= 0 ? process.argv[todayArg + 1] : new Date().toISOString().slice(0, 10);
 

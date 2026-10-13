@@ -3,6 +3,9 @@
 name: fixture
 on: pull_request_target
 permissions: { contents: read }
+defaults:
+  run:
+    shell: bash
 jobs:
   label:
     runs-on: ubuntu-24.04
