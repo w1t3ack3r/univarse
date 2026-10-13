@@ -233,7 +233,7 @@ Image sizes from Docker Desktop's containerd store (API 809 MB, web 273 MB) aren
 
 | Stage | Result |
 |---|---|
-| Base image upstream signature | verified (`…nodejs24-debian13:nonroot@sha256:9eeb7f58…`) |
+| Base image upstream signature | verified (`gcr.io/distroless/nodejs24-debian13:nonroot@sha256:9eeb7f5887d0e239e78264b06f7f11d2e14be534050481803a9e4728fcdd278e`) |
 | Vulnerability database | fresh: downloaded 23:16:21Z; DB updated 19:08:28Z; Trivy 0.75.0 |
 | Inspection; exceptions | pass; **none active** |
 | Vulnerability gate | **0 HIGH/CRITICAL** in both images (23 MEDIUM and 8 LOW each, all unfixed) |
@@ -247,7 +247,8 @@ Image sizes from Docker Desktop's containerd store (API 809 MB, web 273 MB) aren
 
 **Independent check after the release: the deploy's own verification.**
 - **The release:** `pnpm images:verify releases/2026-10-12-12083b8.json`, with the committed key and `HEAD` = `12083b8`. **Both images' signature, SBOM and provenance verified offline.**
-- **Counter-check:** the same check on the test-key rehearsal of `c8ab9bc` **rejected both images as a rehearsal**: "a rehearsal is never deployable".
+- **Counter-check:** the same check on the test-key rehearsal of `c8ab9bc`, verified against **that rehearsal's own test public key** (so its signatures and attestations verify), rejected both images **at the signed rehearsal check**: "signed provenance marks this a rehearsal …; a rehearsal is never deployable".
+- **Not a key-separation proof:** this run didn't verify the rehearsal against the owner's real key. That separation is shown by the different-key negative in every release, and by #56's tests.
 
 **Images-signed exit:** met. Both images are signed with the owner's key, with 0 HIGH/CRITICAL findings and no active exceptions.
 
