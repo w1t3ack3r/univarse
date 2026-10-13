@@ -44,9 +44,12 @@ It never needs the private key.
 - a record nominates it by the exact tag the release generated, and the registry agrees;
 - cosign classifies the image as a rehearsal, an expired release of that commit, or not signed by the key at all.
 
+A verdict of "not signed" never authorises a deletion on its own.
+
 **Exclusion:**
 - Both modes hold the registry lock, `releases/.registry.lock`. Every release holds it too, so prune and release never overlap.
 - `--apply` also keeps the public registry offline for its whole run; it works through a private instance.
 - If a crashed run left the lock behind, check that its process is gone, then remove the directory yourself.
+- **Don't start the public registry by hand (`docker compose … up registry`) while an apply runs.** That bypasses the lock; it's a documented operational limitation.
 
 **Volumes:** never run `docker volume prune`, because the `registry-data` volume holds the signed releases.

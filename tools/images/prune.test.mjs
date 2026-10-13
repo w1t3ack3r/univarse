@@ -435,3 +435,61 @@ test('[LR8] remove-only tags (negative-check images) are untagged, and their dig
   );
   assert.ok(!deleted(plan).has(`univarse-unsigned-check@${dg(9)}`));
 });
+
+test('[LR8] "not signed by the key" never authorises deletion by itself: the tag must be validly nominated', () => {
+  const { reg, trust, real, records } = world();
+  const unsigned = (repo, tag, d) => {
+    reg.push(repo, tag, d);
+    trust[`${repo}@${d}`] = { kind: 'unsigned' };
+    return [d, ...reg.sign(repo, d)];
+  };
+  const cases = {
+    'a generated-looking tag with no record': unsigned(
+      'univarse-api',
+      'sha-ccccccc-rehearsal',
+      dg(60),
+    ),
+    'an arbitrary tag': unsigned('univarse-web', 'scratch', dg(61)),
+    'a tag in a repository no release uses': unsigned(
+      'univarse-other',
+      'sha-bbbbbbb-rehearsal',
+      dg(62),
+    ),
+    'an untagged-looking image left only under its signature index': (() => {
+      const sig = reg.sign('univarse-api', dg(63));
+      trust[`univarse-api@${dg(63)}`] = { kind: 'unsigned' };
+      return [dg(63), ...sig];
+    })(),
+  };
+  // A record whose tag exists but points at a different unsigned digest: the registry contradicts it.
+  const contradicted = unsigned('univarse-web', 'sha-ddddddd-rehearsal', dg(64));
+  const lying = {
+    ...records[1],
+    file: 'ddddddd-rehearsal.json',
+    commit: commit('d'),
+    images: {
+      api: { repo: 'univarse-api', tag: 'sha-ddddddd-rehearsal', digest: dg(65) },
+      web: { repo: 'univarse-web', tag: 'sha-ddddddd-rehearsal', digest: dg(66) },
+    },
+  };
+  reg.push('univarse-api', 'sha-ddddddd-rehearsal', dg(65));
+  trust[`univarse-api@${dg(65)}`] = { kind: 'unsigned' };
+  const plan = planPrune(reg.snapshot, { records: [...records, lying], trust });
+  const del = deleted(plan);
+  for (const [what, ds] of Object.entries({
+    ...cases,
+    'a tag contradicting its record': contradicted,
+  })) {
+    for (const d of ds)
+      assert.ok(![...del].some((k) => k.endsWith(`@${d}`)), `${what}: ${d} must not be deleted`);
+  }
+  assert.ok(
+    !plan.untag.some((u) => u.tag === 'sha-ddddddd-rehearsal' && u.repo === 'univarse-web'),
+    'the contradicted tag is not even untagged',
+  );
+  assert.ok(
+    del.has(`univarse-api@${dg(65)}`),
+    'the same record’s matching, unsigned api image is the only one that goes',
+  );
+  assertRealReleaseIntact(plan, real);
+});

@@ -292,6 +292,7 @@ The owner removed 14 accumulated rehearsal tags and trimmed the build cache (16.
   - signed as a release of the record's own commit, outside the 20;
   - or definitively *not* signed by the trusted key, by cosign's own verdict ("no signatures found", "no matching attestations", "accepted signatures do not match threshold").
 - **Anything else protects the image:** an unreachable registry, a cosign crash, or provenance that is inconsistent or malformed.
+- **"Not signed by the key" never authorises a deletion on its own.** A verdict is consulted only for a validly nominated tag: the exact generated tag, with the registry pointing at the record's digest, on a digest that no unknown tag, pin, shared artifact or kept release protects. An image that isn't nominated is never classified for deletion at all.
 - **Never eligible, all with every signature and attestation of each, recursively:**
   - the kept releases, even with their records and tags gone;
   - every digest the local deploy runs or names for rollback (`releases/deploy-state.json`), and every `--keep repo@sha256:…`;
@@ -309,7 +310,7 @@ The owner removed 14 accumulated rehearsal tags and trimmed the build cache (16.
 - **The registry is offline for the whole `--apply`:** the public registry (`127.0.0.1:5000`, alias `registry:5000`) is stopped first. The prune works through a private instance on the same storage: the same pinned image and hardening, a random loopback port, and a private alias on the internal release network.
 - **What that covers:** planning, verification, deletion, collection and the final verification all happen with no other path to the registry. A writer that ignores the lock, such as a manual `docker push` to `localhost:5000`, gets a refused connection instead of an interleaved write.
 - **Afterwards:** the public registry is restored only if it was running before, and the lock is released last.
-- **The remaining gap, stated plainly:** someone who starts the compose registry by hand during an apply bypasses the lock.
+- **Documented operational limitation:** don't start the public registry (`docker compose … up registry`) during an apply. Doing so by hand bypasses the lock, and nothing in the tool can prevent it.
 
 **What `--apply` does, in order:**
 1. **Takes the lock** and takes the public registry offline.
@@ -327,7 +328,7 @@ The owner removed 14 accumulated rehearsal tags and trimmed the build cache (16.
 - It removes its host-side `localhost:5000/…` tag copies at cleanup.
 
 **Proof, local (CI runs the same node tests):**
-- **Plan tests:** `tools/images/prune.test.mjs`, 16 tests, on a synthetic registry laid out like cosign's. The edited-record regression covers five edits:
+- **Plan tests:** `tools/images/prune.test.mjs`, 17 tests, on a synthetic registry laid out like cosign's. The edited-record regression covers five edits:
   - the real release relabelled a rehearsal;
   - its record deleted;
   - a rehearsal record claiming the real release's commit, tags and digests;
@@ -341,10 +342,11 @@ The owner removed 14 accumulated rehearsal tags and trimmed the build cache (16.
   - a registry tag contradicting its record, which is neither deleted nor untagged;
   - a same-commit rehearsal with byte-identical images, where even with the release's own record and tags gone, only the rehearsal's tags go;
   - remove-only tags untagged but never deleted;
+  - "not signed by the key" alone never authorises deletion. Untouched cases: a generated-looking tag with no record, an arbitrary tag, a repository no release uses, an image left only under its signature index, and a tag contradicting its record (not even untagged);
   - cosign verdict classification;
   - the exclusion order, checked in the source.
 - **Lock tests:** `registry-lock.test.mjs`, 3 tests: refusal naming the holder; no takeover of stale or half-written locks; a run removes only its own lock.
-- **Mutation checks:** each rule disabled in turn was caught by its intended test (15 rules), with one exception. Two signature-based layers are **deliberately redundant**: the kept-release root, and eligibility's "not a kept release" condition. Each alone survives mutation; disabling both is caught, by the planner's final defence-in-depth check and, with that also disabled, by the same-commit rehearsal test.
+- **Mutation checks:** each rule disabled in turn was caught by its intended test (16 rules), with one exception. The newest mutation lets an unsigned verdict alone make any tagged image removable; it is caught by the unsigned-alone test and the off-scheme test. Two signature-based layers are **deliberately redundant**: the kept-release root, and eligibility's "not a kept release" condition. Each alone survives mutation; disabling both is caught, by the planner's final defence-in-depth check and, with that also disabled, by the same-commit rehearsal test.
 
 **Dry run against the real local registry (2026-10-13, under the lock):**
 - **Kept by signature:** commit `12083b8ebe7362db3123a8d67a1b4c3b2a09907f`, with its images, unsigned-check and role-swap tags, and all signature artifacts.
