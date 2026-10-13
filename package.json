@@ -26,6 +26,7 @@
     "dev:traces:jaeger": "node tools/traces-dev.mjs jaeger",
     "images:release": "node tools/images/release.mjs",
     "images:verify": "node tools/images/verify-release.mjs",
+    "ci:policy": "node tools/ci-policy/workflow-policy.mjs",
     "dev:infra:down": "docker compose -f infra/compose/compose.dev.yml --env-file .env down",
     "test:e2e": "turbo run test:e2e",
     "dev:vault": "node tools/vault-dev.mjs"
@@ -35,6 +36,7 @@
     "@types/node": "^24.0.0",
     "eslint": "^10.11.0",
     "globals": "^17.13.0",
+    "js-yaml": "4.3.2",
     "prettier": "^3.6.0",
     "turbo": "^2.5.0",
     "typescript": "~5.9.3",

@@ -1,0 +1,10 @@
+# Spec 0013 CS12 fixture: test DATA, never a workflow (outside .github/workflows, GitHub never runs it).
+# Expected rejection: pull_request_target at all, even without touching PR code
+name: fixture
+on: pull_request_target
+permissions: { contents: read }
+jobs:
+  label:
+    runs-on: ubuntu-24.04
+    steps:
+      - run: echo labelling

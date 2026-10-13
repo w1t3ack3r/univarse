@@ -79,6 +79,12 @@ jobs:
           cache: pnpm
 
       - run: pnpm install --frozen-lockfile
+      # Spec 0013 CS12: read-only policy check over the real workflows (positive control) and the fixtures in
+      # tools/ci-policy/fixtures (test data, never run). Policy verification; no live fork test.
+      - name: Workflow policy — read-only, no privileged triggers, no credentials where PR code runs (spec 0013 CS12)
+        run: |
+          node --test tools/ci-policy/workflow-policy.test.mjs
+          node tools/ci-policy/workflow-policy.mjs | tee -a "$GITHUB_STEP_SUMMARY"
       - name: Dependency audit (fail on high/critical — docs/09 §1)
         run: pnpm audit --audit-level high
       - name: Generate CI-only secrets

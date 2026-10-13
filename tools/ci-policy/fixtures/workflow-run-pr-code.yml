@@ -1,0 +1,14 @@
+# Spec 0013 CS12 fixture: test DATA, never a workflow (outside .github/workflows, GitHub never runs it).
+# Expected rejection: workflow_run runs PR-supplied code (downloaded artifact; head checkout)
+name: fixture
+on:
+  workflow_run:
+    workflows: [ci]
+    types: [completed]
+permissions: { contents: read }
+jobs:
+  report:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+      - run: git checkout "${{ github.event.workflow_run.head_sha }}" && node report.mjs
