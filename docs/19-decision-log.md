@@ -429,7 +429,7 @@ Alternatives considered: option — why not.
 - **Hold signing entirely:** leaves "images signed" unmet with no local path to it.
 
 ## ADR-031 — Change-capture triggers on the cached platform tables, with a platform invalidation outbox
-**Status:** Proposed (2026-10-13), with [spec 0016](specs/0016-platform-invalidation-outbox.md) revision 2.
+**Status:** Proposed (2026-10-13), with [spec 0016](specs/0016-platform-invalidation-outbox.md) revision 3.
 - **Amends** [07](07-data-and-database.md)'s rule "Triggers only for: `updated_at`, the audit hash chain, and preventing updates to immutable rows", by adding change capture for cache invalidation. The event table's own guards fall under the existing "immutable rows" category.
 
 **Context:**
@@ -454,11 +454,13 @@ Alternatives considered: option — why not.
 - **Roles:**
   - The API's platform role has **no** privilege on the event table.
   - A separate **relay role**, used only by the worker, may select events and update the bookkeeping columns. It purges old settled events only through a function, and has server-side statement and idle-in-transaction timeouts.
-- **A shared, enforced maximum cache TTL** (`MAX_TENANT_CACHE_TTL_MS`, proposed 60 s): instances configured above it refuse to start, and the database holds the same value.
+- **A shared, enforced maximum cache TTL** (`MAX_TENANT_CACHE_TTL_MS`, 60 s; the default stays 30 s): instances configured above it refuse to start, the database holds the same value, and cache deadlines are monotonic.
+- **The relay's credentials reach only the worker:** a worker-only env file, and the API refuses to start if it sees them.
 - **Delivery:** the relay publishes committed events to the existing Valkey bus within a bounded pass. It claims with `FOR UPDATE SKIP LOCKED` and records the outcome in the claiming transaction, so delivery is at least once and consumers stay idempotent (eviction).
 
 **Consequences:**
-- **Coverage:** every writer is covered, whatever its language or path. Publishing after commit holds by construction, and expiry can never precede a commit by more than the shared maximum TTL.
+- **Coverage:** every writer is covered, whatever its language or path. Publishing after commit holds by construction.
+- **Expiry:** an undelivered event expires only after its first observation following commit, plus the shared maximum TTL and a 5 s margin. That holds under the stated clock assumptions: monotonic cache deadlines in the application, and no large forward step of the database host's clock.
 - **The owner role remains outside the guarantee:** it can disable or drop the triggers and functions. The gate detects that; it doesn't prevent it.
 - **A fourth database role** to provision, rotate and pool.
 - **Costs:** one extra insert per changed row on three low-write tables, and one more polling loop in the worker.
