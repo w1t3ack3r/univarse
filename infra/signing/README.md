@@ -26,3 +26,33 @@ commit the new public key in a PR that says why, and re-release: images signed b
 `pnpm images:release` from a clean `main` builds, gates, publishes to the local registry (127.0.0.1:5000),
 signs, attests and verifies, then writes a record under `releases/` (git-ignored; an index, not proof).
 `pnpm images:verify releases/<record>.json` re-verifies a record against `cosign.pub`, as the local deploy does.
+
+## Pruning the local registry (LR8)
+
+`pnpm images:prune` lists what it would remove and changes nothing. `pnpm images:prune --apply` removes it.
+It never needs the private key.
+
+**Records only nominate.** Release records in `releases/` are editable, so the prune trusts only two things: the registry, and signed provenance that verifies against `cosign.pub`.
+
+**It keeps,** each with everything it references (an index's children, signatures and attestations, recursively):
+- the newest 20 releases, by signed start time;
+- every digest in `releases/deploy-state.json` (current and rollback);
+- every `--keep repo@sha256:…`;
+- anything another tag points at.
+- every signature index whose image isn't being deleted, orphans included, with everything it lists.
+
+**It deletes** an image only when two things hold:
+- a record nominates it by the exact tag the release generated, and the registry agrees;
+- cosign classifies the image as a rehearsal, an expired release of that commit, or not signed by the key at all.
+
+A verdict of "not signed" never authorises a deletion on its own.
+
+**Verification.** `--apply` verifies every kept release before and after deleting, using the digests from signed provenance (not from records). If any kept release can't be fully verified, it stops before deleting anything.
+
+**Exclusion:**
+- Both modes hold the registry lock, `releases/.registry.lock`. Every release holds it too, so prune and release never overlap.
+- `--apply` also keeps the public registry offline for its whole run; it works through a private instance.
+- If a crashed run left the lock behind, check that its process is gone, then remove the directory yourself.
+- **Don't start the public registry by hand (`docker compose … up registry`) while an apply runs.** That bypasses the lock; it's a documented operational limitation.
+
+**Volumes:** never run `docker volume prune`, because the `registry-data` volume holds the signed releases.

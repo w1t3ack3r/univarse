@@ -26,6 +26,7 @@
     "dev:traces:jaeger": "node tools/traces-dev.mjs jaeger",
     "images:release": "node tools/images/release.mjs",
     "images:verify": "node tools/images/verify-release.mjs",
+    "images:prune": "node tools/images/prune.mjs",
     "ci:policy": "node tools/ci-policy/workflow-policy.mjs",
     "dev:infra:down": "docker compose -f infra/compose/compose.dev.yml --env-file .env down",
     "test:e2e": "turbo run test:e2e",

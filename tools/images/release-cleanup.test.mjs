@@ -60,3 +60,10 @@ test('[LR10] fix 3: the release source no longer removes containers by fixed nam
   assert.doesNotMatch(src, /'rm', '-f', 'uv-/);
   assert.match(src, /cleanupRun\(RUN/);
 });
+
+test('[LR8] every push goes through pushTag: recorded in the record refs, and its host tag copy removed at cleanup', () => {
+  const src = readFileSync(new URL('./release.mjs', import.meta.url), 'utf8');
+  assert.equal(src.match(/sh\('docker', \['push'/g)?.length, 1, 'exactly one push call, inside pushTag');
+  assert.match(src, /function pushTag[\s\S]*?hostTags\.push\(ref\);[\s\S]*?record\.refs\.push\(\{ repo, tag \}\);[\s\S]*?\['push', ref\]/);
+  assert.match(src, /function cleanup\(\) \{[\s\S]*?sh\('docker', \['image', 'rm', \.\.\.hostTags\]/);
+});

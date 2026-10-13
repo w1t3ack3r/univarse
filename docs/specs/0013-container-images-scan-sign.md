@@ -254,8 +254,7 @@ Image sizes from Docker Desktop's containerd store (API 809 MB, web 273 MB) aren
 
 **What remains of spec 0013, so it stays open:**
 - the **CS13** image-mutation proofs: an image running as root, an image containing a shell, and a known fixable and a known unfixed HIGH/CRITICAL;
-- **LR8**'s manual `pnpm images:prune`;
-- a small follow-up: the release removes its local `localhost:5000/…` tag copies after pushing (the registry keeps them).
+- **LR8:** pending: the tool is reviewed, and its first `--apply` completes with the kept releases verifying afterwards (see LR8 below);
 
 The owner removed 14 accumulated rehearsal tags and trimmed the build cache (16.8 GB → 4.2 GB) on 2026-10-13. The `registry-data` volume must not be pruned: it holds the signed release.
 
@@ -276,6 +275,104 @@ The owner removed 14 accumulated rehearsal tags and trimmed the build cache (16.
 - **What the fixtures cover:** `pull_request` with `id-token`, `packages` or `attestations` write; `pull_request_target` with and without a head checkout; `workflow_run` running PR code; a PR job holding publish credentials and pushing/signing; no permissions; `write-all`; an unpinned checkout.
 - **Positive control:** the real `.github/workflows` pass.
 - **Mutation checks, local:** each of eight rules was disabled in turn: write scopes, privileged triggers, PR-head detection, credential secrets, publish commands, missing permissions, SHA pinning and persisted credentials. Each mutation failed its intended test, and the source was restored.
+- **CI:** run `38339539471` on `e4cec32` (#59): 7/7, and the real workflows comply.
+- **The new direct dependency:** `js-yaml@4.3.2`. It was already in the lockfile, so no new package was introduced. That doesn't mean no supply-chain risk: the check now depends on it directly. It is pinned exactly, installed from the lockfile with integrity hashes, and covered by `pnpm audit`.
+
+
+### LR8: `pnpm images:prune` — built; pending its first reviewed `--apply`
+
+**Manual only, a dry run by default.** LR8 stays **pending** until two things have happened: this tool has been reviewed and merged, and its first `--apply` has completed with every kept release verifying afterwards. A dry run is evidence about the plan, **not** proof that deleting is safe.
+
+**Trust model: records nominate, never authorise.** Release records are editable indexes. What the prune keeps, and what it may delete, is decided from two sources only: what the registry holds, and **signed provenance that verifies against the committed key**. Role, commit, rehearsal flag and start time are all inside that signature.
+- **Retention:** a *release* is a commit whose images carry verified provenance with `rehearsal: false`. The newest 20 by **signed** start time are kept, whatever any record says.
+- **Nominations:** a record nominates only the exact tags `release.mjs` generates from its own commit and rehearsal flag. The tag must exist and point at the digest the record names. The record's `refs` are informational and never used.
+- **Contradictions:** a nomination the registry contradicts protects that tag instead, and is reported.
+- **Eligibility:** a nominated image is deleted only when it is **positively** classified:
+  - signed by the trusted key as a rehearsal of the record's own commit;
+  - signed as a release of the record's own commit, outside the 20;
+  - or definitively *not* signed by the trusted key, by cosign's own verdict ("no signatures found", "no matching attestations", "accepted signatures do not match threshold").
+- **Anything else protects the image:** an unreachable registry, a cosign crash, or provenance that is inconsistent or malformed.
+- **"Not signed by the key" never authorises a deletion on its own.** A verdict is consulted only for a validly nominated tag: the exact generated tag, with the registry pointing at the record's digest, on a digest that no unknown tag, pin, shared artifact or kept release protects. An image that isn't nominated is never classified for deletion at all.
+- **Never eligible, all with every signature and attestation of each, recursively:**
+  - the kept releases, even with their records and tags gone;
+  - every digest the local deploy runs or names for rollback (`releases/deploy-state.json`), and every `--keep repo@sha256:…`;
+  - anything a tag without a valid nomination points at (e.g. `latest`);
+  - orphaned signature indexes.
+- **Shared digests:** a digest shared with a kept release, such as the unsigned-check image, is only untagged.
+- **Remove-only tags:** negative-check tags are untagged; their digest is never deleted.
+- **Indexes are traversed completely:** a kept digest keeps everything it references, recursively. That covers its own children when it is an index (e.g. a multi-platform image) and its signature index with every listed signature and attestation. A deleted index takes only those children that nothing kept references. The planner also refuses any plan whose kept set isn't closed over every index's children (owner review of `1a4497a`).
+- **Every surviving signature index is a root:** any signature index whose subject this plan does not delete is protected with all its descendants before deletions are calculated. That includes orphans (subject absent) and the indexes of untouched images. A candidate that such an index still lists is kept, and only its tags go. The planner also refuses any plan that deletes something a surviving signature index references (owner review of `f2bdc2b`).
+- **Signature storage:** this registry has no OCI referrers API, so cosign 3 uses the **tag-schema fallback**. A digest's signature, SBOM attestation and provenance attestation are manifests listed in an index tagged `sha256-<hex>`, and they are protected together with their subject.
+
+**Exclusion: the whole operation, not just collection.**
+- **The registry lock:** `tools/images/registry-lock.mjs` creates a directory atomically. It is never taken over automatically, and a run only removes its own lock. Holders:
+  - **every release**, from before its first step until the end of its cleanup;
+  - **the prune**, in both modes, because even a dry run may start and stop the registry;
+  - **the local deploy**, once it is built (a requirement on it).
+- **The registry is offline for the whole `--apply`:** the public registry (`127.0.0.1:5000`, alias `registry:5000`) is stopped first. The prune works through a private instance on the same storage: the same pinned image and hardening, a random loopback port, and a private alias on the internal release network.
+- **What that covers:** planning, verification, deletion, collection and the final verification all happen with no other path to the registry. A writer that ignores the lock, such as a manual `docker push` to `localhost:5000`, gets a refused connection instead of an interleaved write.
+- **Afterwards:** the public registry is restored only if it was running before, and the lock is released last.
+- **Documented operational limitation:** don't start the public registry (`docker compose … up registry`) during an apply. Doing so by hand bypasses the lock, and nothing in the tool can prevent it.
+
+**What `--apply` does, in order:**
+1. **Takes the lock** and takes the public registry offline.
+2. **Plans**, classifying every tagged image in the release repositories with cosign, offline.
+3. **Re-verifies every kept release** against the committed key, from **trusted data only**: every digest whose provenance verified as a release of a kept commit, in that role's repository, pairing so that every such digest is verified. Records aren't consulted, so a kept release with no record is verified too. If any kept release can't be fully verified (a role is missing), or one fails, it **stops before deleting anything** (owner review of `1a4497a`).
+4. **Deletes:** removes nominated tags, then deletes eligible manifests leaf-first (referrers, then their index, then the image).
+5. **Re-reads the registry** to prove every kept manifest survived.
+6. **Collects:** runs blob garbage collection **without `--delete-untagged`**, on quiescent storage. It runs only after its dry run shows no kept blob is eligible; a dry-run output it doesn't fully parse also stops it.
+7. **Re-verifies every kept release** from the same trusted targets.
+8. **Restores** the public registry if it was running, and **unlocks**.
+
+**Release-side changes:**
+- Each release holds the lock for its whole run.
+- It records the tags it pushed (`refs`, schema 2; informational only).
+- It removes its host-side `localhost:5000/…` tag copies at cleanup.
+
+**Proof, local (CI runs the same node tests):**
+- **Plan tests:** `tools/images/prune.test.mjs`, 24 tests, on a synthetic registry laid out like cosign's. The edited-record regression covers five edits:
+  - the real release relabelled a rehearsal;
+  - its record deleted;
+  - a rehearsal record claiming the real release's commit, tags and digests;
+  - a rehearsal record naming the real digests;
+  - `refs` claiming every tag, including signature indexes.
+- **The kept release intact:** in each edited-record case, its images, signature indexes, signatures and attestations all survive.
+- **Other attacks covered:**
+  - twenty fabricated newer "releases" in records, against signature-based retention;
+  - an off-scheme record, which nominates nothing;
+  - inconclusive, other-commit and expired-other-commit verdicts, all protected;
+  - a registry tag contradicting its record, which is neither deleted nor untagged;
+  - a same-commit rehearsal with byte-identical images, where even with the release's own record and tags gone, only the rehearsal's tags go;
+  - remove-only tags untagged but never deleted;
+  - "not signed by the key" alone never authorises deletion. Untouched cases: a generated-looking tag with no record, an arbitrary tag, a repository no release uses, an image left only under its signature index, and a tag contradicting its record (not even untagged);
+  - cosign verdict classification;
+  - a protected multi-platform index sharing a child with a deletion candidate, where the shared child, its signature and the index are kept while the candidate and its unshared child go;
+  - a candidate that is itself a child of a pinned index;
+  - a kept release published as an index, its record gone, sharing a child with a rehearsal index;
+  - verification targets built from signed provenance, covering a kept release with no record and a rebuilt one with two signed api digests, and never taking the role-swap copy as the api image;
+  - a kept release missing a role, which stops `--apply` before verifying or deleting;
+  - an orphan signature index sharing a child with a deletion candidate's signature index, where the orphan index and both its children are kept and still reported as an orphan, while the candidate's unshared artifacts go;
+  - an orphan signature index listing a candidate itself, which keeps the candidate and removes only its tag;
+  - the exclusion order, checked in the source.
+- **Lock tests:** `registry-lock.test.mjs`, 3 tests: refusal naming the holder; no takeover of stale or half-written locks; a run removes only its own lock.
+- **Mutation checks:** each rule disabled in turn was caught by its intended test (16 rules), with one exception. The newest mutation lets an unsigned verdict alone make any tagged image removable; it is caught by the unsigned-alone test and the off-scheme test. After the review of `1a4497a`, five more were added:
+  - reintroducing the reported bug (traversing signature indexes only) is caught by the three index tests, even with the defence-in-depth check disabled;
+  - not removing a dropped index's children is caught;
+  - dropping the missing-role refusal, verifying only the first digest per role, and ignoring the role are each caught;
+  - removing `--apply`'s refusal is caught.
+  - **After the review of `f2bdc2b`:** removing the orphan/surviving-index roots is caught by both new tests, even with the new invariant also disabled. A redundant line, which dropped kept candidates already skipped by `remove()`, survived mutation and was deleted.
+  - **A harness fault, found and fixed:** a mutant that doesn't parse makes the test file fail to load, with no per-test failures listed. Every mutant is now checked with `node --check` first. The two survivors reported above (the deliberately redundant signature layers) parse, so they are genuine. Two signature-based layers are **deliberately redundant**: the kept-release root, and eligibility's "not a kept release" condition. Each alone survives mutation; disabling both is caught, by the planner's final defence-in-depth check and, with that also disabled, by the same-commit rehearsal test.
+
+**Dry run against the real local registry (2026-10-13, under the lock; repeated after the review fixes from a cold start).** The after-fix run lists `--apply`'s verification targets from signed provenance: `12083b8` api `sha256:8af794d21a95444fda06a876edfed514c1419e4a3ab146c02a8488fbbf5ed0db`, web `sha256:1d0c627d2b838d4f08538b272cea0aec918baca2b3e2b146327ef22d8667553f`. The plan is unchanged: 45 deletions and 4 untags. The cold start exposed a race (compose reports healthy before Docker Desktop forwards the port), so the tool now waits for `/v2/` to answer.
+- **Kept by signature:** commit `12083b8ebe7362db3123a8d67a1b4c3b2a09907f`, with its images, unsigned-check and role-swap tags, and all signature artifacts.
+- **Rehearsal images:** all nine were classified by cosign as *not signed by the committed key* (test key).
+- **Untagged:** four tags: two on the shared unsigned-check digest, and two legacy `univarse-unsigned-check` tags.
+- **Left alone:** `latest` and `role-swap-check-test`, which have no valid nomination.
+- **Listed for deletion:** 45 manifests, all rehearsal images with their signature artifacts.
+
+**Garbage-collection dry run:** `186 blobs marked, 0 blobs and 0 manifests eligible`, which confirms the parsed format.
+
+**`--apply` has not been run.** The owner runs the first one after this tool is merged.
 
 ## Design notes
 
