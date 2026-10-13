@@ -11,10 +11,15 @@
 //   2. INPUTS: writes on ANY delegate whose model can (transitively, through relations) reach a guarded model are
 //      analysed recursively through every nested operation; every level must be literal (casts looked through,
 //      quoted keys normalised; no spreads, computed keys, shorthand or variable values where a write could hide).
-//      Each guarded model reached at any depth is a write needing its OWN binding.
-//   3. RAW SQL: tagged templates are checked on their static text, normalised as PostgreSQL reads it (comments,
-//      nested block comments, quotes, case, whitespace); an interpolated SQL fragment (Prisma `Sql`, or any/unknown)
-//      is refused, as are `U&"…"` identifiers. `…Unsafe` variants need a substitution-free literal.
+//      Each guarded model reached at any depth is a write needing its OWN binding. `connect` / `disconnect` / `set`
+//      through a relation whose foreign key is on the related side write the related row; any relation operation
+//      the guard doesn't know is refused.
+//   3. RAW SQL: tagged templates are checked on their static text, lexed as PostgreSQL lexes it (quote-aware:
+//      standard, E'…' and dollar-quoted strings, quoted identifiers, nested block and line comments); string literals
+//      are scanned as SQL too (`DO $$…$$`, `EXECUTE '…'`). Interpolations must be proven bound parameters by type
+//      (primitives, Date, arrays of them; unions and type-parameter constraints inspected). A template passed as an
+//      argument must be tagged with Prisma's own `sql`, by declaration. `U&"…"` identifiers, unlexable SQL, and
+//      `…Unsafe` variants without a substitution-free literal are refused.
 //   4. BINDING: the write sits in the bound writer; the bound publisher calls `publish` on the real InvalidationBus
 //      with the real `CHANNELS.<channel>` (both resolved to their declarations in shared/infra/invalidation-bus.ts).
 //   5. PATH: the writer calls the publisher (call targets resolved to declarations), or every reference to the
@@ -63,7 +68,7 @@ const WRITES = new Set([
 ]);
 /** Top-level argument properties that carry written values. */
 const DATA_KEYS = new Set(['data', 'create', 'update']);
-/** Nested relation operations that write the related model. */
+/** Nested relation operations that write the related model's own row. */
 const NESTED_WRITES = new Set([
   'create',
   'createMany',
@@ -73,8 +78,15 @@ const NESTED_WRITES = new Set([
   'upsert',
   'delete',
   'deleteMany',
-  'set',
 ]);
+/**
+ * Nested relation operations that change which row a foreign key points at. Through a relation whose foreign key is
+ * on the RELATED side (a list, or a to-one back-reference), they write the related row: `Tenant.products.connect`
+ * moves a product to another tenant. Through the side that holds the foreign key, they write only the current row.
+ */
+const NESTED_LINKS = new Set(['connect', 'disconnect', 'set']);
+/** Every other nested relation operation is refused: an unrecognised one may write. */
+const NESTED_OPS = new Set([...NESTED_WRITES, ...NESTED_LINKS]);
 const RAW = new Set(['$executeRaw', '$executeRawUnsafe', '$queryRaw', '$queryRawUnsafe']);
 const SQL_WRITE =
   /\b(insert into|update|delete from|merge into|truncate(?: table)?|alter table|copy)\s+(?:only\s+)?(?:[a-z_][a-z0-9_$]*\.)?(tenant|tenant_domain|tenant_product)\b/g;
@@ -94,8 +106,8 @@ export interface Binding {
 }
 export type Bindings = Readonly<Record<string, readonly Binding[]>>; // file (relative to apps/api/src) → bindings
 
-/** The relation graph from both Prisma schemas: model → field → related MODEL (enums and scalars excluded). */
-export function relationGraph(): Map<string, Map<string, string>> {
+/** The model blocks of both Prisma schemas: [name, body]. */
+function schemaModels(): [string, string][] {
   const texts: string[] = [];
   for (const schema of [
     'packages/db/prisma/platform/schema.prisma',
@@ -107,15 +119,34 @@ export function relationGraph(): Map<string, Map<string, string>> {
       // a missing schema contributes no relations
     }
   }
-  const blocks = texts.flatMap((t) => [...t.matchAll(/^model\s+(\w+)\s*\{([\s\S]*?)^\}/gm)]);
-  const models = new Set(blocks.map((b) => b[1]!));
+  return texts.flatMap((t) =>
+    [...t.matchAll(/^model\s+(\w+)\s*\{([\s\S]*?)^\}/gm)].map((b): [string, string] => [
+      b[1]!,
+      b[2]!,
+    ]),
+  );
+}
+const RELATION_FIELD = /^\s+(\w+)\s+(\w+)(\[\])?\??(?=\s|$)(.*)$/gm;
+
+/** The relation graph from both Prisma schemas: model → field → related MODEL (enums and scalars excluded). */
+export function relationGraph(): Map<string, Map<string, string>> {
+  const blocks = schemaModels();
+  const models = new Set(blocks.map(([name]) => name));
   const out = new Map<string, Map<string, string>>();
-  for (const b of blocks) {
+  for (const [name, body] of blocks) {
     const fields = new Map<string, string>();
-    for (const m of b[2]!.matchAll(/^\s+(\w+)\s+(\w+)(\[\])?\??(?=\s|$)/gm))
-      if (models.has(m[2]!)) fields.set(m[1]!, m[2]!);
-    out.set(b[1]!, fields);
+    for (const m of body.matchAll(RELATION_FIELD)) if (models.has(m[2]!)) fields.set(m[1]!, m[2]!);
+    out.set(name, fields);
   }
+  return out;
+}
+
+/** `Model.field` for every relation field that holds the foreign key (`@relation(fields: …)`). */
+export function foreignKeyHolders(): Set<string> {
+  const out = new Set<string>();
+  for (const [name, body] of schemaModels())
+    for (const m of body.matchAll(RELATION_FIELD))
+      if (!m[3] && /@relation\([^)]*\bfields\s*:/.test(m[4]!)) out.add(`${name}.${m[1]!}`);
   return out;
 }
 
@@ -180,16 +211,117 @@ export function productionFiles(program: TS.Program): TS.SourceFile[] {
 
 const relPath = (f: string) => relative(SRC, f).replace(/\\/g, '/');
 
-/** Normalises SQL as PostgreSQL reads it: comments (nested block comments too) → space, quotes removed, folded. */
-export function normaliseSql(text: string): string {
-  let s = text;
-  // Nested block comments: strip innermost first until none remain.
-  for (let prev = ''; prev !== s;) {
-    prev = s;
-    s = s.replace(/\/\*(?:(?!\/\*|\*\/)[\s\S])*\*\//g, ' ');
+const IDENT_CHAR = /[A-Za-z0-9_$\u0080-￿]/;
+
+/**
+ * Lexes SQL as PostgreSQL does, so a comment marker inside a literal is text and a quote inside a comment is comment.
+ * Returns the code outside string literals (comments → space, quoted identifiers unquoted, each string → `''`) and
+ * each string literal's contents; null when the text is unterminated, or uses a backslash in a standard string
+ * (ambiguous: its meaning depends on standard_conforming_strings).
+ */
+export function lexSql(text: string): { code: string; strings: string[] } | null {
+  let code = '';
+  const strings: string[] = [];
+  const n = text.length;
+  let i = 0;
+  while (i < n) {
+    const c = text[i]!;
+    const next = text[i + 1];
+    if (c === '-' && next === '-') {
+      const end = text.indexOf('\n', i);
+      i = end < 0 ? n : end;
+      code += ' ';
+    } else if (c === '/' && next === '*') {
+      let depth = 0; // block comments nest
+      do {
+        if (i >= n) return null;
+        if (text.startsWith('/*', i)) {
+          depth++;
+          i += 2;
+        } else if (text.startsWith('*/', i)) {
+          depth--;
+          i += 2;
+        } else i++;
+      } while (depth > 0);
+      code += ' ';
+    } else if (c === '"') {
+      let j = i + 1;
+      let ident = '';
+      for (;;) {
+        if (j >= n) return null;
+        if (text[j] === '"') {
+          if (text[j + 1] !== '"') break;
+          ident += '"';
+          j += 2;
+        } else ident += text[j++]!;
+      }
+      code += ident;
+      i = j + 1;
+    } else if (c === "'") {
+      // E'…' takes backslash escapes; a standard string doesn't (with standard_conforming_strings on).
+      const escapes = /[eE]/.test(text[i - 1] ?? '') && !IDENT_CHAR.test(text[i - 2] ?? '');
+      let j = i + 1;
+      let s = '';
+      for (;;) {
+        if (j >= n) return null;
+        const ch = text[j]!;
+        if (ch === '\\') {
+          if (!escapes) return null;
+          s += text.slice(j, j + 2);
+          j += 2;
+        } else if (ch === "'") {
+          if (text[j + 1] !== "'") break;
+          s += "'";
+          j += 2;
+        } else {
+          s += ch;
+          j++;
+        }
+      }
+      strings.push(s);
+      code += " '' ";
+      i = j + 1;
+    } else if (c === '$' && !IDENT_CHAR.test(text[i - 1] ?? '')) {
+      const tag = /^\$(?:[A-Za-z_\u0080-￿][A-Za-z0-9_\u0080-￿]*)?\$/.exec(text.slice(i))?.[0];
+      if (tag) {
+        const end = text.indexOf(tag, i + tag.length);
+        if (end < 0) return null;
+        strings.push(text.slice(i + tag.length, end));
+        code += " '' ";
+        i = end + tag.length;
+      } else {
+        code += c;
+        i++;
+      }
+    } else {
+      code += c;
+      i++;
+    }
   }
-  s = s.replace(/--[^\n]*/g, ' ');
-  return s.toLowerCase().replace(/["`]/g, '').replace(/\s+/g, ' ');
+  return { code, strings };
+}
+
+const fold = (s: string) => s.toLowerCase().replace(/\s+/g, ' ');
+
+/**
+ * Normalises SQL as PostgreSQL reads it, for matching writes: the code outside literals (lexed), then each string
+ * literal's contents as SQL too, since `DO $$ … $$` and `EXECUTE '…'` run them. A literal that doesn't lex as SQL
+ * can't run as SQL either, so it is scanned as plain text. Null when the outer text doesn't lex (refused).
+ */
+export function normaliseSql(text: string, depth = 0): string | null {
+  const lexed = lexSql(text);
+  if (!lexed) return null;
+  if (depth > 4) return null; // literals nested this deep: refused rather than guessed
+  const parts = [fold(lexed.code)];
+  for (const s of lexed.strings) {
+    if (lexSql(s) === null) parts.push(fold(s));
+    else {
+      const inner = normaliseSql(s, depth + 1);
+      if (inner === null) return null;
+      parts.push(inner);
+    }
+  }
+  return parts.join(' ; ');
 }
 
 /** The qualified label of a function-like declaration: `Class.method`, or a function's name. */
@@ -241,6 +373,7 @@ export function analyzeFile(
 ): Analysis {
   const checker = program.getTypeChecker();
   const reaching = reachingModels(graph);
+  const fkHolders = foreignKeyHolders();
   const a: Analysis = {
     writes: [],
     violations: [],
@@ -367,14 +500,19 @@ export function analyzeFile(
       const ops = literalProps(value, `relation ${model}.${key}`);
       if (!ops) continue;
       for (const [op, opNode] of ops) {
-        if (NESTED_WRITES.has(op) && Object.hasOwn(GUARDED_MODELS, related)) {
+        const sub = `${path}.${key}.${op}`;
+        if (!NESTED_OPS.has(op)) {
+          refuse(opNode, `unsupported relation operation ${op} on ${model}.${key} in ${path}`);
+          continue;
+        }
+        const writesRelated = NESTED_WRITES.has(op) || !fkHolders.has(`${model}.${key}`); // a link moves the related row's foreign key
+        if (writesRelated && Object.hasOwn(GUARDED_MODELS, related)) {
           a.writes.push({
             fn,
             table: GUARDED_MODELS[related]!,
             how: `nested ${op} via ${model}.${key}`,
           });
         }
-        const sub = `${path}.${key}.${op}`;
         if (
           !['create', 'createMany', 'update', 'updateMany', 'upsert', 'connectOrCreate'].includes(
             op,
@@ -432,11 +570,10 @@ export function analyzeFile(
     let text = t.head.text;
     for (const span of t.templateSpans) {
       const ty = checker.getTypeAtLocation(span.expression);
-      const name = (ty.aliasSymbol ?? ty.getSymbol())?.getName();
-      if (name === 'Sql' || ty.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown)) {
+      if (!boundParameter(ty)) {
         refuse(
           span.expression,
-          `${how} interpolates a SQL fragment (Prisma.sql / Prisma.raw, or untyped): it can add SQL syntax`,
+          `${how} interpolates ${checker.typeToString(ty)}, which isn't proven to be a bound parameter (only primitives, Date and arrays of them are; a Prisma.sql / Prisma.raw fragment can add SQL syntax)`,
         );
         return null;
       }
@@ -444,12 +581,80 @@ export function analyzeFile(
     }
     return text;
   };
+  /**
+   * Whether every value of `t` is sent as a bound parameter, never spliced in as SQL: every member of a union, the
+   * constraint of a type parameter, and the elements of an array must be a primitive (literal types and enums
+   * included) or Date. Intersections pass only as a branded primitive, `string & { … }`.
+   */
+  const PRIMITIVE =
+    ts.TypeFlags.StringLike |
+    ts.TypeFlags.NumberLike |
+    ts.TypeFlags.BigIntLike |
+    ts.TypeFlags.BooleanLike |
+    ts.TypeFlags.EnumLike |
+    ts.TypeFlags.Null |
+    ts.TypeFlags.Undefined;
+  const boundParameter = (t: TS.Type, depth = 0): boolean => {
+    if (depth > 8) return false;
+    if (t.flags & PRIMITIVE) return true;
+    if (t.flags & ts.TypeFlags.TypeParameter) {
+      const c = checker.getBaseConstraintOfType(t);
+      return !!c && c !== t && boundParameter(c, depth + 1);
+    }
+    if (t.isUnion()) return t.types.every((m) => boundParameter(m, depth + 1));
+    if (t.isIntersection()) {
+      return (
+        t.types.some((m) => (m.flags & PRIMITIVE) !== 0) &&
+        t.types.every((m) => (m.flags & PRIMITIVE) !== 0 || brand(m))
+      );
+    }
+    if (checker.isArrayType(t) || checker.isTupleType(t))
+      return checker
+        .getTypeArguments(t as TS.TypeReference)
+        .every((e) => boundParameter(e, depth + 1));
+    const sym = t.getSymbol();
+    return (
+      sym?.getName() === 'Date' &&
+      (sym.declarations ?? []).some((d) => program.isSourceFileDefaultLibrary(d.getSourceFile()))
+    );
+  };
+  /** A brand: an anonymous object type whose properties are all primitives (no methods, nothing SQL-shaped). */
+  const brand = (t: TS.Type) =>
+    !!(t.flags & ts.TypeFlags.Object) &&
+    !!t.getSymbol() &&
+    t.getSymbol()!.getName() === '__type' &&
+    t.getCallSignatures().length === 0 &&
+    t.getProperties().every((p) => {
+      const pt = checker.getTypeOfSymbol(p);
+      return (pt.flags & (PRIMITIVE | ts.TypeFlags.UniqueESSymbol)) !== 0;
+    });
+  /** The tag is Prisma's own `sql` (the generated `Prisma.sql`), resolved by declaration. */
+  const PRISMA_SQL_DECL =
+    /\/packages\/db\/(src|dist)\/generated\/(platform|tenant)\/internal\/prismaNamespace\.(d\.)?ts$/;
+  const isPrismaSqlTag = (tag: TS.Expression) => {
+    const d = declOf(ts.isPropertyAccessExpression(tag) ? tag.name : tag);
+    return (
+      !!d &&
+      ts.isVariableDeclaration(d) &&
+      ts.isIdentifier(d.name) &&
+      d.name.text === 'sql' &&
+      PRISMA_SQL_DECL.test(d.getSourceFile().fileName.replace(/\\/g, '/'))
+    );
+  };
   const checkSql = (n: TS.Node, text: string, how: string) => {
     if (/u&\s*"/i.test(text)) {
       refuse(n, `${how} uses a U&"…" escaped identifier`);
       return;
     }
-    for (const m of normaliseSql(text).matchAll(SQL_WRITE))
+    const sql = normaliseSql(text);
+    if (sql === null) {
+      refuse(
+        n,
+        `${how} with SQL that doesn't lex unambiguously (an unterminated quote or comment, or a backslash in a standard string)`,
+      );
+      return;
+    }
+    for (const m of sql.matchAll(SQL_WRITE))
       a.writes.push({ fn: fnOf(n), table: m[2]!, how: `${how} (${m[0]})` });
   };
 
@@ -535,13 +740,18 @@ export function analyzeFile(
         const unsafe = n.name.text.endsWith('Unsafe');
         if (arg && (ts.isStringLiteral(arg) || ts.isNoSubstitutionTemplateLiteral(arg))) {
           checkSql(p, arg.text, n.name.text);
-        } else if (arg && !unsafe && ts.isTaggedTemplateExpression(arg)) {
+        } else if (
+          arg &&
+          !unsafe &&
+          ts.isTaggedTemplateExpression(arg) &&
+          isPrismaSqlTag(arg.tag)
+        ) {
           const text = templateText(arg.template, n.name.text); // Prisma.sql`…` (refuses its own fragments)
           if (text !== null) checkSql(p, text, n.name.text);
         } else {
           refuse(
             p,
-            `${n.name.text} with SQL that isn't a ${unsafe ? 'substitution-free' : 'checkable'} literal`,
+            `${n.name.text} with SQL that isn't a ${unsafe ? 'substitution-free' : 'checkable'} literal${!unsafe && arg && ts.isTaggedTemplateExpression(arg) ? " (a template's tag must be Prisma's own sql, by declaration)" : ''}`,
           );
         }
       }

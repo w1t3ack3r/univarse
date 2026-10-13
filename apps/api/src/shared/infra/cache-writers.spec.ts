@@ -152,6 +152,34 @@ export class W {
   async go(id: string) { await this.platform.tenant.update({ where: { id }, data: { status: 'SUSPENDED' } }); await this.invalidate(id); }
   async invalidate(id: string) { void id; void this.bus; }
 }`,
+  // The owner's bypasses of 436195e: fragment unions and generics, an untrusted tag, comment markers in literals, and
+  // relation links.
+  fragmentUnion: `${HEAD}import { PlatformModels } from '@univarse/db';
+export async function f(p: PlatformClient, frag: PlatformModels.Prisma.Sql | string) { await p.$executeRaw\`\${frag} SET status = 'SUSPENDED'\`; }`,
+  fragmentGeneric: `${HEAD}import { PlatformModels } from '@univarse/db';
+export async function f<T extends PlatformModels.Prisma.Sql>(p: PlatformClient, frag: T) { await p.$executeRaw\`\${frag} SET status = 'SUSPENDED'\`; }`,
+  // Bound parameters of every accepted shape: none adds SQL, so this read is clean.
+  boundParameters: `${HEAD}export async function f<T extends string>(p: PlatformClient, s: string | null, d: Date, ids: readonly string[], t: T, b: string & { readonly __brand: 'Id' }) {
+  await p.$queryRaw\`SELECT id FROM tenant WHERE slug = \${s} AND created_at < \${d} AND id = ANY(\${ids}) AND short_name = \${t} AND legal_name = \${b} LIMIT \${1}\`;
+}`,
+  untrustedTag: `${HEAD}import { PlatformModels } from '@univarse/db';
+const makeQuery = (s: TemplateStringsArray) => { void s; return PlatformModels.Prisma.sql\`UPDATE tenant SET status = 'SUSPENDED'\`; };
+export async function f(p: PlatformClient) { await p.$executeRaw(makeQuery\`SELECT 1\`); }`,
+  sameNamedTag: `${HEAD}import { PlatformModels } from '@univarse/db';
+const sql = (s: TemplateStringsArray) => { void s; return PlatformModels.Prisma.raw('UPDATE tenant SET status = 1'); };
+export async function f(p: PlatformClient) { await p.$executeRaw(sql\`SELECT 1\`); }`,
+  prismaSqlTag: `${HEAD}import { PlatformModels } from '@univarse/db';
+export async function f(p: PlatformClient) { await p.$executeRaw(PlatformModels.Prisma.sql\`UPDATE tenant SET status = 'SUSPENDED'\`); }`,
+  commentInString: `${HEAD}export async function f(p: PlatformClient) { await p.$executeRaw\`WITH c AS (SELECT '-- literal') UPDATE tenant SET status = 'SUSPENDED'\`; }`,
+  commentInEscapedString: String.raw`${HEAD}export async function f(p: PlatformClient) { await p.$executeRawUnsafe("WITH c AS (SELECT E'it\\'s -- x') UPDATE tenant_product SET enabled = false"); }`,
+  commentInDollarString: `${HEAD}export async function f(p: PlatformClient) { await p.$executeRawUnsafe('WITH c AS (SELECT $q$ /* $q$) UPDATE tenant_domain SET hostname = hostname'); }`,
+  quoteInComment: `${HEAD}export async function f(p: PlatformClient) { await p.$executeRawUnsafe("/* it's */ UPDATE tenant SET status = 'SUSPENDED'"); }`,
+  doBlock: `${HEAD}export async function f(p: PlatformClient) { await p.$executeRawUnsafe('DO $$ BEGIN UPDATE /* x */ tenant SET status = 1; END $$'); }`,
+  unterminated: `${HEAD}export async function f(p: PlatformClient) { await p.$executeRawUnsafe("SELECT 'open"); }`,
+  relationConnect: `${HEAD}export async function f(p: PlatformClient) { await p.tenant.update({ where: { id: 'x' }, data: { products: { connect: { id: 'y' } } } }); }`,
+  relationUnknownOp: `${HEAD}export async function f(p: PlatformClient) { await p.tenant.update({ where: { id: 'x' }, data: { products: { link: { id: 'y' } } } as never }); }`,
+  // The foreign key is on TenantProduct: connecting its tenant writes only the product row.
+  relationOwnSide: `${HEAD}export async function f(p: PlatformClient) { await p.tenantProduct.update({ where: { id: 'y' }, data: { tenant: { connect: { id: 'x' } } } }); }`,
   // Earlier forms, and the model the first guard missed entirely (tenant_domain holds the hosts).
   upsert: `${HEAD}export async function f(p: PlatformClient, data: never) { await p.tenantProduct.upsert(data); }`,
   destructure: `${HEAD}export async function f(p: PlatformClient) { const { tenant } = p; await tenant.findMany(); }`,
@@ -309,8 +337,12 @@ describe(
 
     it("[CI10] the owner's bypasses of 114c30e are all refused", () => {
       // An interpolated Prisma.raw / Prisma.sql fragment can carry SQL syntax: refused outright.
-      expect(check('rawFragment').join('\n')).toMatch(/\$executeRaw interpolates a SQL fragment/);
-      expect(check('sqlFragment').join('\n')).toMatch(/\$executeRaw interpolates a SQL fragment/);
+      expect(check('rawFragment').join('\n')).toMatch(
+        /\$executeRaw interpolates [\w.]*Sql, which isn't proven to be a bound parameter/,
+      );
+      expect(check('sqlFragment').join('\n')).toMatch(
+        /\$executeRaw interpolates [\w.]*Sql, which isn't proven to be a bound parameter/,
+      );
       // Comments are read as PostgreSQL reads them: block, nested block and line comments.
       expect(check('sqlComment').join('\n')).toMatch(
         /f writes tenant \(\$executeRaw \(update tenant\)\)/,
@@ -349,6 +381,61 @@ describe(
       expect(out).toContainEqual(
         expect.stringMatching(/W\.invalidate makes no publish\(CHANNELS\.tenants/),
       );
+    });
+
+    it("[CI10] the owner's bypasses of 436195e are all refused", () => {
+      // 1. Only values proven to be bound parameters may be interpolated: unions and constraints are inspected.
+      expect(check('fragmentUnion').join('\n')).toMatch(
+        /\$executeRaw interpolates .*isn't proven to be a bound parameter/,
+      );
+      expect(check('fragmentGeneric').join('\n')).toMatch(
+        /\$executeRaw interpolates T, which isn't proven to be a bound parameter/,
+      );
+      expect(check('boundParameters')).toEqual([]);
+      // 2. A template argument must carry Prisma's own sql tag, by declaration, not by name.
+      expect(check('untrustedTag').join('\n')).toMatch(/a template's tag must be Prisma's own sql/);
+      expect(check('sameNamedTag').join('\n')).toMatch(/a template's tag must be Prisma's own sql/);
+      expect(check('prismaSqlTag').join('\n')).toMatch(
+        /f writes tenant \(\$executeRaw \(update tenant\)\) with no binding/,
+      );
+      // 3. Comment markers inside literals are text, and a quote inside a comment is comment.
+      expect(check('commentInString').join('\n')).toMatch(
+        /f writes tenant \(\$executeRaw \(update tenant\)\)/,
+      );
+      expect(check('commentInEscapedString').join('\n')).toMatch(
+        /f writes tenant_product \(\$executeRawUnsafe \(update tenant_product\)\)/,
+      );
+      expect(check('commentInDollarString').join('\n')).toMatch(
+        /f writes tenant_domain \(\$executeRawUnsafe \(update tenant_domain\)\)/,
+      );
+      expect(check('quoteInComment').join('\n')).toMatch(
+        /f writes tenant \(\$executeRawUnsafe \(update tenant\)\)/,
+      );
+      // Literal contents run as SQL in DO / EXECUTE, so they are scanned as SQL too.
+      expect(check('doBlock').join('\n')).toMatch(
+        /f writes tenant \(\$executeRawUnsafe \(update tenant\)\)/,
+      );
+      expect(check('unterminated').join('\n')).toMatch(/SQL that doesn't lex unambiguously/);
+      // 4. Tenant.products.connect moves a product's tenant: a tenant_product write needing its own binding.
+      const tenantOnly = {
+        writer: 'f',
+        table: 'tenant',
+        channel: 'tenants',
+        publisher: 'f',
+        proof: { file: '', test: '' },
+      } as const;
+      expect(check('relationConnect', { [rel('relationConnect')]: [tenantOnly] })).toContainEqual(
+        expect.stringMatching(
+          /f writes tenant_product \(nested connect via Tenant\.products\) with no binding/,
+        ),
+      );
+      expect(check('relationUnknownOp').join('\n')).toMatch(
+        /unsupported relation operation link on Tenant\.products/,
+      );
+      // The control: on the side holding the foreign key, connect writes only the current row.
+      expect(check('relationOwnSide')).toEqual([
+        expect.stringMatching(/f writes tenant_product \(update\(\)\) with no binding/),
+      ]);
     });
 
     it('[CI10] earlier forms and tenant_domain are refused; reads are not writes', () => {
