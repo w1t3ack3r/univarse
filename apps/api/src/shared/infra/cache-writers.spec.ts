@@ -1,173 +1,208 @@
-// Spec 0015 CI9 and CI10: static guards over the API's production source (no DB, no Valkey).
-//   • CI10, fail closed: ANY write to a guarded table (tenant, tenant_host, tenant_product), in any form the guard
-//     can see (a Prisma delegate call, raw SQL, dynamic delegate access), is refused unless its file is a REVIEWED
-//     writer. A reviewed writer must make an actual publish call on its channel (comments don't count), and must
-//     name a test that proves post-commit publication, which must exist (owner review of #66).
+// Spec 0015 CI9 and CI10: static guards over the API's production source, with full type information.
+//   • CI10 (fail closed, type-aware; owner reviews of c6dd715 and e89e48b): see testing/cache-writer-guard.ts.
+//     Writes to tenant / tenant_domain / tenant_product are accepted only in the recognised form, inside a function
+//     BOUND to that table and channel, whose publishing function really calls publish(CHANNELS.<channel>, …) on an
+//     InvalidationBus, with a named runtime proof test. Every bypass the owner found is a regression fixture below.
 //   • CI9: full-tenant key destruction is reachable only through KeyDestruction.shredTenantKeys.
-import { readdirSync, readFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { describe, expect, it } from 'vitest';
+import type * as TS from 'typescript';
+import { beforeAll, describe, expect, it } from 'vitest';
+import {
+  API_DIR,
+  apiProgram,
+  productionFiles,
+  writerViolations,
+  type Bindings,
+} from '../../testing/cache-writer-guard.js';
 
-const SRC = fileURLToPath(new URL('../../', import.meta.url));
+const SRC = join(API_DIR, 'src');
 
-/** Every production .ts file under apps/api/src (tests and test helpers excluded). */
-function productionFiles(dir = SRC): string[] {
-  const out: string[] = [];
-  for (const e of readdirSync(dir, { withFileTypes: true })) {
-    const p = join(dir, e.name);
-    if (e.isDirectory()) {
-      if (e.name !== 'testing' && e.name !== 'generated') out.push(...productionFiles(p));
-    } else if (
-      e.name.endsWith('.ts') &&
-      !/\.(int\.)?spec\.ts$/.test(e.name) &&
-      !e.name.endsWith('.d.ts')
-    )
-      out.push(p);
-  }
-  return out;
-}
-
-/** Source with comments removed, so a channel name in a comment can't satisfy the guard. */
-export const stripComments = (text: string) =>
-  text.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"`])\/\/.*$/gm, '$1');
-
-const OPS =
-  'create|createMany|createManyAndReturn|update|updateMany|updateManyAndReturn|upsert|delete|deleteMany';
-/** Every form of write to a guarded table the guard recognises. Anything matched is refused unless reviewed. */
-const GUARDED_WRITES: readonly { what: string; re: RegExp }[] = [
-  {
-    what: 'a delegate write',
-    re: new RegExp(`\\b(tenant|tenantHost|tenantProduct)\\s*\\.\\s*(${OPS})\\s*\\(`, 'g'),
-  },
-  {
-    what: 'raw SQL',
-    re: /\b(INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s+"?(tenant|tenant_host|tenant_product)"?(?![\w])/gi,
-  },
-  { what: 'dynamic delegate access', re: /\[\s*['"`](tenant|tenantHost|tenantProduct)['"`]\s*\]/g },
-];
-
-/** Reviewed writers: file → the channel it must publish on, and the test proving post-commit publication. */
-export const REVIEWED_WRITERS: Record<
-  string,
-  { channel: string; proof: { file: string; test: string } }
-> = {
-  // Writes tenant_product.enabled (P4/P5), including the compensation. Publishes in setEnabled's `finally`.
-  'modules/products/product.service.ts': {
-    channel: 'CHANNELS.products',
-    proof: {
-      file: 'shared/infra/cache-isolation.int.spec.ts',
-      test: '[CI1][CI10] the compensated path publishes too',
+/** The reviewed writers: each binds writer, table and channel, with its runtime proof of post-commit publication. */
+export const REVIEWED_BINDINGS: Bindings = {
+  'modules/products/product.service.ts': [
+    {
+      writer: 'ProductService.setEnabled',
+      table: 'tenant_product',
+      channel: 'products',
+      publisher: 'ProductService.invalidate',
+      proof: {
+        file: 'shared/infra/cache-isolation.int.spec.ts',
+        test: '[CI1][CI11] a toggle through instance 1 is served by instance 2',
+      },
     },
-  },
+    {
+      writer: 'ProductService.compensate',
+      table: 'tenant_product',
+      channel: 'products',
+      publisher: 'ProductService.invalidate',
+      calledOnlyFrom: 'ProductService.setEnabled',
+      proof: {
+        file: 'shared/infra/cache-isolation.int.spec.ts',
+        test: '[CI1][CI10] the compensated path publishes too',
+      },
+    },
+  ],
 };
 
-/** Problems in one file: guarded writes outside reviewed files, and reviewed files that don't really publish. */
-export function writerViolations(
-  file: string,
-  text: string,
-  reviewed = REVIEWED_WRITERS,
-): string[] {
-  const code = stripComments(text);
-  const hits = GUARDED_WRITES.flatMap(({ what, re }) =>
-    [...code.matchAll(re)].map((m) => `${what} (${m[0].trim()})`),
+// Fixtures: virtual files compiled with the real types, so the guard sees exactly what it sees in production.
+const FIX = join(SRC, '__cache_guard_fixtures__');
+const HEAD = `import type { PlatformClient } from '@univarse/db';\nimport { CHANNELS, InvalidationBus } from '../shared/infra/invalidation-bus.js';\nvoid CHANNELS; void InvalidationBus;\n`;
+const FIXTURES: Record<string, string> = {
+  // The owner's five bypasses of e89e48b.
+  alias: `${HEAD}export async function f(p: PlatformClient) { const model = p.tenant; await model.update({ where: { id: 'x' }, data: { status: 'SUSPENDED' } }); }`,
+  computed: `${HEAD}export async function f(p: PlatformClient, model: 'tenant' | 'tenantProduct') { await (p[model] as PlatformClient['tenant']).update({ where: { id: 'x' }, data: {} }); }`,
+  sqlQualified: `${HEAD}export async function f(p: PlatformClient, s: string) { await p.$executeRaw\`UPDATE "public"."tenant" SET status = \${s} WHERE id = 'x'\`; }`,
+  productsFileTenantWrite: `${HEAD}export class ProductService {
+  constructor(private readonly platform: PlatformClient, private readonly bus: InvalidationBus) {}
+  async setEnabled(id: string) {
+    await this.platform.tenantProduct.updateMany({ where: { id }, data: { enabled: true } });
+    await this.platform.tenant.update({ where: { id }, data: { status: 'SUSPENDED' } });
+    await this.bus.publish(CHANNELS.products, id);
+  }
+}`,
+  stringPublish: `${HEAD}export class W {
+  constructor(private readonly platform: PlatformClient, private readonly bus: InvalidationBus) {}
+  async go(id: string) {
+    await this.platform.tenant.update({ where: { id }, data: { status: 'SUSPENDED' } });
+    const s = '.publish(CHANNELS.tenants, id)'; void s; void this.bus;
+  }
+}`,
+  // The positive control: the same writer, really publishing on its bound channel.
+  realPublish: `${HEAD}export class W {
+  constructor(private readonly platform: PlatformClient, private readonly bus: InvalidationBus) {}
+  async go(id: string) {
+    await this.platform.tenant.update({ where: { id }, data: { status: 'SUSPENDED' } });
+    await this.bus.publish(CHANNELS.tenants, id);
+  }
+}`,
+  // A helper writer (like ProductService.compensate) also reached from a second, non-publishing path.
+  helperLeak: `${HEAD}export class S {
+  constructor(private readonly platform: PlatformClient, private readonly bus: InvalidationBus) {}
+  async setEnabled(id: string) { try { await this.undo(id); } finally { await this.invalidate(id); } }
+  async other(id: string) { await this.undo(id); }
+  async invalidate(id: string) { await this.bus.publish(CHANNELS.products, id); }
+  private async undo(id: string) { await this.platform.tenantProduct.updateMany({ where: { id }, data: { enabled: false } }); }
+}`,
+  // Earlier forms, and the model the first guard missed entirely (tenant_domain holds the hosts).
+  upsert: `${HEAD}export async function f(p: PlatformClient, data: never) { await p.tenantProduct.upsert(data); }`,
+  destructure: `${HEAD}export async function f(p: PlatformClient) { const { tenant } = p; await tenant.findMany(); }`,
+  rawUnsafeVariable: `${HEAD}export async function f(p: PlatformClient, sql: string) { await p.$executeRawUnsafe(sql); }`,
+  nested: `${HEAD}export async function f(p: PlatformClient) { await p.tenantDataKey.create({ data: { version: 2, status: 'ACTIVE', tenant: { update: { status: 'SUSPENDED' } } } as never }); }`,
+  domain: `${HEAD}export async function f(p: PlatformClient) { await p.tenantDomain.create({ data: { hostname: 'x.example', tenantId: 'x' } as never }); }`,
+  reads: `${HEAD}export async function f(p: PlatformClient) { await p.tenant.findMany({ where: { status: 'ACTIVE' } }); await p.$queryRaw\`SELECT id FROM tenant\`; }`,
+};
+const fixturePath = (name: string) => join(FIX, `${name}.ts`);
+const W_BINDING = {
+  writer: 'W.go',
+  table: 'tenant',
+  channel: 'tenants',
+  publisher: 'W.go',
+  proof: { file: '', test: '' },
+} as const;
+
+let program: TS.Program;
+beforeAll(() => {
+  program = apiProgram(
+    Object.fromEntries(Object.entries(FIXTURES).map(([n, t]) => [fixturePath(n), t])),
   );
-  if (hits.length === 0)
-    return reviewed[file]
-      ? [`${file}: listed as a reviewed writer but writes no guarded table (stale entry)`]
-      : [];
-  const r = reviewed[file];
-  if (!r)
-    return hits.map(
-      (h) =>
-        `${file}: ${h} to a guarded table, outside the reviewed writers (add it there, with a post-commit publication test)`,
-    );
-  const publishes = new RegExp(`\\.publish\\(\\s*${r.channel.replace('.', '\\.')}\\s*,`).test(code);
-  return publishes ? [] : [`${file}: a reviewed writer that never calls publish(${r.channel}, …)`];
-}
+}, 120_000);
 
-describe('[CI10] future writers are bound, fail closed', () => {
-  it('[CI10][CI11] production code writes guarded tables only in reviewed writers that really publish', () => {
-    const files = productionFiles().map(
-      (f) => [relative(SRC, f).replace(/\\/g, '/'), readFileSync(f, 'utf8')] as const,
-    );
-    const problems = files.flatMap(([f, text]) => writerViolations(f, text));
-    for (const f of Object.keys(REVIEWED_WRITERS))
-      if (!files.some(([g]) => g === f)) problems.push(`${f}: reviewed writer file is missing`);
-    expect(problems).toEqual([]);
+const check = (name: string, bindings: Bindings = {}) => {
+  const sf =
+    program.getSourceFile(fixturePath(name).replace(/\\/g, '/')) ??
+    program
+      .getSourceFiles()
+      .find((s) => s.fileName.replace(/\\/g, '/').endsWith(`__cache_guard_fixtures__/${name}.ts`));
+  if (!sf) throw new Error(`fixture ${name} not in the program`);
+  return writerViolations(program, [sf], bindings);
+};
+const rel = (name: string) => `__cache_guard_fixtures__/${name}.ts`;
+
+describe('[CI10] writers are bound to table and channel, fail closed (type-aware)', { timeout: 60_000 }, () => {
+  it('[CI10][CI11] production code writes guarded tables only through bound writers that really publish', () => {
+    expect(writerViolations(program, productionFiles(program), REVIEWED_BINDINGS)).toEqual([]);
   });
 
-  it('[CI10] every reviewed writer names a post-commit publication test that exists', () => {
-    for (const [file, r] of Object.entries(REVIEWED_WRITERS)) {
-      const proof = readFileSync(join(SRC, r.proof.file), 'utf8');
-      expect(
-        proof.includes(r.proof.test),
-        `${file}: its proof test "${r.proof.test}" exists in ${r.proof.file}`,
-      ).toBe(true);
+  it('[CI10] every binding names a runtime post-commit publication test that exists', () => {
+    for (const [file, list] of Object.entries(REVIEWED_BINDINGS)) {
+      for (const b of list) {
+        const proof = readFileSync(join(SRC, b.proof.file), 'utf8');
+        expect(proof.includes(b.proof.test), `${file} ${b.writer}: proof "${b.proof.test}"`).toBe(
+          true,
+        );
+      }
     }
   });
 
-  it('[CI10] the guard fails closed on every form it recognises, and a comment never satisfies it', () => {
-    const none = {};
-    for (const src of [
-      `await tx.tenant.update({ where: { id }, data: { status: 'SUSPENDED' } });`,
-      `await this.platform.tenantHost.create({ data: { host } });`,
-      `await p.tenantProduct.upsert({ where, create: data, update: data });`, // variable-based data, upsert
-      `const { tenant } = platform; await tenant.updateMany({ data: patch });`, // no leading dot
-      'await tx.$executeRaw`UPDATE tenant SET status = ${s} WHERE id = ${id}`;', // raw SQL
-      'await tx.$executeRawUnsafe(`INSERT INTO "tenant_host" (host) VALUES ($1)`, h);',
-      `await (platform as any)['tenantProduct'].update({ data });`, // dynamic access
-    ]) {
-      expect(writerViolations('x.ts', src, none).length, src).toBeGreaterThan(0);
-    }
-    // A reviewed writer whose only mention of the channel is a comment is refused.
-    const reviewed = { 'w.ts': { channel: 'CHANNELS.tenants', proof: { file: '', test: '' } } };
-    expect(
-      writerViolations(
-        'w.ts',
-        `await tx.tenant.update({ data: { status } }); // publishes on CHANNELS.tenants`,
-        reviewed,
+  it("[CI10] the owner's bypasses of e89e48b are all refused", () => {
+    expect(check('alias').join('\n')).toMatch(/delegate is used other than/);
+    expect(check('computed').join('\n')).toMatch(/computed access on a Prisma client/);
+    expect(check('sqlQualified').join('\n')).toMatch(/writes tenant \(raw SQL/);
+    // In the products file, bound to tenant_product + products: its tenant-status write has no binding.
+    const products = {
+      [rel('productsFileTenantWrite')]: [
+        {
+          writer: 'ProductService.setEnabled',
+          table: 'tenant_product',
+          channel: 'products',
+          publisher: 'ProductService.setEnabled',
+          proof: { file: '', test: '' },
+        },
+      ],
+    } as Bindings;
+    expect(check('productsFileTenantWrite', products)).toEqual([
+      expect.stringMatching(
+        /ProductService\.setEnabled writes tenant \(update\(\)\) with no binding for that writer and table/,
       ),
-    ).toHaveLength(1);
-    expect(
-      writerViolations(
-        'w.ts',
-        `await tx.tenant.update({ data: { status } }); /* bus.publish(CHANNELS.tenants, id) */`,
-        reviewed,
-      ),
-    ).toHaveLength(1);
-    // A reviewed writer that only MENTIONS the channel in code, with no publish call on it, is refused.
-    expect(
-      writerViolations(
-        'w.ts',
-        `await tx.tenant.update({ data: { status } }); const c = CHANNELS.tenants; void c;`,
-        reviewed,
-      ),
-    ).toHaveLength(1);
-    // …and accepted once it really publishes.
-    expect(
-      writerViolations(
-        'w.ts',
-        `await tx.tenant.update({ data: { status } }); await this.bus.publish(CHANNELS.tenants, id);`,
-        reviewed,
-      ),
-    ).toEqual([]);
-    // A reviewed entry for a file that no longer writes is stale.
-    expect(writerViolations('w.ts', `const x = 1;`, reviewed)).toEqual([
-      'w.ts: listed as a reviewed writer but writes no guarded table (stale entry)',
     ]);
-    // Reads are not writes.
+    // A quoted string shaped like a publish call is not a publish call.
+    expect(check('stringPublish', { [rel('stringPublish')]: [W_BINDING] })).toEqual([
+      expect.stringMatching(/W\.go makes no publish\(CHANNELS\.tenants/),
+    ]);
+  });
+
+  it('[CI10] the positive control: a bound writer that really publishes on its channel passes; the wrong channel does not', () => {
+    expect(check('realPublish', { [rel('realPublish')]: [W_BINDING] })).toEqual([]);
     expect(
-      writerViolations('r.ts', `await p.tenant.findMany({ where: { status: 'ACTIVE' } });`, none),
-    ).toEqual([]);
+      check('realPublish', { [rel('realPublish')]: [{ ...W_BINDING, channel: 'products' }] }),
+    ).toEqual([expect.stringMatching(/no publish\(CHANNELS\.products/)]);
+    expect(check('realPublish')).toEqual([
+      expect.stringMatching(/W\.go writes tenant \(update\(\)\) with no binding/),
+    ]);
+  });
+
+  it('[CI10] a helper writer reached from any path other than its bound, publishing caller is refused', () => {
+    const b = {
+      writer: 'S.undo',
+      table: 'tenant_product',
+      channel: 'products',
+      publisher: 'S.invalidate',
+      calledOnlyFrom: 'S.setEnabled',
+      proof: { file: '', test: '' },
+    } as const;
+    expect(check('helperLeak', { [rel('helperLeak')]: [b] })).toEqual([
+      expect.stringMatching(
+        /S\.undo must be called only from S\.setEnabled \(called from: .*S\.other/,
+      ),
+    ]);
+  });
+
+  it('[CI10] earlier forms and tenant_domain are refused; reads are not writes', () => {
+    expect(check('upsert').join('\n')).toMatch(/writes tenant_product \(upsert\(\)\)/);
+    expect(check('destructure').join('\n')).toMatch(/destructuring a Prisma client/);
+    expect(check('rawUnsafeVariable').join('\n')).toMatch(/SQL that isn't a literal/);
+    expect(check('nested').join('\n')).toMatch(/writes tenant \(nested update via tenant\)/);
+    expect(check('domain').join('\n')).toMatch(/writes tenant_domain \(create\(\)\)/);
+    expect(check('reads')).toEqual([]);
   });
 });
 
-describe('[CI9] one path to full-tenant destruction', () => {
-  it('[CI9][CI11] only shared/crypto/key-forget.ts imports destroyTenantKeys', () => {
-    const importers = productionFiles()
-      .filter((f) => /\bdestroyTenantKeys\b/.test(stripComments(readFileSync(f, 'utf8'))))
-      .map((f) => relative(SRC, f).replace(/\\/g, '/'));
-    expect(importers).toEqual(['shared/crypto/key-forget.ts']);
+describe('[CI9] one path to full-tenant destruction', { timeout: 60_000 }, () => {
+  it('[CI9][CI11] only shared/crypto/key-forget.ts uses destroyTenantKeys', () => {
+    const users = productionFiles(program)
+      .filter((sf) => /\bdestroyTenantKeys\b/.test(sf.text))
+      .map((sf) => relative(SRC, sf.fileName).replace(/\\/g, '/'));
+    expect(users).toEqual(['shared/crypto/key-forget.ts']);
   });
 });
