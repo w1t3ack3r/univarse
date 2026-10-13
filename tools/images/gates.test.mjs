@@ -122,3 +122,25 @@ test('[CS13] the release runs every scan and the CS6 checks through gates.mjs, n
   );
   assert.doesNotMatch(canary, /'--scanners'/);
 });
+
+test('[CS9] if the old DB can not be removed, nothing is downloaded and the release scans nothing', () => {
+  const { sh, calls } = fake([1, 0, 0]); // cleanup fails; a download WOULD succeed
+  const r = makeGates({ work: '/w', sh }).freshDb();
+  assert.equal(r.ok, false);
+  assert.equal(r.attempts, 0);
+  assert.match(r.why, /could not remove the old vulnerability database/);
+  assert.equal(calls.length, 1, 'only the cleanup ran: no download');
+  assert.deepEqual(trivyArgs(calls[0]), ['clean', '--vuln-db']);
+  // The release stops on any freshDb failure, before its first scan.
+  const src = readFileSync(new URL('./release.mjs', import.meta.url), 'utf8');
+  const stop = src.indexOf('if (!db0.ok) throw new Error(');
+  for (const scan of [
+    'gates.vulnerabilityReport(',
+    'gates.vulnerability(',
+    'gates.secret(',
+    'gates.misconfiguration(',
+    'gates.sbom(',
+  ]) {
+    assert.ok(stop > 0 && stop < src.indexOf(scan), `the release throws before ${scan}`);
+  }
+});

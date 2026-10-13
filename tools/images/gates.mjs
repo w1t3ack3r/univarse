@@ -75,7 +75,17 @@ export function makeGates({ work, sh = realSh, cache = TRIVY_CACHE, network } = 
       result(sh('node', ['tools/images/inspect.mjs', image, '--root', root], { allowFail: true })),
     /** CS7/CS9: a clean vulnerability DB, then a fresh download with retries across mirrors; fail closed. */
     freshDb({ attempts = 3, repos = DB_REPOS } = {}) {
-      trivy(['clean', '--vuln-db']);
+      // The old DB must really be gone: if it can't be removed, a "fresh" download could leave stale data in use.
+      const clean = trivy(['clean', '--vuln-db']);
+      if (!clean.ok) {
+        return {
+          ok: false,
+          status: clean.status,
+          output: clean.output,
+          attempts: 0,
+          why: 'could not remove the old vulnerability database',
+        };
+      }
       const tries = [];
       for (let attempt = 1; attempt <= attempts; attempt++) {
         const r = trivy(['image', '--download-db-only', '--db-repository', repos]);
@@ -87,6 +97,7 @@ export function makeGates({ work, sh = realSh, cache = TRIVY_CACHE, network } = 
         status: tries.at(-1).status,
         output: tries.map((t) => t.output).join('\n'),
         attempts,
+        why: `could not download a fresh vulnerability database after ${attempts} attempts`,
       };
     },
     /** CS7: every HIGH/CRITICAL blocks, fixed or not (no ignore-unfixed); exceptions only via .trivyignore.yaml. */

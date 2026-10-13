@@ -267,6 +267,7 @@ The owner removed 14 accumulated rehearsal tags and trimmed the build cache (16.
 | Permissions | no workflow-level `permissions` (the token default may be write); `read-all`/`write-all`; **any** `write`, with `packages`, `id-token` and `attestations` named as publish/sign/attest; unknown levels |
 | Credentials | in a PR-reachable workflow: any `secrets.*` other than `GITHUB_TOKEN`; `secrets: inherit`; calls to reusable workflows (whose permissions can't be checked here) |
 | Publishing | in a PR-reachable workflow: `docker login`/`push`, `buildx build --push`, `cosign sign`/`attest`/`copy`, `crane`/`oras`/`skopeo` push or copy |
+| Shell (owner review of #62) | every `run` step's effective shell (step, else job, else workflow `defaults.run.shell`) must be exactly `bash`. Without it GitHub runs `bash -e {0}` on Linux, with no `pipefail`, so `failing-command \| tee …` would pass. `sh` and the default are both rejected. |
 | Supply chain (beyond the spec) | an action not pinned to a full commit SHA (or an image digest); `actions/checkout` without `persist-credentials: false` |
 
 **Proof (`tools/ci-policy/workflow-policy.test.mjs`, 7 tests):**
@@ -422,7 +423,7 @@ The owner removed 14 accumulated rehearsal tags and trimmed the build cache (16.
 - **At verification:** a different key, an unsigned digest and a role swap, in every release, each rejected for its intended reason (LR6, LR9; LR10 record).
 - **Workflow policy:** the fixtures (CS12, in CI).
 
-**Gate-flag tests:** `tools/images/gates.test.mjs`, 6 tests, which stop a later edit weakening a gate. They check:
+**Gate-flag tests:** `tools/images/gates.test.mjs`, 7 tests, which stop a later edit weakening a gate. They check:
 - the vulnerability gate keeps `--severity HIGH,CRITICAL --exit-code 1`, with no `ignore-unfixed`;
 - the secret gate keeps image-config scanning and its config, and its report scans exactly what it gates;
 - the misconfiguration gates keep HIGH/CRITICAL;
@@ -433,6 +434,13 @@ The owner removed 14 accumulated rehearsal tags and trimmed the build cache (16.
 **Mutation checks:**
 - **Flags:** six gate weakenings, each caught by its intended test: no `--exit-code`, `--ignore-unfixed` added, no image-config secret scanning, no DB clean, a DB failure ignored, severity dropped from the misconfiguration gate.
 - **End to end:** with the real vulnerability gate broken (no `--exit-code 1`), the harness itself reports the vulnerability proofs **NOT PROVED** and exits non-zero.
+
+**Owner review of `e7a96e8`: two failure paths fixed.**
+1. **The DB cleanup result was discarded.** `freshDb()` ignored a failed `trivy clean --vuln-db`, so a mocked failed cleanup followed by a successful download returned `ok: true`. It now stops with "could not remove the old vulnerability database": no download runs, and the release throws before any scan. A regression test pins this; the mutation that ignores the cleanup result again is caught.
+2. **CI could hide a failed proof run.** Steps piping into `tee` ran under GitHub's default `bash -e`, without `pipefail`. That also masked **the exceptions-and-policy check** (`node tools/images/exceptions.mjs | tee …`); the workflow-policy CLI was partly covered by its own test running first.
+   - **The fix:** both workflows now set `defaults.run.shell: bash` (`-eo pipefail`), and the CS12 policy rejects any `run` step whose effective shell isn't `bash`.
+   - **The behavioural test:** it runs the real `ci.yml` lines for the gate proofs and the exceptions check, the way GitHub would, with the command made to fail. Configured as committed, both steps fail. Under `bash -e` they would pass, which shows the test can tell the difference.
+   - **Mutations caught:** removing the workflow default; removing the policy rule; a `bash` template without `pipefail`.
 
 **Harness faults found while building it:**
 - **The shell proof's expected pattern** looked for `shell present: /bin/sh` and was satisfied by the execution check alone. The listing check had in fact caught the shell at `/usr/bin/sh`, because the base's `/bin` is a symlink. The proof now requires both detections. This was a proof fault, not a gate gap.

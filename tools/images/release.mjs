@@ -116,7 +116,7 @@ async function main() {
   // Fresh vulnerability data for every release; a broken download is retried across Trivy's official mirrors, and if
   // every attempt fails the release fails: it never scans without fresh data (CS9).
   const db0 = gates.freshDb();
-  if (!db0.ok) throw new Error(`could not download a fresh vulnerability database after ${db0.attempts} attempts; nothing was scanned or published (CS9)`);
+  if (!db0.ok) throw new Error(`${db0.why}; nothing was scanned or published (CS9)`);
   const ver = sh('docker', ['run', '--rm', '-v', `${TRIVY_CACHE}:/root/.cache/trivy`, TRIVY_IMAGE, 'version', '--format', 'json']);
   const db = JSON.parse(ver.stdout).VulnerabilityDB ?? {};
   record.gates.trivy = { version: JSON.parse(ver.stdout).Version, dbUpdatedAt: db.UpdatedAt, dbDownloadedAt: db.DownloadedAt };

@@ -115,6 +115,12 @@ export function workflowProblems(wf, name = 'workflow') {
         }
       }
       if (typeof step?.run === 'string') {
+        const shell = effectiveShell(wf, job, step);
+        if (shell !== 'bash') {
+          say(
+            `${label} runs under ${shell === undefined ? "GitHub's default shell (bash -e, no pipefail)" : `shell ${JSON.stringify(shell)}`}: a failure before a pipe is masked; set defaults.run.shell: bash`,
+          );
+        }
         if (prReachable) {
           for (const [re, what] of PUBLISH_COMMANDS)
             if (re.test(step.run)) say(`${label} runs ${what} in a PR-reachable workflow`);
@@ -129,6 +135,25 @@ export function workflowProblems(wf, name = 'workflow') {
   function say1(list) {
     for (const p of list) say(p);
   }
+}
+
+/**
+ * The shell a `run` step gets: the step's own `shell`, else the job's, else the workflow's `defaults.run.shell`.
+ * Undefined means GitHub's default, which on Linux is `bash -e {0}`: no pipefail.
+ */
+export function effectiveShell(wf, job, step) {
+  return step?.shell ?? job?.defaults?.run?.shell ?? wf?.defaults?.run?.shell;
+}
+
+/**
+ * The command line GitHub runs a step's script with, for a shell setting (GitHub docs, workflow syntax:
+ * `jobs.<job_id>.steps[*].shell`). Only an explicit `bash` gets `-o pipefail`.
+ */
+export function shellCommand(shell) {
+  if (shell === undefined) return ['bash', '-e'];
+  if (shell === 'bash') return ['bash', '--noprofile', '--norc', '-eo', 'pipefail'];
+  if (shell === 'sh') return ['sh', '-e'];
+  throw new Error(`no GitHub template for shell ${JSON.stringify(shell)}`);
 }
 
 /** Problems with one `permissions` value: only explicit read access is allowed, never write. */

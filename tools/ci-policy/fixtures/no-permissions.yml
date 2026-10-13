@@ -2,6 +2,9 @@
 # Expected rejection: no workflow-level permissions (token default may be write)
 name: fixture
 on: pull_request
+defaults:
+  run:
+    shell: bash
 jobs:
   build:
     runs-on: ubuntu-24.04

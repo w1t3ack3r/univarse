@@ -116,8 +116,7 @@ async function main() {
 
   // ── Fresh vulnerability data, as a release does (CS9): without it nothing is proved.
   const db = gates.freshDb();
-  if (!db.ok)
-    throw new Error('could not download a fresh vulnerability database; no proof can be made');
+  if (!db.ok) throw new Error(`${db.why}; no proof can be made`);
 
   // ── Build the control and the mutants (harmless: a one-line script and two bare package.json files).
   const ctx = join(WORK, 'ctx');
