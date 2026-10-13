@@ -2,7 +2,7 @@
 
 **Status:** **Closed (2026-10-13)** for its implemented scope: CS1–CS9, CS12, CS13, LR1–LR8, LR10 and LR9's verifier are met (see the CS16 record). LR9's deploy integration ("nothing from a rejected record runs") is **transferred** to the local-deploy work as a blocking acceptance criterion: the deploy holds the registry lock throughout verification and startup, and verifies before starting any container.
 
-Accepted (2026-10-11), owner review of revision 3 (`ee3590f`). D1–D6 decided, with the conditions written into the criteria; the registry, signing and findings decisions are recorded as ADR-029. **Pending until it passes in CI:** verification of the base image's upstream signature (CS3). Implementation starts with the image-build slice.
+Accepted (2026-10-11), owner review of revision 3 (`ee3590f`). D1–D6 decided, with the conditions written into the criteria; the registry, signing and findings decisions are recorded as ADR-029. At acceptance, CS3 (verification of the base image's upstream signature) was pending until it passed in CI; it has passed since #49. Implementation starts with the image-build slice.
 
 **Amended 2026-10-12 by [ADR-030](../19-decision-log.md) (fully local):**
 - **Registry and signing:** CS10/CS11 publish to a **local registry** (`127.0.0.1` only) and sign with a **local cosign key** (private key encrypted, outside the repository; public key committed). Verification is pinned to that key, and the attestations are signed with it.
