@@ -60,14 +60,8 @@ beforeAll(async () => {
   const registry = ctx.get(ShardRegistry);
   const tx = registry.tx.bind(registry);
   const ft = registry.forTenant.bind(registry);
-  registry.tx = ((s: string, t: string, fn: never, o?: never) => (
-    calls.push(t),
-    tx(s, t, fn, o)
-  ));
-  registry.forTenant = ((s: string, t: string) => (
-    calls.push(t),
-    ft(s, t)
-  ));
+  registry.tx = (s: string, t: string, fn: never, o?: never) => (calls.push(t), tx(s, t, fn, o));
+  registry.forTenant = (s: string, t: string) => (calls.push(t), ft(s, t));
 });
 
 afterAll(async () => {
@@ -196,7 +190,7 @@ async function sweepUntilDone(tenantId: string): Promise<string[]> {
 }
 
 describe('[JI5] the key sweep claims and processes only the requested tenant', () => {
-  it('[JI5] with both keys rotated but only A requested, A moves entirely and B is byte-for-byte unchanged', async () => {
+  it('[JI5][JI8] with both keys rotated but only A requested, A moves entirely and B is byte-for-byte unchanged', async () => {
     const a = await scratch('a');
     const b = await scratch('b');
     expect(await rotateTenantKey(platform, provider, a.id, null)).toEqual({ from: 1, to: 2 });
@@ -223,7 +217,7 @@ describe('[JI5] the key sweep claims and processes only the requested tenant', (
 });
 
 describe('[JI6] one request, one tenant', () => {
-  it('[JI6] with both pending, each pass does exactly its own request’s work, and everything still decrypts', async () => {
+  it('[JI6][JI8] with both pending, each pass does exactly its own request’s work, and everything still decrypts', async () => {
     const a = await scratch('c', 2);
     const b = await scratch('d', 2);
     await rotateTenantKey(platform, provider, a.id, null);
@@ -260,40 +254,52 @@ describe('[JI6] one request, one tenant', () => {
 });
 
 describe('[JI7] RLS is the backstop for the sweep’s column operations', () => {
-  it("[JI7] under A's context, every column's lockStale and swap for B's id reach nothing of B's", async () => {
+  it("[JI7][JI8] for every registered column: under A's context lockStale and swap with B's id reach none of B's rows; under B's context they reach its fixture", async () => {
     const a = await scratch('e', 1);
     const b = await scratch('f', 1);
     const bBefore = await stored(b);
-    const bIds = new Set(b.values.map((v) => v.id));
+    const NIL = '00000000-0000-0000-0000-000000000000';
     for (const col of ENCRYPTED_COLUMNS) {
-      const bRow = b.values.find((v) => v.table === col.table);
-      const seen = await withTenantTx(shard, a.id, async (tx) => {
-        // A wrong tenant argument (B's id) inside A's context: RLS still hides every one of B's rows.
-        const locked = await col.lockStale(
-          tx,
-          b.id,
-          'v9:none:%',
-          '00000000-0000-0000-0000-000000000000',
-          100,
-        );
-        const swapped = bRow
-          ? await col.swap(tx, b.id, bRow.id, bBefore[b.values.indexOf(bRow)]!, 'v2:999:tampered')
-          : 0;
-        return { bRowsLocked: locked.filter((r) => bIds.has(r.id)).length, swapped };
+      // Every registered table.column needs a fixture in B; a missing one fails here (never a silent zero).
+      const i = b.values.findIndex((v) => v.table === col.table);
+      expect(
+        i,
+        `a fixture for ${col.table}.${col.column} in the scratch tenant`,
+      ).toBeGreaterThanOrEqual(0);
+      const fixture = b.values[i]!;
+      const old = bBefore[i]!;
+
+      // The mutant call: B's id inside A's database context. RLS hides every one of B's rows.
+      const asA = await withTenantTx(shard, a.id, async (tx) => {
+        const locked = await col.lockStale(tx, b.id, 'v9:none:%', NIL, 100);
+        const swapped = await col.swap(tx, b.id, fixture.id, old, 'v2:999:tampered');
+        return {
+          bRowsLocked: locked.filter((r) => r.id === fixture.id || bBefore.includes(r.value))
+            .length,
+          swapped,
+        };
       });
-      expect(seen, `${col.table}.${col.column}`).toEqual({ bRowsLocked: 0, swapped: 0 });
+      expect(asA, `${col.table}.${col.column} under A's context`).toEqual({
+        bRowsLocked: 0,
+        swapped: 0,
+      });
+
+      // The control: the same operations in B's own context reach B's fixture. swap(old, old) changes one row and
+      // leaves the ciphertext as it was.
+      const asB = await withTenantTx(shard, b.id, async (tx) => {
+        const locked = await col.lockStale(tx, b.id, 'v9:none:%', NIL, 100);
+        const swapped = await col.swap(tx, b.id, fixture.id, old, old);
+        return {
+          fixtureLocked: locked.some((r) => r.id === fixture.id && r.value === old),
+          swapped,
+        };
+      });
+      expect(asB, `${col.table}.${col.column} under B's own context`).toEqual({
+        fixtureLocked: true,
+        swapped: 1,
+      });
     }
     expect(await stored(b), "B's values unchanged").toEqual(bBefore);
-    // The control: under B's own context the same calls do reach B's rows (so the zeros above mean something).
-    const own = await withTenantTx(shard, b.id, (tx) =>
-      ENCRYPTED_COLUMNS[0]!.lockStale(
-        tx,
-        b.id,
-        'v9:none:%',
-        '00000000-0000-0000-0000-000000000000',
-        100,
-      ),
-    );
-    expect(own.filter((r) => bIds.has(r.id)).length).toBeGreaterThan(0);
+    await expectReadable(b);
   });
 });

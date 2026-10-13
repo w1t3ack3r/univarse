@@ -19,7 +19,7 @@ import {
   type Harness,
   type InjectResult,
 } from '../../testing/int-harness.js';
-import { FileScanWorker, LEASE_MS, SCAN_BATCH } from './file-scan.worker.js';
+import { claimDue, FileScanWorker, SCAN_BATCH } from './file-scan.worker.js';
 import { FileStorage } from './file-storage.js';
 import { quarantineKey } from './files.service.js';
 
@@ -117,14 +117,11 @@ beforeAll(async () => {
   const registry = h.workerCtx.get(ShardRegistry);
   const tx = registry.tx.bind(registry);
   const ft = registry.forTenant.bind(registry);
-  registry.tx = ((s: string, t: string, fn: never, o?: never) => (
+  registry.tx = (s: string, t: string, fn: never, o?: never) => (
     contextCalls.push(t),
     tx(s, t, fn, o)
-  ));
-  registry.forTenant = ((s: string, t: string) => (
-    contextCalls.push(t),
-    ft(s, t)
-  ));
+  );
+  registry.forTenant = (s: string, t: string) => (contextCalls.push(t), ft(s, t));
   for (const op of ['put', 'remove', 'listKeys', 'readBounded'] as const) {
     const original = (storage[op] as (...a: unknown[]) => unknown).bind(storage);
     (storage as unknown as Record<string, unknown>)[op] = (
@@ -148,7 +145,7 @@ afterAll(async () => {
 beforeEach(reset);
 
 describe('[JI1][JI2] the file scan claims and processes only the tenant of the pass', () => {
-  it("[JI1] a pass for demo finishes only demo's upload; poly's waits untouched, then a poly pass finishes it", async () => {
+  it("[JI1][JI8] a pass for demo finishes only demo's upload; poly's waits untouched, then a poly pass finishes it", async () => {
     const mine = await uploaded('demo');
     const theirs = await uploaded('poly');
     const theirsBefore = await row('poly', theirs);
@@ -177,7 +174,7 @@ describe('[JI1][JI2] the file scan claims and processes only the tenant of the p
     expect((await row('poly', theirs)).state).toBe('CLEAN');
   });
 
-  it('[JI2] each result is attributed to its own tenant: audit rows, clean objects and log context', async () => {
+  it('[JI2][JI8] each result is attributed to its own tenant: audit rows, clean objects, and the log context during its storage calls', async () => {
     const files = { demo: await uploaded('demo'), poly: await uploaded('poly') };
     for (const t of ['demo', 'poly'] as const) {
       reset();
@@ -218,7 +215,7 @@ describe('[JI1][JI2] the file scan claims and processes only the tenant of the p
 });
 
 describe('[JI2] the production pass (runOnce) attributes every object it touches to that object’s tenant', () => {
-  it('[JI2] across both tenants, each storage operation runs under the log context of the tenant whose prefix it touches', async () => {
+  it('[JI2][JI8] across both tenants, each storage operation runs under the log context of the tenant whose prefix it touches', async () => {
     await uploaded('demo');
     await uploaded('poly');
     const orphan = quarantineKey(ref.poly.id, randomUUID()); // so the cleanup half touches storage too
@@ -244,7 +241,7 @@ describe('[JI2] the production pass (runOnce) attributes every object it touches
 });
 
 describe('[JI3] cleanup stays in its tenant', () => {
-  it("[JI3] demo's cleanup never removes poly's orphan or dead objects; poly's own cleanup does", async () => {
+  it("[JI3][JI8] demo's cleanup never removes poly's orphan or dead objects; poly's own cleanup does", async () => {
     // Poly: an orphan quarantine object (no record), and a dead file whose quarantine object remains.
     const orphanKey = quarantineKey(ref.poly.id, randomUUID());
     await storage.put(storage.quarantine, orphanKey, pdf(), 'application/pdf');
@@ -274,44 +271,32 @@ describe('[JI3] cleanup stays in its tenant', () => {
 });
 
 describe('[JI4] RLS is the backstop for the claim', () => {
-  it("[JI4] under demo's context poly's files are invisible, and the claim with poly's id in its filter claims nothing", async () => {
+  it("[JI4][JI8] under demo's context poly's files are invisible, and the production claim with poly's id claims nothing; under poly's context it claims", async () => {
     const theirs = await uploaded('poly');
     const token = randomUUID();
+    // The mutant: the worker's own claim (claimDue), with the OTHER tenant's id, under demo's database context.
     const seen = await withTenantTx(h.shard, ref.demo.id, async (tx) => {
       const visible = await tx.$queryRaw<
         { n: bigint }[]
       >`SELECT count(*) AS n FROM file_object WHERE tenant_id = ${ref.poly.id}::uuid`;
-      // The worker's claim statement, verbatim, with the OTHER tenant's id in its tenant filter.
-      const claimed = await tx.$queryRaw<{ id: string }[]>`
-        UPDATE file_object SET state = 'SCANNING', lease_token = ${token}::uuid,
-          lease_until = now() + (${LEASE_MS} * interval '1 millisecond'), scan_attempts = scan_attempts + 1, updated_at = now()
-        WHERE id IN (
-          SELECT id FROM file_object
-          WHERE tenant_id = ${ref.poly.id}::uuid
-            AND ((state = 'UPLOADED' AND (next_scan_at IS NULL OR next_scan_at <= now()))
-              OR (state = 'SCANNING' AND lease_until < now()))
-          ORDER BY next_scan_at NULLS FIRST, id
-          LIMIT ${SCAN_BATCH} FOR UPDATE SKIP LOCKED)
-        RETURNING id::text`;
+      const claimed = await claimDue(tx, ref.poly.id, token);
       return { visible: Number(visible[0]!.n), claimed: claimed.length };
     });
     expect(seen).toEqual({ visible: 0, claimed: 0 });
     expect((await row('poly', theirs)).state).toBe('UPLOADED');
-    // The control: the same statement under poly's own context does claim it (so the zero means something).
-    const own = await withTenantTx(
-      h.shard,
-      ref.poly.id,
-      (tx) =>
-        tx.$queryRaw<{ id: string }[]>`
-        UPDATE file_object SET state = 'SCANNING', lease_token = ${token}::uuid, lease_until = now() + interval '1 minute', updated_at = now()
-        WHERE tenant_id = ${ref.poly.id}::uuid AND id = ${theirs}::uuid AND state = 'UPLOADED' RETURNING id::text`,
-    );
-    expect(own.map((r) => r.id)).toEqual([theirs]);
-    // Leave it scannable for later passes.
-    await forTenant(h.shard, ref.poly.id).fileObject.update({
-      where: { id: theirs },
+
+    // The control: the SAME production claim under poly's own context claims poly's file.
+    const own = await withTenantTx(h.shard, ref.poly.id, (tx) => claimDue(tx, ref.poly.id, token));
+    expect(own.map((r) => r.id)).toContain(theirs);
+    expect(own.every((r) => r.lease_token === token)).toBe(true);
+    expect((await row('poly', theirs)).state).toBe('SCANNING');
+
+    // Leave everything it claimed scannable again, then let poly's worker finish it.
+    await forTenant(h.shard, ref.poly.id).fileObject.updateMany({
+      where: { id: { in: own.map((r) => r.id) }, leaseToken: token },
       data: { state: 'UPLOADED', leaseToken: null, leaseUntil: null },
     });
     await drain('poly');
+    expect((await row('poly', theirs)).state).toBe('CLEAN');
   });
 });

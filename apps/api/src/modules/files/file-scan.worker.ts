@@ -28,7 +28,7 @@ export const MAX_ATTEMPTS = BACKOFF_MS.length + 1;
 const ABANDON_GRACE_MS = 60_000;
 const SERVABLE = ['ACTIVE', 'ONBOARDING'] as const;
 
-interface Claimed {
+export interface Claimed {
   id: string;
   quarantine_key: string | null;
   mime: string;
@@ -43,6 +43,24 @@ export type ScanOutcome = 'clean' | 'infected' | 'rejected' | 'retry' | 'failed'
 interface TenantRef {
   readonly id: string;
   readonly shardId: string;
+}
+
+/**
+ * The claim: up to SCAN_BATCH due files of `tenantId` (uploaded and due, or a lapsed lease), leased to `token`,
+ * SKIP LOCKED. Exported so the layer-4 isolation test (spec 0014 JI4) runs exactly this statement.
+ */
+export function claimDue(tx: TenantTx, tenantId: string, token: string): Promise<Claimed[]> {
+  return tx.$queryRaw<Claimed[]>`
+    UPDATE file_object SET state = 'SCANNING', lease_token = ${token}::uuid,
+      lease_until = now() + (${LEASE_MS} * interval '1 millisecond'), scan_attempts = scan_attempts + 1, updated_at = now()
+    WHERE id IN (
+      SELECT id FROM file_object
+      WHERE tenant_id = ${tenantId}::uuid
+        AND ((state = 'UPLOADED' AND (next_scan_at IS NULL OR next_scan_at <= now()))
+          OR (state = 'SCANNING' AND lease_until < now()))
+      ORDER BY next_scan_at NULLS FIRST, id
+      LIMIT ${SCAN_BATCH} FOR UPDATE SKIP LOCKED)
+    RETURNING id::text, quarantine_key, mime, size_bytes, scan_attempts, lease_token::text, traceparent`;
 }
 
 @Injectable()
@@ -67,14 +85,27 @@ export class FileScanWorker {
   async runOnce(): Promise<Record<ScanOutcome, number>> {
     return withSpan('files.scan.pass', {}, context.active(), async (span) => {
       const total = await this.runPass();
-      span.setAttribute('univarse.claimed', Object.values(total).reduce((a, b) => a + b, 0));
+      span.setAttribute(
+        'univarse.claimed',
+        Object.values(total).reduce((a, b) => a + b, 0),
+      );
       return total;
     });
   }
 
   private async runPass(): Promise<Record<ScanOutcome, number>> {
-    const total: Record<ScanOutcome, number> = { clean: 0, infected: 0, rejected: 0, retry: 0, failed: 0, lost: 0 };
-    const tenants = await this.platform.tenant.findMany({ where: { status: { in: [...SERVABLE] } }, select: { id: true, shardId: true } });
+    const total: Record<ScanOutcome, number> = {
+      clean: 0,
+      infected: 0,
+      rejected: 0,
+      retry: 0,
+      failed: 0,
+      lost: 0,
+    };
+    const tenants = await this.platform.tenant.findMany({
+      where: { status: { in: [...SERVABLE] } },
+      select: { id: true, shardId: true },
+    });
     for (const t of tenants) {
       try {
         // Spec 0012 OB2: lines from anything this tenant's pass calls carry its tenantId.
@@ -84,7 +115,10 @@ export class FileScanWorker {
           for (const o of await this.scanTenant(t)) total[o]++;
         });
       } catch (err) {
-        this.logger.error({ event: 'files.scan.tenant_failed', tenantId: t.id, error: (err as Error).name }, 'File scan pass failed for tenant');
+        this.logger.error(
+          { event: 'files.scan.tenant_failed', tenantId: t.id, error: (err as Error).name },
+          'File scan pass failed for tenant',
+        );
       }
     }
     return total;
@@ -93,19 +127,7 @@ export class FileScanWorker {
   /** Claims due files (lease + SKIP LOCKED), scans each, writes each result conditionally. */
   async scanTenant(t: TenantRef): Promise<ScanOutcome[]> {
     const token = randomUUID();
-    const claimed = await this.shards.tx(t.shardId, t.id, (tx) =>
-      tx.$queryRaw<Claimed[]>`
-        UPDATE file_object SET state = 'SCANNING', lease_token = ${token}::uuid,
-          lease_until = now() + (${LEASE_MS} * interval '1 millisecond'), scan_attempts = scan_attempts + 1, updated_at = now()
-        WHERE id IN (
-          SELECT id FROM file_object
-          WHERE tenant_id = ${t.id}::uuid
-            AND ((state = 'UPLOADED' AND (next_scan_at IS NULL OR next_scan_at <= now()))
-              OR (state = 'SCANNING' AND lease_until < now()))
-          ORDER BY next_scan_at NULLS FIRST, id
-          LIMIT ${SCAN_BATCH} FOR UPDATE SKIP LOCKED)
-        RETURNING id::text, quarantine_key, mime, size_bytes, scan_attempts, lease_token::text, traceparent`,
-    );
+    const claimed = await this.shards.tx(t.shardId, t.id, (tx) => claimDue(tx, t.id, token));
     const outcomes: ScanOutcome[] = [];
     for (const f of claimed) outcomes.push(await this.scanTraced(t, f));
     return outcomes;
@@ -118,26 +140,38 @@ export class FileScanWorker {
   private scanTraced(t: TenantRef, f: Claimed): Promise<ScanOutcome> {
     const stored = storedContext(f.traceparent);
     if (stored.kind === 'malformed' && this.malformed.first(f.id)) {
-      this.logger.warn({ event: 'files.scan.traceparent_malformed', tenantId: t.id, fileId: f.id }, 'Stored trace context is malformed; scanning under a new trace');
+      this.logger.warn(
+        { event: 'files.scan.traceparent_malformed', tenantId: t.id, fileId: f.id },
+        'Stored trace context is malformed; scanning under a new trace',
+      );
     }
-    return withSpan('files.scan', { root: true, links: linkTo(stored), attributes: { 'univarse.file.id': f.id } }, ROOT_CONTEXT, (span) =>
-      withLogContext({ tenantId: t.id }, async () => {
-        const outcome = await this.scanOne(t, f);
-        span.setAttribute('univarse.scan.outcome', outcome);
-        return outcome;
-      }),
+    return withSpan(
+      'files.scan',
+      { root: true, links: linkTo(stored), attributes: { 'univarse.file.id': f.id } },
+      ROOT_CONTEXT,
+      (span) =>
+        withLogContext({ tenantId: t.id }, async () => {
+          const outcome = await this.scanOne(t, f);
+          span.setAttribute('univarse.scan.outcome', outcome);
+          return outcome;
+        }),
     );
   }
 
   private async scanOne(t: TenantRef, f: Claimed): Promise<ScanOutcome> {
     const qKey = f.quarantine_key;
     if (!qKey) return this.finishRejected(t, f, 'upload_missing');
-    const read = await this.storage.readBounded(this.storage.quarantine, qKey, Number(f.size_bytes));
+    const read = await this.storage.readBounded(
+      this.storage.quarantine,
+      qKey,
+      Number(f.size_bytes),
+    );
     if (read.kind === 'missing') return this.finishRejected(t, f, 'upload_missing');
     if (read.kind === 'too_large') return this.finishRejected(t, f, 'too_large');
     const bytes = read.bytes;
     const { detected, problem } = contentProblem(bytes, f.mime);
-    if (problem || !detected) return this.finishRejected(t, f, problem ?? 'type_not_allowed', detected);
+    if (problem || !detected)
+      return this.finishRejected(t, f, problem ?? 'type_not_allowed', detected);
 
     let verdict;
     try {
@@ -150,9 +184,22 @@ export class FileScanWorker {
 
     if (verdict.verdict === 'infected') {
       // Ordinary ClamAV detection, whatever the signature; the name is recorded as data.
-      const done = await this.finalize(t, f, { state: 'INFECTED', scanSignature: verdict.signature, release: true }, 'files.scan.infected', { signature: verdict.signature });
+      const done = await this.finalize(
+        t,
+        f,
+        { state: 'INFECTED', scanSignature: verdict.signature, release: true },
+        'files.scan.infected',
+        { signature: verdict.signature },
+      );
       if (done) {
-        this.logger.warn(securityFields('files.scan.malware_detected', { tenantId: t.id, fileId: f.id, signature: verdict.signature }), 'Malware detected in an upload');
+        this.logger.warn(
+          securityFields('files.scan.malware_detected', {
+            tenantId: t.id,
+            fileId: f.id,
+            signature: verdict.signature,
+          }),
+          'Malware detected in an upload',
+        );
         await this.storage.remove(this.storage.quarantine, qKey).catch(() => undefined);
       }
       return done ? 'infected' : 'lost';
@@ -163,7 +210,13 @@ export class FileScanWorker {
     const key = cleanKey(t.id, f.id, f.lease_token);
     await this.storage.put(this.storage.clean, key, bytes, detected);
     await this.afterPromotion?.(f.id);
-    const done = await this.finalize(t, f, { state: 'CLEAN', cleanKey: key, sha256: sha, detectedType: detected, release: false }, 'files.scan.clean', {});
+    const done = await this.finalize(
+      t,
+      f,
+      { state: 'CLEAN', cleanKey: key, sha256: sha, detectedType: detected, release: false },
+      'files.scan.clean',
+      {},
+    );
     if (!done) {
       // Lost the race (deleted, or re-claimed after our lease lapsed): undo OUR promotion only. The key
       // is unique to our lease, so another worker's published object is never touched (FU15).
@@ -171,29 +224,64 @@ export class FileScanWorker {
       return 'lost';
     }
     await this.storage.remove(this.storage.quarantine, qKey).catch(() => undefined);
-    await this.shards.tx(t.shardId, t.id, (tx) => tx.fileObject.updateMany({ where: { id: f.id, state: 'CLEAN' }, data: { quarantineKey: null } }));
+    await this.shards.tx(t.shardId, t.id, (tx) =>
+      tx.fileObject.updateMany({
+        where: { id: f.id, state: 'CLEAN' },
+        data: { quarantineKey: null },
+      }),
+    );
     return 'clean';
   }
 
-  private async finishRejected(t: TenantRef, f: Claimed, reason: string, detected: string | null = null): Promise<ScanOutcome> {
-    const done = await this.finalize(t, f, { state: 'REJECTED', rejectionReason: reason, detectedType: detected, release: true }, 'files.scan.rejected', { reason });
-    if (done && f.quarantine_key) await this.storage.remove(this.storage.quarantine, f.quarantine_key).catch(() => undefined);
+  private async finishRejected(
+    t: TenantRef,
+    f: Claimed,
+    reason: string,
+    detected: string | null = null,
+  ): Promise<ScanOutcome> {
+    const done = await this.finalize(
+      t,
+      f,
+      { state: 'REJECTED', rejectionReason: reason, detectedType: detected, release: true },
+      'files.scan.rejected',
+      { reason },
+    );
+    if (done && f.quarantine_key)
+      await this.storage.remove(this.storage.quarantine, f.quarantine_key).catch(() => undefined);
     return done ? 'rejected' : 'lost';
   }
 
   /** FU3: the scanner couldn't decide. Retry with backoff, then SCAN_FAILED. Never clean. */
   private async finishUnscanned(t: TenantRef, f: Claimed, detail: string): Promise<ScanOutcome> {
-    this.logger.warn({ event: 'files.scan.attempt_failed', tenantId: t.id, fileId: f.id, attempt: f.scan_attempts, detail }, 'Scan attempt failed');
+    this.logger.warn(
+      {
+        event: 'files.scan.attempt_failed',
+        tenantId: t.id,
+        fileId: f.id,
+        attempt: f.scan_attempts,
+        detail,
+      },
+      'Scan attempt failed',
+    );
     if (f.scan_attempts < MAX_ATTEMPTS) {
       const wait = BACKOFF_MS[f.scan_attempts - 1] ?? 120_000;
-      const n = await this.shards.tx(t.shardId, t.id, (tx) =>
-        tx.$executeRaw`UPDATE file_object SET state = 'UPLOADED', lease_token = NULL, lease_until = NULL,
+      const n = await this.shards.tx(
+        t.shardId,
+        t.id,
+        (tx) =>
+          tx.$executeRaw`UPDATE file_object SET state = 'UPLOADED', lease_token = NULL, lease_until = NULL,
             next_scan_at = now() + (${wait} * interval '1 millisecond'), updated_at = now()
           WHERE tenant_id = ${t.id}::uuid AND id = ${f.id}::uuid AND state = 'SCANNING' AND lease_token = ${f.lease_token}::uuid`,
       );
       return n === 1 ? 'retry' : 'lost';
     }
-    const done = await this.finalize(t, f, { state: 'SCAN_FAILED', release: true }, 'files.scan.failed', { attempts: f.scan_attempts });
+    const done = await this.finalize(
+      t,
+      f,
+      { state: 'SCAN_FAILED', release: true },
+      'files.scan.failed',
+      { attempts: f.scan_attempts },
+    );
     return done ? 'failed' : 'lost';
   }
 
@@ -204,11 +292,26 @@ export class FileScanWorker {
   private async finalize(
     t: TenantRef,
     f: Claimed,
-    r: { state: 'CLEAN' | 'INFECTED' | 'REJECTED' | 'SCAN_FAILED'; release: boolean; cleanKey?: string; sha256?: Buffer; detectedType?: string | null; scanSignature?: string; rejectionReason?: string },
+    r: {
+      state: 'CLEAN' | 'INFECTED' | 'REJECTED' | 'SCAN_FAILED';
+      release: boolean;
+      cleanKey?: string;
+      sha256?: Buffer;
+      detectedType?: string | null;
+      scanSignature?: string;
+      rejectionReason?: string;
+    },
     action: string,
     detail: Record<string, unknown>,
   ): Promise<boolean> {
-    const scanStatus = r.state === 'CLEAN' ? 'CLEAN' : r.state === 'INFECTED' ? 'INFECTED' : r.state === 'SCAN_FAILED' ? 'ERROR' : 'PENDING';
+    const scanStatus =
+      r.state === 'CLEAN'
+        ? 'CLEAN'
+        : r.state === 'INFECTED'
+          ? 'INFECTED'
+          : r.state === 'SCAN_FAILED'
+            ? 'ERROR'
+            : 'PENDING';
     return this.shards.tx(t.shardId, t.id, async (tx: TenantTx) => {
       const n = await tx.fileObject.updateMany({
         where: { id: f.id, state: 'SCANNING', leaseToken: f.lease_token },
@@ -228,7 +331,14 @@ export class FileScanWorker {
         },
       });
       if (n.count !== 1) return false;
-      await this.audit.write(tx, t.id, { actorType: 'SYSTEM', actorId: null, action, entityType: 'file_object', entityId: f.id, after: { state: r.state, ...detail } });
+      await this.audit.write(tx, t.id, {
+        actorType: 'SYSTEM',
+        actorId: null,
+        action,
+        entityType: 'file_object',
+        entityId: f.id,
+        after: { state: r.state, ...detail },
+      });
       return true;
     });
   }
@@ -247,14 +357,24 @@ export class FileScanWorker {
           AND upload_expires_at < now() - (${ABANDON_GRACE_MS} * interval '1 millisecond')
         RETURNING id::text`;
       for (const r of rows) {
-        await this.audit.write(tx, t.id, { actorType: 'SYSTEM', actorId: null, action: 'files.upload.abandoned', entityType: 'file_object', entityId: r.id, after: { state: 'ABANDONED' } });
+        await this.audit.write(tx, t.id, {
+          actorType: 'SYSTEM',
+          actorId: null,
+          action: 'files.upload.abandoned',
+          entityType: 'file_object',
+          entityId: r.id,
+          after: { state: 'ABANDONED' },
+        });
       }
       return rows.length;
     });
 
     const dead = await this.shards.tx(t.shardId, t.id, (tx) =>
       tx.fileObject.findMany({
-        where: { state: { in: ['DELETED', 'ABANDONED', 'REJECTED', 'INFECTED', 'SCAN_FAILED'] }, OR: [{ quarantineKey: { not: null } }, { cleanKey: { not: null } }] },
+        where: {
+          state: { in: ['DELETED', 'ABANDONED', 'REJECTED', 'INFECTED', 'SCAN_FAILED'] },
+          OR: [{ quarantineKey: { not: null } }, { cleanKey: { not: null } }],
+        },
         select: { id: true, quarantineKey: true, cleanKey: true },
         take: 50,
       }),
@@ -263,15 +383,30 @@ export class FileScanWorker {
       if (d.quarantineKey) await this.storage.remove(this.storage.quarantine, d.quarantineKey);
       if (d.cleanKey) await this.storage.remove(this.storage.clean, d.cleanKey);
       await this.shards.tx(t.shardId, t.id, (tx) =>
-        tx.fileObject.updateMany({ where: { id: d.id, state: { in: ['DELETED', 'ABANDONED', 'REJECTED', 'INFECTED', 'SCAN_FAILED'] } }, data: { quarantineKey: null, cleanKey: null } }),
+        tx.fileObject.updateMany({
+          where: {
+            id: d.id,
+            state: { in: ['DELETED', 'ABANDONED', 'REJECTED', 'INFECTED', 'SCAN_FAILED'] },
+          },
+          data: { quarantineKey: null, cleanKey: null },
+        }),
       );
     }
 
     let orphans = 0;
-    for (const key of await this.storage.listKeys(this.storage.quarantine, `tenants/${t.id}/q/`, 200)) {
+    for (const key of await this.storage.listKeys(
+      this.storage.quarantine,
+      `tenants/${t.id}/q/`,
+      200,
+    )) {
       const id = key.split('/').pop() ?? '';
       const live = await this.shards.tx(t.shardId, t.id, (tx) =>
-        tx.fileObject.count({ where: { id: /^[0-9a-f-]{36}$/i.test(id) ? id : randomUUID(), state: { in: ['PENDING_UPLOAD', 'UPLOADED', 'SCANNING'] } } }),
+        tx.fileObject.count({
+          where: {
+            id: /^[0-9a-f-]{36}$/i.test(id) ? id : randomUUID(),
+            state: { in: ['PENDING_UPLOAD', 'UPLOADED', 'SCANNING'] },
+          },
+        }),
       );
       if (live === 0) {
         await this.storage.remove(this.storage.quarantine, key);
@@ -284,7 +419,12 @@ export class FileScanWorker {
   start(intervalMs: number): void {
     const tick = () => {
       this.running = this.runOnce()
-        .catch((err: unknown) => this.logger.error({ event: 'files.scan.pass_failed', error: (err as Error).name }, 'File scan pass failed'))
+        .catch((err: unknown) =>
+          this.logger.error(
+            { event: 'files.scan.pass_failed', error: (err as Error).name },
+            'File scan pass failed',
+          ),
+        )
         .finally(() => {
           if (this.timer !== null) this.timer = setTimeout(tick, intervalMs);
         });
