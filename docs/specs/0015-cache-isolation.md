@@ -1,6 +1,6 @@
 # Spec 0015: Cache isolation — product entitlements and key "forget" on the invalidation bus (cross-tenant suite, layer 5)
 
-**Status:** **Accepted (2026-10-13)** by the owner, after review of revisions 1 and 2 (#65). D1 (no acknowledgements) and D2 (keep the 1-hour TTL) are decided. Acceptance added two CI7 edge-case tests (an unwrap finishing after the full TTL; old callbacks meeting a replacement load) and corrected the TTL reference to E5.
+**Status:** **Implemented (2026-10-13)**; met once reviewed and green in CI. **Accepted (2026-10-13)** by the owner, after review of revisions 1 and 2 (#65). D1 (no acknowledgements) and D2 (keep the 1-hour TTL) are decided. Acceptance added two CI7 edge-case tests (an unwrap finishing after the full TTL; old callbacks meeting a replacement load) and corrected the TTL reference to E5.
 **Phase:** 0. It closes the "Cache isolation" item of [docs/18](../18-roadmap.md): product-cache invalidation (spec 0003 P7) and key-forget propagation (spec 0006). That completes layer 5 of [docs/12 §3](../12-testing-strategy.md) for today's caches.
 **Builds on:**
 
@@ -62,3 +62,72 @@ OWASP's multi-tenant guidance treats cache invalidation as part of tenant isolat
 - Shortening the 1-hour bound (D2), and the shred ledger and restore safety (docs/18, backups item).
 - The tenant resolver's own broadcast until its first writer exists, and an entitlement writer: CI10 binds both.
 - Moving settings onto the helper.
+
+## Implementation evidence (2026-10-13)
+
+**Code:**
+
+- **The bus:** `shared/infra/invalidation-bus.ts` (`InvalidationBus`, `CHANNELS`): one subscriber connection per process, a bounded publish (no offline queue, a 5 s timeout) that never throws, and strict zod `{tenantId}` messages.
+- **Products:** `ProductService` evicts with a per-tenant generation, subscribes on `uv:products:invalidate` (API and worker), and publishes from `invalidate()`, which `setEnabled` calls in its `finally`.
+- **Keys:**
+  - **Wiring:** `TenantKeyring` is now its own provider, and `FieldCrypto` uses it.
+  - **The keyring** (`packages/crypto/src/keyring.ts`) follows CI7.
+  - **`shared/crypto/key-forget.ts`:**
+    - `KeyForgetListener`, in the API and the worker;
+    - `KeyDestruction.notifyKeysDestroyed`, which forgets locally, publishes, and returns the honest report;
+    - `KeyDestruction.shredTenantKeys`, the only importer of `destroyTenantKeys`.
+- **The CLI:** `keys destroy-retired` notifies after the destruction returns, and prints the report. The CLI boots the worker module with `subscribe: false`.
+- **The worker** gains its own Valkey client, closed at shutdown, with debug-level connection errors.
+
+**A wording refinement in CI7:** revision 2 said `forget()` "drops the tenant's in-flight loads". The implementation enforces the same guarantee through the generation check: a stale in-flight load is **never joined** and **never cached**. An explicit drop of the in-flight map was redundant, and survived mutation, so it was removed.
+
+**Tests (local, 2026-10-13):**
+
+- **`packages/crypto/src/keyring.spec.ts`, 9 tests (CI7).** All deterministic: a held-open mocked unwrap, a manual clock and scheduler. They cover:
+  - forget during a pending unwrap, for a destroyed key and for a live one;
+  - **an unwrap that finishes after the full TTL** (zeroed, discarded, the status re-read);
+  - bounded restarts (exactly 3 unwraps);
+  - an idle key evicted and zeroed at its deadline with no lookup;
+  - a delayed load still expiring at its start plus TTL;
+  - **old callbacks meeting a replacement** (a stale load's completion, and an old timer);
+  - forget(A) sparing B.
+- **`apps/api/src/shared/infra/cache-isolation.int.spec.ts`, 11 tests.** Two API instances, the worker, and a CLI-like context:
+  - **CI1:** API instance 2 and the worker each see the change within 2 s;
+  - **CI2:** a lost message is bounded by a 1.5 s TTL;
+  - **CI3:** the read is held open across the eviction;
+  - **CI4:** Valkey unreachable;
+  - **CI5:** DEKs cached in an API instance and the worker are zeroed within 2 s of a shred, and decrypts then fail;
+  - **CI6, three tests:**
+    - a lost forget, where the deadline timer zeroes the key;
+    - Valkey unreachable, where it finishes in under 6 s with "delivery unconfirmed", the fallback deadline and restart guidance;
+    - **the built `keys destroy-retired` CLI with Valkey down**, which exits 0 with the same report;
+  - **CI8, two tests:** B untouched by A's messages, with no extra DB read or unwrap; malformed messages ignored;
+  - **CI9:** refused, rolled-back and no-op destructions publish nothing.
+- **`apps/api/src/shared/infra/cache-writers.spec.ts`, 3 tests (CI10, CI9):**
+  - the writer guard over production source, with self-tests that each kind of writer is caught and a publishing one accepted;
+  - `destroyTenantKeys` imported only by `key-forget.ts`.
+- **Together:** with the products, outbox, settings, key-rotation and key-sweep isolation suites, 6 files and 77 tests pass. The API unit suite is 164/164, and crypto 23/23.
+
+**Faults fixed while building:**
+
+- **Stale package build:** the API runs `@univarse/crypto` from its built `dist/`, so the first CI6 run exercised the old keyring. The package is rebuilt; CI always builds first.
+- **The real-CLI test** runs the built `dist/cli/keys.js`, exactly what `pnpm keys` runs.
+- **CI9's first draft** counted a late-arriving message from the real destruction against the no-op. It now waits for that message first. It passed 3 of 3 runs after the fix.
+
+**Mutation checks** (each fails its intended test; restored):
+
+| Mutation                                     | Caught by                                                                               |
+| -------------------------------------------- | --------------------------------------------------------------------------------------- |
+| Keyring: no generation check                 | CI7 (forget during a pending unwrap, live and destroyed; a stale load vs a replacement) |
+| Keyring: no deadline timer                   | CI7 (idle key at its deadline; delayed load; an old timer vs a replacement)             |
+| Keyring: deadline from load end              | CI7 (delayed load; unwrap after the full TTL; bounded restarts)                         |
+| Keyring: eviction without an identity check  | CI7 (an old timer vs a replacement)                                                     |
+| Keyring: forget widened to all tenants       | CI7/CI8 (forget(A) spares B)                                                            |
+| Keyring: restart bound raised to 50          | CI7 (bounded restarts: exactly 3 unwraps)                                               |
+| Products: no publish                         | CI1 (and later tests, from leftover state)                                              |
+| Products: no subscription                    | CI1                                                                                     |
+| Products: no generation check                | CI3                                                                                     |
+| Products: eviction widened to all tenants    | CI8                                                                                     |
+| Keys: the listener doesn't forget            | CI5                                                                                     |
+| Keys: notify on a no-op destruction          | CI9                                                                                     |
+| Keys: publish before the destruction commits | CI9 (the rolled-back destruction)                                                       |

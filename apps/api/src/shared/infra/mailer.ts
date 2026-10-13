@@ -23,7 +23,12 @@ export class SmtpMailer implements Mailer {
     private readonly from: string,
   ) {
     // Bounded so a stuck SMTP server can't hold the worker's transaction open (spec 0002 Part B).
-    this.transport = nodemailer.createTransport({ url, connectionTimeout: 10_000, greetingTimeout: 10_000, socketTimeout: 10_000 });
+    this.transport = nodemailer.createTransport({
+      url,
+      connectionTimeout: 10_000,
+      greetingTimeout: 10_000,
+      socketTimeout: 10_000,
+    });
   }
 
   async send(mail: OutboundEmail): Promise<void> {

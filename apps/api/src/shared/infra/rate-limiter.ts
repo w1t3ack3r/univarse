@@ -20,7 +20,10 @@ export class RateLimiter implements OnApplicationShutdown {
   constructor(@Inject(VALKEY) private readonly redis: Redis) {}
 
   /** Records a hit against every rule; returns the longest retry-after among exceeded rules. */
-  async hit(key: string, rules: readonly RateRule[]): Promise<{ allowed: boolean; retryAfterSec: number }> {
+  async hit(
+    key: string,
+    rules: readonly RateRule[],
+  ): Promise<{ allowed: boolean; retryAfterSec: number }> {
     try {
       let retryAfterSec = 0;
       for (const r of rules) {
@@ -32,7 +35,10 @@ export class RateLimiter implements OnApplicationShutdown {
       }
       return { allowed: retryAfterSec === 0, retryAfterSec };
     } catch (err) {
-      this.logger.warn({ event: 'infra.rate_limiter.unavailable', err }, 'Rate limiter unavailable, failing open');
+      this.logger.warn(
+        { event: 'infra.rate_limiter.unavailable', err },
+        'Rate limiter unavailable, failing open',
+      );
       return { allowed: true, retryAfterSec: 0 };
     }
   }

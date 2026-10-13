@@ -41,5 +41,5 @@ Entitlements live in the **platform DB** (`tenant_product`). Audit events live i
 |-----|-----------|
 | Console UI for entitlements | Phase 1 console |
 | `PRODUCTS=…` runtime roles, per-role pools, isolation load test | Phase 4b |
-| Cross-instance cache invalidation (Valkey pub/sub) | Before multi-instance production (same as tenant lifecycle) |
+| Cross-instance cache invalidation (Valkey pub/sub) | **Done: [spec 0015](0015-cache-isolation.md) CI1–CI4** (products on `uv:products:invalidate`, with a generation guard). The tenant lifecycle's own invalidation is bound to its first writer (CI10) |
 | First non-core routes (an end-to-end 404 test through a real non-core controller) | First non-core module. Until then the guard is unit-tested against non-core route metadata |

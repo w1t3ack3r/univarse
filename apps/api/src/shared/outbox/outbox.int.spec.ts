@@ -226,12 +226,12 @@ describe('[B10] products', () => {
     const where = { tenantId_product: { tenantId: h.tenants.demo, product: 'admissions' } };
     await h.platform.tenantProduct.update({ where, data: { enabled: true } });
     try {
-      h.workerCtx.get(ProductService).invalidate(h.tenants.demo); // the worker's own cache (P7 TTL otherwise)
+      await h.workerCtx.get(ProductService).invalidate(h.tenants.demo); // the worker's own cache (P7 TTL otherwise)
       await h.deliver();
       expect(await event(id)).toMatchObject({ status: 'SENT', attempts: 1 });
     } finally {
       await h.platform.tenantProduct.update({ where, data: { enabled: false } });
-      h.workerCtx.get(ProductService).invalidate(h.tenants.demo);
+      await h.workerCtx.get(ProductService).invalidate(h.tenants.demo);
     }
   });
 });

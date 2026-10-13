@@ -82,7 +82,7 @@ Measured against that, `destroyTenantKeys` is the **first step** of erasure, not
 | Where a usable copy of a DEK can exist | Effect of `destroyTenantKeys` | When that copy is gone |
 |---|---|---|
 | Live platform DB (`tenant_data_key`) | Wraps erased in place (E10) | **At once** |
-| Unwrapped DEKs in running API or worker processes (keyring cache) | Not reached | Within the DEK cache TTL (**≤ 1 h**), or at once after the API and worker restart. A cross-instance "forget" broadcast is tracked |
+| Unwrapped DEKs in running API or worker processes (keyring cache) | Not reached | Within seconds through the `uv:keys:forget` broadcast ([spec 0015](0015-cache-isolation.md) CI5). If a message is lost, within the DEK cache TTL (**≤ 1 h**), now enforced by a per-key deadline timer that zeroes the key (CI7); or at once after the API and worker restart |
 | Unwrapped DEKs that left process memory: swap, core dumps, heap snapshots, debug dumps | Not reached | Only if the hosts prevent them: core dumps disabled, swap off or encrypted (`disable_mlock` is dev-only), no heap snapshots in production. These are host-hardening requirements ([09 §5](../09-container-security.md)) |
 | **Platform-DB point-in-time recovery** (35 days production, 7 staging) | Not reached: backups before the shred hold the wrapped DEKs, and the shared KEK still unwraps them | When the window has passed since the shred: **35 days** |
 | **Platform-DB snapshots** (daily for 35 days, **monthly kept 12 months**, copied cross-region, [10 §7](../10-infrastructure-and-deployment.md)) | Not reached, as above | When the last snapshot taken before the shred expires: **up to 12 months** under the current policy |
@@ -224,7 +224,7 @@ Measured against that, `destroyTenantKeys` is the **first step** of erasure, not
 |---|---|
 | Blind indexes for searchable encrypted fields (NIN) | The first searchable encrypted field (admissions/records) |
 | Two-person approval for crypto-shredding | Phase 1 console (offboarding workflow) |
-| Cross-instance key "forget" on shredding, so cached DEKs are dropped in seconds rather than ≤ 1 h | With the settings invalidation bus ([spec 0007](0007-settings.md)) |
+| Cross-instance key "forget" on shredding, so cached DEKs are dropped in seconds rather than ≤ 1 h | **Done: [spec 0015](0015-cache-isolation.md) CI5–CI7, CI9** |
 | Destruction ledger outside the platform DB, plus the restore runbook that re-applies it | Staging (backup and restore set-up), before any real-like data |
 | Shorter erasure boundary than 12 months (key DB with short retention, or per-tenant KEKs), or disclose it in the DPA | Before the first tenant offboarding, and before GA contracts |
 | Per-tenant export job excludes `tenant_data_key` (test) | With the per-tenant export job |
