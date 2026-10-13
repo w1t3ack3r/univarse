@@ -185,14 +185,14 @@ export function planPrune(snapshot, { records = [], trust = {}, pins = [], keep 
     const isRemovable = (t) => removable.has(key(repo, t));
     const fallbackFor = (d) => tags[fallbackTag(d)];
     const live = new Set();
+    // Everything a kept digest references: its own children when it is an index (e.g. a multi-platform image),
+    // and its signature index with every signature and attestation listed there, all recursively.
     const close = (d) => {
       if (live.has(d)) return;
       live.add(d);
+      for (const child of indexes[d] ?? []) close(child);
       const idx = fallbackFor(d);
-      if (idx) {
-        live.add(idx);
-        for (const child of indexes[idx] ?? []) close(child);
-      }
+      if (idx) close(idx);
     };
     // Roots: every tag nobody may remove; pins; and, from signatures alone, every image of a kept release
     // (including the role-swap copy in the api repository, which carries its web provenance).
@@ -243,6 +243,8 @@ export function planPrune(snapshot, { records = [], trust = {}, pins = [], keep 
     const remove = (d, why) => {
       if (seen.has(d) || live.has(d)) return;
       seen.add(d);
+      // A dropped index's own children go first, unless something kept also references them.
+      for (const child of indexes[d] ?? []) remove(child, `child of ${d}`);
       const idx = fallbackFor(d);
       if (idx && !live.has(idx)) {
         for (const child of indexes[idx] ?? []) remove(child, `signature/attestation of ${d}`);
@@ -266,7 +268,16 @@ export function planPrune(snapshot, { records = [], trust = {}, pins = [], keep 
       else plan.unowned.push({ repo, tag: t, digest: d });
     }
   }
-  // Defence in depth, independent of the logic above: nothing live, and no image of a kept release, is deleted.
+  // Defence in depth, independent of the logic above: the kept set is closed over every index's children, and
+  // nothing kept, and no image of a kept release, is deleted.
+  for (const [repo, live] of Object.entries(plan.live)) {
+    for (const d of live) {
+      for (const child of snapshot.repos[repo].indexes?.[d] ?? []) {
+        if (!live.has(child))
+          throw new Error(`prune plan keeps ${repo}@${d} but not its child ${child}; refusing`);
+      }
+    }
+  }
   for (const { repo, digest } of plan.deleteManifests) {
     const tr = trust[`${repo}@${digest}`];
     if (plan.live[repo].has(digest) || (tr?.kind === 'release' && kept.has(tr.commit))) {
@@ -274,6 +285,49 @@ export function planPrune(snapshot, { records = [], trust = {}, pins = [], keep 
     }
   }
   return plan;
+}
+
+/**
+ * What to verify, for every kept release, built ONLY from trusted data: the digests whose provenance verified
+ * against the committed key as a release of that commit, in that role's repository. Records are not consulted.
+ * Every such digest is covered. A kept commit missing a role can't be verified: that is a problem, and `--apply`
+ * refuses before deleting anything.
+ */
+export function verificationTargets(trust, keptCommits) {
+  const targets = [];
+  const problems = [];
+  for (const c of keptCommits) {
+    const byRole = {};
+    for (const [role, repo] of Object.entries(RELEASE_REPOS)) {
+      byRole[role] = Object.entries(trust)
+        .filter(
+          ([k, t]) =>
+            k.startsWith(`${repo}@`) && t.kind === 'release' && t.commit === c && t.role === role,
+        )
+        .map(([k]) => k.slice(repo.length + 1))
+        .sort();
+      if (byRole[role].length === 0)
+        problems.push(`kept release ${c}: no ${role} image signed for that role in ${repo}`);
+    }
+    if (Object.values(byRole).some((ds) => ds.length === 0)) continue;
+    // Pair each digest with the first of the other role, so every signed digest is verified at least once.
+    const pairs = new Set();
+    for (const api of byRole.api) pairs.add(`${api} ${byRole.web[0]}`);
+    for (const web of byRole.web) pairs.add(`${byRole.api[0]} ${web}`);
+    for (const pair of [...pairs].sort()) {
+      const [api, web] = pair.split(' ');
+      targets.push({
+        file: `${c.slice(0, 7)} (from signed provenance)`,
+        commit: c,
+        rehearsal: false,
+        images: {
+          api: { repo: RELEASE_REPOS.api, digest: api },
+          web: { repo: RELEASE_REPOS.web, digest: web },
+        },
+      });
+    }
+  }
+  return { targets, problems };
 }
 
 /** Reads the deploy's state: current and rollback digests, which are always kept. Absent: nothing deployed yet. */
@@ -376,6 +430,19 @@ function printPlan(plan) {
   for (const i of plan.ignored) console.log(`[prune] ignored ${i.record}: ${i.why}`);
 }
 
+/** Waits until the registry answers on the host (compose reports healthy before Docker Desktop forwards the port). */
+async function ready(base) {
+  for (let i = 0; i < 60; i++) {
+    try {
+      if ((await fetch(`${base}/v2/`)).ok) return base;
+    } catch {
+      // still starting
+    }
+    await new Promise((r) => setTimeout(r, 500));
+  }
+  throw new Error(`the registry at ${base} did not answer`);
+}
+
 const freePort = () =>
   new Promise((resolve, reject) => {
     const srv = createServer();
@@ -454,7 +521,8 @@ async function main(argv) {
       }
     }
     const records = loadRecords(releases);
-    return { snapshot, records, plan: planPrune(snapshot, { records, trust, pins }) };
+    const plan = planPrune(snapshot, { records, trust, pins });
+    return { snapshot, records, plan, verify: verificationTargets(trust, plan.keptCommits) };
   }
 
   // Both modes hold the lock: even a dry run may start and stop the registry.
@@ -463,7 +531,13 @@ async function main(argv) {
     const wasRunning = running();
     try {
       if (!wasRunning) up();
-      printPlan((await planAt('http://127.0.0.1:5000', 'registry')).plan);
+      const { plan, verify } = await planAt(await ready('http://127.0.0.1:5000'), 'registry');
+      printPlan(plan);
+      for (const t of verify.targets)
+        console.log(
+          `[prune] would verify ${t.file}: api ${t.images.api.digest}, web ${t.images.web.digest}`,
+        );
+      for (const p of verify.problems) console.log(`[prune] --apply would REFUSE: ${p}`);
       console.log(
         '[prune] dry run: nothing changed. --apply re-plans under the registry lock, then deletes.',
       );
@@ -503,42 +577,36 @@ async function main(argv) {
       registryImage,
     ]);
     sh('docker', ['network', 'connect', '--alias', alias, RELEASE_NETWORK, name]);
-    const base = `http://127.0.0.1:${port}`;
-    for (let i = 0; i < 60; i++) {
-      try {
-        if ((await fetch(`${base}/v2/`)).ok) return base;
-      } catch {
-        // still starting
-      }
-      await new Promise((r) => setTimeout(r, 500));
-    }
-    throw new Error('the private registry did not start');
+    return ready(`http://127.0.0.1:${port}`);
   };
   const stopPrivate = () => sh('docker', ['rm', '-f', name], { allowFail: true });
   try {
     if (!wasRunning) up(); // creates the release network the offline tools need
     stop(); // the public registry stays offline for the WHOLE apply
     let base = await startPrivate();
-    const { snapshot: before, records, plan } = await planAt(base, alias);
+    const { snapshot: before, plan, verify } = await planAt(base, alias);
     printPlan(plan);
-    const keptRecords = records.filter(
-      (r) => r.rehearsal === false && plan.keptCommits.includes(r.commit),
-    );
-    const missing = plan.keptCommits.filter((c) => !keptRecords.some((r) => r.commit === c));
-    if (missing.length)
-      console.log(
-        `[prune] note: kept by signature with no record to verify by: ${missing.join(', ')}`,
+    // Every kept release is verified from trusted registry and provenance data, never from a record. If any kept
+    // release can't be fully verified, stop here: nothing has been deleted.
+    if (verify.problems.length) {
+      throw new Error(
+        `cannot verify every kept release; nothing deleted:\n  ${verify.problems.join('\n  ')}`,
       );
+    }
     const verifyAll = (when) => {
-      for (const r of keptRecords) {
-        // The record's own commit: this checks the prune didn't break what was there, not what HEAD should deploy.
+      for (const r of verify.targets) {
         const v = verifyRelease(r, { pub, commit: r.commit, registry: `${alias}:5000` });
         if (!v.ok)
           throw new Error(
             `${when}: kept release ${r.file} does not verify:\n  ${v.problems.join('\n  ')}`,
           );
-        console.log(`[prune] ${when}: ${r.file} verified (signature, SBOM, provenance)`);
+        console.log(
+          `[prune] ${when}: ${r.file} verified (signature, SBOM, provenance): api ${r.images.api.digest}, web ${r.images.web.digest}`,
+        );
       }
+      console.log(
+        `[prune] ${when}: ${verify.targets.length} verification(s) covering all ${plan.keptCommits.length} kept release(s)`,
+      );
     };
     verifyAll('before');
 

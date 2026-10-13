@@ -34,7 +34,7 @@ It never needs the private key.
 
 **Records only nominate.** Release records in `releases/` are editable, so the prune trusts only two things: the registry, and signed provenance that verifies against `cosign.pub`.
 
-**It keeps,** each with its signatures and attestations:
+**It keeps,** each with everything it references (an index's children, signatures and attestations, recursively):
 - the newest 20 releases, by signed start time;
 - every digest in `releases/deploy-state.json` (current and rollback);
 - every `--keep repo@sha256:…`;
@@ -45,6 +45,8 @@ It never needs the private key.
 - cosign classifies the image as a rehearsal, an expired release of that commit, or not signed by the key at all.
 
 A verdict of "not signed" never authorises a deletion on its own.
+
+**Verification.** `--apply` verifies every kept release before and after deleting, using the digests from signed provenance (not from records). If any kept release can't be fully verified, it stops before deleting anything.
 
 **Exclusion:**
 - Both modes hold the registry lock, `releases/.registry.lock`. Every release holds it too, so prune and release never overlap.

@@ -5,7 +5,14 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
-import { classify, fallbackTag, keptCommits, nominations, planPrune } from './prune.mjs';
+import {
+  classify,
+  fallbackTag,
+  keptCommits,
+  nominations,
+  planPrune,
+  verificationTargets,
+} from './prune.mjs';
 
 const dg = (n) => `sha256:${String(n).padStart(64, '0')}`;
 const commit = (c) => c.repeat(40).slice(0, 40);
@@ -492,4 +499,134 @@ test('[LR8] "not signed by the key" never authorises deletion by itself: the tag
     'the same record’s matching, unsigned api image is the only one that goes',
   );
   assertRealReleaseIntact(plan, real);
+});
+
+/** A multi-platform image index with the given child manifests. */
+function index(reg, repo, idx, children) {
+  reg.snapshot.repos[repo] ??= { tags: {}, indexes: {} };
+  reg.snapshot.repos[repo].indexes[idx] = children;
+  return idx;
+}
+
+test('[LR8] a protected multi-platform index keeps every child, even one it shares with a deletion candidate', () => {
+  const { reg, trust, real, records } = world();
+  // An unknown-tagged index I (children c1, c2) shares c1 with the rehearsal's api image, itself an index J (c1, c3).
+  const [c1, c2, c3] = [dg(71), dg(72), dg(73)];
+  index(reg, 'univarse-api', dg(70), [c1, c2]);
+  reg.push('univarse-api', 'latest', dg(70));
+  index(reg, 'univarse-api', dg(3), [c1, c3]); // dg(3) is the rehearsal's (nominated, unsigned) api image
+  const childSig = reg.sign('univarse-api', c1, 1);
+  const plan = planPrune(reg.snapshot, { records, trust });
+  const del = deleted(plan);
+  for (const d of [dg(70), c1, c2, ...childSig])
+    assert.ok(!del.has(`univarse-api@${d}`) && plan.live['univarse-api'].has(d), `kept ${d}`);
+  assert.ok(
+    del.has(`univarse-api@${dg(3)}`) && del.has(`univarse-api@${c3}`),
+    'the candidate and its unshared child go',
+  );
+  const order = plan.deleteManifests.map((m) => m.digest);
+  assert.ok(order.indexOf(c3) < order.indexOf(dg(3)), 'a child before its index');
+  assertRealReleaseIntact(plan, real);
+});
+
+test('[LR8] a candidate that is itself a child of a protected index is kept', () => {
+  const { reg, trust, records } = world();
+  index(reg, 'univarse-api', dg(80), [dg(3)]); // the rehearsal's api image is a child of a pinned index
+  const plan = planPrune(reg.snapshot, {
+    records,
+    trust,
+    pins: [{ repo: 'univarse-api', digest: dg(80) }],
+  });
+  assert.ok(!deleted(plan).has(`univarse-api@${dg(3)}`));
+  assert.ok(plan.live['univarse-api'].has(dg(3)));
+});
+
+test('[LR8] a kept release published as an index keeps all its children, by signature alone', () => {
+  const { reg, trust, real, records } = world();
+  index(reg, 'univarse-web', dg(2), [dg(91), dg(92)]); // the real web image is a multi-platform index
+  index(reg, 'univarse-web', dg(4), [dg(91), dg(93)]); // the rehearsal web index shares a child with it
+  const plan = planPrune(reg.snapshot, { records: [records[1]], trust }); // the real record is gone, too
+  const del = deleted(plan);
+  for (const d of [dg(91), dg(92)]) assert.ok(!del.has(`univarse-web@${d}`));
+  assert.ok(del.has(`univarse-web@${dg(93)}`) && del.has(`univarse-web@${dg(4)}`));
+  assertRealReleaseIntact(plan, real);
+});
+
+test('[LR8] every kept release is verified from signed provenance, including one with no record', () => {
+  const { reg, trust, records } = world();
+  // A second kept release with no record at all, rebuilt once (two signed api digests).
+  const C = commit('c');
+  for (const [repo, role, d] of [
+    ['univarse-api', 'api', dg(40)],
+    ['univarse-api', 'api', dg(41)],
+    ['univarse-web', 'web', dg(42)],
+  ]) {
+    reg.push(repo, `x-${d.slice(-2)}`, d);
+    trust[`${repo}@${d}`] = { kind: 'release', commit: C, role, startedOn: '2026-10-13T00:00:00Z' };
+  }
+  // The role-swap copy (web provenance, api repository) is not an api image of that release.
+  trust[`univarse-api@${dg(2)}`] = {
+    kind: 'release',
+    commit: A,
+    role: 'web',
+    startedOn: '2026-10-12T23:05:52Z',
+  };
+  const plan = planPrune(reg.snapshot, { records, trust });
+  const { targets, problems } = verificationTargets(trust, plan.keptCommits);
+  assert.deepEqual(problems, []);
+  const covered = new Set(
+    targets.flatMap((t) => [
+      `api ${t.commit} ${t.images.api.digest}`,
+      `web ${t.commit} ${t.images.web.digest}`,
+    ]),
+  );
+  for (const want of [
+    `api ${A} ${dg(1)}`,
+    `web ${A} ${dg(2)}`,
+    `api ${C} ${dg(40)}`,
+    `api ${C} ${dg(41)}`,
+    `web ${C} ${dg(42)}`,
+  ]) {
+    assert.ok(covered.has(want), `verified: ${want}`);
+  }
+  assert.ok(
+    targets.every(
+      (t) =>
+        t.rehearsal === false &&
+        t.images.api.repo === 'univarse-api' &&
+        t.images.web.repo === 'univarse-web',
+    ),
+  );
+  assert.ok(
+    !targets.some((t) => t.images.api.digest === dg(2)),
+    'the role-swap copy is never taken as the api image',
+  );
+});
+
+test('[LR8] a kept release that cannot be fully verified stops --apply before any deletion', () => {
+  const trust = {
+    [`univarse-api@${dg(1)}`]: { kind: 'release', commit: A, role: 'api', startedOn: 'T' },
+  }; // no web
+  const { targets, problems } = verificationTargets(trust, [A]);
+  assert.deepEqual(targets, []);
+  assert.match(
+    problems.join(),
+    /kept release a{40}: no web image signed for that role in univarse-web/,
+  );
+  const src = readFileSync(new URL('./prune.mjs', import.meta.url), 'utf8');
+  const apply = src.slice(
+    src.indexOf('const { snapshot: before, plan, verify } = await planAt(base, alias);'),
+  );
+  const refuse = apply.indexOf('if (verify.problems.length) {');
+  assert.ok(
+    refuse > 0 &&
+      refuse < apply.indexOf("verifyAll('before')") &&
+      refuse < apply.indexOf("{ method: 'DELETE' }"),
+    'refused before verifying or deleting',
+  );
+  assert.doesNotMatch(
+    src,
+    /keptRecords|no record to verify by/,
+    'records are no longer what gets verified',
+  );
 });
