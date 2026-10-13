@@ -190,7 +190,7 @@ async function sweepUntilDone(tenantId: string): Promise<string[]> {
 }
 
 describe('[JI5] the key sweep claims and processes only the requested tenant', () => {
-  it('[JI5][JI8] with both keys rotated but only A requested, A moves entirely and B is byte-for-byte unchanged', async () => {
+  it('[JI5][JI8] with both keys rotated but only A claimable, A moves entirely and B is byte-for-byte unchanged', async () => {
     const a = await scratch('a');
     const b = await scratch('b');
     expect(await rotateTenantKey(platform, provider, a.id, null)).toEqual({ from: 1, to: 2 });
