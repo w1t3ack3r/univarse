@@ -254,7 +254,6 @@ Image sizes from Docker Desktop's containerd store (API 809 MB, web 273 MB) aren
 
 **What remains of spec 0013, so it stays open:**
 - the **CS13** image-mutation proofs: an image running as root, an image containing a shell, and a known fixable and a known unfixed HIGH/CRITICAL;
-- **LR8:** pending: the tool is reviewed, and its first `--apply` completes with the kept releases verifying afterwards (see LR8 below);
 
 The owner removed 14 accumulated rehearsal tags and trimmed the build cache (16.8 GB → 4.2 GB) on 2026-10-13. The `registry-data` volume must not be pruned: it holds the signed release.
 
@@ -279,9 +278,9 @@ The owner removed 14 accumulated rehearsal tags and trimmed the build cache (16.
 - **The new direct dependency:** `js-yaml@4.3.2`. It was already in the lockfile, so no new package was introduced. That doesn't mean no supply-chain risk: the check now depends on it directly. It is pinned exactly, installed from the lockfile with integrity hashes, and covered by `pnpm audit`.
 
 
-### LR8: `pnpm images:prune` — built; pending its first reviewed `--apply`
+### LR8: `pnpm images:prune` — met (first `--apply` 2026-10-13)
 
-**Manual only, a dry run by default.** LR8 stays **pending** until two things have happened: this tool has been reviewed and merged, and its first `--apply` has completed with every kept release verifying afterwards. A dry run is evidence about the plan, **not** proof that deleting is safe.
+**Manual only, a dry run by default.** LR8 was held **pending** until two things had happened: the tool was reviewed and merged, and its first `--apply` completed with every kept release verifying afterwards. Both have now happened (evidence at the end of this section). A dry run is evidence about the plan, **not** proof that deleting is safe.
 
 **Trust model: records nominate, never authorise.** Release records are editable indexes. What the prune keeps, and what it may delete, is decided from two sources only: what the registry holds, and **signed provenance that verifies against the committed key**. Role, commit, rehearsal flag and start time are all inside that signature.
 - **Retention:** a *release* is a commit whose images carry verified provenance with `rehearsal: false`. The newest 20 by **signed** start time are kept, whatever any record says.
@@ -372,7 +371,22 @@ The owner removed 14 accumulated rehearsal tags and trimmed the build cache (16.
 
 **Garbage-collection dry run:** `186 blobs marked, 0 blobs and 0 manifests eligible`, which confirms the parsed format.
 
-**`--apply` has not been run.** The owner runs the first one after this tool is merged.
+**LR8 met: the first `--apply` (2026-10-13).**
+- **The run:** the owner ran `pnpm images:prune --apply` on `main` at `af72e43` (#60, merged at the reviewed `c5b72c9`; CI run `38345093753`: prune 24/24, lock 3/3, all jobs green).
+- **The plan:** exactly the dry run's. 4 untags: two rehearsal tags on the shared unsigned-check digest, and the two legacy `univarse-unsigned-check` tags. 45 manifest deletions: the four rehearsals' nine images, each with its signature index and three signatures/attestations. `univarse-api:latest` and `role-swap-check-test` were left alone as unowned.
+- **Before deleting:** `12083b8` was verified from signed provenance: signature, SBOM and provenance, for api `sha256:8af794d21a95444fda06a876edfed514c1419e4a3ab146c02a8488fbbf5ed0db` and web `sha256:1d0c627d2b838d4f08538b272cea0aec918baca2b3e2b146327ef22d8667553f` (1 verification covering all 1 kept release).
+- **Collection:** 72 unreferenced blobs were collected, none of them kept, without `--delete-untagged`.
+- **After collection:** the same verification passed again.
+
+**Independent check afterwards, outside the prune tool:**
+- **Lock and containers:** no registry lock left behind, and no private registry container left running.
+- **Registry contents:**
+  - `univarse-api`: `sha-12083b8`, `unsigned-check-sha-12083b8`, `role-swap-check-sha-12083b8`, the signature indexes of `8af794d2…` and `1d0c627d…`, and the unowned `latest`/`role-swap-check-test` with their signature index;
+  - `univarse-web`: `sha-12083b8` and its signature index;
+  - `univarse-unsigned-check`: no tags.
+- **Deploy check:** `pnpm images:verify releases/2026-10-12-12083b8.json --commit 12083b8ebe7362db3123a8d67a1b4c3b2a09907f`, against `infra/signing/cosign.pub` (sha256 `386c0f55f82e60005a03526454cd287d10eb87534d4e829c1dd7e774900de194`). **Both images' signature, SBOM and provenance verified offline.**
+- **Blobs:** every blob of the 20 manifests reachable from tags is present: configs, layers and signature/attestation layers, **164 present, 0 missing**. (`cosign verify` doesn't fetch image layers, so this checks what collection could have removed.)
+
 
 ## Design notes
 
