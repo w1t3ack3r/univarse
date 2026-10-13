@@ -1,6 +1,6 @@
 # Spec 0017: PgBouncer isolation — the isolation suites run through transaction pooling, in CI
 
-**Status:** **Draft for review (2026-10-13).** Design only; nothing is implemented. It needs the owner's decisions D1–D6.
+**Status:** **Draft for review, revision 2 (2026-10-13).** Design only; nothing is implemented. Revision 2 answers the owner's review of revision 1 (`d11c6d9`; [below](#owner-review-of-revision-1)). The owner supports D1–D4 and D6; D5 is decided as two profiles.
 **Phase:** 0. Roadmap item 4 ([docs/18](../18-roadmap.md)): "isolation tests through the intended pooling mode (transaction pooling), as a CI job" ([ADR-015](../19-decision-log.md)). PgBouncer **in the deployed path** is item 7.1, the local production-like stack, and is out of scope here; this spec builds the pieces it will reuse.
 **Builds on:**
 
@@ -11,7 +11,7 @@
 
 ## Why
 
-Every tenant query depends on `app.tenant_id`, which RLS reads. Today the app connects to Postgres directly, so a server connection belongs to one client at a time. Under transaction pooling, PgBouncer hands the same server connection to a different client after each transaction. Anything that outlives a transaction on that connection then reaches the next client, and that includes a tenant context set at session level. "Safe by design" is an argument, not a test. This spec makes it a test, run in CI against a deliberately tiny pool so connections really are shared.
+Every tenant query depends on `app.tenant_id`, which RLS reads. Today the app connects to Postgres directly, so a server connection belongs to one client at a time. Under transaction pooling, PgBouncer hands the same server connection to a different client after each transaction. Anything that outlives a transaction on that connection then reaches the next client, and that includes a tenant context set at session level. "Safe by design" is an argument, not a test. This spec makes it a test.
 
 A survey of the code (2026-10-13) found:
 
@@ -19,100 +19,135 @@ A survey of the code (2026-10-13) found:
   - no session-level `SET` or `set_config(…, false)`;
   - no session advisory locks (`pg_advisory_xact_lock` only);
   - no `LISTEN`, `PREPARE`, temporary tables or holdable cursors.
-- **Two things transaction pooling changes that the design must cover:**
-  1. **The UTC session.** Every connection asks for `-c TimeZone=UTC` in its startup `options` (`packages/db/src/pool.ts`). PgBouncer rejects unknown startup parameters by default. Its documentation says it tracks `TimeZone` and parameters given through `options`, but this has to be **proven**: a dropped option would shift every stored timestamp (found once before, 2026-10-05).
-  2. **Saturation shedding (ADR-026).** Today a saturated pool shows up as Prisma's 2 s transaction wait (P2028), answered with 503 `server.busy`. Behind PgBouncer, the app's own pool connects to PgBouncer at once. The wait moves into **PgBouncer's** queue, where a query stalls rather than failing in 2 s, unless PgBouncer's `query_wait_timeout` ends it and the app maps that error to `server.busy`.
-- **Prepared statements:** Prisma's pg adapter names a statement only if a `statementNameGenerator` is configured, and none is. So the app should not rely on named prepared statements, which transaction pooling would otherwise need PgBouncer's `max_prepared_statements` for. That too is proven below, not assumed.
+- **What transaction pooling changes, which the design must cover:**
+  1. **The UTC session.** Every connection asks for `-c TimeZone=UTC` in its startup `options` (`packages/db/src/pool.ts`). PgBouncer tracks `TimeZone`, including when it is given through `options`, by its documentation. That has to be **proven**, because a dropped option would shift every stored timestamp (found once before, 2026-10-05).
+  2. **Saturation shedding (ADR-026), corrected in revision 2:**
+     - **Transactions are unaffected:** in the pinned Prisma 7.10, `maxWait` covers awaiting the adapter's transaction start, and the adapter awaits `BEGIN` before returning. Behind PgBouncer, `BEGIN` waits in PgBouncer's queue, so a saturated transaction still ends in Prisma's 2 s P2028, which is already mapped to `server.busy`.
+     - **The gap is queries outside a transaction,** such as an uncached platform lookup (the tenant resolver, product checks). No `maxWait` applies to them. They wait in PgBouncer's queue until its `query_wait_timeout` ends them, with an error the app doesn't map today, so they would be answered 500.
+     - **Why a transaction test can't show it:** with both timeouts at 2 s, it could pass through the P2028 handler and mask a missing mapping. PB7 tests the non-transaction path.
+  3. **Prepared statements.** Prisma's pg adapter names a statement only if a `statementNameGenerator` is configured, and none is. PB6 proves that the app relies on no named statement.
 
-## Decisions for the owner
+## Decisions
 
-Each has a recommendation.
+The owner supports D1–D4 and D6 (review of revision 1); D5 is decided as two profiles.
 
-- **D1, where PgBouncer comes from.**
-  - **Recommended:** a small UniVarse-built image: Debian slim, plus `pgbouncer` from the PostgreSQL project's apt repository at a pinned version.
-    - It runs as non-root, with a read-only root filesystem.
-    - It goes through spec 0013's gates (0 HIGH/CRITICAL, scanned, SBOM).
-    - The same image runs in this CI job, in compose locally, and later in the local stack (item 7.1).
-  - **Alternative:** a community image pinned by digest. There's no official Docker library image for PgBouncer, and the Bitnami catalogue changed in 2025.
-- **D2, how PgBouncer authenticates clients.**
-  - **Recommended:** an `auth_file` holding each role's **SCRAM verifier** (not its password).
-    - The file is generated by `pnpm db:setup`, which already runs as the superuser, from `pg_authid`.
-    - It is written git-ignored and mode 0600, and regenerated whenever role passwords rotate.
-    - `auth_type = scram-sha-256`.
-  - **Alternative:** `auth_user` with `auth_query`. That needs a lookup function readable by a PgBouncer role, which is more database surface for no gain locally.
-- **D3, what runs through PgBouncer.**
-  - **Recommended:** all three suites, in full:
-    - the DB isolation suite (`@univarse/db` `test:int`, including the timezone test);
-    - the crypto integration suite;
-    - the API integration suite (the route sweep, job isolation, cache isolation, the outbox, and everything else).
-  - **Bypassing PgBouncer:** migrations, `db:setup`, seeding and `rls:check` keep a direct connection. Prisma Migrate takes a **session** advisory lock, which transaction pooling can't hold.
-- **D4, the CI shape.**
-  - **Recommended:** a separate job, `pgbouncer-isolation`, running in parallel with `build-test`. It costs runner minutes but no wall time, and a failure names PgBouncer.
-  - **Alternative:** extra steps at the end of `build-test`.
-- **D5, the pool size in the job.**
-  - **Recommended:** deliberately tiny, so multiplexing really happens: `default_pool_size = 2` per role and database, `max_client_conn = 200`.
-  - PB1 proves the sharing with backend pids rather than assuming it.
-- **D6, where UTC comes from.**
-  - **Recommended:** both.
-    - Keep the client's startup option, proven to pass through (PB5).
-    - **Also** set `ALTER ROLE … SET timezone = 'UTC'` on the app roles, so every server session is UTC whatever a client sends.
-  - **Alternative:** the startup option alone.
+- **D1, where PgBouncer comes from: a small UniVarse-built image.** Debian slim plus `pgbouncer` from the PostgreSQL project's apt repository, at a pinned version.
+  - It runs as non-root, with a read-only root filesystem.
+  - It goes through spec 0013's gates.
+  - The same image runs in CI, in compose locally, and later in the local stack (item 7.1).
+- **D2, client authentication: an `auth_file` of SCRAM verifiers.** The verifiers are copied exactly from PostgreSQL by `pnpm db:setup`, which already runs as the superuser (PB9).
+- **D3, what runs through PgBouncer: all three suites.**
+  - **Through PgBouncer:** the DB isolation suite (including the timezone and pool tests), the crypto integration suite, and the API integration suite.
+  - **Direct:** migrations, `db:setup`, seeding and `rls:check`. Prisma Migrate takes a session advisory lock.
+- **D4, the CI shape: a separate job, plus a comparison job that joins it** (revision 2: PB3).
+- **D5, pool sizes: two profiles** (owner decision, revision 2), documented side by side under Design:
+  - **The probe profile,** `default_pool_size = 2`: the dedicated pooling probes (PB1, PB2, PB5, PB6, PB7), where tiny pools make sharing and saturation certain.
+  - **The suite profile,** `default_pool_size = 10`: the unchanged integration suites (PB3). That matches each client's pool of 10 (ADR-026), so `pool.int.spec.ts`, which holds ten transactions open on purpose before checking exhaustion, runs unchanged.
+- **D6, where UTC comes from: the client's startup option, plus a role-level default.**
+  - The option is the setting.
+  - `ALTER ROLE … SET timezone = 'UTC'` on the app roles is a **default** for sessions that send none. It doesn't force UTC over a client's own setting.
+  - PB5 proves each half independently.
 
 ## Acceptance criteria
 
-The CI job runs Postgres (with the server's own zone set to `Africa/Lagos`, as today), PgBouncer in **transaction** mode with D5's pool, and the app's URLs pointed at PgBouncer.
+The CI job runs Postgres with its server zone set to `Africa/Lagos`, as today, and PgBouncer in **transaction** mode.
 
-| ID   | Criterion                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
-| ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| PB1  | _Transaction pooling is real._ A probe test, through PgBouncer:<br>• **Sharing:** 20 concurrent client connections each run 10 transactions reporting `pg_backend_pid()`. At most 2 distinct backend pids appear, and at least one pid serves more than one client connection.<br>• **Canary:** a **session-level** `set_config('uv.canary', …, false)` made by one client is later visible to a different client on the same backend. This shows why the app must never set session state, and that the job really is in transaction mode: session mode would hide it.                     |
-| PB2  | _The tenant context never crosses clients._<br>• **Interleaving:** many interleaved transactions for tenants A and B, through `forTenant` and `withTenantTx` over the 2 server connections, each read only their own tenant's rows. That is 1 000 iterations in random order, with both read paths, and each iteration checks that its tenant-owned row count matches.<br>• **No leftover context:** after a tenant transaction, a context-free query on the same backend (matched by pid) sees `current_setting('app.tenant_id', true)` empty and **zero** tenant rows (RLS default deny). |
-| PB3  | _The isolation suites pass through PgBouncer, unchanged._ The DB isolation, crypto and API integration suites run with every app URL pointed at PgBouncer.<br>• The job asserts their file and test counts **equal** the direct run's in `build-test`.<br>• Every test passes.<br>• Skips are only those already skipped in the direct run.                                                                                                                                                                                                                                                 |
-| PB4  | _No session-scoped SQL in production code._ A static check over production sources fails on:<br>• `SET` without `LOCAL`;<br>• `set_config(…, false)`;<br>• `pg_advisory_lock` / `pg_try_advisory_lock`;<br>• `LISTEN`, `PREPARE`, `CREATE TEMP`, `WITH HOLD`;<br>• `DISCARD`.<br>It reuses spec 0015's SQL tokenizer, so comments and string literals can't hide these. It has a fixture per form, and the current code passes it.                                                                                                                                                          |
-| PB5  | _UTC survives pooling (D6)._ Through PgBouncer:<br>• the existing timezone test passes;<br>• `SHOW TimeZone` returns `UTC` on every backend pid seen in PB1.<br>• **Two mutations each fail a test:** dropping the client's option with no role setting, and removing the role setting while PgBouncer drops the option.                                                                                                                                                                                                                                                                    |
-| PB6  | _No reliance on named prepared statements._ The job runs PgBouncer with `max_prepared_statements = 0`, the strictest setting, and PB3 still passes. A mutation that configures a `statementNameGenerator` fails it.                                                                                                                                                                                                                                                                                                                                                                         |
-| PB7  | _Saturation is still shed as 503 `server.busy` (ADR-026)._<br>• **PgBouncer side:** `query_wait_timeout = 2s` in the job, matching ADR-026's 2 s wait.<br>• **App side:** `isConnectionUnavailable` also recognises PgBouncer's wait-timeout error.<br>• **Test:** with the pool held busy by long transactions, a tenant request answers **503 `server.busy` with `Retry-After`** within 3 s, not a 500 and not a stall.<br>• **Mutation:** without the mapping, the response is a 500, and the test fails.                                                                                |
-| PB8  | _Migrations and setup bypass PgBouncer._<br>• `db:migrate`, `db:setup`, `db:seed` and `rls:check` use the direct URLs (`*_MIGRATOR_URL`, the superuser), never PgBouncer.<br>• The job's step order proves Migrate's session lock works: migrate directly, then test through PgBouncer.<br>• The migrate step's environment contains no PgBouncer URL: the step prints which hosts and ports its URLs point at, without credentials, and the job checks them.                                                                                                                               |
-| PB9  | _Credentials and exposure._<br>• **The auth file** holds SCRAM verifiers only, never passwords. It is git-ignored, mode 0600, and never printed: the setup script logs only role names.<br>• **Listening:** PgBouncer listens on `127.0.0.1` (and the CI service network) only.<br>• **Admin console:** restricted to a dedicated `pgbouncer_admin` user with no app access, or disabled.                                                                                                                                                                                                   |
-| PB10 | _The image (D1)._ It is built from a pinned base digest with a pinned PgBouncer version. It passes spec 0013's gates (0 HIGH/CRITICAL, secret and misconfiguration scans, SBOM), and runs as a non-root UID with a read-only root filesystem and no capabilities.                                                                                                                                                                                                                                                                                                                           |
-| PB11 | _Evidence._ Every PB ID appears in a test name. The mutation checks are recorded with their failing tests:<br>• `pool_mode = session` (PB1's canary and sharing);<br>• `set_config('app.tenant_id', …, false)` in `withTenantTx` (PB2's no-leftover check);<br>• no UTC role setting with the option dropped (PB5);<br>• a statement name generator (PB6);<br>• no wait-timeout mapping (PB7);<br>• one of each PB4 form in a fixture.                                                                                                                                                      |
+| ID   | Criterion                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| ---- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| PB1  | _Transaction pooling is real (probe profile)._ The probe opens **20 client connections** through PgBouncer and keeps **all 20 open** throughout. Each runs 10 transactions reporting `pg_backend_pid()`. **While every client is still connected** (checked through the admin console's `SHOW CLIENTS`, and by the clients' own state):<br>• at most 2 distinct backend pids have appeared;<br>• each backend pid has served at least two different client connections.<br>**The canary:** with both clients still connected, a **session-level** `set_config('uv.canary', <random>, false)` made by client 1 is read by client 2 on the same backend. This shows the job really is in transaction mode, and why the app must never set session state.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| PB2  | _The tenant context never crosses clients (probe profile)._<br>• **Fixtures:** tenants A and B are given the **same number** of probe rows, each carrying a **distinct per-tenant fixture value** (random markers recorded at setup).<br>• **Interleaving:** 1 000 interleaved iterations, in random order, over both read paths (`forTenant`, `withTenantTx`) and the 2 server connections. Every iteration checks, for its tenant:<br> ◦ every returned row's `tenant_id`;<br> ◦ the **exact set** of fixture values;<br> ◦ the row count.<br>• **Mutation:** swapping the two tenants' contexts, with equal counts, fails on the ids and values. A count-only check would miss that, which is why the counts are equal on purpose.<br>• **No leftover context:** after a tenant transaction, a context-free query on the same backend (matched by pid) sees `current_setting('app.tenant_id', true)` empty and **zero** tenant rows (RLS default deny).                                                                                                                                                                                                                                                                                                                                                 |
+| PB3  | _The isolation suites pass through PgBouncer, unchanged (suite profile)._ The DB isolation, crypto and API integration suites run with every app URL pointed at PgBouncer. The comparison job (Design) checks against the direct run in `build-test`:<br>• the same test files and test names;<br>• every test passes;<br>• the same set of skipped tests.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| PB4  | _No session-scoped SQL in production code._ A static check over production sources, built on spec 0015's SQL tokenizer so comments and string literals can't hide anything. It fails on:<br>• `SET` without `LOCAL` (which includes `SET SESSION`, `SET ROLE` and `SET SESSION AUTHORIZATION`), and `RESET`;<br>• `set_config(…, false)`, and **any `set_config` whose third argument isn't a literal `true`**: a locality that can't be established is refused;<br>• the session advisory-lock functions, exclusive and shared: `pg_advisory_lock`, `pg_advisory_lock_shared`, `pg_try_advisory_lock`, `pg_try_advisory_lock_shared`, `pg_advisory_unlock`, `pg_advisory_unlock_shared`, `pg_advisory_unlock_all`;<br>• `LISTEN` and `UNLISTEN`; `PREPARE` and `DEALLOCATE`;<br>• `CREATE TEMP` and `CREATE TEMPORARY`, and `SELECT … INTO TEMP` / `INTO TEMPORARY`;<br>• `DECLARE … WITH HOLD`, and `DISCARD`.<br>There is a fixture per form, and the current code passes.<br>**Its limits, stated:** like spec 0015's guard, it can't see SQL inside stored functions, a value cast to a false type, or code outside the API's and `@univarse/db`'s TypeScript. PB1–PB3 are the runtime evidence for the paths the suites exercise.                                                                    |
+| PB5  | _UTC survives pooling, proven in two independent halves (D6, probe profile)._<br>• **The option propagates:** the app role's default is set to a **non-UTC** zone (`Africa/Lagos`) for this probe, and the client sends `-c TimeZone=UTC`. Every backend pid seen reports `UTC`, so the client's option reached the server through PgBouncer.<br>• **The role default applies:** the role's default is `UTC`, and a probe client sends **no** timezone option. Every backend pid reports `UTC`.<br>• **The suites:** the existing timezone test passes under the suite profile.<br>• **Mutations:** removing the client option fails the first half; removing the role default fails the second. Neither half can pass on the other's account.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| PB6  | _No reliance on named prepared statements (probe profile)._ PgBouncer runs with `max_prepared_statements = 0`, which disables its prepared-statement tracking, and PB3 still passes.<br>• **The mutant:** a client configured with a `statementNameGenerator` that returns a **stable** name for a query. It runs that query once, is **forced onto a different backend** (the first is held busy by another client's open transaction, and the pid is checked to differ), and runs it again. Through PgBouncer it fails, with the prepared statement unknown on the new backend.<br>• **The control:** the same mutant against **direct** PostgreSQL succeeds. So the failure comes from pooling, not from a broken mutant, and connection reuse can't produce an accidental pass.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| PB7  | _Saturation outside a transaction is shed as 503 `server.busy` (ADR-026, probe profile)._<br>• **Saturation:** PgBouncer's platform pool is held fully busy by long transactions from another client.<br>• **The request:** an **uncached** platform lookup outside any transaction (the tenant resolver on a host it hasn't cached), through the API.<br>• **Capture first:** the implementation records the **real wrapped error** Prisma raises for PgBouncer's `query_wait_timeout`. The mapping in `isConnectionUnavailable` matches it **narrowly**: its exact class, code and message shape as captured, not a substring of any message.<br>• **Assertions:**<br> ◦ the request answers **503 `server.busy` with `Retry-After`** within `query_wait_timeout` + 1 s;<br> ◦ **recovery:** after the holders are released, the same lookup answers normally;<br> ◦ **an unrelated error** in the same path (for example, a server error injected by the probe) still answers **500**.<br>• **Mutation:** without the mapping, the test sees a 500 and fails.<br>• **The transaction path** stays covered by the existing P2028 test, now also run under the suite profile.                                                                                                                             |
+| PB8  | _Migrations and setup bypass PgBouncer._<br>• `db:migrate`, `db:setup`, `db:seed` and `rls:check` use direct URLs (the migrator's and the superuser's), never PgBouncer.<br>• The migrate step prints the host and port of each URL it holds, without credentials, and the job checks none is PgBouncer's.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| PB9  | _Authentication, credentials and exposure._<br>• **The auth file:** for each app role, `db:setup` copies the **exact** SCRAM verifier from `pg_authid.rolpassword` into PgBouncer's `auth_file`, under the **same username**. The `[databases]` entries carry **no** forced `user=`, because SCRAM pass-through to the server needs matching secrets and the connecting user's own name. It also writes `pgbouncer.ini` (Design).<br>• **Tests:**<br> ◦ each app role authenticates through PgBouncer;<br> ◦ a wrong password is refused;<br> ◦ **rotation:** re-running `db:setup` changes the passwords and regenerates the file, PgBouncer reloads it, the new password works and the old one is refused.<br>• **Protection of the file:**<br> ◦ verifiers only, never passwords;<br> ◦ git-ignored, and never printed (the script logs role names only);<br> ◦ on Linux (CI), mode `0600`;<br> ◦ on Windows (the owner's machine), an ACL granting only the current user, with inheritance removed (`icacls … /inheritance:r /grant:r <user>:F`);<br> ◦ `db:setup` checks the result after writing and fails if it is wider;<br> ◦ the container mounts the file read-only.<br>• **The admin console:** only for a dedicated `pgbouncer_admin` entry in the auth file, which is not a PostgreSQL role. |
+| PB10 | _The image (D1)._ It is built from a pinned base digest with a pinned PgBouncer version. It passes spec 0013's gates (0 HIGH/CRITICAL, secret and misconfiguration scans, SBOM), and runs as a non-root UID with a read-only root filesystem and no capabilities.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| PB11 | _Evidence._ Every PB ID appears in a test name. The mutation checks are recorded with their failing tests:<br>• `pool_mode = session` (PB1's sharing and canary);<br>• `set_config('app.tenant_id', …, false)` in `withTenantTx` (PB2's no-leftover check);<br>• swapped tenant contexts with equal counts (PB2);<br>• each PB5 half;<br>• the PB6 mutant, with its direct control;<br>• no wait-timeout mapping (PB7);<br>• a forced `user=` in `[databases]` (PB9's authentication);<br>• one of each PB4 form in a fixture.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 
 ## Design
 
-**The job, `pgbouncer-isolation`:**
+**The two profiles (D5).** The same image and auth file serve both; only the pool size differs.
 
-1. **Services:** Postgres 18, as in `build-test`. Valkey, Vault and the object store as the suites need them.
-2. **Setup:** install and build as usual. Then `db:setup`, which also writes the PgBouncer auth file and the role `timezone` settings; `db:migrate` and `db:seed`, all direct; and the Vault setup.
-3. **PgBouncer:** start the D1 image with a generated `pgbouncer.ini`:
-   - `pool_mode = transaction`;
-   - `default_pool_size = 2`, `max_client_conn = 200`;
-   - `max_prepared_statements = 0`, `query_wait_timeout = 2`;
-   - `auth_type = scram-sha-256`, `listen_addr = 127.0.0.1`;
-   - a database entry for each of `univarse_platform` and `univarse_pool_01`.
-4. **Run:** point every app URL (`PLATFORM_DATABASE_URL`, `TENANT_POOL_01_DATABASE_URL`, and so on) at PgBouncer's port, keeping the migrator and superuser URLs direct. Run PB1/PB2/PB7's probe file, then the three suites.
-5. **Compare:** a step reads both jobs' counts from their logs and fails if they differ (PB3).
+| Setting                   | Probe profile (PB1, PB2, PB5, PB6, PB7)                            | Suite profile (PB3)            |
+| ------------------------- | ------------------------------------------------------------------ | ------------------------------ |
+| `pool_mode`               | `transaction`                                                      | `transaction`                  |
+| `default_pool_size`       | **2**                                                              | **10**                         |
+| `max_client_conn`         | 200                                                                | 200                            |
+| `max_prepared_statements` | 0                                                                  | 0                              |
+| `query_wait_timeout`      | 2 s                                                                | 2 s                            |
+| `server_round_robin`      | 0 (the default: the most recently used connection is reused first) | 0                              |
+| `auth_type`               | `scram-sha-256`                                                    | `scram-sha-256`                |
+| `listen_addr`             | `0.0.0.0` inside the container                                     | `0.0.0.0` inside the container |
 
-**Locally:** `pnpm dev:pgbouncer` starts the same image in compose, against the native Postgres. `pnpm test:int:pgbouncer` runs the suites through it, serialized with other integration runs as usual.
+**The network mode: a bridge container,** chosen explicitly:
+
+- **Inside the container,** PgBouncer listens on `0.0.0.0:6432`, so it can be reached from outside it.
+- **Exposure:** the port is published **only on loopback** (`-p 127.0.0.1:6432:6432`). Nothing on the host's other interfaces reaches it.
+- **Reaching Postgres:** PgBouncer connects through `host.docker.internal`, mapped with `--add-host=host.docker.internal:host-gateway`. In CI that is the Postgres service on the runner. Locally it is the native Postgres on the owner's machine.
+- **Locally, `pg_hba.conf`:** if the native Postgres refuses connections from Docker's address range, a `pg_hba.conf` entry for that range (scram, the app databases only) is needed. That is **the owner's step** on their own Postgres install, never done by a script.
+- **Host networking was not chosen:** it would let PgBouncer bind loopback directly, but it isn't uniformly available on Docker Desktop for Windows.
+
+**The jobs and the join (D4, PB3):**
+
+- **`build-test` (existing)** writes machine-readable results for the three suites (vitest's JSON reporter). It uploads them as an artifact, alongside its usual output.
+- **`pgbouncer-isolation` (new)** does, in order:
+  1. sets up and migrates directly;
+  2. starts PgBouncer in the probe profile and runs the probe file (PB1, PB2, PB5, PB6, PB7, PB9);
+  3. restarts PgBouncer in the suite profile and runs the three suites through it, writing the same JSON results;
+  4. uploads them.
+- **`pgbouncer-compare` (new)** has `needs: [build-test, pgbouncer-isolation]`, so it runs only after both have finished. It downloads both artifacts and compares file names, test names, statuses and skips. Nothing depends on fetching an unfinished job's logs.
+- **Before merging:** `pgbouncer-isolation` and `pgbouncer-compare` should be **required status checks** on `main`. That is a repository setting for the owner to change; Claude doesn't change repository settings. Until then, merges follow the existing rule: every check green on the latest commit, with its results read.
+
+**Locally:**
+
+- `pnpm dev:pgbouncer` starts the same image in compose, in either profile.
+- `pnpm test:int:pgbouncer` runs the probes and the suites through it, serialized with other integration runs as usual.
 
 **Code changes (small):**
 
-- `isConnectionUnavailable` also matches PgBouncer's wait-timeout error (PB7);
-- `db:setup` writes the auth file and the role `timezone` settings (D2, D6);
+- `isConnectionUnavailable` gains a narrow match for the captured PgBouncer error (PB7);
+- `db:setup` writes the auth file, its permissions and `pgbouncer.ini`, and sets the role `timezone` defaults (D2, D6, PB9);
 - the PB4 check;
-- the probe test file.
+- the probe file;
+- the JSON results and the comparison step.
 
 Nothing in `forTenant`, `withTenantTx` or the RLS policies changes.
 
 **What stays open, stated plainly:**
 
-- **The production path:** this proves the app is correct through transaction pooling. Running PgBouncer in the local production-like stack, with its TLS, per-role pools (ADR-020 bulkheads) and sizing, is item 7.1.
-- **Code paths no test reaches:** a future session-level construct in a path the suites don't exercise is caught by PB4's static check, not at runtime.
-- **The relay role (spec 0016)** gets its own pool when that spec is implemented. Its role-level timeouts apply to each server session, as spec 0016 states.
+- **The production path:** this proves the app is correct through transaction pooling. Running PgBouncer in the local production-like stack, with TLS, per-role pools (ADR-020 bulkheads) and sizing, is item 7.1.
+- **What PB4 can't see:** stored functions, a value cast to a false type, and code outside the scanned TypeScript. The runtime probes cover only what they exercise.
+- **The suite profile:** it reuses server connections less aggressively than the probe profile. That's by design: it runs the existing suites unchanged, while the probe profile is where sharing is forced.
+- **The relay role (spec 0016)** gets its own pool when that spec is implemented.
+
+## Owner review of revision 1
+
+The owner supported D1–D4 and D6, decided D5 as two profiles, and asked for seven corrections, each now in the criteria and design.
+
+1. **Two profiles:** `pool.int.spec.ts` deliberately holds ten transactions open, which a two-connection pool can't serve. The tiny pool now runs only the dedicated probes, and the unchanged suites run with ten (D5, PB3, the profile table).
+2. **PB7's diagnosis is corrected:** Prisma 7.10's `maxWait` covers the adapter's `BEGIN`, so transactions still end in P2028, and a 2 s/2 s race could mask a missing mapping. The test now uses an uncached platform lookup outside any transaction, captures the real wrapped error and matches it narrowly, and checks recovery and an unrelated 500.
+3. **Stronger PB1 and PB2:** sharing is shown while all frontend connections stay open. Each tenant iteration checks ids and distinct fixture values as well as counts, and fixtures have equal counts, so a swap fails.
+4. **Independent controls:**
+   - **PB5:** propagation is proven with a non-UTC role default, and the role fallback with no client option. A role setting is described as a default, not a force.
+   - **PB6:** the mutant reuses a stable statement name after a forced backend change, with a control against direct PostgreSQL.
+5. **PB4 is tightened:**
+   - **More forms:** `RESET`, the shared and unlock advisory-lock variants, `CREATE TEMPORARY` and `SELECT … INTO TEMP`.
+   - **Unknown locality refused:** a `set_config` whose locality can't be established.
+   - **Limits stated.**
+6. **A join point:** both jobs publish machine-readable results, and a comparison job waits for both. Making the new checks required is the owner's repository setting.
+7. **PB9 at run time:**
+   - **Authentication:** exact SCRAM verifiers, the same username, no forced `user=`.
+   - **Tests:** authentication and rotation.
+   - **File protection:** Windows ACLs as well as Linux permissions.
+   - **Networking:** an explicit bridge mode with a loopback-only published port.
 
 ## Affected docs (in the implementation PR)
 
-- **[07](../07-data-and-database.md):** connections through PgBouncer, the role `timezone` setting, and the no-session-state rule with its check.
-- **[10](../10-infrastructure-and-deployment.md):** the image and the compose service.
-- **[12](../12-testing-strategy.md) §3:** the job, as evidence for layers 1–5 through pooling.
+- **[07](../07-data-and-database.md):** connections through PgBouncer, the role `timezone` default, and the no-session-state rule with its check and limits.
+- **[10](../10-infrastructure-and-deployment.md):** the image, the two profiles and the compose service.
+- **[12](../12-testing-strategy.md) §3:** the jobs, as evidence for layers 1–5 through pooling.
 - **[18](../18-roadmap.md):** item 4, done once implemented and green.
 - **[19](../19-decision-log.md):** ADR-015's PgBouncer row, its CI-job half closed.
 
