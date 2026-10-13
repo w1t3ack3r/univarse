@@ -1,0 +1,60 @@
+# Spec 0015: Cache isolation — product entitlements and key "forget" on the invalidation bus (cross-tenant suite, layer 5)
+
+**Status:** Draft (2026-10-13), for owner review.
+**Phase:** 0. It closes the "Cache isolation" item of [docs/18](../18-roadmap.md): product-cache invalidation (spec 0003 P7) and key-forget propagation (spec 0006). That completes layer 5 of [docs/12 §3](../12-testing-strategy.md) for today's caches.
+**Builds on:**
+
+- [spec 0007](0007-settings.md) ST10/ST11: the settings cache and its Valkey invalidation bus, the pattern reused here;
+- [spec 0003](0003-product-entitlements.md) P7: the products cache;
+- [spec 0006](0006-envelope-encryption.md): the keyring cache (E5/E6) and the destruction boundary;
+- [02 §7.3](../02-architecture.md): tenant cache TTLs.
+
+## Why
+
+Three per-instance caches hold tenant-scoped, security-relevant state. Today only the instance that made a change evicts anything, and only for one of them.
+
+| Cache                             | Holds                        | Today                                                                                                                                                                   | Risk                                                                                                         |
+| --------------------------------- | ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| `ProductService` (API and worker) | the tenant's active products | the changing instance evicts locally; others converge within the TTL (30 s). **No generation guard**, so a read that began before the eviction can re-cache the old set | a disabled product stays usable on other instances for up to 30 s, or indefinitely through the re-cache race |
+| `TenantKeyring` (API and worker)  | **unwrapped DEKs**           | `forget(tenantId)` exists but **nothing calls it**. Key destruction runs in the `keys` CLI, a separate process                                                          | after crypto-shredding, running processes keep decrypting with the destroyed key for up to **1 h** (E6 TTL)  |
+| `TenantResolver` (API)            | host → tenant, status        | no writer exists in the app; tenants change only via seed or DB                                                                                                         | none today; a future writer (the console) must not ship without invalidation                                 |
+
+OWASP's multi-tenant guidance treats cache invalidation as part of tenant isolation (spec 0007 §Why). This spec puts the products and keys caches on the bus, and binds the future tenant-resolver writer.
+
+## Acceptance criteria
+
+| ID  | Criterion                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| CI1 | _Products: cross-instance invalidation._<br>• After a product toggle **commits**, `{tenantId}` is published on `uv:products:invalidate`. That includes the compensated failure path, where the cache must not keep a value the DB no longer holds.<br>• Every API **and worker** instance evicts that tenant's entry.<br>• Tested with two API instances and a worker: a toggle through instance 1 is served by instance 2, and honoured by the worker's product check, within **2 s**.                                                                                                                                                                       |
+| CI2 | _Products: a lost message is bounded._ With instance 2's subscription down, the change is served within the cache **TTL** (30 s; shortened in the test).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| CI3 | _Products: no stale re-cache._ A per-tenant generation, as in settings ST11c: a read that began before an eviction and finished after it does not cache its (old) result.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| CI4 | _Products: Valkey down._ Reads fall back to the DB, toggles still commit, and a publish failure is logged, never thrown.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| CI5 | _Keys: forget is broadcast._<br>• After a key-destruction step **commits** (`destroyTenantKeys`, and `destroyRetiredKey` from the `keys` CLI), `{tenantId}` is published on `uv:keys:forget`.<br>• Every API and worker instance calls `TenantKeyring.forget(tenantId)`, dropping every cached version of that tenant's DEKs. The process that destroyed also forgets locally.<br>• Tested with an API instance and a worker, **both holding the tenant's unwrapped DEK in cache**: after destruction, within **2 s** both have dropped it, and a decrypt with the destroyed version fails with `KeyUnavailableError`, rather than succeeding from the cache. |
+| CI6 | _Keys: a lost forget is bounded and visible._ With a subscriber down, the destroyed DEK leaves that process within the keyring TTL (≤ 1 h, E6); this is tested with a shortened TTL. The CLI's destruction output states the bound: subscribers forget within seconds; a lost message within the keyring TTL; a restart of the API and worker forgets at once.                                                                                                                                                                                                                                                                                                |
+| CI7 | _Isolation of the messages themselves._<br>• Messages are zod-validated; a malformed one is ignored and logged.<br>• They carry **only a tenant id**: no values, no key material, no versions of wrapped keys.<br>• An invalidation or forget for A **never evicts B's entries** (tested: B's cached products and DEKs survive A's message, with no extra DB or Vault reads for B).<br>• Channels are fixed constants; nothing builds a channel name from input.                                                                                                                                                                                              |
+| CI8 | _The tenant resolver, bound before it has a writer._ Recorded as a blocking requirement on whatever first changes a tenant's hosts or status (the console): it must publish on `uv:tenants:invalidate`, and every API instance must evict. A test fails if code outside the seed and test fixtures writes `tenant.status` or `tenant_host` without that publish.                                                                                                                                                                                                                                                                                              |
+| CI9 | _Evidence._ Every CI ID appears in a test name. Mutation checks: no publish; no subscription; no generation check; eviction widened to all tenants; forget not called. docs/12 §3.1 layer 5, docs/18, and the tracked rows in specs 0003, 0006 and 0007 are updated.                                                                                                                                                                                                                                                                                                                                                                                          |
+
+## Design
+
+- **One small bus helper,** `InvalidationBus`: publish after commit, never throw; one dedicated subscriber connection per process that never blocks startup; zod parsing per channel. Products and keys use it.
+  - **Settings stay as built in spec 0007,** and can move onto the helper later with no behaviour change. That is not required here.
+- **Products:**
+  - **The cache** gains a per-tenant generation, as in settings.
+  - **`setEnabled`** publishes in its `finally`, so the compensated path is covered.
+  - **The outbox worker** subscribes too, because it checks products (B10).
+- **Keys:**
+  - **The CLI** connects to Valkey only to publish. It never subscribes, and never needs the API.
+  - **Forgetting a tenant drops every version:** the next decrypt unwraps the live versions again (one Vault call each), and destroyed versions fail. Dropping every version is simpler and safer than per-version forgetting, and costs one unwrap per version after a rare event.
+- **Valkey trust:** as in spec 0007, Valkey is trusted infrastructure on the private network. A forged message can only cause an extra eviction (a cache miss), never a wrong value. That's why messages carry no values.
+
+**Decisions for the owner:**
+
+- **D1, CI6:** should the CLI wait for acknowledgements? Recommended: **no**, and CI6 is written that way. Pub/sub has no delivery receipt, so the CLI states the bound instead (spec 0006's existing destruction boundary). An acknowledgement round-trip would add a second channel and a timeout for little gain locally.
+- **D2, keyring TTL:** should the lost-message bound drop from ≤ 1 h? Recommended: **keep 1 h** now, since the broadcast makes the normal case seconds, and revisit with the shred ledger (backups item).
+
+## Out of scope
+
+- The shred ledger and restore safety (docs/18, backups item).
+- The tenant resolver's own broadcast, until its first writer exists (CI8 binds it).
+- Moving settings onto the helper.
