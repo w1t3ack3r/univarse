@@ -226,6 +226,12 @@ export function planPrune(snapshot, { records = [], trust = {}, pins = [], keep 
       }
       subjects.set(d, [...(subjects.get(d) ?? []), t]);
     }
+    // Every signature index whose subject this plan does NOT delete is a root too, with all its descendants:
+    // orphans (subject absent), and indexes of untouched images. A candidate an orphan index still lists becomes
+    // kept (remove() skips anything kept; only its tags go). (Owner review of f2bdc2b.)
+    for (const [t, idx] of Object.entries(tags)) {
+      if (FALLBACK.test(t) && !subjects.has(`sha256:${FALLBACK.exec(t)[1]}`)) close(idx);
+    }
     plan.live[repo] = live;
     // Nominated tags on a digest that stays, and remove-only tags (their digest is never deleted), are untagged.
     // (Tags on deleted digests go with the manifest.)
@@ -276,6 +282,24 @@ export function planPrune(snapshot, { records = [], trust = {}, pins = [], keep 
         if (!live.has(child))
           throw new Error(`prune plan keeps ${repo}@${d} but not its child ${child}; refusing`);
       }
+    }
+  }
+  // Every signature index that survives keeps all of its descendants.
+  const doomed = new Set(plan.deleteManifests.map((m) => `${m.repo}@${m.digest}`));
+  for (const [repo, { tags = {}, indexes = {} }] of Object.entries(snapshot.repos ?? {})) {
+    const stack = Object.entries(tags)
+      .filter(([t, idx]) => FALLBACK.test(t) && !doomed.has(`${repo}@${idx}`))
+      .map(([, idx]) => idx);
+    const visited = new Set();
+    while (stack.length) {
+      const d = stack.pop();
+      if (visited.has(d)) continue;
+      visited.add(d);
+      if (doomed.has(`${repo}@${d}`))
+        throw new Error(
+          `prune plan deletes ${repo}@${d}, which a surviving signature index references; refusing`,
+        );
+      stack.push(...(indexes[d] ?? []));
     }
   }
   for (const { repo, digest } of plan.deleteManifests) {

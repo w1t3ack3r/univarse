@@ -39,6 +39,7 @@ It never needs the private key.
 - every digest in `releases/deploy-state.json` (current and rollback);
 - every `--keep repo@sha256:…`;
 - anything another tag points at.
+- every signature index whose image isn't being deleted, orphans included, with everything it lists.
 
 **It deletes** an image only when two things hold:
 - a record nominates it by the exact tag the release generated, and the registry agrees;

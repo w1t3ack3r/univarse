@@ -301,6 +301,7 @@ The owner removed 14 accumulated rehearsal tags and trimmed the build cache (16.
 - **Shared digests:** a digest shared with a kept release, such as the unsigned-check image, is only untagged.
 - **Remove-only tags:** negative-check tags are untagged; their digest is never deleted.
 - **Indexes are traversed completely:** a kept digest keeps everything it references, recursively. That covers its own children when it is an index (e.g. a multi-platform image) and its signature index with every listed signature and attestation. A deleted index takes only those children that nothing kept references. The planner also refuses any plan whose kept set isn't closed over every index's children (owner review of `1a4497a`).
+- **Every surviving signature index is a root:** any signature index whose subject this plan does not delete is protected with all its descendants before deletions are calculated. That includes orphans (subject absent) and the indexes of untouched images. A candidate that such an index still lists is kept, and only its tags go. The planner also refuses any plan that deletes something a surviving signature index references (owner review of `f2bdc2b`).
 - **Signature storage:** this registry has no OCI referrers API, so cosign 3 uses the **tag-schema fallback**. A digest's signature, SBOM attestation and provenance attestation are manifests listed in an index tagged `sha256-<hex>`, and they are protected together with their subject.
 
 **Exclusion: the whole operation, not just collection.**
@@ -329,7 +330,7 @@ The owner removed 14 accumulated rehearsal tags and trimmed the build cache (16.
 - It removes its host-side `localhost:5000/…` tag copies at cleanup.
 
 **Proof, local (CI runs the same node tests):**
-- **Plan tests:** `tools/images/prune.test.mjs`, 22 tests, on a synthetic registry laid out like cosign's. The edited-record regression covers five edits:
+- **Plan tests:** `tools/images/prune.test.mjs`, 24 tests, on a synthetic registry laid out like cosign's. The edited-record regression covers five edits:
   - the real release relabelled a rehearsal;
   - its record deleted;
   - a rehearsal record claiming the real release's commit, tags and digests;
@@ -350,13 +351,17 @@ The owner removed 14 accumulated rehearsal tags and trimmed the build cache (16.
   - a kept release published as an index, its record gone, sharing a child with a rehearsal index;
   - verification targets built from signed provenance, covering a kept release with no record and a rebuilt one with two signed api digests, and never taking the role-swap copy as the api image;
   - a kept release missing a role, which stops `--apply` before verifying or deleting;
+  - an orphan signature index sharing a child with a deletion candidate's signature index, where the orphan index and both its children are kept and still reported as an orphan, while the candidate's unshared artifacts go;
+  - an orphan signature index listing a candidate itself, which keeps the candidate and removes only its tag;
   - the exclusion order, checked in the source.
 - **Lock tests:** `registry-lock.test.mjs`, 3 tests: refusal naming the holder; no takeover of stale or half-written locks; a run removes only its own lock.
 - **Mutation checks:** each rule disabled in turn was caught by its intended test (16 rules), with one exception. The newest mutation lets an unsigned verdict alone make any tagged image removable; it is caught by the unsigned-alone test and the off-scheme test. After the review of `1a4497a`, five more were added:
   - reintroducing the reported bug (traversing signature indexes only) is caught by the three index tests, even with the defence-in-depth check disabled;
   - not removing a dropped index's children is caught;
   - dropping the missing-role refusal, verifying only the first digest per role, and ignoring the role are each caught;
-  - removing `--apply`'s refusal is caught. Two signature-based layers are **deliberately redundant**: the kept-release root, and eligibility's "not a kept release" condition. Each alone survives mutation; disabling both is caught, by the planner's final defence-in-depth check and, with that also disabled, by the same-commit rehearsal test.
+  - removing `--apply`'s refusal is caught.
+  - **After the review of `f2bdc2b`:** removing the orphan/surviving-index roots is caught by both new tests, even with the new invariant also disabled. A redundant line, which dropped kept candidates already skipped by `remove()`, survived mutation and was deleted.
+  - **A harness fault, found and fixed:** a mutant that doesn't parse makes the test file fail to load, with no per-test failures listed. Every mutant is now checked with `node --check` first. The two survivors reported above (the deliberately redundant signature layers) parse, so they are genuine. Two signature-based layers are **deliberately redundant**: the kept-release root, and eligibility's "not a kept release" condition. Each alone survives mutation; disabling both is caught, by the planner's final defence-in-depth check and, with that also disabled, by the same-commit rehearsal test.
 
 **Dry run against the real local registry (2026-10-13, under the lock; repeated after the review fixes from a cold start).** The after-fix run lists `--apply`'s verification targets from signed provenance: `12083b8` api `sha256:8af794d21a95444fda06a876edfed514c1419e4a3ab146c02a8488fbbf5ed0db`, web `sha256:1d0c627d2b838d4f08538b272cea0aec918baca2b3e2b146327ef22d8667553f`. The plan is unchanged: 45 deletions and 4 untags. The cold start exposed a race (compose reports healthy before Docker Desktop forwards the port), so the tool now waits for `/v2/` to answer.
 - **Kept by signature:** commit `12083b8ebe7362db3123a8d67a1b4c3b2a09907f`, with its images, unsigned-check and role-swap tags, and all signature artifacts.

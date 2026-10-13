@@ -630,3 +630,36 @@ test('[LR8] a kept release that cannot be fully verified stops --apply before an
     'records are no longer what gets verified',
   );
 });
+
+test('[LR8] an orphan signature index sharing a child with a deletion candidate keeps that child and itself', () => {
+  const { reg, trust, real, reh, records } = world();
+  const [rehIdx, shared, ...rest] = reh.sigs.api; // the rehearsal api image's signature index and its referrers
+  // An orphan signature index (its subject dg(77) is absent) lists one of those same referrer manifests.
+  const orphanTag = fallbackTag(dg(77));
+  reg.push('univarse-api', orphanTag, dg(78));
+  reg.snapshot.repos['univarse-api'].indexes[dg(78)] = [shared, dg(79)];
+  const plan = planPrune(reg.snapshot, { records, trust });
+  const del = deleted(plan);
+  for (const d of [dg(78), shared, dg(79)]) {
+    assert.ok(
+      !del.has(`univarse-api@${d}`) && plan.live['univarse-api'].has(d),
+      `orphan index and its children kept: ${d}`,
+    );
+  }
+  assert.ok(
+    plan.orphanedIndexes.some((o) => o.tag === orphanTag),
+    'still reported as an orphan',
+  );
+  for (const d of [dg(3), rehIdx, ...rest])
+    assert.ok(del.has(`univarse-api@${d}`), `the candidate's unshared artifacts go: ${d}`);
+  assertRealReleaseIntact(plan, real);
+});
+
+test('[LR8] an orphan signature index that lists a candidate itself protects it; only its tag goes', () => {
+  const { reg, trust, records } = world();
+  reg.push('univarse-api', fallbackTag(dg(77)), dg(78));
+  reg.snapshot.repos['univarse-api'].indexes[dg(78)] = [dg(3)];
+  const plan = planPrune(reg.snapshot, { records, trust });
+  assert.ok(!deleted(plan).has(`univarse-api@${dg(3)}`));
+  assert.ok(plan.untag.some((u) => u.repo === 'univarse-api' && u.tag === 'sha-bbbbbbb-rehearsal'));
+});
