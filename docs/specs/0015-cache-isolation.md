@@ -1,6 +1,6 @@
 # Spec 0015: Cache isolation — product entitlements and key "forget" on the invalidation bus (cross-tenant suite, layer 5)
 
-**Status:** **Implemented (2026-10-13)**; met once reviewed and green in CI. **Accepted (2026-10-13)** by the owner, after review of revisions 1 and 2 (#65). D1 (no acknowledgements) and D2 (keep the 1-hour TTL) are decided. Acceptance added two CI7 edge-case tests (an unwrap finishing after the full TTL; old callbacks meeting a replacement load) and corrected the TTL reference to E5.
+**Status:** **Complete for today's caches (2026-10-13)**: #66 merged as `b4df59df5de96ba2bfb867715e41df73bc96f56a` after the owner's review and green CI on the exact head; see [Completion record](#completion-record-2026-10-13). **Accepted (2026-10-13)** by the owner, after review of revisions 1 and 2 (#65). D1 (no acknowledgements) and D2 (keep the 1-hour TTL) are decided. Acceptance added two CI7 edge-case tests (an unwrap finishing after the full TTL; old callbacks meeting a replacement load) and corrected the TTL reference to E5.
 **Phase:** 0. It closes the "Cache isolation" item of [docs/18](../18-roadmap.md): product-cache invalidation (spec 0003 P7) and key-forget propagation (spec 0006). That completes layer 5 of [docs/12 §3](../12-testing-strategy.md) for today's caches.
 **Builds on:**
 
@@ -416,3 +416,35 @@ The false-cast, run-time SQL and external-writer limitations above stay with the
 | Keys: the listener doesn't forget            | CI5                                                                                     |
 | Keys: notify on a no-op destruction          | CI9                                                                                     |
 | Keys: publish before the destruction commits | CI9 (the rolled-back destruction)                                                       |
+
+## Completion record (2026-10-13)
+
+**Complete for today's caches:** products and key forget on the invalidation bus, with CI1–CI11 met. Layer 5 of [docs/12 §3](../12-testing-strategy.md) is complete for today's caches. Phase 0 stays open ([docs/18](../18-roadmap.md)).
+
+**What was merged:**
+
+- **PR:** #66, accepted by the owner after seven review rounds, of `c6dd715` through `b24fb4c`.
+- **Head:** `b24fb4c9a9a423125461e300634233dde14bf849`.
+- **Merge:** squash-merged into `main` as `b4df59df5de96ba2bfb867715e41df73bc96f56a`.
+
+**CI on that exact head:** run `38450407103`, all jobs green. The counts below were checked in its logs:
+
+| Step                                             | Result                                                                                          |
+| ------------------------------------------------ | ----------------------------------------------------------------------------------------------- |
+| API unit                                         | 175/175, including `cache-writers.spec.ts` (CI10, CI9) 11/11 and `invalidation-bus.spec.ts` 3/3 |
+| `@univarse/crypto` unit                          | 26/26, including `keyring.spec.ts` (CI7) 12/12                                                  |
+| API integration                                  | 369 passed, 1 skipped, including `cache-isolation.int.spec.ts` 13/13                            |
+| DB isolation (as the app role)                   | 30/30                                                                                           |
+| RLS gate                                         | 14 tenant tables isolated                                                                       |
+| Envelope encryption against real Vault           | 10/10                                                                                           |
+| Traces through a real collector                  | 5/5                                                                                             |
+| E2E, desktop and mobile                          | 32/32                                                                                           |
+| Browser journeys against the containerised stack | 32/32                                                                                           |
+| Image gate proofs                                | 11/11 proved                                                                                    |
+| Hardened runtime smoke                           | passed                                                                                          |
+
+**Carried forward, not closed by this spec:**
+
+- **The CI10 static guard's limits:** a type that lies (a cast through `as unknown as string`), behaviour inside the database (stored functions, and SQL assembled at run time), and writes from outside this TypeScript program. These move to the **separate database-trigger and platform-outbox spec**. The guard also treats a guarded table that a write statement only reads as a write; that conservative behaviour is accepted as documented.
+- **The JI5–JI7 failure** in the first combined local run is still **unexplained** (see [the review of `c6dd715`](#owner-review-of-c6dd715-66-three-gaps-and-three-smaller-points-fixed)). It hasn't recurred in any later local run or in CI.
+- **The shred ledger** and restore safety are tracked separately, with backups ([docs/18](../18-roadmap.md)). They also revisit D2's 1-hour bound.
