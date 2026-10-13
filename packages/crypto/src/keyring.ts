@@ -40,6 +40,9 @@ export interface KeyringOptions {
   readonly schedule?: Schedule;
 }
 
+/** The ceiling on every keyring's TTL (docs/07 §8, spec 0006 E5): the latest any process can hold a DEK. */
+export const KEYRING_MAX_TTL_MS = 60 * 60_000;
+
 /** How many times a load is restarted after its result was invalidated (forgotten, or past its deadline). */
 const MAX_RESTARTS = 2;
 
@@ -57,7 +60,7 @@ export class TenantKeyring {
     private readonly provider: KeyProvider,
     opts: KeyringOptions = {},
   ) {
-    this.ttlMs = Math.min(opts.ttlMs ?? 60 * 60_000, 60 * 60_000);
+    this.ttlMs = Math.min(opts.ttlMs ?? KEYRING_MAX_TTL_MS, KEYRING_MAX_TTL_MS);
     this.maxEntries = opts.maxEntries ?? 2_000;
     this.now = opts.now ?? Date.now;
     this.schedule = opts.schedule ?? defaultSchedule;
@@ -73,7 +76,43 @@ export class TenantKeyring {
     return row.version;
   }
 
-  /** The DEK for (tenant, version): cached, or unwrapped once. Throws KeyUnavailableError (E6). */
+  /**
+   * Scoped key ownership for cipher operations (spec 0015, owner review of #66): `fn` gets a PRIVATE copy of the
+   * DEK, taken synchronously from a live cache entry, and the copy is zeroed when `fn` settles. Eviction may zero
+   * the cached buffer at any moment (that is how a forgotten or expired key leaves memory); it can never reach a
+   * copy in use, so no cipher operation ever runs with a zeroed key. Throws KeyUnavailableError (E6).
+   */
+  async withKey<T>(
+    tenantId: string,
+    version: number,
+    fn: (key: Buffer) => T | Promise<T>,
+  ): Promise<T> {
+    const id = `${tenantId}:${version}`;
+    let copy: Buffer | null = null;
+    for (let attempt = 0; attempt <= MAX_RESTARTS + 1 && !copy; attempt++) {
+      const hit = this.cache.get(id);
+      // Read and copied in the same tick: nothing can evict (and zero) the entry in between.
+      if (hit && hit.expiresAt > this.now()) copy = Buffer.from(hit.key);
+      // Otherwise load it, then read the CACHE again: the buffer a load returns may already be evicted by the
+      // time this continuation runs.
+      else await this.key(tenantId, version);
+    }
+    if (!copy) throw new KeyUnavailableError('provider_unavailable');
+    if (copy.every((b) => b === 0)) {
+      copy.fill(0);
+      throw new KeyUnavailableError('provider_unavailable'); // fail closed: never encrypt under an all-zero key
+    }
+    try {
+      return await fn(copy);
+    } finally {
+      copy.fill(0);
+    }
+  }
+
+  /**
+   * The CACHED DEK buffer for (tenant, version): cached, or unwrapped once. Throws KeyUnavailableError (E6).
+   * Not for cipher operations: eviction can zero this buffer at any moment. Use `withKey`.
+   */
   async key(tenantId: string, version: number): Promise<Buffer> {
     for (let attempt = 0; ; attempt++) {
       const id = `${tenantId}:${version}`;

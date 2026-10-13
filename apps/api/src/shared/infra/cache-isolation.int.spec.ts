@@ -24,6 +24,7 @@ import { createApp } from '../../bootstrap.js';
 import { loadConfig, type AppConfig } from '../../config/config.js';
 import type { Actor } from '../../modules/identity/actor.js';
 import { ProductService } from '../../modules/products/product.service.js';
+import { AuditWriter } from '../audit/audit-writer.js';
 import { createHarness, type Harness } from '../../testing/int-harness.js';
 import type { TenantContext } from '../tenancy/tenant-resolver.service.js';
 import { WorkerModule } from '../../worker.module.js';
@@ -48,6 +49,9 @@ const meta = {
 const instance = async (env: Record<string, string> = {}) => {
   const app = await createApp(loadConfig({ ...process.env, NODE_ENV: 'test', ...env }));
   apps.push(app);
+  // Subscriptions are acknowledged before any test publishes: otherwise a message can race the SUBSCRIBE.
+  // (Not for an instance whose Valkey is deliberately unreachable: its SUBSCRIBE can never be acknowledged.)
+  if (!env.VALKEY_URL) await app.get(InvalidationBus).ready();
   return app;
 };
 /** A process like the `keys` CLI: the worker module, publishing but never subscribing. */
@@ -111,6 +115,8 @@ beforeAll(async () => {
     type: 'UNIVERSITY',
     status: 'ACTIVE',
   };
+  await h.app.get(InvalidationBus).ready();
+  await h.workerCtx.get(InvalidationBus).ready();
   await h.platform.tenantProduct.updateMany({
     where: { tenantId: h.tenants.demo, product: PRODUCT },
     data: { entitled: true, enabled: false },
@@ -146,6 +152,37 @@ describe('[CI1][CI2][CI3][CI4] products on the bus', () => {
     ).toBeLessThan(2_000);
   });
 
+  it('[CI1][CI10] the compensated path publishes too: a toggle whose audit write fails is undone, and a publish still follows', async () => {
+    const listener = await listen(CHANNELS.products);
+    try {
+      const spy = vi
+        .spyOn(h.app.get(AuditWriter), 'write')
+        .mockRejectedValueOnce(new Error('injected audit failure'));
+      await expect(toggle(true)).rejects.toThrow(/injected audit failure/);
+      spy.mockRestore();
+      // Compensated: the row is back where it was...
+      expect(
+        (
+          await h.platform.tenantProduct.findFirstOrThrow({
+            where: { tenantId: h.tenants.demo, product: PRODUCT },
+          })
+        ).enabled,
+      ).toBe(false);
+      // ...and the invalidation was still published, after the platform write and its compensation.
+      expect(
+        await waitFor(
+          () =>
+            listener.seen.some(
+              (m) => (JSON.parse(m) as { tenantId: string }).tenantId === h.tenants.demo,
+            ),
+          2_000,
+        ),
+      ).toBeLessThan(2_000);
+    } finally {
+      listener.close();
+    }
+  });
+
   it('[CI2][CI11] with instance 2’s subscription down, the change is served within the (shortened) TTL', async () => {
     const app2 = await instance({ TENANT_CACHE_TTL_MS: '1500' });
     const p2 = app2.get(ProductService);
@@ -171,18 +208,23 @@ describe('[CI1][CI2][CI3][CI4] products on the bus', () => {
     const real = platform.tenantProduct.findMany.bind(platform.tenantProduct);
     let release!: () => void;
     const gate = new Promise<void>((r) => (release = r));
+    let captured!: () => void;
+    const oldResultCaptured = new Promise<void>((r) => (captured = r));
     const spy = vi
       .spyOn(platform.tenantProduct, 'findMany')
       .mockImplementationOnce(async (...a: unknown[]) => {
         const rows = await real(...a);
+        captured(); // the old DB result is in hand
         await gate;
         return rows;
       });
     const inFlight = p2.isActive(h.tenants.demo, PRODUCT);
-    await new Promise((r) => setTimeout(r, 150));
+    await oldResultCaptured; // a signal, not a sleep: the read has captured the old row
     const before = bus2.received.get(CHANNELS.products) ?? 0;
     await toggle(true);
-    await waitFor(() => (bus2.received.get(CHANNELS.products) ?? 0) > before, 2_000);
+    expect(
+      await waitFor(() => (bus2.received.get(CHANNELS.products) ?? 0) > before, 2_000),
+    ).toBeLessThan(2_000);
     release();
     expect(await inFlight).toBe(false); // that read saw the old row, which is fine
     expect(await p2.isActive(h.tenants.demo, PRODUCT)).toBe(true); // but it wasn't cached
@@ -262,6 +304,25 @@ describe('[CI5][CI6] key forget on the bus', () => {
     await cli.get(KeyDestruction).shredTenantKeys(t, null, 'cache isolation test');
     expect(zeroed(key)).toBe(false); // the message never arrived
     expect(await waitFor(() => zeroed(key), 3_000)).toBeLessThan(3_000);
+  });
+
+  it('[CI6][CI11] the fallback deadline is the shared one-hour ceiling, not the sender’s TTL: a receiver with a longer TTL and a lost notice still holds the key past the sender’s TTL', async () => {
+    const t = await scratchTenant('ttl');
+    const receiver = await instance(); // the default DEK TTL: one hour
+    const key = await cachedKey(receiver, t);
+    receiver.get(InvalidationBus).stopListening(); // its notice is lost
+    const sender = await cliContext({ DEK_CACHE_TTL_MS: '1000' }); // a CLI configured with a 1 s TTL
+    const before = Date.now();
+    const { report } = await sender
+      .get(KeyDestruction)
+      .shredTenantKeys(t, null, 'cache isolation test');
+    const deadline = report!.fallbackDeadline.getTime();
+    expect(deadline - before).toBeGreaterThanOrEqual(60 * 60_000 - 5_000); // destruction time + 1 h, not + 1 s
+    expect(deadline - before).toBeLessThanOrEqual(60 * 60_000 + 5_000);
+    expect(report!.lines.join('\n')).toMatch(/60 min ceiling on any key-cache TTL/);
+    await new Promise((r) => setTimeout(r, 1_500)); // past the SENDER's TTL
+    expect(zeroed(key)).toBe(false); // the receiver still holds it: a sender-TTL deadline would have been false
+    receiver.get(TenantKeyring).forget(t); // tidy: don't leave the destroyed key cached for an hour
   });
 
   it('[CI6][CI11] with Valkey unavailable, destruction finishes within the bound and reports delivery unconfirmed', async () => {
@@ -344,12 +405,15 @@ describe('[CI8] the messages themselves are isolated', () => {
     };
     await h.app.get(ProductService).invalidate(a);
     await (await cliContext()).get(KeyDestruction).shredTenantKeys(a, null, 'cache isolation test');
-    await waitFor(
-      () =>
-        (bus2.received.get(CHANNELS.products) ?? 0) > before.p &&
-        (bus2.received.get(CHANNELS.keysForget) ?? 0) > before.k,
-      2_000,
-    );
+    // Both messages must actually have arrived, or "B untouched" below would prove nothing.
+    expect(
+      await waitFor(
+        () =>
+          (bus2.received.get(CHANNELS.products) ?? 0) > before.p &&
+          (bus2.received.get(CHANNELS.keysForget) ?? 0) > before.k,
+        2_000,
+      ),
+    ).toBeLessThan(2_000);
     await p2.isActive(b, PRODUCT);
     expect(reads).not.toHaveBeenCalled(); // B served from its cache: no extra DB read
     expect(zeroed(bKey)).toBe(false);

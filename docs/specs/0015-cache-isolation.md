@@ -54,7 +54,59 @@ OWASP's multi-tenant guidance treats cache invalidation as part of tenant isolat
   - **The CLI** connects to Valkey only to publish. It never subscribes, and never needs the API.
   - **Forgetting a tenant drops every version, cached and in flight.** The next decrypt unwraps the live versions again (one Vault call each); destroyed versions fail.
   - **The keyring's guard** follows CI7: a generation recorded at load start and checked before caching; the deadline set at load start; a timer per entry that zeroes on expiry; zeroing on every discard.
+  - **Cipher operations own a private copy of the key** (`withKey`), so eviction, which zeroes the cached buffer, can never reach a key in use.
+  - **The reported fallback deadline** is destruction time plus the shared one-hour ceiling on any keyring TTL, never the sender's own TTL.
 - **Valkey trust:** as in spec 0007, Valkey is trusted infrastructure on the private network. A forged message can only cause an extra eviction (a cache miss), never a wrong value, which is why messages carry no values.
+
+## Owner review of `c6dd715` (#66): three gaps and three smaller points, fixed
+
+**1. Eviction could corrupt encryption: scoped key ownership.**
+
+- **The gap:** with the cache full, a concurrent load could zero the cached DEK between `FieldCrypto` obtaining it and using it, so the ciphertext was sealed under an all-zero key. The owner reproduced it.
+- **The fix:** `TenantKeyring.withKey(tenant, version, fn)` gives `fn` a **private copy**, taken synchronously from a live cache entry in the same tick it is read, and zeroes the copy when `fn` settles. After a load it re-reads the cache rather than trusting the returned buffer. An all-zero copy fails closed.
+- **Callers:** `FieldCrypto.encrypt`, `decrypt` and `reencrypt` all use it. `key()` remains for inspection only, documented as unsafe for cipher work.
+- **Cache zeroing is preserved:** eviction still zeroes the cached buffer at once.
+- **Regression tests (`keyring.spec.ts`):**
+  - an eviction mid-operation, by `forget` and by a full cache (`maxEntries: 1`), never changes the key in use, and the copy is zeroed after;
+  - `FieldCrypto` with an eviction exactly in the obtain-to-use window, starting cached and uncached: the ciphertext opens with the tenant's real key and **never** with an all-zero key;
+  - `FieldCrypto` never calls `key()`.
+- **Mutations:** with `encrypt` back on the cached buffer, the behavioural test fails, so it reproduces the owner's probe. With `withKey` handing out the cached buffer instead of a copy, the eviction test fails.
+
+**2. The fallback deadline used the sender's TTL: now the shared ceiling.** The report says destruction time + `KEYRING_MAX_TTL_MS` (one hour, the cap every keyring enforces), because no deployment-wide shorter bound is established. A CI6 test runs a 1 s-TTL CLI against an API instance on the 1-hour default with a lost notice. The report says + 1 h, and the receiver **still holds the key after the sender's 1 s**, so a sender-TTL deadline would have been false.
+
+**3. CI10 didn't enforce publication: now it fails closed.**
+
+- **What counts as a write:** **any** write to `tenant`, `tenant_host` or `tenant_product` in production code, in any form the guard recognises:
+  - a delegate call, with or without a leading dot, including `upsert` and the `…AndReturn` variants;
+  - raw `INSERT`/`UPDATE`/`DELETE` SQL;
+  - dynamic `['tenant']` delegate access.
+    Variable-based `data` doesn't matter, because every write call counts.
+- **Reviewed writers only:** such a write is refused unless its file is a **reviewed writer**. A reviewed writer must make an actual `.publish(<channel>, …)` call, with comments stripped and a bare mention of the channel not counting, and must name a post-commit publication test that exists. A reviewed entry whose file no longer writes fails as stale.
+- **Today's one reviewed writer:** `product.service.ts` (`tenant_product.enabled`). Its proof is a new test: with an audit failure injected, the toggle is compensated and a publish still follows.
+- **Self-tests** cover every recognised form, a comment-only channel, a mention-only channel, a real publish, a stale entry, and reads.
+- **Mutations:** no comment stripping; no raw-SQL pattern; no dynamic-access pattern; a loose publish check. Each is caught.
+
+**Smaller points:**
+
+- **CI3:** the 150 ms sleep is replaced by a "the old DB result was captured" signal from inside the held read, and the delivery wait is asserted.
+- **CI8:** the wait for both messages is asserted to have succeeded before B's cache is checked.
+- **`publish()`:** message validation now sits inside its error boundary. A new unit test (`invalidation-bus.spec.ts`) shows an invalid tenant id is reported as unconfirmed and never thrown, with nothing sent; a hanging publisher is cut off at the timeout; a rejecting one is reported. Moving validation back outside the boundary fails the test.
+
+**Runs after the fixes:**
+
+- **Two back-to-back combined runs** of the six affected integration files (cache isolation, products, outbox, settings, key rotation, key-sweep isolation): **79/79 each**.
+- **Units:** API 168/168, crypto 26/26. Lint and typecheck are clean.
+
+**Two test-harness faults found by the combined runs, fixed:**
+
+1. **CI1 lost a message.** A message published right after a fresh instance started could race that instance's `SUBSCRIBE`, and then CI1's failure left `helpdesk` enabled, cascading into later tests. `InvalidationBus.ready()` now resolves once every requested subscription is acknowledged. The tests await it before publishing; production startup never waits on it.
+2. **CI4 timed out** after that change: the helper awaited `ready()` on an instance whose Valkey is deliberately unreachable, whose `SUBSCRIBE` can never be acknowledged. The helper skips it for such instances. The Valkey-down behaviour is unchanged: startup doesn't wait, reads go to the DB, writes commit, and publishing is bounded and never throws (CI4, CI6).
+
+**Recorded as unexplained:**
+
+- **The failure:** in the first combined run, the key-sweep isolation tests JI5–JI7 failed. That run's output was captured only through a `grep`, with no error text. They passed alone, and in the three combined runs since.
+- **The cause is not established.** Separate test processes rule out shared in-memory state, but **not** interference through the shared Postgres or Valkey.
+- **Where the outputs are:** the full outputs of the later runs, and the grep-only record of the first, are kept locally in `test-results/spec-0015-review-c6dd715/` (git-ignored).
 
 ## Out of scope
 

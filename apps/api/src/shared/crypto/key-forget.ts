@@ -2,13 +2,12 @@
 //   • KeyForgetListener: in every API and worker process, `uv:keys:forget` → TenantKeyring.forget(tenantId).
 //   • notifyKeysDestroyed: the destroying process forgets locally, then publishes (bounded, never throws) and
 //     reports what is KNOWN: receivers (PUBLISH's count, not a confirmation) or "delivery unconfirmed", plus the
-//     fallback deadline (destruction time + the keyring TTL) and the restart guidance.
+//     fallback deadline (destruction time + the shared key-cache TTL ceiling) and the restart guidance.
 //   • shredTenantKeys: the ONLY production path to full-tenant destruction (`destroyTenantKeys`); it notifies only
 //     after the destruction committed and destroyed something (CI9).
 import { Inject, Injectable, type OnModuleInit } from '@nestjs/common';
-import { destroyTenantKeys, TenantKeyring } from '@univarse/crypto';
+import { destroyTenantKeys, KEYRING_MAX_TTL_MS, TenantKeyring } from '@univarse/crypto';
 import type { PlatformClient } from '@univarse/db';
-import { APP_CONFIG, type AppConfig } from '../../config/config.js';
 import { PLATFORM_DB } from '../db/db.module.js';
 import { CHANNELS, InvalidationBus } from '../infra/invalidation-bus.js';
 
@@ -37,7 +36,6 @@ export interface ForgetReport {
 export class KeyDestruction {
   constructor(
     @Inject(PLATFORM_DB) private readonly platform: PlatformClient,
-    @Inject(APP_CONFIG) private readonly config: AppConfig,
     private readonly keyring: TenantKeyring,
     private readonly bus: InvalidationBus,
   ) {}
@@ -46,12 +44,14 @@ export class KeyDestruction {
   async notifyKeysDestroyed(tenantId: string, destroyedAt = new Date()): Promise<ForgetReport> {
     this.keyring.forget(tenantId);
     const r = await this.bus.publish(CHANNELS.keysForget, tenantId);
-    const fallbackDeadline = new Date(destroyedAt.getTime() + this.config.DEK_CACHE_TTL_MS);
+    // The SHARED ceiling every keyring enforces, not this process's TTL: a receiver may run a longer TTL than the
+    // sender, up to the ceiling (owner review of #66). No deployment-wide shorter bound is established.
+    const fallbackDeadline = new Date(destroyedAt.getTime() + KEYRING_MAX_TTL_MS);
     const lines = [
       r.delivered
         ? `forget published: received by ${String(r.receivers)} subscriber connection(s); this is not a confirmation that they forgot`
         : `forget NOT published (${r.reason}): delivery unconfirmed`,
-      `fallback deadline: every process drops the destroyed key by ${fallbackDeadline.toISOString()} (destruction time + the ${String(Math.round(this.config.DEK_CACHE_TTL_MS / 60_000))} min key-cache TTL)`,
+      `fallback deadline: every process drops the destroyed key by ${fallbackDeadline.toISOString()} (destruction time + the ${String(KEYRING_MAX_TTL_MS / 60_000)} min ceiling on any key-cache TTL)`,
       'to forget at once: restart the API and the worker',
     ];
     return { tenantId, receivers: r.delivered ? r.receivers : null, fallbackDeadline, lines };

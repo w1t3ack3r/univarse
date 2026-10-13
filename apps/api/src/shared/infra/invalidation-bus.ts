@@ -34,6 +34,7 @@ export const BUS_SUBSCRIBE = Symbol('BUS_SUBSCRIBE');
 export class InvalidationBus implements OnModuleDestroy {
   private readonly logger = new Logger('InvalidationBus');
   private subscriber: Redis | null = null;
+  private readonly subscriptions: Promise<void>[] = [];
   private readonly handlers = new Map<Channel, ((tenantId: string) => void)[]>();
   /** Messages received and handled, per channel (tests wait on it). */
   readonly received = new Map<Channel, number>();
@@ -49,9 +50,10 @@ export class InvalidationBus implements OnModuleDestroy {
     tenantId: string,
     timeoutMs = PUBLISH_TIMEOUT_MS,
   ): Promise<PublishResult> {
-    const body = JSON.stringify(Message.parse({ tenantId }));
     let timer: NodeJS.Timeout | undefined;
     try {
+      // Validation is inside the boundary too: publish() never throws, whatever it is given (owner review of #66).
+      const body = JSON.stringify(Message.parse({ tenantId }));
       const receivers = await Promise.race([
         this.publisher.publish(channel, body),
         new Promise<never>((_, reject) => {
@@ -87,14 +89,25 @@ export class InvalidationBus implements OnModuleDestroy {
     }
     this.handlers.set(channel, [handler]);
     const sub = this.connection();
-    sub
-      .subscribe(channel)
-      .catch((err: unknown) =>
-        this.logger.warn(
-          { event: 'cache.invalidation.subscribe_failed', channel, error: (err as Error).name },
-          'Subscribe failed',
-        ),
-      );
+    this.subscriptions.push(
+      sub.subscribe(channel).then(
+        () => undefined,
+        (err: unknown) =>
+          this.logger.warn(
+            { event: 'cache.invalidation.subscribe_failed', channel, error: (err as Error).name },
+            'Subscribe failed',
+          ),
+      ),
+    );
+  }
+
+  /**
+   * Resolves once every subscription requested so far is acknowledged (or has failed). Startup never waits on it;
+   * tests do, so a message published right after an instance starts can't race its SUBSCRIBE. While Valkey is
+   * unreachable it doesn't resolve (the connection keeps retrying), which is why nothing in production awaits it.
+   */
+  async ready(): Promise<void> {
+    await Promise.all(this.subscriptions);
   }
 
   /** Stops receiving (shutdown; tests simulate a lost message with it). */

@@ -11,13 +11,18 @@ export class FieldCrypto {
 
   async encrypt(tenantId: string, plaintext: Uint8Array, aad: string): Promise<string> {
     const version = await this.keyring.activeVersion(tenantId);
-    const dek = await this.keyring.key(tenantId, version);
-    return encryptV2(dek, version, plaintext, aad);
+    // Scoped key ownership (spec 0015): a private copy of the DEK, zeroed after use; eviction can't touch it.
+    return this.keyring.withKey(tenantId, version, (dek) =>
+      encryptV2(dek, version, plaintext, aad),
+    );
   }
 
   async decrypt(tenantId: string, stored: string, aad: string): Promise<Buffer> {
     const parsed = parseCipher(stored);
-    if (parsed.format === 'v2') return decryptWith(await this.keyring.key(tenantId, Number(parsed.key)), parsed, aad);
+    if (parsed.format === 'v2')
+      return this.keyring.withKey(tenantId, Number(parsed.key), (dek) =>
+        decryptWith(dek, parsed, aad),
+      );
     const legacy = this.legacy.keys.get(parsed.key);
     if (!legacy) throw new Error(`Unknown legacy encryption key id ${parsed.key}`);
     return decryptWith(legacy, parsed, aad);
@@ -27,11 +32,18 @@ export class FieldCrypto {
    * E7/E9: the value re-encrypted under `activeVersion`, or null when it is already there. The
    * plaintext never leaves this call and is zeroed after use.
    */
-  async reencrypt(tenantId: string, stored: string, aad: string, activeVersion: number): Promise<string | null> {
+  async reencrypt(
+    tenantId: string,
+    stored: string,
+    aad: string,
+    activeVersion: number,
+  ): Promise<string | null> {
     if (keyVersionOf(stored) === activeVersion) return null;
     const plaintext = await this.decrypt(tenantId, stored, aad);
     try {
-      return encryptV2(await this.keyring.key(tenantId, activeVersion), activeVersion, plaintext, aad);
+      return await this.keyring.withKey(tenantId, activeVersion, (dek) =>
+        encryptV2(dek, activeVersion, plaintext, aad),
+      );
     } finally {
       plaintext.fill(0);
     }

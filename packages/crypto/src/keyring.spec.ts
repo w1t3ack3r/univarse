@@ -276,3 +276,109 @@ describe('[CI7] the keyring: old callbacks never touch a replacement', () => {
     expect(held.calls()).toBe(2); // no extra unwrap for B
   });
 });
+
+describe('[CI7] scoped key ownership: eviction never reaches a key in use (owner review of #66)', () => {
+  /** A real local provider and platform rows for A and B, so ciphertexts can be checked end to end. */
+  async function realRing(opts: { maxEntries?: number } = {}) {
+    const { LocalKeyProvider, wrapContext } = await import('./providers.js');
+    const provider = new LocalKeyProvider('t', randomBytes(32).toString('base64'));
+    const rows = await Promise.all(
+      [A, B].map(async (tenantId) => ({
+        tenantId,
+        version: 1,
+        status: 'ACTIVE',
+        wrappedDek: await provider.wrap(randomBytes(32), wrapContext(tenantId, 1)),
+      })),
+    );
+    const find = (w: { tenantId?: string; status?: string; version?: number }) =>
+      rows.find(
+        (r) =>
+          (!w.tenantId || r.tenantId === w.tenantId) &&
+          (!w.status || r.status === w.status) &&
+          (!w.version || r.version === w.version),
+      ) ?? null;
+    const platform = {
+      tenantDataKey: {
+        findFirst: vi.fn(({ where }: { where: { tenantId: string; status?: string } }) =>
+          Promise.resolve(find(where)),
+        ),
+        findUnique: vi.fn(
+          ({ where }: { where: { tenantId_version: { tenantId: string; version: number } } }) =>
+            Promise.resolve(find(where.tenantId_version)),
+        ),
+      },
+    } as unknown as PlatformClient;
+    return {
+      provider,
+      platform,
+      ring: new TenantKeyring(platform, provider, {
+        ttlMs: 60_000,
+        ...opts,
+        schedule: manualSchedule().schedule,
+      }),
+    };
+  }
+
+  it('[CI7] a key in use survives its entry being evicted mid-operation (forget, and a full cache); the copy is zeroed after', async () => {
+    for (const evict of ['forget', 'full-cache'] as const) {
+      const { ring } = await realRing({ maxEntries: 1 });
+      const cached = await ring.key(A, 1);
+      const original = Buffer.from(cached);
+      let held: Buffer | undefined;
+      const seen = await ring.withKey(A, 1, async (k) => {
+        held = k;
+        if (evict === 'forget') ring.forget(A);
+        else await ring.key(B, 1); // the 1-entry cache is full: loading B evicts (and zeroes) A's cached buffer
+        await Promise.resolve();
+        return Buffer.from(k);
+      });
+      expect(zeroed(cached), `${evict}: the cached buffer was evicted and zeroed`).toBe(true);
+      expect(seen.equals(original), `${evict}: the operation saw the real key throughout`).toBe(
+        true,
+      );
+      expect(zeroed(held!), `${evict}: the private copy is zeroed once the operation ends`).toBe(
+        true,
+      );
+    }
+  });
+
+  it('[CI7] FieldCrypto: with an eviction in the window between obtaining and using the key, ciphertext is under the real key, never all-zero', async () => {
+    const { FieldCrypto } = await import('./field-crypto.js');
+    const { decryptWith, parseCipher } = await import('./cipher.js');
+    for (const start of ['cached', 'uncached'] as const) {
+      const { ring } = await realRing({ maxEntries: 1 });
+      const realKey = Buffer.from(await ring.key(A, 1));
+      if (start === 'uncached') ring.forget(A);
+      // Hostile timing, once: the moment the keyring hands out A's key, A's entry is evicted (zeroed) in the very
+      // next microtask, before the caller's continuation runs. Eviction is synchronous, as when a full cache admits
+      // another tenant's key; this is the window the owner's probe hit.
+      let armed = true;
+      const original = ring.key.bind(ring);
+      ring.key = async (t: string, v: number) => {
+        const k = await original(t, v);
+        if (armed && t === A) {
+          armed = false;
+          queueMicrotask(() => ring.forget(A));
+        }
+        return k;
+      };
+      const fc = new FieldCrypto(ring);
+      const stored = await fc.encrypt(A, Buffer.from('payroll'), 'aad');
+      expect(
+        decryptWith(realKey, parseCipher(stored), 'aad').toString(),
+        `${start}: under the tenant's real key`,
+      ).toBe('payroll');
+      expect(
+        () => decryptWith(Buffer.alloc(32), parseCipher(stored), 'aad'),
+        `${start}: never under an all-zero key`,
+      ).toThrow();
+    }
+  });
+
+  it('[CI7] FieldCrypto never takes the cached buffer for a cipher operation (only withKey)', async () => {
+    const { readFileSync } = await import('node:fs');
+    const src = readFileSync(new URL('./field-crypto.ts', import.meta.url), 'utf8');
+    expect(src).not.toMatch(/keyring\.key\(/);
+    expect((src.match(/keyring\.withKey\(/g) ?? []).length).toBe(3); // encrypt, decrypt, reencrypt
+  });
+});
