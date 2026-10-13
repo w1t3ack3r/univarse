@@ -53,6 +53,7 @@ flowchart LR
   - **No push or sign in CI:** there's no CI job with `packages`, `id-token` or `attestations` write.
   - **Signing and publication are local:** they happen through `pnpm images:release`, against a local registry, with the owner's key.
 - **Turborepo remote cache** keeps PR CI under ~10 min. Affected-only execution for lint/test on large changes.
+- **Workflow policy ([spec 0013](specs/0013-container-images-scan-sign.md) CS12):** `build-test` checks every workflow, read-only, with `pnpm ci:policy`. CI stays `contents: read`, and only allowlisted triggers are used; `pull_request_target` and `workflow_run` are banned. No credentials and no publish or sign commands are allowed where PR code runs, and actions are pinned by SHA. Fixtures prove each rule.
 - **Required checks** block merge: lint, typecheck, unit, integration, RLS, contract diff (unless labelled `breaking-approved`), security scans (no new high/critical), Trivy, E2E smoke.
 - **CI security:**
   - Actions pinned by commit SHA

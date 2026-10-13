@@ -253,12 +253,29 @@ Image sizes from Docker Desktop's containerd store (API 809 MB, web 273 MB) aren
 **Images-signed exit:** met. Both images are signed with the owner's key, with 0 HIGH/CRITICAL findings and no active exceptions.
 
 **What remains of spec 0013, so it stays open:**
-- the **CS12** workflow-policy check over fixture workflows;
 - the **CS13** image-mutation proofs: an image running as root, an image containing a shell, and a known fixable and a known unfixed HIGH/CRITICAL;
 - **LR8**'s manual `pnpm images:prune`;
 - a small follow-up: the release removes its local `localhost:5000/…` tag copies after pushing (the registry keeps them).
 
 The owner removed 14 accumulated rehearsal tags and trimmed the build cache (16.8 GB → 4.2 GB) on 2026-10-13. The `registry-data` volume must not be pruned: it holds the signed release.
+
+### CS12 (re-scoped): the workflow-policy check
+
+**Policy verification; no live fork test.** `tools/ci-policy/workflow-policy.mjs` (`pnpm ci:policy`) parses each workflow and runs nothing. CI runs it in the read-only `build-test` job (`contents: read`), straight after install. It fails closed: anything it doesn't recognise is refused.
+
+| Rule | Rejected |
+|---|---|
+| Triggers | anything off the allowlist (`pull_request`, `push`, `workflow_dispatch`, `schedule`). The privileged triggers `pull_request_target`, `workflow_run`, `issue_comment` and `pull_request_review_comment` are named as such. Under one of them, checking out the PR's head, running PR-supplied code, or downloading another run's artifacts is reported separately. |
+| Permissions | no workflow-level `permissions` (the token default may be write); `read-all`/`write-all`; **any** `write`, with `packages`, `id-token` and `attestations` named as publish/sign/attest; unknown levels |
+| Credentials | in a PR-reachable workflow: any `secrets.*` other than `GITHUB_TOKEN`; `secrets: inherit`; calls to reusable workflows (whose permissions can't be checked here) |
+| Publishing | in a PR-reachable workflow: `docker login`/`push`, `buildx build --push`, `cosign sign`/`attest`/`copy`, `crane`/`oras`/`skopeo` push or copy |
+| Supply chain (beyond the spec) | an action not pinned to a full commit SHA (or an image digest); `actions/checkout` without `persist-credentials: false` |
+
+**Proof (`tools/ci-policy/workflow-policy.test.mjs`, 7 tests):**
+- **Fixtures:** ten fixture workflows in `tools/ci-policy/fixtures/`. They are test data outside `.github/workflows/`, so GitHub never runs them. Each is rejected with exactly its intended messages: every problem matches an expected pattern, and every pattern is matched.
+- **What the fixtures cover:** `pull_request` with `id-token`, `packages` or `attestations` write; `pull_request_target` with and without a head checkout; `workflow_run` running PR code; a PR job holding publish credentials and pushing/signing; no permissions; `write-all`; an unpinned checkout.
+- **Positive control:** the real `.github/workflows` pass.
+- **Mutation checks, local:** each of eight rules was disabled in turn: write scopes, privileged triggers, PR-head detection, credential secrets, publish commands, missing permissions, SHA pinning and persisted credentials. Each mutation failed its intended test, and the source was restored.
 
 ## Design notes
 
