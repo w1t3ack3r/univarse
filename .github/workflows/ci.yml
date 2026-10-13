@@ -205,6 +205,7 @@ jobs:
           node --test tools/images/release-cleanup.test.mjs
           node --test tools/images/prune.test.mjs
           node --test tools/images/registry-lock.test.mjs
+          node --test tools/images/gates.test.mjs
           node tools/images/inspect.mjs univarse-api:ci --root app
           node tools/images/inspect.mjs univarse-web:ci --root app
       # Spec 0013 CS7–CS9 / ADR-029. Fail closed: each gate is its own step and the job stops at the first one
@@ -258,6 +259,12 @@ jobs:
             sbom-*.spdx.json
             trivy-*.json
           retention-days: 30
+      # Spec 0013 CS13: each gate fails for its intended reason on a harmless one-change mutant, and passes its clean
+      # control: root user, shell, a fixable and an unfixed HIGH/CRITICAL, a root Dockerfile, expired/incomplete
+      # exceptions, ignore-unfixed, an unreachable vulnerability DB, and an image substituted before and at push.
+      # Runs the shared gate code (tools/images/gates.mjs) with its own Trivy cache and a throwaway registry.
+      - name: Gate proofs — every gate fails for its intended reason (spec 0013 CS13)
+        run: node tools/images/gate-proofs.mjs | tee -a "$GITHUB_STEP_SUMMARY"
       - name: Hardened runtime smoke — read-only, UID 65532, no capabilities (spec 0013 CS4)
         run: node tools/images/smoke.mjs --api univarse-api:ci --web univarse-web:ci
       - name: Browser journeys against the containerised API, worker and web — desktop + mobile (spec 0013 CS5)

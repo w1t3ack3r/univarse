@@ -10,6 +10,7 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node
 import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 import { proveSecretCoverage } from './canary.mjs';
+import { configOf, makeGates, samePushed, sameImage, TRIVY_CACHE } from './gates.mjs';
 import { readFromTar } from './tar.mjs';
 import {
   COMPOSE, COSIGN_IMAGE, cosign, DEFAULT_KEY, DEFAULT_PUB, HOST_REGISTRY, hostPath, IDENTITY, IDENTITY_ISSUER, PREDICATES, ROLES,
@@ -45,6 +46,12 @@ function pushTag(local, repo, tag, opts) {
   sh('docker', ['push', ref], opts);
 }
 const step = (n) => console.log(`\n[release] ── ${n}`);
+/** A gate result (gates.mjs) must pass; its output is printed either way. */
+function must(r, what) {
+  if (r.output?.trim()) console.log(r.output.trim());
+  if (!r.ok) throw new Error(`${what} failed (exit ${r.status ?? 1})`);
+  return r;
+}
 
 async function main() {
   // ── LR1: preconditions
@@ -85,20 +92,18 @@ async function main() {
     console.log(`univarse-${name}:release config ${configDigest}`);
   }
   // Every later stage re-checks that the tag is still that image (CS6).
+  const gates = makeGates({ work: WORK });
   const recheck = async () => {
-    for (const [name, img] of Object.entries(record.images)) {
-      const tar = join(WORK, `${name}-recheck.tar`);
-      sh('docker', ['save', `univarse-${name}:release`, '-o', tar]);
-      const m = JSON.parse((await readFromTar(tar, 'manifest.json')).toString('utf8'));
-      rmSync(tar);
-      if (configOf(m) !== img.configDigest) throw new Error(`univarse-${name}:release changed since it was built (CS6)`);
+    for (const name of Object.keys(record.images)) {
+      const r = await sameImage(`univarse-${name}:release`, record.images[name].configDigest, WORK);
+      if (!r.ok) throw new Error(r.output);
     }
   };
 
   // ── LR2: the same gates as CI, on that build
   step('inspection (CS1, CS2)');
   sh('node', ['--test', 'tools/images/rules.test.mjs']);
-  for (const name of Object.keys(IMAGES)) sh('node', ['tools/images/inspect.mjs', `univarse-${name}:release`, '--root', 'app'], { stdio: 'inherit' });
+  for (const name of Object.keys(IMAGES)) must(gates.inspection(`univarse-${name}:release`), `inspection of univarse-${name}`);
   record.gates.inspection = 'pass';
 
   step('exceptions and policy (CS7)');
@@ -108,38 +113,27 @@ async function main() {
   record.gates.exceptions = exc.stdout.includes('none active') ? 'none active' : 'ACTIVE — zero-findings can NOT be claimed';
 
   step('vulnerability, secret and misconfiguration gates, SBOM (CS7, CS8) — Trivy reads tarballs, never the Docker socket');
-  const trivyRun = (args, opts = {}) =>
-    sh('docker', ['run', '--rm', '-v', 'uv-trivy-cache:/root/.cache/trivy', '-v', `${hostPath(WORK)}:/work`, '-v', `${hostPath(REPO)}:/repo:ro`, '-w', '/repo', TRIVY_IMAGE, ...args], { stdio: 'inherit', ...opts });
-  // --no-progress exists only on `trivy image` (`trivy config` rejects it).
-  const trivy = (args) => trivyRun(args[0] === 'image' ? [args[0], '--no-progress', ...args.slice(1)] : args);
-  trivy(['clean', '--vuln-db']); // fresh vulnerability data for every release (LR10)
-  // A broken download is retried (Trivy's official mirrors, in order); if every attempt fails, the release fails:
-  // it never scans without fresh data (CS9).
-  const DB_REPOS = 'mirror.gcr.io/aquasec/trivy-db:2,ghcr.io/aquasecurity/trivy-db:2,public.ecr.aws/aquasecurity/trivy-db:2';
-  let fetched = false;
-  for (let attempt = 1; attempt <= 3 && !fetched; attempt++) {
-    const r = trivyRun(['image', '--no-progress', '--download-db-only', '--db-repository', DB_REPOS], { allowFail: true });
-    fetched = r.status === 0;
-    if (!fetched) console.log(`[release] vulnerability DB download failed (attempt ${attempt} of 3)`);
-  }
-  if (!fetched) throw new Error('could not download a fresh vulnerability database after 3 attempts; nothing was scanned or published (CS9)');
-  const ver = sh('docker', ['run', '--rm', '-v', 'uv-trivy-cache:/root/.cache/trivy', TRIVY_IMAGE, 'version', '--format', 'json']);
+  // Fresh vulnerability data for every release; a broken download is retried across Trivy's official mirrors, and if
+  // every attempt fails the release fails: it never scans without fresh data (CS9).
+  const db0 = gates.freshDb();
+  if (!db0.ok) throw new Error(`could not download a fresh vulnerability database after ${db0.attempts} attempts; nothing was scanned or published (CS9)`);
+  const ver = sh('docker', ['run', '--rm', '-v', `${TRIVY_CACHE}:/root/.cache/trivy`, TRIVY_IMAGE, 'version', '--format', 'json']);
   const db = JSON.parse(ver.stdout).VulnerabilityDB ?? {};
   record.gates.trivy = { version: JSON.parse(ver.stdout).Version, dbUpdatedAt: db.UpdatedAt, dbDownloadedAt: db.DownloadedAt };
   for (const name of Object.keys(IMAGES)) {
     await recheck();
-    const input = ['--input', `/work/${name}.tar`];
-    trivy(['image', ...input, '--skip-db-update', '--scanners', 'vuln', '--format', 'json', '--output', `/work/trivy-${name}.json`]);
+    const tar = `${name}.tar`;
+    must(gates.vulnerabilityReport(tar, `trivy-${name}.json`), `vulnerability report for univarse-${name}`);
     const counts = sh('node', ['tools/images/trivy-summary.mjs', join(WORK, `trivy-${name}.json`), `univarse-${name}`]).stdout.trim();
     console.log(counts);
     record.gates[`vulnerabilities-${name}`] = counts;
-    trivy(['image', ...input, '--skip-db-update', '--scanners', 'vuln', '--severity', 'HIGH,CRITICAL', '--ignorefile', '.trivyignore.yaml', '--exit-code', '1']);
-    trivy(['image', ...input, '--skip-db-update', '--scanners', 'secret', '--secret-config', 'tools/images/trivy-secret.yaml', '--image-config-scanners', 'secret', '--ignorefile', '.trivyignore.yaml', '--exit-code', '1']);
-    trivy(['image', ...input, '--skip-db-update', '--scanners', 'misconfig', '--image-config-scanners', 'misconfig', '--severity', 'HIGH,CRITICAL', '--ignorefile', '.trivyignore.yaml', '--exit-code', '1']);
-    trivy(['image', ...input, '--skip-db-update', '--format', 'spdx-json', '--output', `/work/sbom-${name}.spdx.json`]);
+    must(gates.vulnerability(tar), `vulnerability gate for univarse-${name}`);
+    must(gates.secret(tar), `secret gate for univarse-${name}`);
+    must(gates.misconfiguration(tar), `misconfiguration gate for univarse-${name}`);
+    must(gates.sbom(tar, `sbom-${name}.spdx.json`), `SBOM for univarse-${name}`);
     record.images[name].sbomPackages = JSON.parse(readFileSync(join(WORK, `sbom-${name}.spdx.json`), 'utf8')).packages.length;
   }
-  trivy(['config', '--severity', 'HIGH,CRITICAL', '--ignorefile', '.trivyignore.yaml', '--exit-code', '1', 'infra/docker']);
+  must(gates.dockerfiles('infra/docker'), 'Dockerfile misconfiguration gate');
   record.gates.vulnerability = record.gates.secret = record.gates.misconfiguration = 'pass';
 
   step('secret-gate coverage canaries (CS13): app file, a deployed @univarse package in node_modules, config env and label, history');
@@ -174,9 +168,9 @@ async function main() {
     pushTag(`univarse-${name}:release`, img.repo, tag, { stdio: 'inherit' });
     img.tag = tag;
     img.digest = await registryDigest(img.repo, tag);
-    const pushedConfig = await registryConfigDigest(img.repo, img.digest);
-    if (pushedConfig !== img.configDigest) throw new Error(`pushed ${img.repo}@${img.digest} has config ${pushedConfig}, not the gated ${img.configDigest} (CS6)`);
-    console.log(`${TOOL_REGISTRY}/${img.repo}@${img.digest} = the gated image (config ${pushedConfig})`);
+    const same = samePushed(`${TOOL_REGISTRY}/${img.repo}@${img.digest}`, await registryConfigDigest(img.repo, img.digest), img.configDigest);
+    if (!same.ok) throw new Error(same.output);
+    console.log(same.output);
   }
 
   // ── LR5: sign and attest, offline, with the owner's key
@@ -260,12 +254,6 @@ async function main() {
 }
 
 /** The config digest from a `docker save` manifest.json: `blobs/sha256/<hex>` (containerd store) or `<hex>.json` (classic). */
-function configOf(manifest) {
-  const hex = /([0-9a-f]{64})(?:\.json)?$/.exec(manifest[0].Config)?.[1];
-  if (!hex) throw new Error(`can't read the config digest from manifest.json (${manifest[0].Config})`);
-  return `sha256:${hex}`;
-}
-
 /** A negative must fail, and fail for its intended reason: a rejection for any other reason proves nothing. */
 function expectRejected(result, reason, what) {
   if (result.ok) throw new Error(`${what} was ACCEPTED`);

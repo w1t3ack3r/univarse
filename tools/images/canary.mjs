@@ -13,7 +13,8 @@ import { spawn } from 'node:child_process';
 import { randomInt } from 'node:crypto';
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { hostPath, REPO, sh, TRIVY_IMAGE } from './release-lib.mjs';
+import { makeGates } from './gates.mjs';
+import { REPO, sh } from './release-lib.mjs';
 import { tarParser } from './tar.mjs';
 
 const ALNUM = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
@@ -63,14 +64,11 @@ export async function proveSecretCoverage(image, work) {
   sh('docker', ['build', '-q', '-t', 'univarse-canary:check', dir]);
   sh('docker', ['save', 'univarse-canary:check', '-o', join(dir, 'canary.tar')]);
 
-  const trivy = (extra) =>
-    sh('docker', ['run', '--rm', '-v', 'uv-trivy-cache:/root/.cache/trivy', '-v', `${hostPath(dir)}:/work`, '-v', `${hostPath(REPO)}:/repo:ro`, '-w', '/repo', TRIVY_IMAGE,
-      'image', '--no-progress', '--input', '/work/canary.tar', '--skip-db-update', '--scanners', 'secret', '--secret-config', 'tools/images/trivy-secret.yaml',
-      '--image-config-scanners', 'secret', '--ignorefile', '.trivyignore.yaml', ...extra], { allowFail: true });
-  // 1. The gate, exactly as the release runs it, must fail.
-  const gate = trivy(['--exit-code', '1']);
+  // 1. The secret gate, the very code the release runs (gates.mjs), must fail.
+  const gates = makeGates({ work: dir });
+  const gate = gates.secret('canary.tar');
   // 2. Every canary must be found at its location.
-  trivy(['--format', 'json', '--output', '/work/canary.json', '--exit-code', '0']);
+  gates.secretReport('canary.tar', 'canary.json');
   const report = JSON.parse(readFileSync(join(dir, 'canary.json'), 'utf8'));
   // File findings carry the file's path (leading "/"); image configuration and history findings are reported
   // against the scanned input itself (/work/canary.tar). An ENV or LABEL instruction is also recorded in the
