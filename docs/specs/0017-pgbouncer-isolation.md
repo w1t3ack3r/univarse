@@ -1,6 +1,6 @@
 # Spec 0017: PgBouncer isolation — the isolation suites run through transaction pooling, in CI
 
-**Status:** **Draft for review, revision 3 (2026-10-13).** Design only; nothing is implemented. Revision 2 answered the owner's review of revision 1 (`d11c6d9`), and revision 3 answers the review of revision 2 (`e0a868b`; [below](#owner-review-of-revision-2)). The owner supports D1–D4 and D6; D5 is decided as two profiles.
+**Status:** **Accepted (2026-10-13)** by the owner: revision 3, after review of `b54cc16`, including D1–D6 and the two pool profiles. **Not implemented yet.** Revisions 2 and 3 answered the owner's reviews of `d11c6d9` and `e0a868b` ([below](#owner-review-of-revision-2)). Before the implementation PR merges, its new checks (`pgbouncer-isolation`, `pgbouncer-compare`) are made **required** on `main` (owner instruction).
 **Phase:** 0. Roadmap item 4 ([docs/18](../18-roadmap.md)): "isolation tests through the intended pooling mode (transaction pooling), as a CI job" ([ADR-015](../19-decision-log.md)). PgBouncer **in the deployed path** is item 7.1, the local production-like stack, and is out of scope here; this spec builds the pieces it will reuse.
 **Builds on:**
 
@@ -98,7 +98,7 @@ The CI job runs Postgres with its server zone set to `Africa/Lagos`, as today, a
   3. restarts PgBouncer in the suite profile and runs the three suites through it, writing the same JSON results;
   4. uploads them.
 - **`pgbouncer-compare` (new)** has `needs: [build-test, pgbouncer-isolation]`, so it runs only after both have finished. It downloads both artifacts and compares file names, test names, statuses and skips. Nothing depends on fetching an unfinished job's logs.
-- **Before merging:** `pgbouncer-isolation` and `pgbouncer-compare` should be **required status checks** on `main`. That is a repository setting for the owner to change; Claude doesn't change repository settings. Until then, merges follow the existing rule: every check green on the latest commit, with its results read.
+- **Before merging the implementation:** `pgbouncer-isolation` and `pgbouncer-compare` become **required status checks** on `main`, once the implementation PR has created them and before it merges. The owner instructed this on accepting this spec. The setting change is confirmed with the owner at that point.
 
 **Locally:**
 

@@ -118,7 +118,7 @@ Each roadmap line checked against the repository, CI and the decision log.
    - **Closed 2026-10-13.** Transferred: LR9's deploy integration, into item 7.4 below.
 2. **Job isolation:** cross-tenant claim tests for the file-scan worker and the key sweep (layer 4). **Done** ([spec 0014](specs/0014-job-isolation.md); #64, head `6d3e358`, merged as `a8a7e52` on 2026-10-13).
 3. **Cache isolation:** product-cache invalidation (P7) and key-forget propagation (layer 5). **Done** for today's caches ([spec 0015](specs/0015-cache-isolation.md), completion record; #66, head `b24fb4c`, merged as `b4df59d` on 2026-10-13). Follow-up: the database-trigger and platform-outbox spec, for the writes the static guard can't see.
-4. **PgBouncer:** isolation tests through the intended pooling mode (transaction pooling), as a CI job (ADR-015).
+4. **PgBouncer:** isolation tests through the intended pooling mode (transaction pooling), as a CI job (ADR-015). **Designed:** [spec 0017](specs/0017-pgbouncer-isolation.md), accepted 2026-10-13; not implemented yet.
 5. **CI and local gates:** the remaining CI security scans (Semgrep, CodeQL, osv-scanner, license check, Checkov), plus lefthook and commitlint.
 6. **Authorization:** the central `PolicyService`, reusing the existing logic, with negative tests for non-institution scopes (ADR-028).
 7. **The local production-like stack (ADR-030),** in this order:
