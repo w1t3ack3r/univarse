@@ -1,6 +1,8 @@
 # Spec 0013: Container images — build, scan, SBOM, sign
 
-**Status:** Accepted (2026-10-11), owner review of revision 3 (`ee3590f`). D1–D6 decided, with the conditions written into the criteria; the registry, signing and findings decisions are recorded as ADR-029. **Pending until it passes in CI:** verification of the base image's upstream signature (CS3). Implementation starts with the image-build slice.
+**Status:** **Closed (2026-10-13)** for its implemented scope: CS1–CS9, CS12, CS13, LR1–LR8, LR10 and LR9's verifier are met (see the CS16 record). LR9's deploy integration ("nothing from a rejected record runs") is **transferred** to the local-deploy work as a blocking acceptance criterion: the deploy holds the registry lock throughout verification and startup, and verifies before starting any container.
+
+Accepted (2026-10-11), owner review of revision 3 (`ee3590f`). D1–D6 decided, with the conditions written into the criteria; the registry, signing and findings decisions are recorded as ADR-029. **Pending until it passes in CI:** verification of the base image's upstream signature (CS3). Implementation starts with the image-build slice.
 
 **Amended 2026-10-12 by [ADR-030](../19-decision-log.md) (fully local):**
 - **Registry and signing:** CS10/CS11 publish to a **local registry** (`127.0.0.1` only) and sign with a **local cosign key** (private key encrypted, outside the repository; public key committed). Verification is pinned to that key, and the attestations are signed with it.
@@ -252,8 +254,7 @@ Image sizes from Docker Desktop's containerd store (API 809 MB, web 273 MB) aren
 
 **Images-signed exit:** met. Both images are signed with the owner's key, with 0 HIGH/CRITICAL findings and no active exceptions.
 
-**What remains of spec 0013, so it stays open:**
-- **CS13**, implemented (see below): it is met once the proof PR is reviewed, the proofs pass in CI on its latest commit, and a clean-tree local record shows every proof passing;
+**Spec 0013 is closed (2026-10-13)** for its implemented scope. LR9's deploy integration ("nothing from a rejected record runs") is **transferred** to the local-deploy work as a blocking acceptance criterion: the deploy holds the registry lock throughout verification and startup, and verifies before starting any container.
 
 The owner removed 14 accumulated rehearsal tags and trimmed the build cache (16.8 GB → 4.2 GB) on 2026-10-13. The `registry-data` volume must not be pruned: it holds the signed release.
 
@@ -391,7 +392,7 @@ The owner removed 14 accumulated rehearsal tags and trimmed the build cache (16.
 - **Blobs:** every blob of the 20 manifests reachable from tags is present: configs, layers and signature/attestation layers, **164 present, 0 missing**. (`cosign verify` doesn't fetch image layers, so this checks what collection could have removed.)
 
 
-### CS13 (re-scoped): every gate fails for its intended reason — implemented; pending review and CI
+### CS13 (re-scoped): every gate fails for its intended reason — met (#62, 2026-10-13)
 
 **One gate code path.** The gate commands now live in one module, `tools/images/gates.mjs`, used by the release (`release.mjs`), the secret-canary proof (`canary.mjs`) and the CS13 harness. A proof therefore exercises exactly what a release runs. A unit test fails if `release.mjs` or `canary.mjs` grows its own Trivy command again.
 
@@ -445,6 +446,58 @@ The owner removed 14 accumulated rehearsal tags and trimmed the build cache (16.
 **Harness faults found while building it:**
 - **The shell proof's expected pattern** looked for `shell present: /bin/sh` and was satisfied by the execution check alone. The listing check had in fact caught the shell at `/usr/bin/sh`, because the base's `/bin` is a symlink. The proof now requires both detections. This was a proof fault, not a gate gap.
 - **Unparseable mutants:** every mutant is parse-checked, so a mutant that doesn't parse is never mistaken for a surviving one.
+
+
+### CS16: the completion record (2026-10-13)
+
+**Status of every criterion:**
+- **Met:**
+  - CS1–CS9, in CI since #49–#51 and in every local release;
+  - CS12, #59, with the shell rule added in #62;
+  - CS13, #62;
+  - LR1–LR8 and LR10.
+- **LR9, the verifier: met.** `verifyRelease` (`pnpm images:verify`) verifies the exact digests itself, against `cosign.pub`.
+  - **Where the expected values come from:** the **roles and Dockerfiles from trusted code** (`ROLES` in `release-lib.mjs`), never from the record; the **commit from the deployment target** (`HEAD`, or `--commit`).
+  - **What must match:** the signed provenance must **match** those, and a rehearsal never verifies for deployment.
+  - **Rejected:** an edited record, whether it names an unsigned digest, another key's signature, a swapped role or a rehearsal.
+  - **Tested** in `verify-release.test.mjs`, and exercised in every release's negatives.
+- **LR9, the deploy integration: not met. Transferred.** The deploy integration ("nothing from a rejected record runs") needs the local deploy, which isn't built. **LR9 as a whole is therefore not marked met.** It is carried forward as a **blocking acceptance criterion of the local-deploy work** (docs/18). The deploy must:
+  1. **hold the registry lock** (LR8) for the whole of verification and startup;
+  2. **verify before starting any container**: the exact digests it will run, with this verifier, against roles and Dockerfiles from trusted code and the commit it was asked to deploy;
+  3. **start nothing** if any image is rejected, which must be shown by a test with an edited record;
+  4. **run exactly the digests it verified**, never a tag.
+- **Superseded:** CS10, CS11, CS14 and CS15 (ADR-030; replaced by LR1–LR10).
+
+**Run IDs and records:**
+- **CI on the latest commit of the CS13 PR:** run `38353636373` on `1951d52` (#62).
+  - **Image and policy checks:** gate proofs **11/11**, gates 7/7, workflow policy 9/9, every image-tools suite green.
+  - **Other suites:** integration 348 passed (1 skipped), journeys 32/32 twice, RLS passed.
+  - **Other checks:** `api-breaking-changes` and `secrets-scan` passed.
+- **CI on `main` after the merge:** run `38355008938` on `71d9d66`: all jobs green: gate proofs 11/11, every image-tools suite green (gates 7/7, prune 24/24), integration 348 passed (1 skipped), journeys 32/32 twice, RLS passed.
+- **The local publish (LR10):** the owner's release on `main` at `12083b8ebe7362db3123a8d67a1b4c3b2a09907f`, record `releases/2026-10-12-12083b8.json`.
+- **Verify:**
+  - in the release;
+  - independently, after it: `pnpm images:verify` (#58);
+  - after the first prune: `pnpm -s images:verify releases/2026-10-12-12083b8.json --commit 12083b8ebe7362db3123a8d67a1b4c3b2a09907f`, with all 164 blobs present (#61).
+- **CS13 proofs, local:** clean-tree record `releases/proofs/2026-10-13-05-41-21-e7a96e8.json`, 11/11. Each proof's gate and failure message is in the CS13 table above.
+
+**The tested and published images (CS6 held: the pushed config equals the gated image's).**
+
+| Image | Manifest digest | Config (image ID) | Size | SBOM packages |
+|---|---|---|---|---|
+| API/worker | `sha256:8af794d21a95444fda06a876edfed514c1419e4a3ab146c02a8488fbbf5ed0db` | `sha256:3258546e978949754caec5afab3168bc497793c81f36c64e8c93d328e2fc9199` | 808,506,101 bytes | 329 |
+| Web | `sha256:1d0c627d2b838d4f08538b272cea0aec918baca2b3e2b146327ef22d8667553f` | `sha256:62ff531d84a840e1919a1916d7f25e3888d57de323606708f5e09a3346c4cfd0` | 273,245,723 bytes | 36 |
+
+**Trivy:** 0.75.0, with the DB updated 2026-10-12T19:08:28Z and downloaded fresh 23:16:21Z.
+
+| Image | CRITICAL | HIGH | MEDIUM | LOW |
+|---|---|---|---|---|
+| API/worker | 0 | 0 | 23 (fixed 0, unfixed 23) | 8 (fixed 0, unfixed 8) |
+| Web | 0 | 0 | 23 (fixed 0, unfixed 23) | 8 (fixed 0, unfixed 8) |
+
+**Active exceptions:** none (`.trivyignore.yaml` is empty).
+
+**The roadmap's "Images signed, 0 high/critical findings" exit is met.** Both images are signed with the owner's key, have zero HIGH/CRITICAL findings (fixed or not), and run under no active exception.
 
 ## Design notes
 
