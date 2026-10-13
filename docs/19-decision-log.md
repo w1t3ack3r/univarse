@@ -429,8 +429,8 @@ Alternatives considered: option — why not.
 - **Hold signing entirely:** leaves "images signed" unmet with no local path to it.
 
 ## ADR-031 — Change-capture triggers on the cached platform tables, with a platform invalidation outbox
-**Status:** Proposed (2026-10-13), with [spec 0016](specs/0016-platform-invalidation-outbox.md).
-- **Amends** [07](07-data-and-database.md)'s rule "Triggers only for: `updated_at`, the audit hash chain, and preventing updates to immutable rows", by adding change capture for cache invalidation.
+**Status:** Proposed (2026-10-13), with [spec 0016](specs/0016-platform-invalidation-outbox.md) revision 2.
+- **Amends** [07](07-data-and-database.md)'s rule "Triggers only for: `updated_at`, the audit hash chain, and preventing updates to immutable rows", by adding change capture for cache invalidation. The event table's own guards fall under the existing "immutable rows" category.
 
 **Context:**
 - Spec 0015 publishes cache invalidations from the API's code, checked by a static guard over its TypeScript (CI10).
@@ -438,22 +438,34 @@ Alternatives considered: option — why not.
 - The cached tables (`tenant`, `tenant_domain`, `tenant_product`) are in the platform database, outside tenant RLS.
 
 **Decision (proposed):**
-- **Capture:** a row trigger on each of the three tables records *that* a row changed and which tenant ids it belongs to (old and new), in a `cache_invalidation_event` table, **in the same transaction**. It records no values and makes no decisions, so it isn't business logic; the "no business logic in triggers" rule stands.
-- **TRUNCATE:** refused by a trigger on those tables (spec 0016 D1).
-- **The triggers:**
-  - `ENABLE ALWAYS`;
-  - `SECURITY DEFINER`, owned by the migrator, with a fixed `search_path`;
-  - checked by the `rls:check` gate.
-- **Delivery:** a platform relay in the worker publishes committed events to the existing Valkey bus. It claims with `FOR UPDATE SKIP LOCKED` and records the outcome in the claiming transaction, so delivery is at least once, and consumers stay idempotent (eviction).
+- **Capture:** a row trigger on each of the three tables records *that* a row changed and which tenant ids it belongs to (old and new), in `public.cache_invalidation_event`, **in the same transaction**. It records no values and makes no decisions, so it isn't business logic; the "no business logic in triggers" rule stands. A no-op `UPDATE` emits nothing (checked in the function).
+- **TRUNCATE:** refused by a trigger, on those tables and on the event table.
+- **The functions:**
+  - `SECURITY DEFINER`, owned by the migrator;
+  - `search_path = pg_catalog, pg_temp`, with schema-qualified references;
+  - no `EXECUTE` for `PUBLIC`, including in the migrator's default privileges.
+- **No temporary tables:** the app and relay roles have no `TEMPORARY`.
+- **The triggers:** all `ENABLE ALWAYS`, and checked by the `rls:check` gate.
+- **The event table guards itself, for every role:**
+  - settled rows are immutable, and status moves only from `PENDING`;
+  - the first-observed and settled times are stamped by the database with `clock_timestamp()`;
+  - expiry is refused before `first_observed_at` + the shared maximum cache TTL + 5 s;
+  - rows can be deleted only 24 h after settling.
+- **Roles:**
+  - The API's platform role has **no** privilege on the event table.
+  - A separate **relay role**, used only by the worker, may select events and update the bookkeeping columns. It purges old settled events only through a function, and has server-side statement and idle-in-transaction timeouts.
+- **A shared, enforced maximum cache TTL** (`MAX_TENANT_CACHE_TTL_MS`, proposed 60 s): instances configured above it refuse to start, and the database holds the same value.
+- **Delivery:** the relay publishes committed events to the existing Valkey bus within a bounded pass. It claims with `FOR UPDATE SKIP LOCKED` and records the outcome in the claiming transaction, so delivery is at least once and consumers stay idempotent (eviction).
 
 **Consequences:**
-- **Coverage:** every writer is covered, whatever its language or path. Publishing after commit holds by construction.
-- **The owner role remains outside the guarantee:** it can disable or drop the triggers. The gate detects that; it doesn't prevent it.
-- **Write cost:** one extra insert per changed row on three low-write tables.
-- **Relay cost:** one more polling loop in the worker.
-- **The static CI10 guard** can be retired (spec 0016 D3).
+- **Coverage:** every writer is covered, whatever its language or path. Publishing after commit holds by construction, and expiry can never precede a commit by more than the shared maximum TTL.
+- **The owner role remains outside the guarantee:** it can disable or drop the triggers and functions. The gate detects that; it doesn't prevent it.
+- **A fourth database role** to provision, rotate and pool.
+- **Costs:** one extra insert per changed row on three low-write tables, and one more polling loop in the worker.
+- **The static CI10 guard** is retired only after the replacement has passed CI and merged (spec 0016 D3).
 
 **Alternatives considered:**
 - **Keep only the static guard:** its limits stay open.
 - **Logical decoding (a replication slot read by the worker):** captures everything without triggers, but adds a replication slot to operate and monitor, needs replication privileges, and is heavier than three low-write tables justify.
 - **`LISTEN`/`NOTIFY` alone:** not durable (a notification is lost if no listener is connected) and unusable through PgBouncer's transaction pooling.
+- **The relay on the API's platform role:** rejected in review. Any API-side writer could then delete or settle pending events, bypassing capture without disabling a trigger.
