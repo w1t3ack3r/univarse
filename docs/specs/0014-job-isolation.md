@@ -1,6 +1,6 @@
 # Spec 0014: Job isolation — the file-scan worker and the key sweep (cross-tenant suite, layer 4)
 
-**Status:** Implemented (2026-10-13); met once reviewed and green in CI.
+**Status:** **Complete (2026-10-13).** #64 was approved by the owner and squash-merged as `a8a7e5212fad58f6563dc50a0902782be656e1e6` after CI run `38370974606` succeeded on the exact head `6d3e358154d7f49b3d6242453fb087cead0099cc`.
 **Phase:** 0. It closes the "Job isolation" item of [docs/18](../18-roadmap.md) ("cross-tenant claim tests for the file-scan worker and the key sweep") and moves layer 4 of [docs/12 §3](../12-testing-strategy.md) from partial to complete for today's jobs.
 **Builds on:**
 
