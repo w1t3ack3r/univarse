@@ -429,7 +429,7 @@ Alternatives considered: option — why not.
 - **Hold signing entirely:** leaves "images signed" unmet with no local path to it.
 
 ## ADR-031 — Change-capture triggers on the cached platform tables, with a platform invalidation outbox
-**Status:** Proposed (2026-10-13), with [spec 0016](specs/0016-platform-invalidation-outbox.md) revision 3.
+**Status:** Proposed (2026-10-13), with [spec 0016](specs/0016-platform-invalidation-outbox.md) revision 4.
 - **Amends** [07](07-data-and-database.md)'s rule "Triggers only for: `updated_at`, the audit hash chain, and preventing updates to immutable rows", by adding change capture for cache invalidation. The event table's own guards fall under the existing "immutable rows" category.
 
 **Context:**
@@ -441,9 +441,9 @@ Alternatives considered: option — why not.
 - **Capture:** a row trigger on each of the three tables records *that* a row changed and which tenant ids it belongs to (old and new), in `public.cache_invalidation_event`, **in the same transaction**. It records no values and makes no decisions, so it isn't business logic; the "no business logic in triggers" rule stands. A no-op `UPDATE` emits nothing (checked in the function).
 - **TRUNCATE:** refused by a trigger, on those tables and on the event table.
 - **The functions:**
-  - `SECURITY DEFINER`, owned by the migrator;
-  - `search_path = pg_catalog, pg_temp`, with schema-qualified references;
-  - no `EXECUTE` for `PUBLIC`, including in the migrator's default privileges.
+  - **Capture and purge** are `SECURITY DEFINER`, owned by the migrator.
+  - **The event table's guards** are `SECURITY INVOKER`. They read only `OLD` and `NEW`, and call the qualified `public.cache_invalidation_max_ttl()`, which the relay role may execute.
+  - **All of them:** `search_path = pg_catalog, pg_temp`, schema-qualified references, and no `EXECUTE` for `PUBLIC`, including in the migrator's default privileges.
 - **No temporary tables:** the app and relay roles have no `TEMPORARY`.
 - **The triggers:** all `ENABLE ALWAYS`, and checked by the `rls:check` gate.
 - **The event table guards itself, for every role:**
@@ -453,7 +453,7 @@ Alternatives considered: option — why not.
   - rows can be deleted only 24 h after settling.
 - **Roles:**
   - The API's platform role has **no** privilege on the event table.
-  - A separate **relay role**, used only by the worker, may select events and update the bookkeeping columns. It purges old settled events only through a function, and has server-side statement and idle-in-transaction timeouts.
+  - A separate **relay role**, used only by the worker, may select events and update the bookkeeping columns. It purges old settled events only through a function. It has server-side timeouts: `transaction_timeout` (PostgreSQL 18) for the whole transaction, plus `statement_timeout` and `idle_in_transaction_session_timeout`, each 5 s.
 - **A shared, enforced maximum cache TTL** (`MAX_TENANT_CACHE_TTL_MS`, 60 s; the default stays 30 s): instances configured above it refuse to start, the database holds the same value, and cache deadlines are monotonic.
 - **The relay's credentials reach only the worker:** a worker-only env file, and the API refuses to start if it sees them.
 - **Delivery:** the relay publishes committed events to the existing Valkey bus within a bounded pass. It claims with `FOR UPDATE SKIP LOCKED` and records the outcome in the claiming transaction, so delivery is at least once and consumers stay idempotent (eviction).
