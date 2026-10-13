@@ -84,6 +84,54 @@ const FIXTURES: Record<string, string> = {
   async invalidate(id: string) { await this.bus.publish(CHANNELS.products, id); }
   private async undo(id: string) { await this.platform.tenantProduct.updateMany({ where: { id }, data: { enabled: false } }); }
 }`,
+  // The owner's bypasses of 6d42a3a.
+  nestedViaVariable: `${HEAD}export async function f(p: PlatformClient) {
+  const data = { tenant: { update: { status: 'SUSPENDED' } } };
+  await p.tenantDataKey.update({ where: { tenantId_version: { tenantId: 'x', version: 1 } }, data: data as never });
+}`,
+  nestedShorthand: `${HEAD}export async function f(p: PlatformClient, data: never) { await p.tenantDataKey.update({ where: { tenantId_version: { tenantId: 'x', version: 1 } }, data }); }`,
+  nestedQuoted: `${HEAD}export async function f(p: PlatformClient) { await p.tenantDataKey.update({ where: { tenantId_version: { tenantId: 'x', version: 1 } }, data: { 'tenant': { 'update': { status: 'SUSPENDED' } } } as never }); }`,
+  rawUnsafeSubstitution: `${HEAD}export async function f(p: PlatformClient, sql: string) { await p.$executeRawUnsafe(\`\${sql}\`); }`,
+  rawExtracted: `${HEAD}export async function f(p: PlatformClient) { const run = p.$executeRawUnsafe.bind(p); await run('UPDATE tenant SET status = 1'); }`,
+  fakeChannels: `import type { PlatformClient } from '@univarse/db';
+import { InvalidationBus } from '../shared/infra/invalidation-bus.js';
+const CHANNELS = { tenants: 'uv:products:invalidate' } as const;
+export class W {
+  constructor(private readonly platform: PlatformClient, private readonly bus: InvalidationBus) {}
+  async go(id: string) {
+    await this.platform.tenant.update({ where: { id }, data: { status: 'SUSPENDED' } });
+    await this.bus.publish(CHANNELS.tenants, id); // a valid Channel value: no cast needed
+  }
+}`,
+  helperBind: `${HEAD}export class S {
+  constructor(private readonly platform: PlatformClient, private readonly bus: InvalidationBus) {}
+  async setEnabled(id: string) { try { await this.undo(id); } finally { await this.invalidate(id); } }
+  async other(id: string) { const f = this.undo.bind(this); await f(id); }
+  async invalidate(id: string) { await this.bus.publish(CHANNELS.products, id); }
+  private async undo(id: string) { await this.platform.tenantProduct.updateMany({ where: { id }, data: { enabled: false } }); }
+}`,
+  sameNamedPublisher: `${HEAD}class Other { async invalidate(id: string) { void id; } }
+export class W {
+  private readonly helper = new Other();
+  constructor(private readonly platform: PlatformClient, private readonly bus: InvalidationBus) {}
+  async go(id: string) {
+    await this.platform.tenant.update({ where: { id }, data: { status: 'SUSPENDED' } });
+    await this.helper.invalidate(id); // same name, another class: not the bound publisher
+  }
+  async invalidate(id: string) { await this.bus.publish(CHANNELS.tenants, id); }
+}`,
+  // A look-alike bus class: the real CHANNELS, but not the real InvalidationBus.
+  fakeBus: `import type { PlatformClient } from '@univarse/db';
+import { CHANNELS } from '../shared/infra/invalidation-bus.js';
+class InvalidationBus { async publish(channel: string, id: string) { void channel; void id; return 1; } }
+export class W {
+  private readonly bus = new InvalidationBus();
+  constructor(private readonly platform: PlatformClient) {}
+  async go(id: string) {
+    await this.platform.tenant.update({ where: { id }, data: { status: 'SUSPENDED' } });
+    await this.bus.publish(CHANNELS.tenants, id);
+  }
+}`,
   // Earlier forms, and the model the first guard missed entirely (tenant_domain holds the hosts).
   upsert: `${HEAD}export async function f(p: PlatformClient, data: never) { await p.tenantProduct.upsert(data); }`,
   destructure: `${HEAD}export async function f(p: PlatformClient) { const { tenant } = p; await tenant.findMany(); }`,
@@ -119,84 +167,138 @@ const check = (name: string, bindings: Bindings = {}) => {
 };
 const rel = (name: string) => `__cache_guard_fixtures__/${name}.ts`;
 
-describe('[CI10] writers are bound to table and channel, fail closed (type-aware)', { timeout: 60_000 }, () => {
-  it('[CI10][CI11] production code writes guarded tables only through bound writers that really publish', () => {
-    expect(writerViolations(program, productionFiles(program), REVIEWED_BINDINGS)).toEqual([]);
-  });
+describe(
+  '[CI10] writers are bound to table and channel, fail closed (type-aware)',
+  { timeout: 60_000 },
+  () => {
+    it('[CI10][CI11] production code writes guarded tables only through bound writers that really publish', () => {
+      expect(writerViolations(program, productionFiles(program), REVIEWED_BINDINGS)).toEqual([]);
+    });
 
-  it('[CI10] every binding names a runtime post-commit publication test that exists', () => {
-    for (const [file, list] of Object.entries(REVIEWED_BINDINGS)) {
-      for (const b of list) {
-        const proof = readFileSync(join(SRC, b.proof.file), 'utf8');
-        expect(proof.includes(b.proof.test), `${file} ${b.writer}: proof "${b.proof.test}"`).toBe(
-          true,
-        );
+    it('[CI10] every binding names a runtime post-commit publication test that exists', () => {
+      for (const [file, list] of Object.entries(REVIEWED_BINDINGS)) {
+        for (const b of list) {
+          const proof = readFileSync(join(SRC, b.proof.file), 'utf8');
+          expect(proof.includes(b.proof.test), `${file} ${b.writer}: proof "${b.proof.test}"`).toBe(
+            true,
+          );
+        }
       }
-    }
-  });
+    });
 
-  it("[CI10] the owner's bypasses of e89e48b are all refused", () => {
-    expect(check('alias').join('\n')).toMatch(/delegate is used other than/);
-    expect(check('computed').join('\n')).toMatch(/computed access on a Prisma client/);
-    expect(check('sqlQualified').join('\n')).toMatch(/writes tenant \(raw SQL/);
-    // In the products file, bound to tenant_product + products: its tenant-status write has no binding.
-    const products = {
-      [rel('productsFileTenantWrite')]: [
-        {
-          writer: 'ProductService.setEnabled',
-          table: 'tenant_product',
-          channel: 'products',
-          publisher: 'ProductService.setEnabled',
-          proof: { file: '', test: '' },
-        },
-      ],
-    } as Bindings;
-    expect(check('productsFileTenantWrite', products)).toEqual([
-      expect.stringMatching(
-        /ProductService\.setEnabled writes tenant \(update\(\)\) with no binding for that writer and table/,
-      ),
-    ]);
-    // A quoted string shaped like a publish call is not a publish call.
-    expect(check('stringPublish', { [rel('stringPublish')]: [W_BINDING] })).toEqual([
-      expect.stringMatching(/W\.go makes no publish\(CHANNELS\.tenants/),
-    ]);
-  });
+    it("[CI10] the owner's bypasses of e89e48b are all refused", () => {
+      expect(check('alias').join('\n')).toMatch(/delegate is used other than/);
+      expect(check('computed').join('\n')).toMatch(/computed access on a Prisma client/);
+      expect(check('sqlQualified').join('\n')).toMatch(
+        /writes tenant \(\$executeRaw \(update public\.tenant\)\)/,
+      );
+      // In the products file, bound to tenant_product + products: its tenant-status write has no binding.
+      const products = {
+        [rel('productsFileTenantWrite')]: [
+          {
+            writer: 'ProductService.setEnabled',
+            table: 'tenant_product',
+            channel: 'products',
+            publisher: 'ProductService.setEnabled',
+            proof: { file: '', test: '' },
+          },
+        ],
+      } as Bindings;
+      expect(check('productsFileTenantWrite', products)).toEqual([
+        expect.stringMatching(
+          /ProductService\.setEnabled writes tenant \(update\(\)\) with no binding for that writer and table/,
+        ),
+      ]);
+      // A quoted string shaped like a publish call is not a publish call.
+      expect(check('stringPublish', { [rel('stringPublish')]: [W_BINDING] })).toEqual([
+        expect.stringMatching(/W\.go makes no publish\(CHANNELS\.tenants/),
+      ]);
+    });
 
-  it('[CI10] the positive control: a bound writer that really publishes on its channel passes; the wrong channel does not', () => {
-    expect(check('realPublish', { [rel('realPublish')]: [W_BINDING] })).toEqual([]);
-    expect(
-      check('realPublish', { [rel('realPublish')]: [{ ...W_BINDING, channel: 'products' }] }),
-    ).toEqual([expect.stringMatching(/no publish\(CHANNELS\.products/)]);
-    expect(check('realPublish')).toEqual([
-      expect.stringMatching(/W\.go writes tenant \(update\(\)\) with no binding/),
-    ]);
-  });
+    it('[CI10] the positive control: a bound writer that really publishes on its channel passes; the wrong channel does not', () => {
+      expect(check('realPublish', { [rel('realPublish')]: [W_BINDING] })).toEqual([]);
+      expect(
+        check('realPublish', { [rel('realPublish')]: [{ ...W_BINDING, channel: 'products' }] }),
+      ).toEqual([expect.stringMatching(/no publish\(CHANNELS\.products/)]);
+      expect(check('realPublish')).toEqual([
+        expect.stringMatching(/W\.go writes tenant \(update\(\)\) with no binding/),
+      ]);
+    });
 
-  it('[CI10] a helper writer reached from any path other than its bound, publishing caller is refused', () => {
-    const b = {
-      writer: 'S.undo',
-      table: 'tenant_product',
-      channel: 'products',
-      publisher: 'S.invalidate',
-      calledOnlyFrom: 'S.setEnabled',
-      proof: { file: '', test: '' },
-    } as const;
-    expect(check('helperLeak', { [rel('helperLeak')]: [b] })).toEqual([
-      expect.stringMatching(
-        /S\.undo must be called only from S\.setEnabled \(called from: .*S\.other/,
-      ),
-    ]);
-  });
+    it('[CI10] a helper writer reached from any path other than its bound, publishing caller is refused', () => {
+      const b = {
+        writer: 'S.undo',
+        table: 'tenant_product',
+        channel: 'products',
+        publisher: 'S.invalidate',
+        calledOnlyFrom: 'S.setEnabled',
+        proof: { file: '', test: '' },
+      } as const;
+      expect(check('helperLeak', { [rel('helperLeak')]: [b] })).toEqual([
+        expect.stringMatching(
+          /S\.undo referenced from S\.other; it may only be called from S\.setEnabled/,
+        ),
+      ]);
+    });
 
-  it('[CI10] earlier forms and tenant_domain are refused; reads are not writes', () => {
-    expect(check('upsert').join('\n')).toMatch(/writes tenant_product \(upsert\(\)\)/);
-    expect(check('destructure').join('\n')).toMatch(/destructuring a Prisma client/);
-    expect(check('rawUnsafeVariable').join('\n')).toMatch(/SQL that isn't a literal/);
-    expect(check('nested').join('\n')).toMatch(/writes tenant \(nested update via tenant\)/);
-    expect(check('domain').join('\n')).toMatch(/writes tenant_domain \(create\(\)\)/);
-    expect(check('reads')).toEqual([]);
-  });
-});
+    it("[CI10] the owner's bypasses of 6d42a3a are all refused", () => {
+      expect(check('nestedViaVariable').join('\n')).toMatch(
+        /data for TenantDataKey is not an object literal/,
+      );
+      expect(check('nestedShorthand').join('\n')).toMatch(
+        /`data` in the arguments to TenantDataKey\.update\(\) is not written out literally/,
+      );
+      expect(check('nestedQuoted').join('\n')).toMatch(
+        /f writes tenant \(nested update via tenant\)/,
+      );
+      expect(check('rawUnsafeSubstitution').join('\n')).toMatch(
+        /\$executeRawUnsafe with SQL that isn't a substitution-free literal/,
+      );
+      expect(check('rawExtracted').join('\n')).toMatch(
+        /\$executeRawUnsafe referenced other than by its immediate call/,
+      );
+      expect(check('fakeChannels', { [rel('fakeChannels')]: [W_BINDING] })).toEqual([
+        expect.stringMatching(/W\.go makes no publish\(CHANNELS\.tenants/),
+      ]);
+      // A look-alike bus class with the real CHANNELS: not the real InvalidationBus.
+      expect(check('fakeBus', { [rel('fakeBus')]: [W_BINDING] })).toEqual([
+        expect.stringMatching(/W\.go makes no publish\(CHANNELS\.tenants/),
+      ]);
+      const helper = {
+        writer: 'S.undo',
+        table: 'tenant_product',
+        channel: 'products',
+        publisher: 'S.invalidate',
+        calledOnlyFrom: 'S.setEnabled',
+        proof: { file: '', test: '' },
+      } as const;
+      expect(check('helperBind', { [rel('helperBind')]: [helper] })).toEqual([
+        expect.stringMatching(/S\.undo referenced other than as a direct call/),
+      ]);
+      const sameName = {
+        writer: 'W.go',
+        table: 'tenant',
+        channel: 'tenants',
+        publisher: 'W.invalidate',
+        proof: { file: '', test: '' },
+      } as const;
+      expect(check('sameNamedPublisher', { [rel('sameNamedPublisher')]: [sameName] })).toEqual([
+        expect.stringMatching(/W\.go writes tenant but never calls W\.invalidate/),
+      ]);
+    });
+
+    it('[CI10] earlier forms and tenant_domain are refused; reads are not writes', () => {
+      expect(check('upsert').join('\n')).toMatch(/writes tenant_product \(upsert\(\)\)/);
+      expect(check('destructure').join('\n')).toMatch(/destructuring a Prisma client/);
+      expect(check('rawUnsafeVariable').join('\n')).toMatch(
+        /\$executeRawUnsafe with SQL that isn't a substitution-free literal/,
+      );
+      expect(check('nested').join('\n')).toMatch(/writes tenant \(nested update via tenant\)/);
+      expect(check('domain').join('\n')).toMatch(/writes tenant_domain \(create\(\)\)/);
+      expect(check('reads')).toEqual([]);
+    });
+  },
+);
 
 describe('[CI9] one path to full-tenant destruction', { timeout: 60_000 }, () => {
   it('[CI9][CI11] only shared/crypto/key-forget.ts uses destroyTenantKeys', () => {

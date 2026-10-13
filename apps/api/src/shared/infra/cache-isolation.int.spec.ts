@@ -136,6 +136,56 @@ afterAll(async () => {
 const toggle = async (enabled: boolean) =>
   h.app.get(ProductService).setEnabled(tenant, actor, PRODUCT, enabled, meta);
 
+/**
+ * Ordering evidence on the publishing instance (instance 1): every platform write to tenant_product is recorded
+ * when it RESOLVES (autocommit: committed), and every publish when it is CALLED. Pass-through; `restore()` undoes it.
+ */
+function recordOrder() {
+  const events: string[] = [];
+  type Delegate = { updateMany: (...a: never[]) => Promise<{ count: number }> };
+  const service: unknown = h.app.get(ProductService);
+  const delegate = (service as { platform: { tenantProduct: Delegate } }).platform.tenantProduct;
+  const realWrite = delegate.updateMany.bind(delegate); // bound before spying: the wrapper never recurses
+  const writes = vi.spyOn(delegate, 'updateMany').mockImplementation(async (...a: never[]) => {
+    const r = await realWrite(...a);
+    events.push(`write(count=${String(r.count)})`); // resolved = committed (autocommit)
+    return r;
+  });
+  const bus = h.app.get(InvalidationBus);
+  const realPublish = bus.publish.bind(bus);
+  const publish = vi.spyOn(bus, 'publish').mockImplementation((channel, tenantId, timeoutMs) => {
+    events.push(`publish(${channel})`); // recorded when called
+    return realPublish(channel, tenantId, timeoutMs);
+  });
+  return {
+    events,
+    restore: () => {
+      writes.mockRestore();
+      publish.mockRestore();
+    },
+  };
+}
+
+/** Each message on `channel`, with the DB state read the moment it arrived (post-commit visibility). */
+async function listenWithState(channel: string, read: () => Promise<unknown>) {
+  const sub = new Redis(process.env.VALKEY_URL ?? 'redis://127.0.0.1:6379');
+  const seen: { tenantId: string; state: unknown }[] = [];
+  sub.on('message', (c: string, m: string) => {
+    if (c !== channel) return;
+    void read().then((state) =>
+      seen.push({ tenantId: (JSON.parse(m) as { tenantId: string }).tenantId, state }),
+    );
+  });
+  await sub.subscribe(channel);
+  return { seen, close: () => sub.disconnect() };
+}
+const helpdeskEnabled = async () =>
+  (
+    await h.platform.tenantProduct.findFirstOrThrow({
+      where: { tenantId: h.tenants.demo, product: PRODUCT },
+    })
+  ).enabled;
+
 describe('[CI1][CI2][CI3][CI4] products on the bus', () => {
   it('[CI1][CI11] a toggle through instance 1 is served by instance 2, and honoured by the worker, within 2 s', async () => {
     const app2 = await instance();
@@ -143,9 +193,23 @@ describe('[CI1][CI2][CI3][CI4] products on the bus', () => {
     const pw = h.workerCtx.get(ProductService);
     expect(await p2.isActive(h.tenants.demo, PRODUCT)).toBe(false); // both cache "off"
     expect(await pw.isActive(h.tenants.demo, PRODUCT)).toBe(false);
-    await toggle(true);
-    expect(await waitFor(() => p2.isActive(h.tenants.demo, PRODUCT), 2_000)).toBeLessThan(2_000);
-    expect(await waitFor(() => pw.isActive(h.tenants.demo, PRODUCT), 2_000)).toBeLessThan(2_000);
+    const order = recordOrder();
+    const listener = await listenWithState(CHANNELS.products, helpdeskEnabled);
+    try {
+      await toggle(true);
+      // ORDER (owner review of 6d42a3a): on instance 1 the write committed, THEN the publish was called...
+      expect(order.events).toEqual(['write(count=1)', `publish(${CHANNELS.products})`]);
+      // ...and a receiver reading the DB the moment the message arrived sees the committed state.
+      expect(
+        await waitFor(() => listener.seen.some((m) => m.tenantId === h.tenants.demo), 2_000),
+      ).toBeLessThan(2_000);
+      expect(listener.seen.find((m) => m.tenantId === h.tenants.demo)?.state).toBe(true);
+      expect(await waitFor(() => p2.isActive(h.tenants.demo, PRODUCT), 2_000)).toBeLessThan(2_000);
+      expect(await waitFor(() => pw.isActive(h.tenants.demo, PRODUCT), 2_000)).toBeLessThan(2_000);
+    } finally {
+      order.restore();
+      listener.close();
+    }
     await toggle(false);
     expect(
       await waitFor(async () => !(await p2.isActive(h.tenants.demo, PRODUCT)), 2_000),
@@ -153,32 +217,28 @@ describe('[CI1][CI2][CI3][CI4] products on the bus', () => {
   });
 
   it('[CI1][CI10] the compensated path publishes too: a toggle whose audit write fails is undone, and a publish still follows', async () => {
-    const listener = await listen(CHANNELS.products);
+    const order = recordOrder();
+    const listener = await listenWithState(CHANNELS.products, helpdeskEnabled);
     try {
       const spy = vi
         .spyOn(h.app.get(AuditWriter), 'write')
         .mockRejectedValueOnce(new Error('injected audit failure'));
       await expect(toggle(true)).rejects.toThrow(/injected audit failure/);
       spy.mockRestore();
-      // Compensated: the row is back where it was...
+      // ORDER: the write committed, the compensation committed, and only THEN was the publish called.
+      expect(order.events).toEqual([
+        'write(count=1)',
+        'write(count=1)',
+        `publish(${CHANNELS.products})`,
+      ]);
+      // Compensated: the row is back where it was, and a receiver reading the DB on arrival sees that.
+      expect(await helpdeskEnabled()).toBe(false);
       expect(
-        (
-          await h.platform.tenantProduct.findFirstOrThrow({
-            where: { tenantId: h.tenants.demo, product: PRODUCT },
-          })
-        ).enabled,
-      ).toBe(false);
-      // ...and the invalidation was still published, after the platform write and its compensation.
-      expect(
-        await waitFor(
-          () =>
-            listener.seen.some(
-              (m) => (JSON.parse(m) as { tenantId: string }).tenantId === h.tenants.demo,
-            ),
-          2_000,
-        ),
+        await waitFor(() => listener.seen.some((m) => m.tenantId === h.tenants.demo), 2_000),
       ).toBeLessThan(2_000);
+      expect(listener.seen.find((m) => m.tenantId === h.tenants.demo)?.state).toBe(false);
     } finally {
+      order.restore();
       listener.close();
     }
   });
