@@ -427,3 +427,33 @@ Alternatives considered: option — why not.
 **Alternatives considered:**
 - **Keep GHCR and keyless signing:** a hosted registry and a public log entry, which the owner ruled out.
 - **Hold signing entirely:** leaves "images signed" unmet with no local path to it.
+
+## ADR-031 — Change-capture triggers on the cached platform tables, with a platform invalidation outbox
+**Status:** Proposed (2026-10-13), with [spec 0016](specs/0016-platform-invalidation-outbox.md).
+- **Amends** [07](07-data-and-database.md)'s rule "Triggers only for: `updated_at`, the audit hash chain, and preventing updates to immutable rows", by adding change capture for cache invalidation.
+
+**Context:**
+- Spec 0015 publishes cache invalidations from the API's code, checked by a static guard over its TypeScript (CI10).
+- The guard can't see a type that lies, behaviour inside the database, or writers outside the API's code. The owner accepted those limits for spec 0015 and asked for a database-level design.
+- The cached tables (`tenant`, `tenant_domain`, `tenant_product`) are in the platform database, outside tenant RLS.
+
+**Decision (proposed):**
+- **Capture:** a row trigger on each of the three tables records *that* a row changed and which tenant ids it belongs to (old and new), in a `cache_invalidation_event` table, **in the same transaction**. It records no values and makes no decisions, so it isn't business logic; the "no business logic in triggers" rule stands.
+- **TRUNCATE:** refused by a trigger on those tables (spec 0016 D1).
+- **The triggers:**
+  - `ENABLE ALWAYS`;
+  - `SECURITY DEFINER`, owned by the migrator, with a fixed `search_path`;
+  - checked by the `rls:check` gate.
+- **Delivery:** a platform relay in the worker publishes committed events to the existing Valkey bus. It claims with `FOR UPDATE SKIP LOCKED` and records the outcome in the claiming transaction, so delivery is at least once, and consumers stay idempotent (eviction).
+
+**Consequences:**
+- **Coverage:** every writer is covered, whatever its language or path. Publishing after commit holds by construction.
+- **The owner role remains outside the guarantee:** it can disable or drop the triggers. The gate detects that; it doesn't prevent it.
+- **Write cost:** one extra insert per changed row on three low-write tables.
+- **Relay cost:** one more polling loop in the worker.
+- **The static CI10 guard** can be retired (spec 0016 D3).
+
+**Alternatives considered:**
+- **Keep only the static guard:** its limits stay open.
+- **Logical decoding (a replication slot read by the worker):** captures everything without triggers, but adds a replication slot to operate and monitor, needs replication privileges, and is heavier than three low-write tables justify.
+- **`LISTEN`/`NOTIFY` alone:** not durable (a notification is lost if no listener is connected) and unusable through PgBouncer's transaction pooling.
