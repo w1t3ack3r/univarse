@@ -180,6 +180,22 @@ export async function f(p: PlatformClient) { await p.$executeRaw(PlatformModels.
   relationUnknownOp: `${HEAD}export async function f(p: PlatformClient) { await p.tenant.update({ where: { id: 'x' }, data: { products: { link: { id: 'y' } } } as never }); }`,
   // The foreign key is on TenantProduct: connecting its tenant writes only the product row.
   relationOwnSide: `${HEAD}export async function f(p: PlatformClient) { await p.tenantProduct.update({ where: { id: 'y' }, data: { tenant: { connect: { id: 'x' } } } }); }`,
+  // The owner's bypasses of f0b6ab1, exactly as probed: a CR-ended line comment (with LF and CRLF controls), literal
+  // decoding and continuation inside DO / EXECUTE, and target forms the matcher missed.
+  crComment: String.raw`${HEAD}export async function f(p: PlatformClient) { await p.$executeRawUnsafe("UPDATE -- note\r tenant SET status = 'SUSPENDED'"); }`,
+  lfComment: String.raw`${HEAD}export async function f(p: PlatformClient) { await p.$executeRawUnsafe("UPDATE -- note\n tenant SET status = 'SUSPENDED'"); }`,
+  crlfComment: String.raw`${HEAD}export async function f(p: PlatformClient) { await p.$executeRawUnsafe("UPDATE -- note\r\n tenant SET status = 'SUSPENDED'"); }`,
+  doHexEscape: String.raw`${HEAD}export async function f(p: PlatformClient) { await p.$executeRawUnsafe("DO $$ BEGIN\n  EXECUTE E'UPDATE \\x74enant SET status = ''SUSPENDED''';\nEND; $$;"); }`,
+  doUescape: String.raw`${HEAD}export async function f(p: PlatformClient) { await p.$executeRawUnsafe("DO $$ BEGIN\n  EXECUTE U&'UPDATE !0074enant SET status = ''SUSPENDED''' UESCAPE '!';\nEND; $$;"); }`,
+  doContinuation: String.raw`${HEAD}export async function f(p: PlatformClient) { await p.$executeRawUnsafe("DO $$ BEGIN\n  EXECUTE 'UP'\n'DATE tenant SET status = ''SUSPENDED''';\nEND; $$;"); }`,
+  // The control: a decoded E'…' read inside DO is still a read.
+  doDecodedRead: String.raw`${HEAD}export async function f(p: PlatformClient) { await p.$executeRawUnsafe("DO $$ BEGIN\n  EXECUTE E'SELECT \\x74enant_id FROM file_object';\nEND; $$;"); }`,
+  spacedQualified: String.raw`${HEAD}export async function f(p: PlatformClient) { await p.$executeRawUnsafe("UPDATE public . tenant SET status = 'SUSPENDED';"); }`,
+  quotedNoSpace: String.raw`${HEAD}export async function f(p: PlatformClient) { await p.$executeRawUnsafe('UPDATE"tenant" SET status = \'SUSPENDED\';'); }`,
+  onlyParenthesised: String.raw`${HEAD}export async function f(p: PlatformClient) { await p.$executeRawUnsafe("UPDATE ONLY(tenant) SET status = 'SUSPENDED';"); }`,
+  truncateList: String.raw`${HEAD}export async function f(p: PlatformClient) { await p.$executeRawUnsafe('TRUNCATE tenant_domain, tenant_product'); }`,
+  // The control: a row lock is not a write, and tenant_id is not the tenant table.
+  lockAndOtherTable: String.raw`${HEAD}export async function f(p: PlatformClient) { await p.$executeRawUnsafe("SELECT id FROM tenant WHERE id = '1' FOR UPDATE; UPDATE file_object SET tenant_id = tenant_id"); }`,
   // Earlier forms, and the model the first guard missed entirely (tenant_domain holds the hosts).
   upsert: `${HEAD}export async function f(p: PlatformClient, data: never) { await p.tenantProduct.upsert(data); }`,
   destructure: `${HEAD}export async function f(p: PlatformClient) { const { tenant } = p; await tenant.findMany(); }`,
@@ -238,7 +254,7 @@ describe(
       expect(check('alias').join('\n')).toMatch(/delegate is used other than/);
       expect(check('computed').join('\n')).toMatch(/computed access on a Prisma client/);
       expect(check('sqlQualified').join('\n')).toMatch(
-        /writes tenant \(\$executeRaw \(update public\.tenant\)\)/,
+        /writes tenant \(\$executeRaw \(update tenant\)\)/,
       );
       // In the products file, bound to tenant_product + products: its tenant-status write has no binding.
       const products = {
@@ -436,6 +452,41 @@ describe(
       expect(check('relationOwnSide')).toEqual([
         expect.stringMatching(/f writes tenant_product \(update\(\)\) with no binding/),
       ]);
+    });
+
+    it("[CI10] the owner's bypasses of f0b6ab1 are all refused", () => {
+      const tenantWrite =
+        /f writes tenant \(\$executeRawUnsafe \(update tenant\)\) with no binding/;
+      // 1. A line comment ends at CR as well as LF (and CRLF).
+      for (const name of ['crComment', 'lfComment', 'crlfComment'])
+        expect(check(name).join('\n'), name).toMatch(tenantWrite);
+      // 2. Literals are decoded as PostgreSQL decodes them, or refused.
+      expect(check('doHexEscape').join('\n')).toMatch(tenantWrite);
+      expect(check('doUescape').join('\n')).toMatch(
+        /SQL that doesn't lex unambiguously: a U&… Unicode-escape/,
+      );
+      expect(check('doContinuation').join('\n')).toMatch(tenantWrite);
+      expect(check('doDecodedRead')).toEqual([]);
+      // 3. Every reference to a guarded table in a write statement counts, whatever its form.
+      for (const name of ['spacedQualified', 'quotedNoSpace', 'onlyParenthesised'])
+        expect(check(name).join('\n'), name).toMatch(tenantWrite);
+      const domainOnly = {
+        writer: 'f',
+        table: 'tenant_domain',
+        channel: 'tenants',
+        publisher: 'f',
+        proof: { file: '', test: '' },
+      } as const;
+      expect(check('truncateList', { [rel('truncateList')]: [domainOnly] })).toContainEqual(
+        expect.stringMatching(
+          /f writes tenant_product \(\$executeRawUnsafe \(truncate tenant_product\)\) with no binding/,
+        ),
+      );
+      expect(check('truncateList')).toEqual([
+        expect.stringMatching(/\(truncate tenant_domain\)\) with no binding/),
+        expect.stringMatching(/\(truncate tenant_product\)\) with no binding/),
+      ]);
+      expect(check('lockAndOtherTable')).toEqual([]);
     });
 
     it('[CI10] earlier forms and tenant_domain are refused; reads are not writes', () => {

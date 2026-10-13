@@ -14,12 +14,14 @@
 //      Each guarded model reached at any depth is a write needing its OWN binding. `connect` / `disconnect` / `set`
 //      through a relation whose foreign key is on the related side write the related row; any relation operation
 //      the guard doesn't know is refused.
-//   3. RAW SQL: tagged templates are checked on their static text, lexed as PostgreSQL lexes it (quote-aware:
-//      standard, E'…' and dollar-quoted strings, quoted identifiers, nested block and line comments); string literals
-//      are scanned as SQL too (`DO $$…$$`, `EXECUTE '…'`). Interpolations must be proven bound parameters by type
-//      (primitives, Date, arrays of them; unions and type-parameter constraints inspected). A template passed as an
-//      argument must be tagged with Prisma's own `sql`, by declaration. `U&"…"` identifiers, unlexable SQL, and
-//      `…Unsafe` variants without a substitution-free literal are refused.
+//   3. RAW SQL: tagged templates are checked on their static text, TOKENISED as PostgreSQL's scanner does: line
+//      comments end at LF or CR, block comments nest, quoted identifiers keep their token boundaries, and literals
+//      are DECODED (E'…' escapes, adjacent constants joined). String constants are read as SQL too (`DO $$…$$`,
+//      `EXECUTE '…'`). In any statement that changes data or schema, EVERY reference to a guarded table counts as a
+//      write to it, whatever its qualification or position. U&'…' / U&"…", a backslash in a standard string and
+//      unterminated input are refused. Interpolations must be proven bound parameters by type (primitives, Date,
+//      arrays of them; unions and type-parameter constraints inspected). A template passed as an argument must be
+//      tagged with Prisma's own `sql`, by declaration. `…Unsafe` variants need a substitution-free literal.
 //   4. BINDING: the write sits in the bound writer; the bound publisher calls `publish` on the real InvalidationBus
 //      with the real `CHANNELS.<channel>` (both resolved to their declarations in shared/infra/invalidation-bus.ts).
 //   5. PATH: the writer calls the publisher (call targets resolved to declarations), or every reference to the
@@ -88,8 +90,6 @@ const NESTED_LINKS = new Set(['connect', 'disconnect', 'set']);
 /** Every other nested relation operation is refused: an unrecognised one may write. */
 const NESTED_OPS = new Set([...NESTED_WRITES, ...NESTED_LINKS]);
 const RAW = new Set(['$executeRaw', '$executeRawUnsafe', '$queryRaw', '$queryRawUnsafe']);
-const SQL_WRITE =
-  /\b(insert into|update|delete from|merge into|truncate(?: table)?|alter table|copy)\s+(?:only\s+)?(?:[a-z_][a-z0-9_$]*\.)?(tenant|tenant_domain|tenant_product)\b/g;
 
 export interface Binding {
   /** `Class.method` (or a function name): must resolve to exactly one declaration in the file. */
@@ -211,117 +211,239 @@ export function productionFiles(program: TS.Program): TS.SourceFile[] {
 
 const relPath = (f: string) => relative(SRC, f).replace(/\\/g, '/');
 
-const IDENT_CHAR = /[A-Za-z0-9_$\u0080-￿]/;
+/** A SQL token: words are case-folded (as PostgreSQL folds them); identifiers and strings are decoded. */
+export interface SqlToken {
+  readonly kind: 'word' | 'ident' | 'string' | 'other';
+  readonly value: string;
+}
+
+const SQL_SPACE = /[ \t\n\r\f\v]/;
+const WORD = /^[A-Za-z_\u0080-￿][A-Za-z0-9_$\u0080-￿]*/;
+const DOLLAR_TAG = /^\$(?:[A-Za-z_\u0080-￿][A-Za-z0-9_\u0080-￿]*)?\$/;
 
 /**
- * Lexes SQL as PostgreSQL does, so a comment marker inside a literal is text and a quote inside a comment is comment.
- * Returns the code outside string literals (comments → space, quoted identifiers unquoted, each string → `''`) and
- * each string literal's contents; null when the text is unterminated, or uses a backslash in a standard string
- * (ambiguous: its meaning depends on standard_conforming_strings).
+ * Lexes SQL as PostgreSQL's scanner does (scan.l), into tokens with every literal DECODED:
+ * - whitespace and comments separate tokens; a `--` comment ends at LF or CR, and block comments nest;
+ * - `"…"` identifiers (`""` escapes) become one identifier token, so `UPDATE"tenant"` is two tokens;
+ * - standard `'…'` strings (`''` escapes), `E'…'` strings with every backslash escape decoded (`\b \f \n \r \t`,
+ *   octal, `\xhh`, `\uXXXX`, `\UXXXXXXXX`, any other character itself), and dollar-quoted strings;
+ * - adjacent string constants separated only by whitespace or comments are joined, as PostgreSQL joins them across
+ *   a newline (joining where PostgreSQL would raise a syntax error instead is harmless);
+ * - REFUSED (an error): `U&'…'` / `U&"…"` (their `UESCAPE` character makes decoding context-dependent), a backslash
+ *   in a standard string (its meaning depends on standard_conforming_strings), and anything unterminated.
  */
-export function lexSql(text: string): { code: string; strings: string[] } | null {
-  let code = '';
-  const strings: string[] = [];
+export function lexSql(text: string): { tokens: SqlToken[] } | { error: string } {
+  const tokens: SqlToken[] = [];
   const n = text.length;
+  /** Skips whitespace and comments from j: the next token's index, or -1 for an unterminated block comment. */
+  const skipGap = (from: number): number => {
+    let j = from;
+    for (;;) {
+      if (j < n && SQL_SPACE.test(text[j]!)) j++;
+      else if (text.startsWith('--', j)) {
+        while (j < n && text[j] !== '\n' && text[j] !== '\r') j++;
+      } else if (text.startsWith('/*', j)) {
+        let depth = 0;
+        do {
+          if (j >= n) return -1;
+          if (text.startsWith('/*', j)) {
+            depth++;
+            j += 2;
+          } else if (text.startsWith('*/', j)) {
+            depth--;
+            j += 2;
+          } else j++;
+        } while (depth > 0);
+      } else return j;
+    }
+  };
+  /** Reads a quoted constant whose opening quote is at `from`: [decoded value, index after the closing quote]. */
+  const readQuoted = (from: number, escapes: boolean): [string, number] | string => {
+    let j = from + 1;
+    let s = '';
+    for (;;) {
+      if (j >= n) return 'an unterminated string';
+      const ch = text[j]!;
+      if (ch === "'") {
+        if (text[j + 1] !== "'") return [s, j + 1];
+        s += "'";
+        j += 2;
+      } else if (ch !== '\\') {
+        s += ch;
+        j++;
+      } else if (!escapes) {
+        return 'a backslash in a standard string (its meaning depends on standard_conforming_strings)';
+      } else {
+        const e = text[j + 1];
+        if (e === undefined) return 'an unterminated string';
+        const simple = ({ b: '\b', f: '\f', n: '\n', r: '\r', t: '\t' } as Record<string, string>)[
+          e
+        ];
+        const octal = /^[0-7]{1,3}/.exec(text.slice(j + 1, j + 4))?.[0];
+        const hex = e === 'x' ? /^[0-9A-Fa-f]{1,2}/.exec(text.slice(j + 2, j + 4))?.[0] : undefined;
+        if (simple !== undefined) {
+          s += simple;
+          j += 2;
+        } else if (octal) {
+          s += String.fromCharCode(parseInt(octal, 8) & 0xff);
+          j += 1 + octal.length;
+        } else if (hex) {
+          s += String.fromCharCode(parseInt(hex, 16));
+          j += 2 + hex.length;
+        } else if (e === 'u' || e === 'U') {
+          const len = e === 'u' ? 4 : 8;
+          const digits = text.slice(j + 2, j + 2 + len);
+          const cp =
+            /^[0-9A-Fa-f]+$/.test(digits) && digits.length === len ? parseInt(digits, 16) : NaN;
+          if (!(cp <= 0x10ffff)) return 'an invalid Unicode escape';
+          s += String.fromCodePoint(cp);
+          j += 2 + len;
+        } else {
+          s += e;
+          j += 2;
+        }
+      }
+    }
+  };
   let i = 0;
   while (i < n) {
-    const c = text[i]!;
-    const next = text[i + 1];
-    if (c === '-' && next === '-') {
-      const end = text.indexOf('\n', i);
-      i = end < 0 ? n : end;
-      code += ' ';
-    } else if (c === '/' && next === '*') {
-      let depth = 0; // block comments nest
-      do {
-        if (i >= n) return null;
-        if (text.startsWith('/*', i)) {
-          depth++;
-          i += 2;
-        } else if (text.startsWith('*/', i)) {
-          depth--;
-          i += 2;
-        } else i++;
-      } while (depth > 0);
-      code += ' ';
-    } else if (c === '"') {
+    const g = skipGap(i);
+    if (g < 0) return { error: 'an unterminated comment' };
+    if (g >= n) break;
+    i = g;
+    const rest = text.slice(i, i + 3);
+    if (/^[uU]&['"]/.test(rest)) {
+      return {
+        error:
+          'a U&… Unicode-escape constant or identifier (its UESCAPE makes decoding context-dependent)',
+      };
+    }
+    const prefix = /^([eEnNbBxX])'/.exec(rest)?.[1];
+    if (prefix !== undefined || text[i] === "'") {
+      // A string constant, then any constants joined to it; E'…' continuations keep the escape rules.
+      const escapes = prefix === 'e' || prefix === 'E';
+      let at = prefix === undefined ? i : i + 1;
+      let value = '';
+      const pieces: string[] = [];
+      for (;;) {
+        const r = readQuoted(at, escapes);
+        if (typeof r === 'string') return { error: r };
+        pieces.push(r[0]);
+        value += r[0];
+        const next = skipGap(r[1]);
+        if (next < 0) return { error: 'an unterminated comment' };
+        if (text[next] !== "'") {
+          i = r[1];
+          break;
+        }
+        at = next;
+      }
+      tokens.push({ kind: 'string', value });
+      if (pieces.length > 1) for (const p of pieces) tokens.push({ kind: 'string', value: p });
+      continue;
+    }
+    if (text[i] === '"') {
       let j = i + 1;
       let ident = '';
       for (;;) {
-        if (j >= n) return null;
+        if (j >= n) return { error: 'an unterminated quoted identifier' };
         if (text[j] === '"') {
           if (text[j + 1] !== '"') break;
           ident += '"';
           j += 2;
         } else ident += text[j++]!;
       }
-      code += ident;
+      tokens.push({ kind: 'ident', value: ident });
       i = j + 1;
-    } else if (c === "'") {
-      // E'…' takes backslash escapes; a standard string doesn't (with standard_conforming_strings on).
-      const escapes = /[eE]/.test(text[i - 1] ?? '') && !IDENT_CHAR.test(text[i - 2] ?? '');
-      let j = i + 1;
-      let s = '';
-      for (;;) {
-        if (j >= n) return null;
-        const ch = text[j]!;
-        if (ch === '\\') {
-          if (!escapes) return null;
-          s += text.slice(j, j + 2);
-          j += 2;
-        } else if (ch === "'") {
-          if (text[j + 1] !== "'") break;
-          s += "'";
-          j += 2;
-        } else {
-          s += ch;
-          j++;
-        }
-      }
-      strings.push(s);
-      code += " '' ";
-      i = j + 1;
-    } else if (c === '$' && !IDENT_CHAR.test(text[i - 1] ?? '')) {
-      const tag = /^\$(?:[A-Za-z_\u0080-￿][A-Za-z0-9_\u0080-￿]*)?\$/.exec(text.slice(i))?.[0];
-      if (tag) {
-        const end = text.indexOf(tag, i + tag.length);
-        if (end < 0) return null;
-        strings.push(text.slice(i + tag.length, end));
-        code += " '' ";
-        i = end + tag.length;
-      } else {
-        code += c;
-        i++;
-      }
-    } else {
-      code += c;
-      i++;
+      continue;
     }
+    const tag = text[i] === '$' ? DOLLAR_TAG.exec(text.slice(i))?.[0] : undefined;
+    if (tag) {
+      const end = text.indexOf(tag, i + tag.length);
+      if (end < 0) return { error: 'an unterminated dollar-quoted string' };
+      tokens.push({ kind: 'string', value: text.slice(i + tag.length, end) });
+      i = end + tag.length;
+      continue;
+    }
+    const word = WORD.exec(text.slice(i))?.[0];
+    if (word) {
+      tokens.push({ kind: 'word', value: word.toLowerCase() });
+      i += word.length;
+      continue;
+    }
+    const other = /^(\$[0-9]+|[0-9][0-9A-Za-z_.]*)/.exec(text.slice(i))?.[0] ?? text[i]!;
+    tokens.push({ kind: 'other', value: other });
+    i += other.length;
   }
-  return { code, strings };
+  return { tokens };
 }
 
-const fold = (s: string) => s.toLowerCase().replace(/\s+/g, ' ');
+/** Keywords that make a statement change data or schema; `update` after `for` / `key` is a row lock, not a write. */
+const SQL_WRITE_WORDS = new Set([
+  'insert',
+  'update',
+  'delete',
+  'merge',
+  'truncate',
+  'alter',
+  'copy',
+  'drop',
+  'create',
+]);
+const GUARDED_TABLES = new Set(Object.values(GUARDED_MODELS));
+
+/** The write verb of a statement's tokens, if any. */
+function writeVerb(stmt: readonly SqlToken[]): string | undefined {
+  return stmt.find(
+    (t, k) =>
+      t.kind === 'word' &&
+      SQL_WRITE_WORDS.has(t.value) &&
+      !(t.value === 'update' && ['for', 'key'].includes(stmt[k - 1]?.value ?? '')),
+  )?.value;
+}
 
 /**
- * Normalises SQL as PostgreSQL reads it, for matching writes: the code outside literals (lexed), then each string
- * literal's contents as SQL too, since `DO $$ … $$` and `EXECUTE '…'` run them. A literal that doesn't lex as SQL
- * can't run as SQL either, so it is scanned as plain text. Null when the outer text doesn't lex (refused).
+ * The guarded tables a SQL text writes, as `<verb> <table>`, failing closed: in any statement that changes data or
+ * schema, EVERY reference to a guarded table counts as a write to it, whatever its position or qualification
+ * (`public . tenant`, `ONLY(tenant)`, each table of `TRUNCATE a, b`). String constants are read as SQL too, since
+ * `DO $$…$$` and `EXECUTE '…'` run them; one that doesn't lex can't run as SQL, so its words are scanned instead.
  */
-export function normaliseSql(text: string, depth = 0): string | null {
+export function sqlWrites(text: string, depth = 0): { writes: string[] } | { error: string } {
+  if (depth > 4) return { error: 'string literals nested more than four deep' };
   const lexed = lexSql(text);
-  if (!lexed) return null;
-  if (depth > 4) return null; // literals nested this deep: refused rather than guessed
-  const parts = [fold(lexed.code)];
-  for (const s of lexed.strings) {
-    if (lexSql(s) === null) parts.push(fold(s));
-    else {
-      const inner = normaliseSql(s, depth + 1);
-      if (inner === null) return null;
-      parts.push(inner);
+  if ('error' in lexed) return lexed;
+  const writes: string[] = [];
+  const statement = (stmt: readonly SqlToken[]) => {
+    const verb = writeVerb(stmt);
+    if (!verb) return;
+    for (const t of stmt) {
+      const v = t.value.toLowerCase();
+      if ((t.kind === 'word' || t.kind === 'ident') && GUARDED_TABLES.has(v))
+        writes.push(`${verb} ${v}`);
     }
+  };
+  let stmt: SqlToken[] = [];
+  for (const t of lexed.tokens) {
+    if (t.kind === 'other' && t.value === ';') {
+      statement(stmt);
+      stmt = [];
+    } else stmt.push(t);
   }
-  return parts.join(' ; ');
+  statement(stmt);
+  for (const t of lexed.tokens) {
+    if (t.kind !== 'string') continue;
+    const inner = sqlWrites(t.value, depth + 1);
+    if (!('error' in inner)) writes.push(...inner.writes);
+    else if (/^an unterminated/.test(inner.error)) {
+      statement(
+        (t.value.match(/[A-Za-z_][A-Za-z0-9_$]*/g) ?? []).map((w) => ({
+          kind: 'word',
+          value: w.toLowerCase(),
+        })),
+      );
+    } else return inner; // a refused form inside a literal is refused outright
+  }
+  return { writes };
 }
 
 /** The qualified label of a function-like declaration: `Class.method`, or a function's name. */
@@ -642,20 +764,13 @@ export function analyzeFile(
     );
   };
   const checkSql = (n: TS.Node, text: string, how: string) => {
-    if (/u&\s*"/i.test(text)) {
-      refuse(n, `${how} uses a U&"…" escaped identifier`);
+    const r = sqlWrites(text);
+    if ('error' in r) {
+      refuse(n, `${how} with SQL that doesn't lex unambiguously: ${r.error}`);
       return;
     }
-    const sql = normaliseSql(text);
-    if (sql === null) {
-      refuse(
-        n,
-        `${how} with SQL that doesn't lex unambiguously (an unterminated quote or comment, or a backslash in a standard string)`,
-      );
-      return;
-    }
-    for (const m of sql.matchAll(SQL_WRITE))
-      a.writes.push({ fn: fnOf(n), table: m[2]!, how: `${how} (${m[0]})` });
+    for (const w of r.writes)
+      a.writes.push({ fn: fnOf(n), table: w.slice(w.indexOf(' ') + 1), how: `${how} (${w})` });
   };
 
   const visit = (n: TS.Node): void => {
