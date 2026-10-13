@@ -429,7 +429,7 @@ Alternatives considered: option — why not.
 - **Hold signing entirely:** leaves "images signed" unmet with no local path to it.
 
 ## ADR-031 — Change-capture triggers on the cached platform tables, with a platform invalidation outbox
-**Status:** Proposed (2026-10-13), with [spec 0016](specs/0016-platform-invalidation-outbox.md) revision 5.
+**Status:** Accepted (2026-10-13), with [spec 0016](specs/0016-platform-invalidation-outbox.md) revision 5 (owner review of `8bad3aa`). Not implemented yet; docs/07's trigger rule is amended in the implementation PR.
 - **Amends** [07](07-data-and-database.md)'s rule "Triggers only for: `updated_at`, the audit hash chain, and preventing updates to immutable rows", by adding change capture for cache invalidation. The event table's own guards fall under the existing "immutable rows" category.
 
 **Context:**
@@ -437,7 +437,7 @@ Alternatives considered: option — why not.
 - The guard can't see a type that lies, behaviour inside the database, or writers outside the API's code. The owner accepted those limits for spec 0015 and asked for a database-level design.
 - The cached tables (`tenant`, `tenant_domain`, `tenant_product`) are in the platform database, outside tenant RLS.
 
-**Decision (proposed):**
+**Decision:**
 - **Capture:** a row trigger on each of the three tables records *that* a row changed and which tenant ids it belongs to (old and new), in `public.cache_invalidation_event`, **in the same transaction**. It records no values and makes no decisions, so it isn't business logic; the "no business logic in triggers" rule stands. A no-op `UPDATE` emits nothing (checked in the function).
 - **TRUNCATE:** refused by a trigger, on those tables and on the event table.
 - **The functions:**

@@ -1,6 +1,6 @@
 # Spec 0016: Platform invalidation outbox — database triggers capture every change to the cached platform tables
 
-**Status:** **Draft for review, revision 5 (2026-10-13).** Design only; nothing is implemented. Revision 2 answered the owner's review of revision 1, revision 3 the review of revision 2, revision 4 the review of revision 3, and revision 5 the review of revision 4 ([reviews below](#owner-review-of-revision-4)). The owner supports D1–D5 and the 60 s maximum with the existing 30 s default. It needs the owner's acceptance and that of [ADR-031](../19-decision-log.md) (proposed with this spec).
+**Status:** **Accepted (2026-10-13)** by the owner: revision 5, after review of `8bad3aa`, with [ADR-031](../19-decision-log.md) Accepted alongside. **Not implemented yet.** Revisions 2–5 each answered the owner's review of the previous one ([reviews below](#owner-review-of-revision-4)). The owner decided D1–D6 as written, and the 60 s maximum with the existing 30 s default.
 **Phase:** 0. A follow-up to [spec 0015](0015-cache-isolation.md), which is complete for today's caches. It does not reopen spec 0015 and is not a Phase 0 exit criterion by itself; it closes the limits spec 0015 recorded.
 **Builds on:**
 
@@ -269,7 +269,7 @@ D3 now says the CI10 guard is retired only after the complete replacement has pa
 - **[spec 0015](0015-cache-isolation.md):** link this spec from its "carried forward" record. Per D3, CI10's bindings are retired later.
 - **[12](../12-testing-strategy.md) §3 layer 5:** the evidence line.
 - **[18](../18-roadmap.md):** the tracked gap, closed once implemented and merged.
-- **[19](../19-decision-log.md):** ADR-031 to Accepted.
+- **[19](../19-decision-log.md):** ADR-031 was accepted with this spec (2026-10-13); the implementation PR links its evidence.
 
 ## Out of scope
 
