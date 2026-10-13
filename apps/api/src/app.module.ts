@@ -15,19 +15,26 @@ import { UsersController } from './modules/identity/users.controller.js';
 import { ProductDeclarationCheck } from './modules/products/product-declaration.check.js';
 import { ProductGuard } from './modules/products/product.guard.js';
 import { ProductService } from './modules/products/product.service.js';
+import { fieldCryptoProvider, keyringProvider } from './shared/crypto/envelope.js';
+import { KeyForgetListener } from './shared/crypto/key-forget.js';
+import { BUS_SUBSCRIBE, InvalidationBus } from './shared/infra/invalidation-bus.js';
 import { ProductsController } from './modules/products/products.controller.js';
 import { FileStorage } from './modules/files/file-storage.js';
 import { FilesController } from './modules/files/files.controller.js';
 import { FilesService } from './modules/files/files.service.js';
 import { SettingsCache } from './modules/settings/settings-cache.js';
 import { SettingsController } from './modules/settings/settings.controller.js';
-import { SETTINGS_REGISTRY, SettingsService, settingsRegistryProvider, type SettingsRegistry } from './modules/settings/settings.service.js';
+import {
+  SETTINGS_REGISTRY,
+  SettingsService,
+  settingsRegistryProvider,
+  type SettingsRegistry,
+} from './modules/settings/settings.service.js';
 import { TenantProfileController } from './modules/tenant-profile/tenant-profile.controller.js';
 import { AuditWriter } from './shared/audit/audit-writer.js';
 import { DbModule } from './shared/db/db.module.js';
 import { ProblemFilter } from './shared/errors/problem.filter.js';
 import { RateLimiter, VALKEY } from './shared/infra/rate-limiter.js';
-import { fieldCryptoProvider } from './shared/crypto/envelope.js';
 import { Outbox } from './shared/outbox/outbox.js';
 import { TenantGuard } from './shared/tenancy/tenant.guard.js';
 import { TenantResolver } from './shared/tenancy/tenant-resolver.service.js';
@@ -72,11 +79,20 @@ export class AppModule {
         {
           provide: VALKEY,
           useFactory: () =>
-            new Redis(config.VALKEY_URL, { maxRetriesPerRequest: 1, enableOfflineQueue: false, connectTimeout: 2_000 }),
+            new Redis(config.VALKEY_URL, {
+              maxRetriesPerRequest: 1,
+              enableOfflineQueue: false,
+              connectTimeout: 2_000,
+            }),
         },
         TenantResolver,
         AuditWriter,
+        keyringProvider,
         fieldCryptoProvider,
+        // Spec 0015: the cross-instance invalidation bus (products, key forget).
+        { provide: BUS_SUBSCRIBE, useValue: true },
+        InvalidationBus,
+        KeyForgetListener,
         Outbox,
         RateLimiter,
         SessionService,
@@ -90,7 +106,9 @@ export class AppModule {
         SettingsService,
         FileStorage,
         FilesService,
-        overrides.settingsRegistry ? { provide: SETTINGS_REGISTRY, useValue: overrides.settingsRegistry } : settingsRegistryProvider,
+        overrides.settingsRegistry
+          ? { provide: SETTINGS_REGISTRY, useValue: overrides.settingsRegistry }
+          : settingsRegistryProvider,
         // Guard order matters: resolve the tenant, hide inactive products (spec 0003 P3), then authenticate.
         { provide: APP_GUARD, useClass: TenantGuard },
         { provide: APP_GUARD, useClass: ProductGuard },

@@ -1,10 +1,11 @@
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger, type OnModuleInit } from '@nestjs/common';
 import { ALWAYS_ON, isProduct, PRODUCTS, type ProductKey } from '@univarse/contracts';
 import type { PlatformClient } from '@univarse/db';
 import { APP_CONFIG, type AppConfig } from '../../config/config.js';
 import { AuditWriter } from '../../shared/audit/audit-writer.js';
 import { PLATFORM_DB, ShardRegistry } from '../../shared/db/db.module.js';
 import { ProblemError } from '../../shared/errors/problem.js';
+import { CHANNELS, InvalidationBus } from '../../shared/infra/invalidation-bus.js';
 import type { TenantContext } from '../../shared/tenancy/tenant-resolver.service.js';
 import type { Actor } from '../identity/actor.js';
 import { SessionService, type SessionMeta } from '../identity/session.service.js';
@@ -23,8 +24,10 @@ const alwaysOn = (p: ProductKey) => ALWAYS_ON.includes(p);
  * from the Host (P8) and is the only key used. Entitlements are never written here (P9).
  */
 @Injectable()
-export class ProductService {
+export class ProductService implements OnModuleInit {
   private readonly cache = new Map<string, { value: ReadonlySet<ProductKey>; expiresAt: number }>();
+  /** Spec 0015 CI3: bumped by every eviction; a read caches only if it is unchanged since the read began. */
+  private readonly generations = new Map<string, number>();
   private readonly logger = new Logger('Products');
 
   constructor(
@@ -32,7 +35,13 @@ export class ProductService {
     @Inject(APP_CONFIG) private readonly config: AppConfig,
     private readonly shards: ShardRegistry,
     private readonly auditWriter: AuditWriter,
+    private readonly bus: InvalidationBus,
   ) {}
+
+  /** Spec 0015 CI1: every API and worker instance evicts on another instance's change. */
+  onModuleInit(): void {
+    this.bus.on(CHANNELS.products, (tenantId) => this.evict(tenantId));
+  }
 
   /** P1/P7: active = entitled AND enabled, plus always-on products. Cached per tenant. */
   async active(tenantId: string): Promise<ReadonlySet<ProductKey>> {
@@ -40,12 +49,19 @@ export class ProductService {
     const hit = this.cache.get(tenantId);
     if (hit && hit.expiresAt > now) return hit.value;
 
+    const generation = this.generations.get(tenantId) ?? 0;
     const rows = await this.platform.tenantProduct.findMany({
       where: { tenantId, entitled: true, enabled: true },
       select: { product: true },
     });
-    const value = new Set<ProductKey>([...ALWAYS_ON, ...rows.map((r) => r.product).filter(isProduct)]);
-    this.cache.set(tenantId, { value, expiresAt: now + this.config.TENANT_CACHE_TTL_MS });
+    const value = new Set<ProductKey>([
+      ...ALWAYS_ON,
+      ...rows.map((r) => r.product).filter(isProduct),
+    ]);
+    // CI3: an eviction during the read means the result may be stale: serve it, never cache it.
+    if ((this.generations.get(tenantId) ?? 0) === generation) {
+      this.cache.set(tenantId, { value, expiresAt: now + this.config.TENANT_CACHE_TTL_MS });
+    }
     return value;
   }
 
@@ -68,15 +84,24 @@ export class ProductService {
    * change is compensated and the request fails, so no unaudited change remains (design note).
    * Setting the current value again is a no-op and writes no event.
    */
-  async setEnabled(tenant: TenantContext, actor: Actor, product: string, enabled: boolean, meta: SessionMeta): Promise<ProductState> {
+  async setEnabled(
+    tenant: TenantContext,
+    actor: Actor,
+    product: string,
+    enabled: boolean,
+    meta: SessionMeta,
+  ): Promise<ProductState> {
     if (!isProduct(product)) throw new ProblemError(404, 'resource.not_found', 'Not found');
     if (alwaysOn(product)) {
-      if (!enabled) throw new ProblemError(422, 'product.core_required', 'This product is always on');
+      if (!enabled)
+        throw new ProblemError(422, 'product.core_required', 'This product is always on');
       return state(product, true, true);
     }
 
     const tenantId = tenant.tenantId;
-    const row = await this.platform.tenantProduct.findUnique({ where: { tenantId_product: { tenantId, product } } });
+    const row = await this.platform.tenantProduct.findUnique({
+      where: { tenantId_product: { tenantId, product } },
+    });
     if (!row?.entitled) {
       if (enabled) throw notEntitled();
       return state(product, false, row?.enabled ?? false);
@@ -89,7 +114,12 @@ export class ProductService {
       data: { enabled, updatedBy: actor.userId },
     });
     if (changed.count === 0) {
-      throw new ProblemError(409, 'product.changed', 'Product settings changed', 'Reload and try again.');
+      throw new ProblemError(
+        409,
+        'product.changed',
+        'Product settings changed',
+        'Reload and try again.',
+      );
     }
 
     try {
@@ -109,28 +139,51 @@ export class ProductService {
       await this.compensate(row.id, enabled, row.enabled, row.updatedBy);
       throw err;
     } finally {
-      this.invalidate(tenantId);
+      // Committed or compensated: either way the cached set may be wrong here and on every other instance.
+      await this.invalidate(tenantId);
     }
     return state(product, true, enabled);
   }
 
-  /** P7: local invalidation. Other instances converge within the TTL (tracked gap). */
-  invalidate(tenantId: string): void {
-    this.cache.delete(tenantId);
+  /** P7 / spec 0015 CI1: evict here, then tell every other instance. Never throws (CI4). */
+  async invalidate(tenantId: string): Promise<void> {
+    this.evict(tenantId);
+    await this.bus.publish(CHANNELS.products, tenantId);
   }
 
-  private async compensate(id: string, from: boolean, to: boolean, updatedBy: string | null): Promise<void> {
+  private evict(tenantId: string): void {
+    this.cache.delete(tenantId);
+    this.generations.set(tenantId, (this.generations.get(tenantId) ?? 0) + 1);
+  }
+
+  private async compensate(
+    id: string,
+    from: boolean,
+    to: boolean,
+    updatedBy: string | null,
+  ): Promise<void> {
     try {
-      await this.platform.tenantProduct.updateMany({ where: { id, enabled: from }, data: { enabled: to, updatedBy } });
+      await this.platform.tenantProduct.updateMany({
+        where: { id, enabled: from },
+        data: { enabled: to, updatedBy },
+      });
     } catch (err) {
       // Residual risk: both databases failing in sequence. Loud, so operations can reconcile.
-      this.logger.error({ event: 'products.compensation_failed', tenantProductId: id, err }, 'Compensation failed: product change is unaudited');
+      this.logger.error(
+        { event: 'products.compensation_failed', tenantProductId: id, err },
+        'Compensation failed: product change is unaudited',
+      );
     }
   }
 }
 
 const notEntitled = () =>
-  new ProblemError(409, 'product.not_entitled', 'Not included in your plan', 'Contact UniVarse to add this product to your plan.');
+  new ProblemError(
+    409,
+    'product.not_entitled',
+    'Not included in your plan',
+    'Contact UniVarse to add this product to your plan.',
+  );
 
 const state = (product: ProductKey, entitled: boolean, enabled: boolean): ProductState => ({
   product,

@@ -110,6 +110,6 @@ Settings are tenant security, not just configuration. A cached value served to t
 | **What a limit change means during an open registration window** (applies at once? only to new submissions? frozen at window open?), plus how already-approved registrations are treated | Must be decided and specified **before** registration consumes the limits (Phase 4) |
 | Effective-dated keys (`effectiveFrom`, "applies from session X") | The second key (`results.repeatPolicy`) with the results module |
 | Settings change history page (the audit log already holds it) | With the audit-log viewer |
-| Product/tenant caches on the same invalidation bus (spec 0003 P7) | Before multi-instance production |
-| Key "forget" broadcast on crypto-shredding (spec 0006) | Follow-up to this spec, on the same bus |
+| Product/tenant caches on the same invalidation bus (spec 0003 P7) | **Products: done ([spec 0015](0015-cache-isolation.md))**. The tenant resolver is bound to its first writer (spec 0015 CI10) |
+| Key "forget" broadcast on crypto-shredding (spec 0006) | **Done ([spec 0015](0015-cache-isolation.md) CI5–CI7)** |
 | Platform-managed feature flags (`feature.*`) | With the console (Phase 1) |

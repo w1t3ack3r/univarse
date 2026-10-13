@@ -81,7 +81,7 @@ describe('[P1] entitled AND enabled = active', () => {
     expect(await list()).toEqual(['admissions', 'core']);
 
     await setRow('demo', 'admissions', { entitled: false, enabled: false }); // plan revoked by the platform
-    h.app.get((await import('./product.service.js')).ProductService).invalidate(h.tenants.demo);
+    await h.app.get((await import('./product.service.js')).ProductService).invalidate(h.tenants.demo);
     expect(await list()).toEqual(['core']);
   });
 
