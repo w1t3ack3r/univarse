@@ -132,6 +132,26 @@ export class W {
     await this.bus.publish(CHANNELS.tenants, id);
   }
 }`,
+  // The owner's bypasses of 114c30e: SQL fragments in a tagged template, commented SQL, a deep nested write and
+  // two differently scoped declarations sharing a label.
+  rawFragment: `${HEAD}import { PlatformModels } from '@univarse/db';
+export async function f(p: PlatformClient) { await p.$executeRaw\`\${PlatformModels.Prisma.raw('UPDATE tenant')} SET status = 'SUSPENDED'\`; }`,
+  sqlFragment: `${HEAD}import { PlatformModels } from '@univarse/db';
+export async function f(p: PlatformClient) { const t = PlatformModels.Prisma.sql\`UPDATE tenant SET status = 'SUSPENDED'\`; await p.$executeRaw\`\${t}\`; }`,
+  sqlComment: `${HEAD}export async function f(p: PlatformClient) { await p.$executeRaw\`UPDATE /* comment */ tenant SET status = 'SUSPENDED'\`; }`,
+  sqlNestedComment: `${HEAD}export async function f(p: PlatformClient) { await p.$executeRawUnsafe('UPDATE /* a /* b */ c */ tenant_product SET enabled = false'); }`,
+  sqlLineComment: `${HEAD}export async function f(p: PlatformClient) { await p.$executeRawUnsafe('UPDATE -- note\\n tenant_domain SET hostname = hostname'); }`,
+  deepNested: `${HEAD}export async function f(p: PlatformClient) {
+  await p.shard.update({ where: { id: 'x' }, data: { tenants: { update: { where: { id: 'y' }, data: { products: { updateMany: { where: {}, data: { enabled: true } } } } } } } });
+}`,
+  scopedPublishers: `${HEAD}export function makeA(bus: InvalidationBus) {
+  return class W { async invalidate(id: string) { await bus.publish(CHANNELS.tenants, id); } };
+}
+export class W {
+  constructor(private readonly platform: PlatformClient, private readonly bus: InvalidationBus) {}
+  async go(id: string) { await this.platform.tenant.update({ where: { id }, data: { status: 'SUSPENDED' } }); await this.invalidate(id); }
+  async invalidate(id: string) { void id; void this.bus; }
+}`,
   // Earlier forms, and the model the first guard missed entirely (tenant_domain holds the hosts).
   upsert: `${HEAD}export async function f(p: PlatformClient, data: never) { await p.tenantProduct.upsert(data); }`,
   destructure: `${HEAD}export async function f(p: PlatformClient) { const { tenant } = p; await tenant.findMany(); }`,
@@ -249,7 +269,7 @@ describe(
         /`data` in the arguments to TenantDataKey\.update\(\) is not written out literally/,
       );
       expect(check('nestedQuoted').join('\n')).toMatch(
-        /f writes tenant \(nested update via tenant\)/,
+        /f writes tenant \(nested update via TenantDataKey\.tenant\)/,
       );
       expect(check('rawUnsafeSubstitution').join('\n')).toMatch(
         /\$executeRawUnsafe with SQL that isn't a substitution-free literal/,
@@ -287,13 +307,59 @@ describe(
       ]);
     });
 
+    it("[CI10] the owner's bypasses of 114c30e are all refused", () => {
+      // An interpolated Prisma.raw / Prisma.sql fragment can carry SQL syntax: refused outright.
+      expect(check('rawFragment').join('\n')).toMatch(/\$executeRaw interpolates a SQL fragment/);
+      expect(check('sqlFragment').join('\n')).toMatch(/\$executeRaw interpolates a SQL fragment/);
+      // Comments are read as PostgreSQL reads them: block, nested block and line comments.
+      expect(check('sqlComment').join('\n')).toMatch(
+        /f writes tenant \(\$executeRaw \(update tenant\)\)/,
+      );
+      expect(check('sqlNestedComment').join('\n')).toMatch(
+        /f writes tenant_product \(\$executeRawUnsafe \(update tenant_product\)\)/,
+      );
+      expect(check('sqlLineComment').join('\n')).toMatch(
+        /f writes tenant_domain \(\$executeRawUnsafe \(update tenant_domain\)\)/,
+      );
+      // Shard → Tenant → TenantProduct: the tenant_product write needs its own binding.
+      const tenantOnly = {
+        writer: 'f',
+        table: 'tenant',
+        channel: 'tenants',
+        publisher: 'f',
+        proof: { file: '', test: '' },
+      } as const;
+      expect(check('deepNested', { [rel('deepNested')]: [tenantOnly] })).toContainEqual(
+        expect.stringMatching(
+          /f writes tenant_product \(nested updateMany via Tenant\.products\) with no binding/,
+        ),
+      );
+      // Two declarations labelled W.invalidate: the binding is ambiguous, not resolved to either.
+      const scoped = {
+        writer: 'W.go',
+        table: 'tenant',
+        channel: 'tenants',
+        publisher: 'W.invalidate',
+        proof: { file: '', test: '' },
+      } as const;
+      const out = check('scopedPublishers', { [rel('scopedPublishers')]: [scoped] });
+      expect(out).toContainEqual(
+        expect.stringMatching(/binding names W\.invalidate, which resolves to 2 declarations/),
+      );
+      expect(out).toContainEqual(
+        expect.stringMatching(/W\.invalidate makes no publish\(CHANNELS\.tenants/),
+      );
+    });
+
     it('[CI10] earlier forms and tenant_domain are refused; reads are not writes', () => {
       expect(check('upsert').join('\n')).toMatch(/writes tenant_product \(upsert\(\)\)/);
       expect(check('destructure').join('\n')).toMatch(/destructuring a Prisma client/);
       expect(check('rawUnsafeVariable').join('\n')).toMatch(
         /\$executeRawUnsafe with SQL that isn't a substitution-free literal/,
       );
-      expect(check('nested').join('\n')).toMatch(/writes tenant \(nested update via tenant\)/);
+      expect(check('nested').join('\n')).toMatch(
+        /writes tenant \(nested update via TenantDataKey\.tenant\)/,
+      );
       expect(check('domain').join('\n')).toMatch(/writes tenant_domain \(create\(\)\)/);
       expect(check('reads')).toEqual([]);
     });

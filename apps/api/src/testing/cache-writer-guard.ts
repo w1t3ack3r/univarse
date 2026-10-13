@@ -1,27 +1,26 @@
 // Spec 0015 CI10: a type-aware, fail-closed guard over writes to the cache-relevant tables (owner reviews of #66:
-// c6dd715, e89e48b, 6d42a3a). Test tooling: excluded from the build.
+// c6dd715, e89e48b, 6d42a3a, 114c30e). Test tooling: excluded from the build.
 //
 // Guarded tables: `tenant` (status; slug = host), `tenant_domain` (hosts), `tenant_product` (entitlements, enabled).
-// Every identity below is resolved through the type checker (symbols and declarations), never by name.
+// Identities are resolved through the type checker. Functions are keyed by DECLARATION (file + position), never by
+// name: a binding must resolve to exactly one declaration.
 //
 // A write to a guarded table is accepted ONLY when all of these hold:
 //   1. FORM: `<client>.<guardedDelegate>.<knownWriteMethod>(…)`, the delegate identified by its Prisma type. Any other
-//      use of a guarded delegate (alias, destructuring, computed access on a client, a value, an unknown method) and
-//      any reference to a raw-SQL method other than its immediate call (`.bind`, extraction) is refused.
-//   2. INPUTS: a write on ANY delegate whose model has a relation to a guarded model must be statically analysable
-//      where it could reach one: `data` / `create` / `update` are object literals (arrays of them for createMany),
-//      keys are identifiers or string literals, no spreads or computed keys; under a relation field to a guarded
-//      model the value is itself literal, and any nested write there counts as a write to that table.
-//   3. RAW SQL: `$executeRaw`/`$queryRaw` tagged templates are checked on their static text (interpolations are
-//      bound parameters); the `…Unsafe` variants must be a literal with NO substitutions. Writes to a guarded table
-//      in any quoting or schema qualification count; anything not checkable is refused.
-//   4. BINDING: the write sits in a function bound (writer → table → channel → publisher). The publisher makes an
-//      actual `publish(CHANNELS.<channel>, …)` call on the real InvalidationBus, with `CHANNELS` resolved to its
-//      declaration in shared/infra/invalidation-bus.ts (a local look-alike never counts).
-//   5. PATH: the writer calls the publisher (the call target resolved to its declaration), or every reference to the
-//      writer's method symbol is the direct callee of a call inside its one bound caller, which calls the publisher.
-//   6. PROOF: the binding names a runtime test proving publication after commit or compensation (with an ordering
-//      assertion), which must exist.
+//      use of a guarded delegate, and any reference to a raw-SQL method other than its immediate call, is refused.
+//   2. INPUTS: writes on ANY delegate whose model can (transitively, through relations) reach a guarded model are
+//      analysed recursively through every nested operation; every level must be literal (casts looked through,
+//      quoted keys normalised; no spreads, computed keys, shorthand or variable values where a write could hide).
+//      Each guarded model reached at any depth is a write needing its OWN binding.
+//   3. RAW SQL: tagged templates are checked on their static text, normalised as PostgreSQL reads it (comments,
+//      nested block comments, quotes, case, whitespace); an interpolated SQL fragment (Prisma `Sql`, or any/unknown)
+//      is refused, as are `U&"…"` identifiers. `…Unsafe` variants need a substitution-free literal.
+//   4. BINDING: the write sits in the bound writer; the bound publisher calls `publish` on the real InvalidationBus
+//      with the real `CHANNELS.<channel>` (both resolved to their declarations in shared/infra/invalidation-bus.ts).
+//   5. PATH: the writer calls the publisher (call targets resolved to declarations), or every reference to the
+//      writer's declaration is a direct call from its one bound caller, which calls the publisher.
+//   6. PROOF: the binding names a runtime test asserting the order (commit, or commit then compensation, before
+//      publish), which must exist.
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { join, relative } from 'node:path';
@@ -62,8 +61,9 @@ const WRITES = new Set([
   'delete',
   'deleteMany',
 ]);
-/** Argument properties that carry written values. */
+/** Top-level argument properties that carry written values. */
 const DATA_KEYS = new Set(['data', 'create', 'update']);
+/** Nested relation operations that write the related model. */
 const NESTED_WRITES = new Set([
   'create',
   'createMany',
@@ -77,10 +77,10 @@ const NESTED_WRITES = new Set([
 ]);
 const RAW = new Set(['$executeRaw', '$executeRawUnsafe', '$queryRaw', '$queryRawUnsafe']);
 const SQL_WRITE =
-  /\b(insert\s+into|update|delete\s+from|merge\s+into|truncate(?:\s+table)?|alter\s+table)\s+(?:only\s+)?(?:[a-z_][a-z0-9_]*\.)?(tenant|tenant_domain|tenant_product)\b/g;
+  /\b(insert into|update|delete from|merge into|truncate(?: table)?|alter table|copy)\s+(?:only\s+)?(?:[a-z_][a-z0-9_$]*\.)?(tenant|tenant_domain|tenant_product)\b/g;
 
 export interface Binding {
-  /** `Class.method` (or a function name) that performs the write. */
+  /** `Class.method` (or a function name): must resolve to exactly one declaration in the file. */
   readonly writer: string;
   readonly table: 'tenant' | 'tenant_domain' | 'tenant_product';
   /** The channel: `CHANNELS.<channel>` from shared/infra/invalidation-bus.ts. */
@@ -89,33 +89,50 @@ export interface Binding {
   readonly publisher: string;
   /** When the writer doesn't call the publisher itself: its ONLY permitted caller, which must call the publisher. */
   readonly calledOnlyFrom?: string;
-  /** The runtime test proving publication after commit (or compensation), with an ordering assertion. */
+  /** The runtime test asserting publication after commit (or compensation), in order. */
   readonly proof: { readonly file: string; readonly test: string };
 }
 export type Bindings = Readonly<Record<string, readonly Binding[]>>; // file (relative to apps/api/src) → bindings
 
-/** Every model's relation fields that point at a guarded model: model → field → guarded table. */
-export function guardedRelations(): Map<string, Map<string, string>> {
-  const out = new Map<string, Map<string, string>>();
+/** The relation graph from both Prisma schemas: model → field → related MODEL (enums and scalars excluded). */
+export function relationGraph(): Map<string, Map<string, string>> {
+  const texts: string[] = [];
   for (const schema of [
     'packages/db/prisma/platform/schema.prisma',
     'packages/db/prisma/tenant/schema.prisma',
   ]) {
-    let text: string;
     try {
-      text = readFileSync(join(REPO, schema), 'utf8');
+      texts.push(readFileSync(join(REPO, schema), 'utf8'));
     } catch {
-      continue;
-    }
-    for (const block of text.matchAll(/^model\s+(\w+)\s*\{([\s\S]*?)^\}/gm)) {
-      const fields = new Map<string, string>();
-      for (const m of block[2]!.matchAll(/^\s+(\w+)\s+(\w+)(\[\])?\??(?=\s|$)/gm)) {
-        if (Object.hasOwn(GUARDED_MODELS, m[2]!)) fields.set(m[1]!, GUARDED_MODELS[m[2]!]!);
-      }
-      if (fields.size) out.set(block[1]!, fields);
+      // a missing schema contributes no relations
     }
   }
+  const blocks = texts.flatMap((t) => [...t.matchAll(/^model\s+(\w+)\s*\{([\s\S]*?)^\}/gm)]);
+  const models = new Set(blocks.map((b) => b[1]!));
+  const out = new Map<string, Map<string, string>>();
+  for (const b of blocks) {
+    const fields = new Map<string, string>();
+    for (const m of b[2]!.matchAll(/^\s+(\w+)\s+(\w+)(\[\])?\??(?=\s|$)/gm))
+      if (models.has(m[2]!)) fields.set(m[1]!, m[2]!);
+    out.set(b[1]!, fields);
+  }
   return out;
+}
+
+/** Models from which a guarded model is reachable through relations (guarded models included). */
+export function reachingModels(graph: Map<string, Map<string, string>>): Set<string> {
+  const reach = new Set(Object.keys(GUARDED_MODELS));
+  for (let changed = true; changed;) {
+    changed = false;
+    for (const [model, fields] of graph) {
+      if (reach.has(model)) continue;
+      if ([...fields.values()].some((m) => reach.has(m))) {
+        reach.add(model);
+        changed = true;
+      }
+    }
+  }
+  return reach;
 }
 
 /** A program over the API's sources (plus optional virtual files), with types. */
@@ -163,7 +180,19 @@ export function productionFiles(program: TS.Program): TS.SourceFile[] {
 
 const relPath = (f: string) => relative(SRC, f).replace(/\\/g, '/');
 
-/** The qualified name of a function-like declaration: `Class.method`, or a function's name. */
+/** Normalises SQL as PostgreSQL reads it: comments (nested block comments too) → space, quotes removed, folded. */
+export function normaliseSql(text: string): string {
+  let s = text;
+  // Nested block comments: strip innermost first until none remain.
+  for (let prev = ''; prev !== s;) {
+    prev = s;
+    s = s.replace(/\/\*(?:(?!\/\*|\*\/)[\s\S])*\*\//g, ' ');
+  }
+  s = s.replace(/--[^\n]*/g, ' ');
+  return s.toLowerCase().replace(/["`]/g, '').replace(/\s+/g, ' ');
+}
+
+/** The qualified label of a function-like declaration: `Class.method`, or a function's name. */
 function qualifiedName(decl: TS.Node): string | null {
   if (
     (ts.isMethodDeclaration(decl) || ts.isGetAccessor(decl) || ts.isSetAccessor(decl)) &&
@@ -177,25 +206,30 @@ function qualifiedName(decl: TS.Node): string | null {
   return null;
 }
 
-/** The enclosing function's qualified name, or '<module>'. `parent` is undefined above the SourceFile. */
-function enclosingName(node: TS.Node): string {
+/** A declaration's identity: its file and position. */
+const declId = (decl: TS.Node) =>
+  `${relPath(decl.getSourceFile().fileName)}#${String(decl.getStart())}`;
+
+/** The enclosing function's declaration, or the SourceFile. `parent` is undefined above the SourceFile. */
+function enclosingDecl(node: TS.Node): TS.Node {
   let n: TS.Node = node;
   while (!ts.isSourceFile(n)) {
-    const q = qualifiedName(n);
-    if (q) return q;
+    if (qualifiedName(n)) return n;
     n = n.parent;
   }
-  return '<module>';
+  return n;
 }
 
 interface Analysis {
-  readonly writes: { fn: string; table: string; how: string }[];
+  readonly writes: { fn: string; table: string; how: string }[]; // fn = declaration id
   readonly violations: string[];
-  /** Qualified function → channels it publishes on (verified CHANNELS, verified bus). */
+  /** Declaration id → its label. */
+  readonly labels: Map<string, string>;
+  /** Declaration id → channels it publishes on (real CHANNELS, real bus). */
   readonly publishes: Map<string, Set<string>>;
-  /** Qualified caller → qualified callees (resolved declarations in this program). */
+  /** Caller declaration id → callee declaration ids (resolved). */
   readonly calls: Map<string, Set<string>>;
-  /** Qualified method → every reference: whether it is a direct call's callee, and the enclosing function. */
+  /** Declaration id → every reference: whether a direct call's callee, the enclosing declaration id, where. */
   readonly references: Map<string, { direct: boolean; from: string; at: string }[]>;
 }
 
@@ -203,12 +237,14 @@ interface Analysis {
 export function analyzeFile(
   program: TS.Program,
   sf: TS.SourceFile,
-  relations = guardedRelations(),
+  graph = relationGraph(),
 ): Analysis {
   const checker = program.getTypeChecker();
+  const reaching = reachingModels(graph);
   const a: Analysis = {
     writes: [],
     violations: [],
+    labels: new Map(),
     publishes: new Map(),
     calls: new Map(),
     references: new Map(),
@@ -217,12 +253,22 @@ export function analyzeFile(
     `${relPath(sf.fileName)}:${String(sf.getLineAndCharacterOfPosition(n.getStart(sf)).line + 1)}`;
   const refuse = (n: TS.Node, why: string) =>
     a.violations.push(`${where(n)}: ${why}: refused (fail closed)`);
+  const fnOf = (n: TS.Node) => {
+    const d = enclosingDecl(n);
+    if (ts.isSourceFile(d)) {
+      const id = `${relPath(sf.fileName)}#<module>`;
+      a.labels.set(id, '<module>');
+      return id;
+    }
+    const id = declId(d);
+    a.labels.set(id, qualifiedName(d) ?? '<anon>');
+    return id;
+  };
 
   const typeSymbolName = (n: TS.Node) => {
     const t = checker.getTypeAtLocation(n);
     return (t.aliasSymbol ?? t.getSymbol())?.getName();
   };
-  /** The model of a Prisma delegate expression (`TenantDelegate` → `Tenant`), or undefined. */
   const delegateModel = (n: TS.Node) => {
     const name = typeSymbolName(n);
     return name?.endsWith('Delegate') ? name.slice(0, -'Delegate'.length) : undefined;
@@ -238,7 +284,6 @@ export function analyzeFile(
       guardedTable(n) === undefined
     );
   };
-  /** The declaration a symbol finally refers to (following import aliases). */
   const declOf = (n: TS.Node): TS.Declaration | undefined => {
     let sym = checker.getSymbolAtLocation(n);
     if (sym && sym.flags & ts.SymbolFlags.Alias) sym = checker.getAliasedSymbol(sym);
@@ -246,7 +291,6 @@ export function analyzeFile(
   };
   const declaredIn = (d: TS.Node | undefined, file: string) =>
     !!d && d.getSourceFile().fileName.replace(/\\/g, '/') === file;
-  /** True when the expression's type is the real InvalidationBus class (declared in shared/infra/invalidation-bus.ts). */
   const isRealBus = (n: TS.Node) => {
     const sym = checker.getTypeAtLocation(n).getSymbol();
     return (
@@ -254,18 +298,6 @@ export function analyzeFile(
       declaredIn(sym.valueDeclaration ?? sym.declarations?.[0], BUS_FILE)
     );
   };
-  const propName = (p: TS.ObjectLiteralElementLike): string | null => {
-    if (!p.name) return null;
-    if (
-      ts.isIdentifier(p.name) ||
-      ts.isStringLiteral(p.name) ||
-      ts.isNoSubstitutionTemplateLiteral(p.name)
-    )
-      return p.name.text;
-    return null; // computed
-  };
-
-  /** Type-only wrappers (`as`, `satisfies`, `!`, parentheses, `<T>`) change no runtime value: look through them. */
   const strip = (e: TS.Expression): TS.Expression =>
     ts.isAsExpression(e) ||
     ts.isSatisfiesExpression(e) ||
@@ -274,64 +306,151 @@ export function analyzeFile(
     ts.isTypeAssertionExpression(e)
       ? strip(e.expression)
       : e;
+  const propName = (p: TS.ObjectLiteralElementLike): string | null => {
+    if (!p.name) return null;
+    if (
+      ts.isIdentifier(p.name) ||
+      ts.isStringLiteral(p.name) ||
+      ts.isNoSubstitutionTemplateLiteral(p.name)
+    )
+      return p.name.text;
+    return null;
+  };
+  /** The literal properties of an object literal; a spread or computed key is refused (returns null). */
+  const literalProps = (
+    o: TS.ObjectLiteralExpression,
+    what: string,
+  ): Map<string, TS.ObjectLiteralElementLike> | null => {
+    const out = new Map<string, TS.ObjectLiteralElementLike>();
+    for (const p of o.properties) {
+      if (ts.isSpreadAssignment(p)) {
+        refuse(p, `a spread in ${what}`);
+        return null;
+      }
+      const k = propName(p);
+      if (k === null) {
+        refuse(p, `a computed key in ${what}`);
+        return null;
+      }
+      out.set(k, p);
+    }
+    return out;
+  };
+  const valueOf = (p: TS.ObjectLiteralElementLike | undefined): TS.Expression | null =>
+    p && ts.isPropertyAssignment(p) ? strip(p.initializer) : null;
 
-  /** INPUTS: a written-value object under a model with relations to guarded models. */
-  const checkDataObject = (raw: TS.Expression, model: string, fn: string, path: string): void => {
+  /** INPUTS: a written-value object for `model`, analysed recursively through every relation. */
+  const checkData = (raw: TS.Expression, model: string, fn: string, path: string): void => {
+    if (!reaching.has(model)) return; // nothing guarded is reachable from here
     const n = strip(raw);
-    const rels = relations.get(model);
-    if (!rels) return; // this model can't reach a guarded table
     if (ts.isArrayLiteralExpression(n)) {
-      for (const e of n.elements) checkDataObject(e, model, fn, path);
+      for (const e of n.elements) checkData(e, model, fn, path);
       return;
     }
     if (!ts.isObjectLiteralExpression(n)) {
       refuse(
         n,
-        `${path} for ${model} is not an object literal, and ${model} has relations to guarded tables`,
+        `${path} for ${model} is not an object literal, and ${model} can reach guarded tables`,
       );
       return;
     }
-    for (const p of n.properties) {
-      if (ts.isSpreadAssignment(p)) {
-        refuse(p, `a spread in ${path} for ${model}`);
-        continue;
-      }
-      const key = propName(p);
-      if (key === null) {
-        refuse(p, `a computed key in ${path} for ${model}`);
-        continue;
-      }
-      const table = rels.get(key);
-      if (!table) continue; // a scalar field: any value is fine
-      const value = ts.isPropertyAssignment(p) ? strip(p.initializer) : undefined;
+    const props = literalProps(n, `${path} for ${model}`);
+    if (!props) return;
+    for (const [key, p] of props) {
+      const related = graph.get(model)?.get(key);
+      if (!related || !reaching.has(related)) continue; // a scalar field, or a relation that reaches nothing guarded
+      const value = valueOf(p);
       if (!value || !ts.isObjectLiteralExpression(value)) {
-        refuse(
-          p,
-          `relation field ${key} (to ${table}) in ${path} for ${model} is not an object literal`,
-        );
+        refuse(p, `relation ${model}.${key} in ${path} is not written out as an object literal`);
         continue;
       }
-      for (const op of value.properties) {
-        const opName = ts.isSpreadAssignment(op) ? null : propName(op);
-        if (opName === null)
-          refuse(op, `relation field ${key} (to ${table}) has a spread or computed operation`);
-        else if (NESTED_WRITES.has(opName))
-          a.writes.push({ fn, table, how: `nested ${opName} via ${key}` });
+      const ops = literalProps(value, `relation ${model}.${key}`);
+      if (!ops) continue;
+      for (const [op, opNode] of ops) {
+        if (NESTED_WRITES.has(op) && Object.hasOwn(GUARDED_MODELS, related)) {
+          a.writes.push({
+            fn,
+            table: GUARDED_MODELS[related]!,
+            how: `nested ${op} via ${model}.${key}`,
+          });
+        }
+        const sub = `${path}.${key}.${op}`;
+        if (
+          !['create', 'createMany', 'update', 'updateMany', 'upsert', 'connectOrCreate'].includes(
+            op,
+          )
+        )
+          continue;
+        const opValue = valueOf(opNode);
+        if (!opValue) {
+          refuse(opNode, `${sub} is not written out literally`);
+          continue;
+        }
+        if (op === 'create') {
+          checkData(opValue, related, fn, sub);
+          continue;
+        }
+        const items = ts.isArrayLiteralExpression(opValue)
+          ? opValue.elements.map(strip)
+          : [opValue];
+        for (const item of items) {
+          if (!ts.isObjectLiteralExpression(item)) {
+            refuse(item, `${sub} is not an object literal`);
+            continue;
+          }
+          const inner = literalProps(item, sub);
+          if (!inner) continue;
+          // createMany / updateMany / update-with-where: { data }; upsert: { create, update }; connectOrCreate: { create };
+          // a to-one update may also be the data object itself.
+          const dataKeys =
+            op === 'upsert'
+              ? ['create', 'update']
+              : op === 'connectOrCreate'
+                ? ['create']
+                : inner.has('data')
+                  ? ['data']
+                  : [];
+          if (dataKeys.length === 0) {
+            checkData(item, related, fn, sub);
+            continue;
+          }
+          for (const k of dataKeys) {
+            const node = inner.get(k);
+            if (!node) continue;
+            const v = valueOf(node);
+            if (!v) refuse(node, `${sub}.${k} is not written out literally`);
+            else checkData(v, related, fn, `${sub}.${k}`);
+          }
+        }
       }
     }
   };
 
-  /** RAW SQL. */
-  const staticText = (n: TS.Node): string | null => {
-    if (ts.isStringLiteral(n) || ts.isNoSubstitutionTemplateLiteral(n)) return n.text;
-    if (ts.isTemplateExpression(n))
-      return [n.head.text, ...n.templateSpans.map((s) => ` $x ${s.literal.text}`)].join('');
-    return null;
+  /** RAW SQL: the static text of a template, or null (with a refusal) when a fragment could add SQL syntax. */
+  const templateText = (t: TS.TemplateLiteral, how: string): string | null => {
+    if (ts.isNoSubstitutionTemplateLiteral(t)) return t.text;
+    let text = t.head.text;
+    for (const span of t.templateSpans) {
+      const ty = checker.getTypeAtLocation(span.expression);
+      const name = (ty.aliasSymbol ?? ty.getSymbol())?.getName();
+      if (name === 'Sql' || ty.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown)) {
+        refuse(
+          span.expression,
+          `${how} interpolates a SQL fragment (Prisma.sql / Prisma.raw, or untyped): it can add SQL syntax`,
+        );
+        return null;
+      }
+      text += ` $x ${span.literal.text}`;
+    }
+    return text;
   };
   const checkSql = (n: TS.Node, text: string, how: string) => {
-    const sql = text.toLowerCase().replace(/["`]/g, '').replace(/\s+/g, ' ');
-    for (const m of sql.matchAll(SQL_WRITE))
-      a.writes.push({ fn: enclosingName(n), table: m[2]!, how: `${how} (${m[0]})` });
+    if (/u&\s*"/i.test(text)) {
+      refuse(n, `${how} uses a U&"…" escaped identifier`);
+      return;
+    }
+    for (const m of normaliseSql(text).matchAll(SQL_WRITE))
+      a.writes.push({ fn: fnOf(n), table: m[2]!, how: `${how} (${m[0]})` });
   };
 
   const visit = (n: TS.Node): void => {
@@ -356,7 +475,7 @@ export function analyzeFile(
             `the ${table} delegate is used other than as \`<client>.<delegate>.<method>(…)\``,
           );
         } else if (WRITES.has(access.name.text)) {
-          a.writes.push({ fn: enclosingName(n), table, how: `${access.name.text}()` });
+          a.writes.push({ fn: fnOf(n), table, how: `${access.name.text}()` });
         } else if (!READS.has(access.name.text)) {
           refuse(n, `unknown ${table} delegate method ${access.name.text}()`);
         }
@@ -369,8 +488,9 @@ export function analyzeFile(
       ts.isObjectBindingPattern(n.name) &&
       n.initializer &&
       isPrismaClient(n.initializer)
-    )
+    ) {
       refuse(n, 'destructuring a Prisma client');
+    }
 
     // INPUTS: writes on any delegate whose model can reach a guarded model.
     if (
@@ -379,70 +499,55 @@ export function analyzeFile(
       WRITES.has(n.expression.name.text)
     ) {
       const model = delegateModel(n.expression.expression);
-      if (model && relations.has(model)) {
+      if (model && reaching.has(model)) {
+        const what = `the arguments to ${model}.${n.expression.name.text}()`;
         const arg0 = n.arguments[0];
         const arg = arg0 ? strip(arg0) : undefined;
-        if (!arg || !ts.isObjectLiteralExpression(arg))
-          refuse(
-            n,
-            `the arguments to ${model}.${n.expression.name.text}() are not an object literal`,
-          );
-        else {
-          for (const p of arg.properties) {
-            if (ts.isSpreadAssignment(p)) {
-              refuse(p, `a spread in the arguments to ${model}.${n.expression.name.text}()`);
-              continue;
-            }
-            const key = propName(p);
-            if (key === null)
-              refuse(p, `a computed key in the arguments to ${model}.${n.expression.name.text}()`);
-            else if (DATA_KEYS.has(key)) {
-              if (ts.isPropertyAssignment(p))
-                checkDataObject(p.initializer, model, enclosingName(n), key);
-              else
-                refuse(
-                  p,
-                  `\`${key}\` in the arguments to ${model}.${n.expression.name.text}() is not written out literally`,
-                );
-            }
+        if (!arg || !ts.isObjectLiteralExpression(arg)) {
+          refuse(n, `${what} are not an object literal`);
+        } else {
+          for (const [key, p] of literalProps(arg, what) ?? []) {
+            if (!DATA_KEYS.has(key)) continue;
+            const v = valueOf(p);
+            if (!v) refuse(p, `\`${key}\` in ${what} is not written out literally`);
+            else checkData(v, model, fnOf(n), key);
           }
         }
       }
     }
 
-    // RAW SQL: only the immediate call of a raw method; Unsafe variants take a literal with no substitutions.
+    // RAW SQL.
     if (ts.isPropertyAccessExpression(n) && RAW.has(n.name.text)) {
       const p = n.parent;
       const tagged = ts.isTaggedTemplateExpression(p) && p.tag === n;
       const called = ts.isCallExpression(p) && p.expression === n;
-      if (!tagged && !called)
+      if (!tagged && !called) {
         refuse(
           n,
           `${n.name.text} referenced other than by its immediate call (\`.bind\`, extraction)`,
         );
-      else if (tagged) {
-        const text = staticText(p.template);
+      } else if (ts.isTaggedTemplateExpression(p)) {
+        const text = templateText(p.template, n.name.text);
         if (text !== null) checkSql(p, text, n.name.text);
-      } else if (called) {
-        const arg = p.arguments[0];
+      } else if (ts.isCallExpression(p)) {
+        const arg0 = p.arguments[0];
+        const arg = arg0 ? strip(arg0) : undefined;
         const unsafe = n.name.text.endsWith('Unsafe');
-        const text =
-          arg &&
-          (ts.isStringLiteral(arg) ||
-            ts.isNoSubstitutionTemplateLiteral(arg) ||
-            (!unsafe && ts.isTemplateExpression(arg)))
-            ? staticText(arg)
-            : null;
-        if (text === null)
+        if (arg && (ts.isStringLiteral(arg) || ts.isNoSubstitutionTemplateLiteral(arg))) {
+          checkSql(p, arg.text, n.name.text);
+        } else if (arg && !unsafe && ts.isTaggedTemplateExpression(arg)) {
+          const text = templateText(arg.template, n.name.text); // Prisma.sql`…` (refuses its own fragments)
+          if (text !== null) checkSql(p, text, n.name.text);
+        } else {
           refuse(
             p,
-            `${n.name.text} with SQL that isn't a ${unsafe ? 'substitution-free ' : ''}literal`,
+            `${n.name.text} with SQL that isn't a ${unsafe ? 'substitution-free' : 'checkable'} literal`,
           );
-        else checkSql(p, text, n.name.text);
+        }
       }
     }
 
-    // PUBLISH: <real InvalidationBus>.publish(CHANNELS.<x>, …), CHANNELS resolved to its real declaration.
+    // PUBLISH: <real InvalidationBus>.publish(<real CHANNELS>.<x>, …).
     if (
       ts.isCallExpression(n) &&
       ts.isPropertyAccessExpression(n.expression) &&
@@ -450,38 +555,44 @@ export function analyzeFile(
       isRealBus(n.expression.expression)
     ) {
       const arg0 = n.arguments[0];
-      const arg = arg0 ? strip(arg0) : undefined; // a cast changes no runtime value
+      const arg = arg0 ? strip(arg0) : undefined;
       if (
         arg &&
         ts.isPropertyAccessExpression(arg) &&
-        declaredIn(declOf(arg.expression), BUS_FILE) &&
         ts.isIdentifier(arg.expression) &&
-        arg.expression.text === 'CHANNELS'
+        arg.expression.text === 'CHANNELS' &&
+        declaredIn(declOf(arg.expression), BUS_FILE)
       ) {
-        const fn = enclosingName(n);
+        const fn = fnOf(n);
         a.publishes.set(fn, (a.publishes.get(fn) ?? new Set()).add(arg.name.text));
       }
     }
 
-    // CALL GRAPH and REFERENCES, by resolved declaration.
-    if (ts.isPropertyAccessExpression(n) || ts.isIdentifier(n)) {
+    // CALL GRAPH and REFERENCES, by declaration identity.
+    if (
+      (ts.isPropertyAccessExpression(n) || ts.isIdentifier(n)) &&
+      !(ts.isIdentifier(n) && ts.isPropertyAccessExpression(n.parent) && n.parent.name === n)
+    ) {
       const d = declOf(ts.isPropertyAccessExpression(n) ? n.name : n);
-      const q =
-        d && (ts.isMethodDeclaration(d) || ts.isFunctionDeclaration(d)) ? qualifiedName(d) : null;
       if (
-        q &&
-        !(ts.isIdentifier(n) && ts.isPropertyAccessExpression(n.parent) && n.parent.name === n) &&
-        !(d === n.parent)
+        d &&
+        (ts.isMethodDeclaration(d) || ts.isFunctionDeclaration(d)) &&
+        d !== n.parent &&
+        qualifiedName(d)
       ) {
-        const p = n.parent;
-        const direct = ts.isCallExpression(p) && p.expression === n;
-        const from = enclosingName(n);
-        const list = a.references.get(q) ?? [];
+        const id = declId(d);
+        a.labels.set(id, qualifiedName(d)!);
+        const direct = ts.isCallExpression(n.parent) && n.parent.expression === n;
+        const from = fnOf(n);
+        const list = a.references.get(id) ?? [];
         list.push({ direct, from, at: where(n) });
-        a.references.set(q, list);
-        if (direct) a.calls.set(from, (a.calls.get(from) ?? new Set()).add(q));
+        a.references.set(id, list);
+        if (direct) a.calls.set(from, (a.calls.get(from) ?? new Set()).add(id));
       }
     }
+    // Every declaration gets a label, so bindings can resolve to it.
+    const q = qualifiedName(n);
+    if (q) a.labels.set(declId(n), q);
     ts.forEachChild(n, visit);
   };
   visit(sf);
@@ -494,43 +605,65 @@ export function writerViolations(
   files: readonly TS.SourceFile[],
   bindings: Bindings,
 ): string[] {
-  const relations = guardedRelations();
+  const graph = relationGraph();
   const out: string[] = [];
   const used = new Set<Binding>();
   const scanned = new Set(files.map((sf) => relPath(sf.fileName)));
   for (const sf of files) {
     const rel = relPath(sf.fileName);
-    const a = analyzeFile(program, sf, relations);
+    const a = analyzeFile(program, sf, graph);
     out.push(...a.violations);
-    const bound = bindings[rel] ?? [];
-    for (const w of a.writes) {
-      const b = bound.find((x) => x.writer === w.fn && x.table === w.table);
-      if (!b) {
+    /** A binding label → the ONE declaration in this file with that label (ambiguity and absence are refused). */
+    const resolve = (label: string): string | null => {
+      const ids = [...a.labels]
+        .filter(([id, l]) => l === label && id.startsWith(`${rel}#`))
+        .map(([id]) => id);
+      if (ids.length !== 1) {
         out.push(
-          `${rel}: ${w.fn} writes ${w.table} (${w.how}) with no binding for that writer and table: refused`,
+          `${rel}: binding names ${label}, which resolves to ${String(ids.length)} declarations (must be exactly 1)`,
+        );
+        return null;
+      }
+      return ids[0]!;
+    };
+    const bound = (bindings[rel] ?? []).map((b) => ({
+      b,
+      writer: resolve(b.writer),
+      publisher: resolve(b.publisher),
+      only: b.calledOnlyFrom ? resolve(b.calledOnlyFrom) : null,
+    }));
+    const calls = (caller: string | null, callee: string | null) =>
+      !!caller && !!callee && (caller === callee || (a.calls.get(caller)?.has(callee) ?? false));
+    for (const w of a.writes) {
+      const r = bound.find((x) => x.writer === w.fn && x.b.table === w.table);
+      if (!r) {
+        out.push(
+          `${rel}: ${a.labels.get(w.fn) ?? w.fn} writes ${w.table} (${w.how}) with no binding for that writer and table: refused`,
         );
         continue;
       }
+      const { b } = r;
       used.add(b);
-      if (!a.publishes.get(b.publisher)?.has(b.channel)) {
+      if (!r.publisher || !a.publishes.get(r.publisher)?.has(b.channel)) {
         out.push(
           `${rel}: ${b.writer} writes ${b.table}, but ${b.publisher} makes no publish(CHANNELS.${b.channel}, …) call on the real InvalidationBus`,
         );
       }
-      const calls = (caller: string, callee: string) =>
-        caller === callee || (a.calls.get(caller)?.has(callee) ?? false);
       if (b.calledOnlyFrom) {
-        const refs = a.references.get(b.writer) ?? [];
-        const bad = refs.filter((r) => !r.direct || r.from !== b.calledOnlyFrom);
+        const refs = r.writer ? (a.references.get(r.writer) ?? []) : [];
         if (refs.length === 0)
           out.push(`${rel}: ${b.writer} is never called from ${b.calledOnlyFrom}`);
-        for (const r of bad)
+        for (const ref of refs.filter((x) => !x.direct || x.from !== r.only)) {
+          const how = ref.direct
+            ? `from ${a.labels.get(ref.from) ?? ref.from}`
+            : 'other than as a direct call';
           out.push(
-            `${r.at}: ${b.writer} referenced ${r.direct ? `from ${r.from}` : 'other than as a direct call'}; it may only be called from ${b.calledOnlyFrom}`,
+            `${ref.at}: ${b.writer} referenced ${how}; it may only be called from ${b.calledOnlyFrom}`,
           );
-        if (!calls(b.calledOnlyFrom, b.publisher))
+        }
+        if (!calls(r.only, r.publisher))
           out.push(`${rel}: ${b.calledOnlyFrom} never calls ${b.publisher}`);
-      } else if (!calls(b.writer, b.publisher)) {
+      } else if (!calls(r.writer, r.publisher)) {
         out.push(`${rel}: ${b.writer} writes ${b.table} but never calls ${b.publisher}`);
       }
     }
