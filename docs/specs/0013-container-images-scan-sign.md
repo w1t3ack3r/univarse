@@ -227,9 +227,37 @@ Image sizes from Docker Desktop's containerd store (API 809 MB, web 273 MB) aren
 - **Why the reasons are checked:** the first rehearsal of `42503bd` (2026-10-12, otherwise green: 32/32 journeys, canaries found, offline signing) showed the role-swap negative rejected for the **wrong** reason ("no signatures found", because the web digest had no signatures under the api repository). That led to the change above. A pre-check against that rehearsal's images confirmed that a signed web image in the api slot is now rejected by the role check ("it names: role web, infra/docker/web.Dockerfile").
 
 
-**Still to come before LR10 is met:**
-1. the owner's public-key PR;
-2. the **real** release on `main` in the owner's terminal, with the owner's key and password.
+**LR10 met: the real-key release on `main` (2026-10-12/13).**
+- **The release:** run by the owner in their own terminal, with their own key and password, on `main` at **`12083b8ebe7362db3123a8d67a1b4c3b2a09907f`**. That commit is #57, the merge that added `infra/signing/cosign.pub` (sha256 `386c0f55f82e60005a03526454cd287d10eb87534d4e829c1dd7e774900de194`).
+- **The run:** 23:05:52–23:33:28 UTC (27.6 min), on Docker Desktop for Windows, with host networking enabled. Its record is `releases/2026-10-12-12083b8.json`, kept locally; `rehearsal: false`.
+
+| Stage | Result |
+|---|---|
+| Base image upstream signature | verified (`…nodejs24-debian13:nonroot@sha256:9eeb7f58…`) |
+| Vulnerability database | fresh: downloaded 23:16:21Z; DB updated 19:08:28Z; Trivy 0.75.0 |
+| Inspection; exceptions | pass; **none active** |
+| Vulnerability gate | **0 HIGH/CRITICAL** in both images (23 MEDIUM and 8 LOW each, all unfixed) |
+| Secret and misconfiguration gates; SBOM | pass; API 329 packages, web 36 |
+| Secret-coverage canaries | gate failed on the canary image, and all five found, including `/app/node_modules/.pnpm/@univarse+db@…/dist/canary-pkg.js` |
+| Hardened smoke; browser journeys (containerised) | pass; pass. The record notes pass only; the per-test counts are in the owner's terminal output |
+| Published, API | `univarse-api:sha-12083b8`, manifest `sha256:8af794d21a95444fda06a876edfed514c1419e4a3ab146c02a8488fbbf5ed0db`, config `sha256:3258546e978949754caec5afab3168bc497793c81f36c64e8c93d328e2fc9199` |
+| Published, web | `univarse-web:sha-12083b8`, manifest `sha256:1d0c627d2b838d4f08538b272cea0aec918baca2b3e2b146327ef22d8667553f`, config `sha256:62ff531d84a840e1919a1916d7f25e3888d57de323606708f5e09a3346c4cfd0` |
+| Signing and attestation | offline: tool containers on the internal network only, with no route to public Sigstore |
+| Negatives (a real release has no rehearsal check) | different key: rejected (signature mismatch); unsigned digest in the api repository: rejected ("no signatures found"); fully signed web image in the api slot: rejected, "signed provenance does not name role api … it names: role web" |
+
+**Independent check after the release: the deploy's own verification.**
+- **The release:** `pnpm images:verify releases/2026-10-12-12083b8.json`, with the committed key and `HEAD` = `12083b8`. **Both images' signature, SBOM and provenance verified offline.**
+- **Counter-check:** the same check on the test-key rehearsal of `c8ab9bc` **rejected both images as a rehearsal**: "a rehearsal is never deployable".
+
+**Images-signed exit:** met. Both images are signed with the owner's key, with 0 HIGH/CRITICAL findings and no active exceptions.
+
+**What remains of spec 0013, so it stays open:**
+- the **CS12** workflow-policy check over fixture workflows;
+- the **CS13** image-mutation proofs: an image running as root, an image containing a shell, and a known fixable and a known unfixed HIGH/CRITICAL;
+- **LR8**'s manual `pnpm images:prune`;
+- a small follow-up: the release removes its local `localhost:5000/…` tag copies after pushing (the registry keeps them).
+
+The owner removed 14 accumulated rehearsal tags and trimmed the build cache (16.8 GB → 4.2 GB) on 2026-10-13. The `registry-data` volume must not be pruned: it holds the signed release.
 
 ## Design notes
 

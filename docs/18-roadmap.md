@@ -91,7 +91,7 @@ Each roadmap line checked against the repository, CI and the decision log.
 | Cross-tenant suite, all 5 layers of [12 §3](12-testing-strategy.md) | 🟡 | **Layers 1–3:** ✅ (RLS checker, generic DB sweep, API route sweep: 30 real routes, 4 resource-by-id routes).<br>**Layer 4 (jobs):** 🟡 **partial**. The **outbox** worker is covered (B8, B10; OB8 worker half). The **file-scan worker** and the **key sweep** are pending: no cross-tenant claim test yet.<br>**Layer 5 (caches/files):** 🟡. Files are complete for the first slice. Still open: **product-cache invalidation** across instances (P7) and **key-forget propagation**. |
 | Login + MFA + step-up E2E green | ✅ | Green in CI on every recent merge (32/32, desktop and mobile). A clean **local** run is a separate follow-up (cause measured; [spec 0012](specs/0012-observability-logs-and-traces.md)), not an extra exit requirement. |
 | CSP enforced → **over local HTTPS** | ❌ | ADR-030. The web app already enforces a nonce CSP locally over HTTP. Still to do: a local HTTPS edge with a local certificate authority, so `Secure`/`__Host-` cookies and the CSP run over HTTPS. |
-| Images signed, 0 high/critical findings | 🟡 | [Spec 0013](specs/0013-container-images-scan-sign.md).<br>**Built (#49–#51):** both images build, pass inspection and the hardened smoke run, and pass the 32 journeys. **0 HIGH/CRITICAL** findings (run 38234354821; 23 MEDIUM and 8 LOW unfixed, from the base). Secret and misconfiguration gates are clean; no exceptions are active.<br>**Not yet:** signing with the local key, the local registry and verification (ADR-030 amends ADR-029), and the CS13 proofs, including the canaries that prove secret-scan coverage. |
+| Images signed, 0 high/critical findings | ✅ | [Spec 0013](specs/0013-container-images-scan-sign.md) LR10, 2026-10-12/13.<br>**The release:** the owner's real-key local release on `main` at `12083b8`. Both images were signed offline with the owner's key, with **0 HIGH/CRITICAL** findings (23 MEDIUM and 8 LOW, unfixed, from the base) and **no active exceptions**.<br>**The deploy check:** `pnpm images:verify` independently verified both digests against `infra/signing/cosign.pub`.<br>**Spec 0013 is still open** for CS12 and CS13 proofs and LR8 prune (spec 0013 lists them). |
 | Staging deploy → **local deploy of verified digests** | ❌ | ADR-030. Not built yet: a local deploy command that runs only digests verified with the committed public key, then smoke-checks the stack. |
 | ADRs 001–012 accepted | ✅ | All accepted on 2026-09-30 ([19](19-decision-log.md)). |
 
@@ -110,7 +110,9 @@ Each roadmap line checked against the repository, CI and the decision log.
 **Completed:** every ✅ row above.
 
 **Remaining work, in order:**
-1. **Spec 0013, locally:** steps 1–3 are done. Next come the local registry, local key signing and verification (amended by ADR-030), then the CS12–CS13 policy checks and proofs, including the secret-scan canaries.
+1. **Spec 0013, locally:**
+   - **Done:** steps 1–3 and the local release; the real-key release (LR10) is met.
+   - **Remaining:** the CS12 workflow-policy check, the CS13 image-mutation proofs, and LR8 prune.
 2. **Job isolation:** cross-tenant claim tests for the file-scan worker and the key sweep (layer 4).
 3. **Cache isolation:** product-cache invalidation (P7) and key-forget propagation (layer 5).
 4. **PgBouncer:** isolation tests through the intended pooling mode (transaction pooling), as a CI job (ADR-015).
