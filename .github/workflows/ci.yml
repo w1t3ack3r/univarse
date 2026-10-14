@@ -303,7 +303,7 @@ jobs:
         run: |
           mkdir -p "$EVIDENCE"
           node --test tools/images/tar.test.mjs tools/images/pgbouncer-inventory.test.mjs \
-            tools/images/pgbouncer-grype-gate.test.mjs tools/images/pgbouncer-gate-proofs.test.mjs
+            tools/images/pgbouncer-grype-gate.test.mjs tools/images/pgbouncer-gate-proofs.test.mjs \n            tools/images/pgbouncer-upstream.test.mjs
       - name: Verify the PgBouncer runtime base's upstream signature, before building (spec 0013 CS3, spec 0017 D1)
         env:
           COSIGN_VERSION: 3.1.3
@@ -370,6 +370,10 @@ jobs:
       - name: Coverage controls — all nine must fail for their intended reasons, the real build must pass (spec 0017 PB10)
         run: |
           node tools/images/pgbouncer-gate-proofs.mjs univarse-pgbouncer:ci "$EVIDENCE/proofs" --cache "$RUNNER_TEMP/grype-cache" | tee -a "$GITHUB_STEP_SUMMARY"
+      # Last, so a new upstream release doesn't stop the other gates producing their evidence.
+      - name: No newer upstream PgBouncer release than the pin — a maintenance safeguard, not a substitute for the Grype match (spec 0017 PB10)
+        run: |
+          node tools/images/pgbouncer-upstream.mjs 2>&1 | tee "$EVIDENCE/upstream.txt" | tee -a "$GITHUB_STEP_SUMMARY"
       - name: Keep the evidence (always, failures included)
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
