@@ -185,6 +185,29 @@ Starting implementation, the accepted D1 image was prototyped and scanned before
 - Every image gate and all nine controls rerun in CI on the new head.
 - `pgbouncer.ini` leaves `ignore_startup_parameters` unset and `max_packet_size` at its default (Design), which keeps it clear of the other two CVEs' conditions on any version.
 
+## Implementation finding: PB7's captured error, and the host gateway (2026-10-14)
+
+**The capture (PB7, "capture first").** It used a disposable PostgreSQL 18, the platform migrations, and the PgBouncer 1.26.1 image in the probe profile: two server connections, and `query_wait_timeout` of 2 s. Two raw clients held both server connections in open transactions. Both paths then failed with the **same** wrapped error:
+
+| Path                                                                  | Failed after | Error                                                                                                                                                                                                                                                                                                                                        |
+| --------------------------------------------------------------------- | ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| An uncached `tenant.findUnique` outside a transaction                 | 2 531 ms     | `PrismaClientKnownRequestError`, code **`P2039`**, message ``Database error. Code: `08P01`. Message: `query_wait_timeout` ``; `meta.driverAdapterError` is a `DriverAdapterError` "query_wait_timeout" whose `cause` is `{kind: 'postgres', code: '08P01', originalCode: '08P01', originalMessage: 'query_wait_timeout', severity: 'FATAL'}` |
+| A `$transaction` start with `maxWait` 5 s (PgBouncer's deadline wins) | 2 395 ms     | The same, without `modelName`                                                                                                                                                                                                                                                                                                                |
+
+- **Recovery:** after the holders were released, the same lookup answered in 42 ms.
+- **No uncaught error:** Prisma's adapter pool raised no unhandled error event. The only unhandled one came from the capture's own raw clients before they had listeners.
+- **The matcher:** `isConnectionUnavailable` matches this **narrowly**: Prisma's runtime error class itself, code P2039, a `DriverAdapterError` with exactly that message, and a cause with exactly those five fields. PgBouncer reports many of its own errors as `08P01`, so the code alone isn't enough.
+- **Its tests:** each field is pinned by a unit test built with Prisma's real class. Each of ten weakenings fails it.
+- **Still to come:** the API-level halves (503 with `Retry-After`, recovery, an unrelated error still 500, both mutations) are in the probe file.
+
+**The host gateway: an open Design question.** Design maps `host.docker.internal` with `--add-host=host.docker.internal:host-gateway`.
+
+- **What Docker Desktop writes:** `/etc/hosts` gets **both** the IPv4 gateway (`192.168.65.254`) and an IPv6 one (`fdc4:…::254`), which isn't routable from the container.
+- **What PgBouncer does with that:** it tries a host's addresses in turn. The first server connection went over IPv4. The next one failed on IPv6 ("Network is unreachable"), and the waiting clients ran into `query_wait_timeout`. A dedicated host name doesn't help, because `host-gateway` writes both families for any name.
+- **What worked:** with the IPv4 address itself as the server host, everything worked.
+- **CI:** GitHub's Linux runners keep Docker's IPv6 off by default, so `host-gateway` there should resolve to IPv4 only. The `pgbouncer-isolation` job will show it.
+- **Locally:** the mapping needs a decision before `pnpm dev:pgbouncer`.
+
 ## Owner review of the image implementation (2026-10-14)
 
 Implementing PB10 surfaced a policy question and two gaps, now written into PB10.

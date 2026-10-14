@@ -1,4 +1,5 @@
 import { PrismaPg } from '@prisma/adapter-pg';
+import { PrismaClientKnownRequestError } from '@prisma/client/runtime/client';
 
 /**
  * Pool settings for every Prisma client (platform and tenant shards).
@@ -34,13 +35,37 @@ export const utcAdapter = (connectionString: string) =>
 
 /**
  * True when an operation failed because no database connection became available in time:
- * Prisma's transaction wait expired (P2028 "Unable to start a transaction in the given time"), or pg
- * could not open a new connection within `connectionTimeoutMillis`. Other P2028s (e.g. a transaction
- * that expired mid-way) are bugs, not saturation, and are not matched.
+ * Prisma's transaction wait expired (P2028 "Unable to start a transaction in the given time"), pg
+ * could not open a new connection within `connectionTimeoutMillis`, or PgBouncer's `query_wait_timeout`
+ * ended the wait in its queue (spec 0017 PB7). Other P2028s (e.g. a transaction that expired mid-way)
+ * are bugs, not saturation, and are not matched.
  */
 export function isConnectionUnavailable(err: unknown): boolean {
   if (!(err instanceof Error)) return false;
   const code = (err as { code?: unknown }).code;
   if (code === 'P2028') return err.message.includes('Unable to start a transaction in the given time');
+  if (isPgBouncerQueueTimeout(err)) return true;
   return err.message === 'Connection terminated due to connection timeout';
+}
+
+/**
+ * PgBouncer ended a query or a transaction start waiting in its queue (`query_wait_timeout`), exactly as
+ * captured on 2026-10-14 (Prisma 7.10, PgBouncer 1.26.1, outside a transaction and at a transaction's
+ * start alike): a PrismaClientKnownRequestError P2039 whose driver adapter error is PgBouncer's FATAL
+ * 08P01 "query_wait_timeout". Matched narrowly, field by field: PgBouncer reports many of its own errors as
+ * 08P01, and a message substring could match anything.
+ */
+function isPgBouncerQueueTimeout(err: Error): boolean {
+  if (!(err instanceof PrismaClientKnownRequestError) || err.code !== 'P2039') return false;
+  const adapterError = err.meta?.driverAdapterError;
+  if (!(adapterError instanceof Error) || adapterError.name !== 'DriverAdapterError') return false;
+  if (adapterError.message !== 'query_wait_timeout') return false;
+  const cause = adapterError.cause as Record<string, unknown> | undefined;
+  return (
+    cause?.kind === 'postgres' &&
+    cause.code === '08P01' &&
+    cause.originalCode === '08P01' &&
+    cause.originalMessage === 'query_wait_timeout' &&
+    cause.severity === 'FATAL'
+  );
 }
