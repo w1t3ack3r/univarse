@@ -497,7 +497,10 @@ export async function gatherFacts(image) {
 }
 
 export async function gatherBase(baseImage) {
-  docker(['pull', '-q', baseImage]);
+  // The base is pinned by digest, so a local copy IS the pinned image: pull only when it isn't here (a registry
+  // round-trip on every run made the check depend on the network for nothing).
+  if (spawnSync('docker', ['image', 'inspect', baseImage], { encoding: 'utf8' }).status !== 0)
+    docker(['pull', '-q', baseImage]);
   const [meta] = JSON.parse(docker(['image', 'inspect', baseImage]));
   const { records, files, entries } = await readImage(meta.Id);
   return { records, files, entries };
