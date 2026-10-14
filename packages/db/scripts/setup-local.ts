@@ -27,8 +27,8 @@ import {
   PGBOUNCER_PORT,
   renderAuthFile,
   renderIni,
-  restrictToOwner,
   scramVerifier,
+  writeOwnerOnly,
 } from './pgbouncer-config.js';
 
 const host = process.env.PGHOST ?? '127.0.0.1';
@@ -171,12 +171,8 @@ function writePgBouncerFiles(authFile: string) {
   const dir = join(REPO_ROOT, '.pgbouncer');
   mkdirSync(dir, { recursive: true, mode: 0o700 });
   const userlist = join(dir, 'userlist.txt');
-  // Narrowed while still empty, so the verifiers never sit in a wider file (a new file starts with its directory's
-  // inherited ACL on Windows); then written, and checked again: throws if the result is wider than the current user.
-  writeFileSync(userlist, '', { mode: 0o600 });
-  restrictToOwner(userlist);
-  writeFileSync(userlist, authFile);
-  restrictToOwner(userlist);
+  // A fresh owner-only file, checked, then renamed over the old one: never widened, never rewritten in place.
+  writeOwnerOnly(userlist, authFile);
   console.log(`  ✓ PgBouncer auth file for ${[...APP_ROLES, PGBOUNCER_ADMIN].join(', ')} (owner-only, git-ignored)`);
   for (const profile of ['probe', 'suite'] as const) {
     writeFileSync(

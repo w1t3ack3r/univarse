@@ -10,8 +10,18 @@
  */
 import { createHash, createHmac, pbkdf2Sync, randomBytes } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
-import { chmodSync, statSync } from 'node:fs';
+import {
+  closeSync,
+  fchmodSync,
+  fsyncSync,
+  openSync,
+  renameSync,
+  rmSync,
+  statSync,
+  writeSync,
+} from 'node:fs';
 import { userInfo } from 'node:os';
+import { basename, dirname, join } from 'node:path';
 
 /** The admin console's user: an auth_file entry only, never a PostgreSQL role (PB9). */
 export const PGBOUNCER_ADMIN = 'pgbouncer_admin';
@@ -150,24 +160,107 @@ function windowsUser(): string {
   return `${domain}\\${userInfo().username}`;
 }
 
-/** Restricts `file` to the current user (0600, or an owner-only ACL on Windows), then checks it; throws if wider. */
-export function restrictToOwner(file: string): void {
-  if (process.platform === 'win32') {
-    const user = windowsUser();
-    // /reset drops any explicit entries (a re-run repairs a widened file); /inheritance:r then removes the inherited
-    // ones, leaving only the grant.
-    execFileSync('icacls', [file, '/reset'], { stdio: 'ignore' });
-    execFileSync('icacls', [file, '/inheritance:r', '/grant:r', `${user}:F`], { stdio: 'ignore' });
-    const problems = windowsAclProblems(
-      parseIcacls(execFileSync('icacls', [file], { encoding: 'utf8' }), file),
-      user,
-    );
-    if (problems.length) throw new Error(`${file}: ${problems.join('; ')}`);
-    return;
+/** The filesystem and command operations the owner-only writer uses; replaced in tests to pin their order. */
+export interface OwnerOnlyOps {
+  platform: NodeJS.Platform;
+  /** Creates `path` exclusively (fails if it exists), mode 0600, empty; returns a descriptor. */
+  createExclusive(path: string): number;
+  /** POSIX only: sets the open file's mode (never widens: the file was created 0600 and is still empty). */
+  fchmod(fd: number, mode: number): void;
+  write(fd: number, content: string): void;
+  fsync(fd: number): void;
+  close(fd: number): void;
+  /** Atomically replaces `to` with `from` (same directory). */
+  rename(from: string, to: string): void;
+  unlink(path: string): void;
+  /** POSIX only. */
+  stat(path: string): { mode: number; uid: number };
+  uid(): number;
+  /** Windows only: icacls with these arguments; returns its output. */
+  icacls(args: string[]): string;
+  windowsUser(): string;
+  random(): string;
+}
+
+export const realOwnerOnlyOps: OwnerOnlyOps = {
+  platform: process.platform,
+  createExclusive: (path) => openSync(path, 'wx', 0o600),
+  fchmod: (fd, mode) => {
+    fchmodSync(fd, mode);
+  },
+  write: (fd, content) => {
+    writeSync(fd, content);
+  },
+  fsync: (fd) => {
+    fsyncSync(fd);
+  },
+  close: (fd) => {
+    closeSync(fd);
+  },
+  rename: (from, to) => {
+    renameSync(from, to);
+  },
+  unlink: (path) => {
+    rmSync(path, { force: true });
+  },
+  stat: (path) => statSync(path),
+  uid: () => {
+    if (!process.getuid) throw new Error('no POSIX user id on this platform');
+    return process.getuid();
+  },
+  icacls: (args) => execFileSync('icacls', args, { encoding: 'utf8' }),
+  windowsUser,
+  random: () => randomBytes(8).toString('hex'),
+};
+
+/** Problems with `file`'s permissions, read only: nothing here changes them. */
+export function ownerOnlyProblems(file: string, ops: OwnerOnlyOps = realOwnerOnlyOps): string[] {
+  if (ops.platform === 'win32')
+    return windowsAclProblems(parseIcacls(ops.icacls([file]), file), ops.windowsUser());
+  const st = ops.stat(file);
+  return posixModeProblems(st.mode, st.uid, ops.uid());
+}
+
+/**
+ * Writes `content` to `target` readable by the current user only (PB9), so that no file holding it is ever wider:
+ *   1. a fresh temporary file beside `target`, created exclusively, 0600 and empty;
+ *   2. narrowed while still empty (Windows: inheritance removed, the current account granted; nothing to reset on a
+ *      new file), and checked;
+ *   3. the content written and flushed, then the permissions checked again, read only;
+ *   4. renamed over `target` atomically, and the result checked, read only.
+ * A reader holding the old `target` open keeps the old file and never sees the new content. Nothing that changes
+ * permissions runs after the content is written. A failure before the rename removes the temporary file and leaves
+ * `target` as it was; a failed final check throws, failing the run.
+ */
+export function writeOwnerOnly(
+  target: string,
+  content: string,
+  ops: OwnerOnlyOps = realOwnerOnlyOps,
+): void {
+  const tmp = join(dirname(target), `.${basename(target)}.${ops.random()}.tmp`);
+  const fail = (where: string, problems: string[]) => {
+    if (problems.length) throw new Error(`${where}: ${problems.join('; ')}`);
+  };
+  const fd = ops.createExclusive(tmp);
+  let open = true;
+  let renamed = false;
+  try {
+    if (ops.platform === 'win32') {
+      ops.icacls([tmp, '/inheritance:r', '/grant:r', `${ops.windowsUser()}:F`]);
+    } else {
+      ops.fchmod(fd, 0o600);
+    }
+    fail(`${tmp} (empty)`, ownerOnlyProblems(tmp, ops));
+    ops.write(fd, content);
+    ops.fsync(fd);
+    ops.close(fd);
+    open = false;
+    fail(tmp, ownerOnlyProblems(tmp, ops));
+    ops.rename(tmp, target);
+    renamed = true;
+    fail(target, ownerOnlyProblems(target, ops));
+  } finally {
+    if (open) ops.close(fd);
+    if (!renamed) ops.unlink(tmp);
   }
-  chmodSync(file, 0o600);
-  const st = statSync(file);
-  if (!process.getuid) throw new Error('no POSIX user id on this platform');
-  const problems = posixModeProblems(st.mode, st.uid, process.getuid());
-  if (problems.length) throw new Error(`${file}: ${problems.join('; ')}`);
 }

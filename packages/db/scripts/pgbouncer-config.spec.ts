@@ -1,14 +1,30 @@
 // Spec 0017 PB9 / D5: what `pnpm db:setup` writes for PgBouncer. The live halves (authentication through PgBouncer,
 // rotation, the file's real permissions) are in the probe file; these pin the generated content and the checks.
+import {
+  closeSync,
+  mkdtempSync,
+  openSync,
+  readdirSync,
+  readFileSync,
+  readSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   PGBOUNCER_ADMIN,
+  type OwnerOnlyOps,
+  ownerOnlyProblems,
   parseIcacls,
   posixModeProblems,
+  realOwnerOnlyOps,
   renderAuthFile,
   renderIni,
   scramVerifier,
   windowsAclProblems,
+  writeOwnerOnly,
 } from './pgbouncer-config.js';
 
 // Made by PostgreSQL 18 itself for a throwaway role with the password "pencil" (a disposable container; not a secret).
@@ -155,5 +171,192 @@ describe('[PB9] the auth file is owner-only, checked after writing', () => {
     expect(posixModeProblems(0o100600, 0, 1001)).toEqual([
       'owned by uid 0, not the current user (1001)',
     ]);
+  });
+});
+
+describe("[PB9] the auth file is written fresh, owner-only, and swapped in atomically (owner's review of 14c787f)", () => {
+  const target = join('dir', 'userlist.txt');
+  const tmp = join('dir', '.userlist.txt.r4nd.tmp');
+  const USER = String.raw`HOST\someone`;
+  type Hook = (path: string) => unknown;
+
+  /** A recording world; `over` makes one operation misbehave. */
+  function world(
+    platform: NodeJS.Platform,
+    over: Partial<Record<'aclCheck' | 'modeCheck' | 'rename' | 'create', Hook>> = {},
+  ) {
+    const log: string[] = [];
+    const ops: OwnerOnlyOps = {
+      platform,
+      createExclusive: (path) => {
+        log.push(`create ${path}`);
+        over.create?.(path);
+        return 7;
+      },
+      fchmod: (_fd, mode) => log.push(`fchmod ${mode.toString(8)}`),
+      write: () => log.push('write'),
+      fsync: () => log.push('fsync'),
+      close: () => log.push('close'),
+      rename: (from, to) => {
+        log.push(`rename ${from} -> ${to}`);
+        over.rename?.(from);
+      },
+      unlink: (path) => log.push(`unlink ${path}`),
+      stat: (path) => {
+        log.push(`stat ${path}`);
+        return { mode: (over.modeCheck?.(path) as number | undefined) ?? 0o100600, uid: 1001 };
+      },
+      uid: () => 1001,
+      icacls: (args) => {
+        log.push(`icacls ${args.join(' ')}`);
+        const [file = ''] = args;
+        if (args.length > 1) return '';
+        return (
+          (over.aclCheck?.(file) as string | undefined) ??
+          `${file} ${USER}:(F)\n\nSuccessfully processed 1 files`
+        );
+      },
+      windowsUser: () => USER,
+      random: () => 'r4nd',
+    };
+    return { ops, log };
+  }
+  /** An operation that can change permissions: an icacls call with options, or fchmod. */
+  const changesPermissions = (entry: string) =>
+    /^icacls \S+ \//.test(entry) || entry.startsWith('fchmod');
+
+  it('Windows: narrows the empty file, writes, checks read only, renames, checks read only; never /reset', () => {
+    const { ops, log } = world('win32');
+    writeOwnerOnly(target, 'verifiers', ops);
+    expect(log).toEqual([
+      `create ${tmp}`,
+      `icacls ${tmp} /inheritance:r /grant:r ${USER}:F`,
+      `icacls ${tmp}`,
+      'write',
+      'fsync',
+      'close',
+      `icacls ${tmp}`,
+      `rename ${tmp} -> ${target}`,
+      `icacls ${target}`,
+    ]);
+    expect(log.join('\n')).not.toContain('/reset');
+    expect(log.slice(log.indexOf('write')).filter(changesPermissions)).toEqual([]);
+  });
+
+  it('POSIX: created 0600, set 0600 while empty, then only read-only checks', () => {
+    const { ops, log } = world('linux');
+    writeOwnerOnly(target, 'verifiers', ops);
+    expect(log).toEqual([
+      `create ${tmp}`,
+      'fchmod 600',
+      `stat ${tmp}`,
+      'write',
+      'fsync',
+      'close',
+      `stat ${tmp}`,
+      `rename ${tmp} -> ${target}`,
+      `stat ${target}`,
+    ]);
+    expect(log.slice(log.indexOf('write')).filter(changesPermissions)).toEqual([]);
+  });
+
+  it('a wider empty file is never written to: removed, nothing renamed', () => {
+    const { ops, log } = world('win32', {
+      aclCheck: (p) => `${p} ${USER}:(F)\n BUILTIN\\Users:(I)(RX)\n`,
+    });
+    expect(() => {
+      writeOwnerOnly(target, 'verifiers', ops);
+    }).toThrow(/\(empty\).*ACL must be exactly/);
+    expect(log).not.toContain('write');
+    expect(log.some((l) => l.startsWith('rename'))).toBe(false);
+    expect(log.at(-1)).toBe(`unlink ${tmp}`);
+  });
+
+  it('a file found wider after writing is not swapped in: removed, the target untouched', () => {
+    let checks = 0;
+    const { ops, log } = world('linux', {
+      modeCheck: (p) => (p === tmp && ++checks === 2 ? 0o100644 : undefined),
+    });
+    expect(() => {
+      writeOwnerOnly(target, 'verifiers', ops);
+    }).toThrow(/mode is 0644/);
+    expect(log.some((l) => l.startsWith('rename'))).toBe(false);
+    expect(log.at(-1)).toBe(`unlink ${tmp}`);
+  });
+
+  it('a failed rename removes the temporary file; an existing temporary name is refused, not reused', () => {
+    const r = world('linux', {
+      rename: () => {
+        throw new Error('EPERM');
+      },
+    });
+    expect(() => {
+      writeOwnerOnly(target, 'verifiers', r.ops);
+    }).toThrow(/EPERM/);
+    expect(r.log.at(-1)).toBe(`unlink ${tmp}`);
+    const c = world('linux', {
+      create: () => {
+        throw new Error('EEXIST');
+      },
+    });
+    expect(() => {
+      writeOwnerOnly(target, 'verifiers', c.ops);
+    }).toThrow(/EEXIST/);
+    expect(c.log).toEqual([`create ${tmp}`]); // nothing written, closed or removed: it wasn't ours
+  });
+
+  it('on the real filesystem: a file already at the temporary name (possibly wide) is refused, never reused', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'uv-authfile-'));
+    try {
+      const file = join(dir, 'userlist.txt');
+      const planted = join(dir, '.userlist.txt.fixed.tmp');
+      writeFileSync(planted, 'PLANTED\n');
+      expect(() => {
+        writeOwnerOnly(file, 'NEW-CONTENT\n', { ...realOwnerOnlyOps, random: () => 'fixed' });
+      }).toThrow(/EEXIST/);
+      expect(readFileSync(planted, 'utf8')).toBe('PLANTED\n'); // not written into, not removed: it isn't ours
+      expect(readdirSync(dir)).toEqual(['.userlist.txt.fixed.tmp']);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  // POSIX swaps the name to the new file and the reader keeps the old one. Windows refuses to replace a file another
+  // handle holds open (EPERM): the write fails closed, leaving the old file in place. Either way the old handle can
+  // never read the new verifiers, and no temporary file is left. CI (Linux) runs the first branch; Windows the second.
+  it('on the real filesystem: a reader holding the old file open never sees the new content', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'uv-authfile-'));
+    const readHeld = (fd: number) => {
+      const buf = Buffer.alloc(64);
+      return buf.subarray(0, readSync(fd, buf, 0, buf.length, 0)).toString();
+    };
+    try {
+      const file = join(dir, 'userlist.txt');
+      writeFileSync(file, 'OLD-CONTENT\n');
+      const held = openSync(file, 'r'); // opened while the old file existed (and might have been wide)
+      try {
+        if (process.platform === 'win32') {
+          expect(() => {
+            writeOwnerOnly(file, 'NEW-CONTENT\n');
+          }).toThrow(/EPERM/);
+          expect(readHeld(held)).toBe('OLD-CONTENT\n');
+          expect(readFileSync(file, 'utf8')).toBe('OLD-CONTENT\n'); // untouched: replaced only once nothing holds it
+        } else {
+          writeOwnerOnly(file, 'NEW-CONTENT\n');
+          expect(readHeld(held)).toBe('OLD-CONTENT\n'); // the old inode, not the new verifiers
+          expect(readFileSync(file, 'utf8')).toBe('NEW-CONTENT\n');
+        }
+      } finally {
+        closeSync(held);
+      }
+      if (process.platform === 'win32') {
+        writeOwnerOnly(file, 'NEW-CONTENT\n'); // with the reader gone, the swap goes through
+        expect(readFileSync(file, 'utf8')).toBe('NEW-CONTENT\n');
+      }
+      expect(ownerOnlyProblems(file)).toEqual([]);
+      expect(readdirSync(dir)).toEqual(['userlist.txt']); // no temporary file left behind
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
