@@ -3,7 +3,7 @@
 // controls on real images and a real database are in pgbouncer-gate-proofs.mjs.
 // Run: node --test tools/images/pgbouncer-grype-gate.test.mjs
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -12,6 +12,7 @@ import {
   checkDbStatus,
   debIdentity,
   disagreements,
+  expectedIdentity,
   GRYPE_IMAGE,
   importDigest,
   parity,
@@ -228,58 +229,162 @@ test("[PB10] parity: PgBouncer's actual CPE field is checked, never text elsewhe
   has(parity(w), /Grype's catalogue of the image has no Debian packages/);
 });
 
-test('[PB10] binding: Grype and Trivy evidence must be of the scanned image', () => {
-  const saved = { configDigest: 'sha256:c0', diffIds: ['sha256:l1', 'sha256:l2'] };
-  const grypeImageScan = { source: { target: { imageID: 'sha256:c0' } } };
-  const trivy = { Metadata: { ImageID: 'sha256:id', DiffIDs: ['sha256:l1', 'sha256:l2'] } };
-  assert.deepEqual(bindingProblems({ imageId: 'sha256:id', saved, grypeImageScan, trivy }), []);
+// ---------- binding: one image, independently established ----------
+
+const A_LAYERS = ['sha256:a1', 'sha256:a2'];
+const B_LAYERS = ['sha256:b1', 'sha256:b2'];
+const RUN_CONFIG = {
+  User: '65532:65532',
+  Entrypoint: ['/usr/bin/pgbouncer'],
+  Labels: { 'org.univarse.pgbouncer.version': '1.26.0' },
+};
+/** `docker image inspect` output for an image; `index` makes it the containerd store's index ID. */
+const inspectOf = (
+  id,
+  layers,
+  { index = false, config = RUN_CONFIG, os = 'linux', arch = 'amd64' } = {},
+) => [
+  {
+    Id: id,
+    Os: os,
+    Architecture: arch,
+    RootFS: { Type: 'layers', Layers: layers },
+    Config: config,
+    ...(index
+      ? { Descriptor: { mediaType: 'application/vnd.oci.image.index.v1+json', digest: id } }
+      : {}),
+  },
+];
+const savedOf = (configDigest, layers, over = {}) => ({
+  images: 1,
+  configDigest,
+  diffIds: layers,
+  os: 'linux',
+  architecture: 'amd64',
+  variant: null,
+  config: RUN_CONFIG,
+  ...over,
+});
+const scansOf = (configDigest, trivyId, layers) => ({
+  grypeImageScan: { source: { target: { imageID: configDigest } } },
+  trivy: { Metadata: { ImageID: trivyId, DiffIDs: layers } },
+});
+
+test('[PB10] binding: passing controls for both image stores', () => {
+  // containerd store: Docker's ID is the index digest, which legitimately differs from the config digest.
+  const containerd = expectedIdentity(inspectOf('sha256:idxA', A_LAYERS, { index: true }));
+  assert.equal(containerd.idIsConfigDigest, false);
   assert.deepEqual(
     bindingProblems({
-      imageId: 'sha256:id',
-      saved,
-      grypeImageScan,
-      trivy: { Metadata: { ...trivy.Metadata, ImageID: 'sha256:c0' } },
+      expected: containerd,
+      saved: savedOf('sha256:cfgA', A_LAYERS),
+      ...scansOf('sha256:cfgA', 'sha256:idxA', A_LAYERS),
     }),
     [],
-  ); // classic store
+  );
+  // classic store: Docker's ID IS the config digest.
+  const classic = expectedIdentity(inspectOf('sha256:cfgA', A_LAYERS));
+  assert.equal(classic.idIsConfigDigest, true);
+  assert.deepEqual(
+    bindingProblems({
+      expected: classic,
+      saved: savedOf('sha256:cfgA', A_LAYERS),
+      ...scansOf('sha256:cfgA', 'sha256:cfgA', A_LAYERS),
+    }),
+    [],
+  );
+});
+
+test("[PB10] binding: a coherent substitute (archive, Grype and Trivy all of image B) fails against A (owner's probe)", () => {
+  for (const index of [true, false]) {
+    const expected = expectedIdentity(
+      inspectOf(index ? 'sha256:idxA' : 'sha256:cfgA', A_LAYERS, { index }),
+    );
+    const p = bindingProblems({
+      expected,
+      saved: savedOf('sha256:cfgB', B_LAYERS),
+      ...scansOf('sha256:cfgB', 'sha256:cfgB', B_LAYERS),
+    });
+    has(p, /the saved image's layers aren't the expected image's layers/);
+    has(p, /the Trivy report's layers aren't the expected image's layers/);
+    if (!index)
+      has(
+        p,
+        /the saved config is sha256:cfgB, but this store's image ID sha256:cfgA is the config digest/,
+      );
+  }
+});
+
+test('[PB10] binding: the platform is explicit, the archive holds one image, and the run config must match', () => {
+  const expected = expectedIdentity(inspectOf('sha256:idxA', A_LAYERS, { index: true }));
+  const scans = scansOf('sha256:cfgA', 'sha256:idxA', A_LAYERS);
+  has(
+    bindingProblems({ expected, saved: savedOf('sha256:cfgA', A_LAYERS, { images: 2 }), ...scans }),
+    /holds 2 images, expected exactly 1/,
+  );
   has(
     bindingProblems({
-      imageId: 'sha256:id',
-      saved,
-      grypeImageScan: { source: { target: { imageID: 'sha256:other' } } },
-      trivy,
+      expected,
+      saved: savedOf('sha256:cfgA', A_LAYERS, { architecture: 'arm64' }),
+      ...scans,
+    }),
+    /saved image is linux\/arm64, not the expected linux\/amd64/,
+  );
+  has(
+    bindingProblems({
+      expected,
+      saved: savedOf('sha256:cfgA', A_LAYERS, { config: { ...RUN_CONFIG, User: '0:0' } }),
+      ...scans,
+    }),
+    /run config isn't the expected image's/,
+  );
+  has(
+    bindingProblems({
+      expected,
+      saved: savedOf('sha256:cfgA', A_LAYERS),
+      ...scansOf('sha256:other', 'sha256:idxA', A_LAYERS),
     }),
     /Grype's image scan is of sha256:other/,
   );
   has(
     bindingProblems({
-      imageId: 'sha256:id',
-      saved,
-      grypeImageScan,
-      trivy: { Metadata: { ...trivy.Metadata, ImageID: 'sha256:other' } },
+      expected,
+      saved: savedOf('sha256:cfgA', A_LAYERS),
+      ...scansOf('sha256:cfgA', 'sha256:zzz', A_LAYERS),
     }),
-    /Trivy report is for image sha256:other/,
+    /Trivy report is for image sha256:zzz/,
   );
-  has(
+  // Absent and empty config fields are the same thing, whichever source wrote them.
+  assert.deepEqual(
     bindingProblems({
-      imageId: 'sha256:id',
-      saved,
-      grypeImageScan,
-      trivy: { Metadata: { ...trivy.Metadata, DiffIDs: ['sha256:l1'] } },
+      expected,
+      saved: savedOf('sha256:cfgA', A_LAYERS, { config: { ...RUN_CONFIG, Env: [], Cmd: null } }),
+      ...scans,
     }),
-    /Trivy report's layers/,
+    [],
+  );
+  assert.throws(
+    () =>
+      expectedIdentity([
+        { Id: 'sha256:x', Os: 'linux', Architecture: 'amd64', RootFS: { Layers: [] } },
+      ]),
+    /can't be established/,
   );
 });
 
 // ---------- the runner, with Docker, the verifier and the archive reader mocked ----------
 
 const IMAGE_ID = `sha256:${'a'.repeat(64)}`;
+const CONFIG_DIGEST = `sha256:${'c'.repeat(64)}`;
 /** A mocked Docker that answers every call the gate makes; `over` replaces answers by command kind. */
 function mockDocker(work, over = {}) {
   const calls = [];
   const w = world();
   const answers = {
-    inspect: () => ({ status: 0, stdout: `${IMAGE_ID}\n` }),
+    inspect: () => ({
+      status: 0,
+      stdout: JSON.stringify(inspectOf(IMAGE_ID, A_LAYERS, { index: true })),
+    }),
     update: () => ({ status: 0, stdout: '' }),
     status: () => ({
       status: 0,
@@ -297,7 +402,9 @@ function mockDocker(work, over = {}) {
       writeFileSync(
         join(work, out('json')),
         JSON.stringify(
-          inv ? w.inventoryScan : { ...w.imageScan, source: { target: { imageID: 'sha256:c0' } } },
+          inv
+            ? w.inventoryScan
+            : { ...w.imageScan, source: { target: { imageID: CONFIG_DIGEST } } },
         ),
       );
       writeFileSync(
@@ -316,46 +423,54 @@ function mockDocker(work, over = {}) {
     else if (args.includes(GRYPE_IMAGE) && args.includes('update')) kind = 'update';
     else if (args.includes(GRYPE_IMAGE) && args.includes('status')) kind = 'status';
     else kind = 'scan';
-    calls.push(kind);
+    calls.push({ kind, args });
     return { cmd: kind, stderr: '', ...answers[kind](args) };
   };
   return { run, calls, world: w };
 }
 
-async function gateWith({ docker = {}, verify = async () => [], trivy } = {}) {
+async function gateWith({
+  docker = {},
+  verify = async () => [],
+  trivy,
+  inventoryPath,
+  saved,
+} = {}) {
   const work = mkdtempSync(join(tmpdir(), 'uv-gate-'));
   try {
     const m = mockDocker(join(work, 'ev'), docker); // the scans write into the gate's evidence directory
     writeFileSync(join(work, 'in.cdx.json'), JSON.stringify(m.world.inventory));
     writeFileSync(
       join(work, 'trivy.json'),
-      JSON.stringify(
-        trivy ?? { Metadata: { ImageID: IMAGE_ID, DiffIDs: ['sha256:l1'] }, Results: [] },
-      ),
+      JSON.stringify(trivy ?? { Metadata: { ImageID: IMAGE_ID, DiffIDs: A_LAYERS }, Results: [] }),
     );
     const result = await runGate({
       image: 'univarse-pgbouncer:ci',
-      inventoryPath: join(work, 'in.cdx.json'),
+      inventoryPath: inventoryPath ?? join(work, 'in.cdx.json'),
       trivyPath: join(work, 'trivy.json'),
       evidenceDir: join(work, 'ev'),
       now: NOW,
       deps: {
         run: m.run,
         verifyInventory: verify,
-        readSavedImage: async () => ({ configDigest: 'sha256:c0', diffIds: ['sha256:l1'] }),
+        readSavedImage: async () => saved ?? savedOf(CONFIG_DIGEST, A_LAYERS),
       },
     });
-    return { ...result, calls: m.calls };
+    const recorded = JSON.parse(readFileSync(join(work, 'ev', 'grype-gate-evidence.json'), 'utf8'));
+    return { ...result, calls: m.calls.map((c) => c.kind), args: m.calls, recorded };
   } finally {
     rmSync(work, { recursive: true, force: true });
   }
 }
 
-test('[PB10] runner: the clean control passes with every step run', async () => {
+test('[PB10] runner: the clean control passes with every step run, saving for the explicit platform', async () => {
   const r = await gateWith();
   assert.deepEqual(r.problems, []);
   assert.equal(r.ok, true);
   assert.deepEqual(r.calls, ['inspect', 'update', 'status', 'reader', 'save', 'scan', 'scan']);
+  const save = r.args.find((c) => c.kind === 'save').args;
+  assert.deepEqual(save.slice(0, 4), ['save', '--platform', 'linux/amd64', IMAGE_ID]); // by ID, one platform
+  assert.equal(r.recorded.stage, 'done');
 });
 
 test("[PB10] runner: the import.json reader's exit status is required, even when it prints valid JSON (owner's probe)", async () => {
@@ -382,19 +497,69 @@ test('[PB10] runner: the inventory is verified against the resolved image before
   assert.deepEqual(r.calls, ['inspect']); // nothing else ran
 });
 
-test('[PB10] runner: an unresolvable image, or evidence of another image, fails', async () => {
+test('[PB10] runner: an unresolvable image, a coherent substitute, or a failed update fails', async () => {
   let r = await gateWith({ docker: { inspect: () => ({ status: 1, stdout: '' }) } });
-  has(r.problems, /can't resolve univarse-pgbouncer:ci to an immutable image ID/);
+  has(r.problems, /can't resolve univarse-pgbouncer:ci/);
   r = await gateWith({
-    trivy: {
-      Metadata: { ImageID: `sha256:${'b'.repeat(64)}`, DiffIDs: ['sha256:l1'] },
-      Results: [],
-    },
+    saved: savedOf(CONFIG_DIGEST, B_LAYERS),
+    trivy: { Metadata: { ImageID: CONFIG_DIGEST, DiffIDs: B_LAYERS }, Results: [] },
   });
-  has(r.problems, /Trivy report is for image sha256:b/);
+  has(r.problems, /the saved image's layers aren't the expected image's layers/);
   r = await gateWith({
     docker: { update: () => ({ status: 1, stdout: '', stderr: 'unreachable' }) },
   });
   has(r.problems, /grype db update failed \(exit 1\)/);
   assert.deepEqual(r.calls, ['inspect', 'update']); // stopped at the update
 });
+
+test("[PB10] runner: unexpected errors are caught at the boundary, recorded with their stage and the commands run (owner's probe)", async () => {
+  // A thrown verifier (an export error).
+  let r = await gateWith({
+    verify: async () => {
+      throw new Error('docker export exited 1');
+    },
+  });
+  assert.equal(r.ok, false);
+  has(
+    r.problems,
+    /unexpected error during verifying the inventory against the image: docker export exited 1/,
+  );
+  assert.equal(r.recorded.stage, 'verifying the inventory against the image');
+  assert.deepEqual(r.recorded.error, { name: 'Error', message: 'docker export exited 1' });
+  assert.deepEqual(
+    r.recorded.commands.map((c) => c.cmd),
+    ['inspect'],
+  );
+  // Malformed scanner output.
+  r = await gateWith({
+    docker: {
+      scan: (args) => {
+        for (const a of args.filter((x) => /^(json|cyclonedx-json)=/.test(x))) {
+          const f = a.split('=')[1].replace('/work/', '');
+          writeFileSync(join(evidenceDirOf(args), f), '{ not json');
+        }
+        return { status: 0, stdout: '' };
+      },
+    },
+  });
+  assert.equal(r.ok, false);
+  has(
+    r.problems,
+    /unexpected error during reading the scan reports: Grype's inventory report is missing or not JSON/,
+  );
+  assert.equal(r.recorded.stage, 'reading the scan reports');
+  assert.deepEqual(
+    r.recorded.commands.map((c) => c.cmd),
+    ['inspect', 'update', 'status', 'reader', 'save', 'scan', 'scan'],
+  );
+  // A missing inventory file.
+  r = await gateWith({ inventoryPath: join(tmpdir(), 'uv-no-such-inventory.cdx.json') });
+  has(r.problems, /unexpected error during reading the inventory/);
+  assert.equal(r.recorded.stage, 'reading the inventory');
+});
+
+/** The host directory mounted at /work in a mocked docker run. */
+function evidenceDirOf(args) {
+  const v = args[args.indexOf('-v', args.indexOf('-v') + 1) + 1];
+  return v.slice(0, v.lastIndexOf(':/work'));
+}

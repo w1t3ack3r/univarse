@@ -270,55 +270,165 @@ async function realVerifyInventory(imageId, inventory) {
   return [...checkFacts(facts, base, pins), ...checkInventory(inventory, facts, pins)];
 }
 
-/** The saved archive's image identity: its config digest (checked against the blob's own hash) and its layer IDs. */
+/** The config fields that define how the image runs: compared between Docker's view and the saved archive. */
+const CONFIG_FIELDS = ['User', 'Entrypoint', 'Cmd', 'Env', 'Labels', 'ExposedPorts', 'WorkingDir'];
+/** Canonical JSON (sorted keys; absent and empty treated alike) for comparing configs from different sources. */
+function canonical(v) {
+  if (v === undefined || v === null || v === '' || (Array.isArray(v) && v.length === 0))
+    return null;
+  if (Array.isArray(v)) return v.map(canonical);
+  if (typeof v === 'object') {
+    const keys = Object.keys(v).sort();
+    if (keys.length === 0) return null;
+    return Object.fromEntries(keys.map((k) => [k, canonical(v[k])]));
+  }
+  return v;
+}
+const configSubset = (config) =>
+  canonical(Object.fromEntries(CONFIG_FIELDS.map((k) => [k, config?.[k]])));
+const platformOf = (p) => `${p.os}/${p.architecture}${p.variant ? `/${p.variant}` : ''}`;
+
+/**
+ * The image's EXPECTED identity, established independently of any archive: from `docker image inspect` of the
+ * resolved ID. Its platform (selected explicitly, never "the first one saved"), its layer IDs, its run config, and
+ * which image store produced the ID: the containerd store's ID is an index or manifest digest, so it legitimately
+ * differs from the config digest; the classic store's ID IS the config digest.
+ */
+export function expectedIdentity(inspect) {
+  const m = Array.isArray(inspect) ? inspect[0] : inspect;
+  if (
+    !m?.Id ||
+    !m.Os ||
+    !m.Architecture ||
+    !Array.isArray(m.RootFS?.Layers) ||
+    m.RootFS.Layers.length === 0
+  )
+    throw new Error(
+      "docker image inspect gave no ID, platform or layers: the image's identity can't be established",
+    );
+  const media = m.Descriptor?.mediaType ?? '';
+  return {
+    id: m.Id,
+    platform: { os: m.Os, architecture: m.Architecture, variant: m.Variant ?? null },
+    layers: m.RootFS.Layers,
+    config: configSubset(m.Config),
+    idIsConfigDigest: !/image\.index|manifest/.test(media),
+  };
+}
+
+/**
+ * Binds the evidence to ONE image, the expected one:
+ *   the saved archive holds exactly one image, of the expected platform, with exactly the expected layers and config
+ *   (and, on the classic store, a config digest equal to the image ID); Grype's image scan names that archive's config
+ *   digest; and the Trivy report has exactly the expected layers and this image's ID (Docker's ID or the config digest).
+ * A coherent substitute (archive and both reports all of another image B) fails: B's layers aren't A's.
+ */
+export function bindingProblems({ expected, saved, grypeImageScan, trivy }) {
+  const problems = [];
+  if (saved.images !== 1)
+    problems.push(`the saved archive holds ${saved.images} images, expected exactly 1`);
+  const savedPlatform = {
+    os: saved.os,
+    architecture: saved.architecture,
+    variant: saved.variant ?? null,
+  };
+  if (platformOf(savedPlatform) !== platformOf(expected.platform))
+    problems.push(
+      `the saved image is ${platformOf(savedPlatform)}, not the expected ${platformOf(expected.platform)}`,
+    );
+  if (JSON.stringify(saved.diffIds) !== JSON.stringify(expected.layers))
+    problems.push("the saved image's layers aren't the expected image's layers");
+  if (JSON.stringify(configSubset(saved.config)) !== JSON.stringify(expected.config))
+    problems.push("the saved image's run config isn't the expected image's");
+  if (expected.idIsConfigDigest && saved.configDigest !== expected.id)
+    problems.push(
+      `the saved config is ${saved.configDigest}, but this store's image ID ${expected.id} is the config digest`,
+    );
+  const gid = grypeImageScan?.source?.target?.imageID;
+  if (gid !== saved.configDigest)
+    problems.push(`Grype's image scan is of ${gid ?? '(unknown)'}, not ${saved.configDigest}`);
+  const tid = trivy?.Metadata?.ImageID;
+  if (tid !== expected.id && tid !== saved.configDigest)
+    problems.push(`the Trivy report is for image ${tid ?? '(unknown)'}, not ${expected.id}`);
+  if (JSON.stringify(trivy?.Metadata?.DiffIDs ?? null) !== JSON.stringify(expected.layers))
+    problems.push("the Trivy report's layers aren't the expected image's layers");
+  return problems;
+}
+
+/** The saved archive: how many images it holds, and the one image's config digest (checked against its bytes), layers,
+ * platform and config. */
 async function realReadSavedImage(tarPath) {
-  const manifest = JSON.parse((await readFromTar(tarPath, 'manifest.json')).toString('utf8'));
+  const raw = await readFromTar(tarPath, 'manifest.json');
+  if (!raw) throw new Error('the saved archive has no manifest.json');
+  const manifest = JSON.parse(raw.toString('utf8'));
+  if (!Array.isArray(manifest) || manifest.length === 0)
+    throw new Error('the saved archive lists no images');
   const configDigest = configOf(manifest);
   const blob = await readFromTar(tarPath, manifest[0].Config);
   if (!blob) throw new Error(`the saved archive has no config blob ${manifest[0].Config}`);
   const actual = `sha256:${createHash('sha256').update(blob).digest('hex')}`;
   if (actual !== configDigest)
     throw new Error(`the saved config's bytes hash to ${actual}, not ${configDigest}`);
-  return { configDigest, diffIds: JSON.parse(blob.toString('utf8')).rootfs?.diff_ids ?? [] };
-}
-
-/**
- * Binds the evidence to ONE image: Grype's image scan names the saved config digest, and the Trivy report has exactly
- * the saved layers and an image ID that is this image's (Docker's ID or the config digest, depending on the store).
- */
-export function bindingProblems({ imageId, saved, grypeImageScan, trivy }) {
-  const problems = [];
-  const gid = grypeImageScan?.source?.target?.imageID;
-  if (gid !== saved.configDigest)
-    problems.push(`Grype's image scan is of ${gid ?? '(unknown)'}, not ${saved.configDigest}`);
-  const tid = trivy?.Metadata?.ImageID;
-  if (tid !== imageId && tid !== saved.configDigest)
-    problems.push(`the Trivy report is for image ${tid ?? '(unknown)'}, not ${imageId}`);
-  if (JSON.stringify(trivy?.Metadata?.DiffIDs ?? null) !== JSON.stringify(saved.diffIds))
-    problems.push("the Trivy report's layers aren't the scanned image's layers");
-  return problems;
+  const cfg = JSON.parse(blob.toString('utf8'));
+  return {
+    images: manifest.length,
+    configDigest,
+    diffIds: cfg.rootfs?.diff_ids ?? [],
+    os: cfg.os,
+    architecture: cfg.architecture,
+    variant: cfg.variant ?? null,
+    config: cfg.config ?? {},
+  };
 }
 
 /**
  * The gate. `cache`: a docker volume name or a host directory holding the Grype database. `extraEnv` lets the coverage
  * controls point the update at an unreachable URL or tighten the age. `deps` replaces Docker, the inventory verifier
- * and the archive reader in tests. Returns { ok, problems, evidence }.
+ * and the archive reader in tests. Returns { ok, problems, evidence }; an unexpected error is caught here, recorded
+ * with the stage it happened in and the commands already run, and returned as a failure.
  */
-export async function runGate({
-  image,
-  inventoryPath,
-  trivyPath,
-  evidenceDir,
-  cache = 'uv-grype-cache',
-  extraEnv = {},
-  now = Date.now(),
-  deps = {},
-}) {
+export async function runGate(opts) {
+  mkdirSync(opts.evidenceDir, { recursive: true }); // if this fails, nothing can be recorded: let it throw
+  const work = resolve(opts.evidenceDir);
+  const ctx = { stage: 'start', evidence: { grypeImage: GRYPE_IMAGE, commands: [] } };
+  const record = (problems, extra = {}) =>
+    writeFileSync(
+      join(work, 'grype-gate-evidence.json'),
+      `${JSON.stringify({ ...ctx.evidence, ...extra, problems }, null, 2)}\n`,
+    );
+  try {
+    const result = await gate(opts, work, ctx, record);
+    record(result.problems, { stage: ctx.stage });
+    return result;
+  } catch (e) {
+    const problems = [`unexpected error during ${ctx.stage}: ${e.message}`];
+    try {
+      record(problems, { stage: ctx.stage, error: { name: e.name, message: e.message } });
+    } catch {
+      // the evidence directory itself failed: the nonzero result still stands
+    }
+    return { ok: false, problems, evidence: ctx.evidence };
+  }
+}
+
+async function gate(
+  {
+    image,
+    inventoryPath,
+    trivyPath,
+    cache = 'uv-grype-cache',
+    extraEnv = {},
+    now = Date.now(),
+    deps = {},
+  },
+  work,
+  ctx,
+  record,
+) {
   const run = deps.run ?? realRun;
   const verifyInventory = deps.verifyInventory ?? realVerifyInventory;
   const readSavedImage = deps.readSavedImage ?? realReadSavedImage;
-  mkdirSync(evidenceDir, { recursive: true });
-  const work = resolve(evidenceDir);
+  const { evidence } = ctx;
   const cacheMount = /[\\/]/.test(cache) ? `${hostPath(resolve(cache))}:/cache` : `${cache}:/cache`;
   const envArgs = (env) => Object.entries(env).flatMap(([k, v]) => ['-e', `${k}=${v}`]);
   const grype = (args, env) =>
@@ -338,31 +448,41 @@ export async function runGate({
       ],
       { allowFail: true },
     );
-  const evidence = { grypeImage: GRYPE_IMAGE, commands: [] };
   const step = (r) => {
     evidence.commands.push({ cmd: r.cmd, status: r.status });
     return r;
   };
-  // Every outcome leaves its evidence, failures included: what ran, with what result, and why it stopped.
-  const record = (problems) =>
-    writeFileSync(
-      join(work, 'grype-gate-evidence.json'),
-      `${JSON.stringify({ ...evidence, problems }, null, 2)}\n`,
-    );
-  const fail = (problems) => {
-    record(problems);
-    return { ok: false, problems, evidence };
+  const fail = (problems) => ({ ok: false, problems, evidence });
+  const readJson = (file, what) => {
+    try {
+      return JSON.parse(readFileSync(file, 'utf8'));
+    } catch (e) {
+      throw new Error(`${what} is missing or not JSON (${e.message})`);
+    }
   };
 
-  // 0. One immutable image, and one inventory snapshot: resolved and read ONCE, before anything else. Everything below
-  //    uses the image ID (never the tag) and these exact inventory bytes.
-  const inspected = step(
-    run(['image', 'inspect', '--format', '{{.Id}}', image], { allowFail: true }),
-  );
-  const imageId = inspected.stdout.trim();
-  if (inspected.status !== 0 || !/^sha256:[0-9a-f]{64}$/.test(imageId))
-    return fail([`can't resolve ${image} to an immutable image ID (exit ${inspected.status})`]);
-  evidence.image = { reference: image, id: imageId };
+  // 0. One immutable image, with its expected identity, and one inventory snapshot: resolved and read ONCE. Everything
+  //    below uses the image ID (never the tag), its explicit platform, and these exact inventory bytes.
+  ctx.stage = 'resolving the image';
+  const inspected = step(run(['image', 'inspect', image], { allowFail: true }));
+  if (inspected.status !== 0)
+    return fail([`can't resolve ${image} (docker image inspect exited ${inspected.status})`]);
+  let expected;
+  try {
+    expected = expectedIdentity(JSON.parse(inspected.stdout));
+  } catch (e) {
+    return fail([`can't establish ${image}'s identity: ${e.message}`]);
+  }
+  if (!/^sha256:[0-9a-f]{64}$/.test(expected.id))
+    return fail([`${image} resolved to ${expected.id}, not an image digest`]);
+  const imageId = expected.id;
+  evidence.image = {
+    reference: image,
+    id: imageId,
+    platform: platformOf(expected.platform),
+    layers: expected.layers.length,
+  };
+  ctx.stage = 'reading the inventory';
   const snapshot = readFileSync(inventoryPath);
   let inventory;
   try {
@@ -375,10 +495,12 @@ export async function runGate({
 
   // 1. The inventory is verified against that exact image: its source-built PgBouncer is exactly what image
   //    cataloguing misses, so package parity alone could never bind it.
+  ctx.stage = 'verifying the inventory against the image';
   const inventoryProblems = await verifyInventory(imageId, inventory);
   if (inventoryProblems.length) return fail(inventoryProblems.map((p) => `inventory: ${p}`));
 
   // 2. One successful update check per run, downloading when necessary. Its failure stops the gate here.
+  ctx.stage = 'updating the database';
   const update = step(grype(['db', 'update'], { GRYPE_DB_REQUIRE_UPDATE_CHECK: 'true' }));
   if (update.status !== 0)
     return fail([
@@ -386,6 +508,7 @@ export async function runGate({
     ]);
 
   // 3. The status must exit 0 AND report a valid, fresh database; the output supplements the exit status.
+  ctx.stage = 'checking the database status';
   const status = step(grype(['db', 'status', '-o', 'json'], SCAN_ENV));
   if (status.status !== 0)
     return fail([
@@ -408,6 +531,7 @@ export async function runGate({
   // 4. The installed database's digest, from its import.json. Grype writes its database directory 0700 as root, so the
   //    reader runs as root but can only read: read-only mount, no network, no capabilities, read-only root filesystem.
   //    Its successful exit is required before its output is believed.
+  ctx.stage = "reading the database's digest";
   const importPath = statusJson.path.replace(/vulnerability\.db$/, 'import.json');
   const imp = step(
     run(
@@ -440,9 +564,16 @@ export async function runGate({
   if (digest.problem) return fail([digest.problem]);
   evidence.database.digest = digest.digest;
 
-  // 5. The image itself, saved by its ID, and its identity read from the archive.
-  const saved = step(run(['save', imageId, '-o', join(work, 'image.tar')], { allowFail: true }));
+  // 5. The image itself, saved by its ID for its one explicit platform, and its identity read from the archive.
+  ctx.stage = 'saving the image';
+  const saved = step(
+    run(
+      ['save', '--platform', platformOf(expected.platform), imageId, '-o', join(work, 'image.tar')],
+      { allowFail: true },
+    ),
+  );
   if (saved.status !== 0) return fail([`docker save ${imageId} failed (exit ${saved.status})`]);
+  ctx.stage = 'reading the saved image';
   let savedImage;
   try {
     savedImage = await readSavedImage(join(work, 'image.tar'));
@@ -452,6 +583,7 @@ export async function runGate({
   evidence.image.configDigest = savedImage.configDigest;
 
   // 6. The scans, both on the one checked database.
+  ctx.stage = 'scanning';
   const scans = {
     inventory: step(
       grype(
@@ -481,21 +613,21 @@ export async function runGate({
   for (const [name, r] of Object.entries(scans))
     if (r.status !== 0)
       return fail([`the ${name} scan failed (exit ${r.status}): ${r.stderr.trim().slice(-300)}`]);
-  const read = (f) => JSON.parse(readFileSync(join(work, f), 'utf8'));
-  const inventoryScan = read('grype-inventory.json');
-  const imageScan = read('grype-image.json');
-  const trivy = JSON.parse(readFileSync(trivyPath, 'utf8'));
+  ctx.stage = 'reading the scan reports';
+  const inventoryScan = readJson(join(work, 'grype-inventory.json'), "Grype's inventory report");
+  const imageScan = readJson(join(work, 'grype-image.json'), "Grype's image report");
+  const inventoryCatalogue = readJson(
+    join(work, 'grype-inventory.cdx.json'),
+    "Grype's inventory catalogue",
+  );
+  const imageCatalogue = readJson(join(work, 'grype-image.cdx.json'), "Grype's image catalogue");
+  const trivy = readJson(trivyPath, 'the Trivy report');
 
   // 7. Binding, parity, routing, disclosure.
+  ctx.stage = 'judging';
   const problems = [
-    ...bindingProblems({ imageId, saved: savedImage, grypeImageScan: imageScan, trivy }),
-    ...parity({
-      inventory,
-      inventoryScan,
-      inventoryCatalogue: read('grype-inventory.cdx.json'),
-      imageScan,
-      imageCatalogue: read('grype-image.cdx.json'),
-    }),
+    ...bindingProblems({ expected, saved: savedImage, grypeImageScan: imageScan, trivy }),
+    ...parity({ inventory, inventoryScan, inventoryCatalogue, imageScan, imageCatalogue }),
   ];
   const routed = routeFindings(inventoryScan);
   problems.push(...routed.problems);
@@ -509,16 +641,13 @@ export async function runGate({
   evidence.grypeSeverityCounts = Object.fromEntries(
     ['Critical', 'High', 'Medium', 'Low', 'Negligible', 'Unknown'].map((s) => [
       s,
-      inventoryScan.matches.filter((m) => m.vulnerability.severity === s).length,
+      (inventoryScan.matches ?? []).filter((m) => m.vulnerability.severity === s).length,
     ]),
   );
   evidence.componentHashes = (inventory.components ?? [])
     .filter((c) => c.name === 'pgbouncer')
     .map((c) => ({ name: c.name, version: c.version, hashes: c.hashes }));
-  writeFileSync(
-    join(work, 'grype-gate-evidence.json'),
-    `${JSON.stringify({ ...evidence, problems }, null, 2)}\n`,
-  );
+  ctx.stage = 'done';
   return { ok: problems.length === 0, problems, evidence };
 }
 
