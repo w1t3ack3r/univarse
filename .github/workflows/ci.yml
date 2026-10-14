@@ -284,3 +284,79 @@ jobs:
       - name: Remove the journey containers (always)
         if: always()
         run: docker rm -f uv-e2e-api uv-e2e-web uv-e2e-worker uv-smoke-api uv-smoke-web uv-smoke-worker > /dev/null 2>&1 || true
+
+  # Spec 0017 PB10: the PgBouncer image (built from verified source, on distroless), its gates and its coverage proofs.
+  # Its own job, in parallel with build-test: the Grype database download and the nine coverage controls are slow, and a
+  # failure here names PgBouncer. Every report is kept as an artifact, on failure as well as success.
+  pgbouncer-image:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90 # the nine controls run the Grype gate about ten times on the real database
+    env:
+      EVIDENCE: pgbouncer-evidence # the Grype database cache is "$RUNNER_TEMP/grype-cache" (the runner context isn't allowed here)
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { persist-credentials: false }
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+      - name: Unit tests — tar reader, inventory, Grype gate and the controls harness (spec 0017 PB10)
+        run: |
+          mkdir -p "$EVIDENCE"
+          node --test tools/images/tar.test.mjs tools/images/pgbouncer-inventory.test.mjs \
+            tools/images/pgbouncer-grype-gate.test.mjs tools/images/pgbouncer-gate-proofs.test.mjs
+      - name: Build the PgBouncer image (spec 0017 D1)
+        run: |
+          docker buildx build --load -f infra/docker/pgbouncer.Dockerfile -t univarse-pgbouncer:ci \
+            --build-arg REVISION="${{ github.sha }}" --build-arg CREATED="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --build-arg VERSION="sha-${GITHUB_SHA::7}" .
+          echo "univarse-pgbouncer:ci image id $(docker image inspect -f '{{.Id}}' univarse-pgbouncer:ci)" | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Inspect the image, and run it hardened — user, labels, no shell, ownership; read-only, UID 65532, no capabilities (spec 0013 CS1, CS4)
+        run: |
+          node tools/images/inspect.mjs univarse-pgbouncer:ci --root usr/bin
+          docker run --rm --read-only --cap-drop ALL --security-opt no-new-privileges --user 65532:65532 \
+            --network none univarse-pgbouncer:ci --version | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Install Trivy (checksum-verified) and fetch its database (spec 0013 CS7)
+        env:
+          TRIVY_VERSION: 0.75.0
+          TRIVY_SHA256: c6e65abddb348e25f10549df887045629cf28cc72453cd1c63acb717316b3f3f
+          TRIVY_DB_REPOSITORY: ghcr.io/aquasecurity/trivy-db:2,public.ecr.aws/aquasecurity/trivy-db:2
+          TRIVY_IMAGE: aquasec/trivy:0.75.0@sha256:af6acf9a6b85dfe389a1941505c0ce9efef52a4719635e1a962f022a3d855daa
+        run: |
+          curl -sSfLo trivy.tgz "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz"
+          echo "${TRIVY_SHA256}  trivy.tgz" | sha256sum -c -
+          tar -xzf trivy.tgz trivy
+          ./trivy image --download-db-only
+          # The controls run Trivy as the pinned container, on its own cache volume: fill that too, once.
+          docker run --rm -e TRIVY_DB_REPOSITORY -v uv-trivy-cache:/root/.cache/trivy "$TRIVY_IMAGE" image --download-db-only
+      - name: Trivy gates — zero HIGH/CRITICAL (Debian packages, routed to Trivy), secrets, misconfiguration, SBOM (spec 0013 CS6–CS8, spec 0017 PB10)
+        run: |
+          ./trivy image --skip-db-update --scanners vuln --format json --output "$EVIDENCE/trivy-pgbouncer.json" univarse-pgbouncer:ci
+          node tools/images/trivy-summary.mjs "$EVIDENCE/trivy-pgbouncer.json" univarse-pgbouncer:ci | tee -a "$GITHUB_STEP_SUMMARY"
+          ./trivy image --skip-db-update --scanners vuln --severity HIGH,CRITICAL --ignorefile .trivyignore.yaml --exit-code 1 univarse-pgbouncer:ci
+          ./trivy image --skip-db-update --scanners secret --secret-config tools/images/trivy-secret.yaml \
+            --image-config-scanners secret --ignorefile .trivyignore.yaml --exit-code 1 univarse-pgbouncer:ci
+          ./trivy image --skip-db-update --scanners misconfig --image-config-scanners misconfig \
+            --severity HIGH,CRITICAL --ignorefile .trivyignore.yaml --exit-code 1 univarse-pgbouncer:ci
+          ./trivy image --skip-db-update --format spdx-json --output "$EVIDENCE/sbom-pgbouncer.spdx.json" univarse-pgbouncer:ci
+      - name: Inventory — generated from the image, then verified against it (spec 0017 PB10)
+        run: |
+          node tools/images/pgbouncer-inventory.mjs generate univarse-pgbouncer:ci "$EVIDENCE/inventory.cdx.json" | tee -a "$GITHUB_STEP_SUMMARY"
+          node tools/images/pgbouncer-inventory.mjs verify univarse-pgbouncer:ci "$EVIDENCE/inventory.cdx.json" | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Grype gate — PgBouncer by CPE, bound to this image and inventory (spec 0017 PB10)
+        run: |
+          mkdir -p "$RUNNER_TEMP/grype-cache"
+          node tools/images/pgbouncer-grype-gate.mjs univarse-pgbouncer:ci "$EVIDENCE/inventory.cdx.json" \
+            "$EVIDENCE/trivy-pgbouncer.json" "$EVIDENCE/gate" --cache "$RUNNER_TEMP/grype-cache" | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Coverage controls — all nine must fail for their intended reasons, the real build must pass (spec 0017 PB10)
+        run: |
+          node tools/images/pgbouncer-gate-proofs.mjs univarse-pgbouncer:ci "$EVIDENCE/proofs" --cache "$RUNNER_TEMP/grype-cache" | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Keep the evidence (always, failures included)
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: pgbouncer-image-evidence
+          path: |
+            pgbouncer-evidence/**
+            !pgbouncer-evidence/**/*.tar
+          retention-days: 30
+          if-no-files-found: warn
