@@ -68,7 +68,7 @@ export function parseVersionOutput(text) {
   return {
     pgbouncer: /^PgBouncer (\S+)$/m.exec(text)?.[1],
     libevent: /^libevent (\S+)$/m.exec(text)?.[1],
-    adns: /^adns: (\S+)$/m.exec(text)?.[1],
+    adns: /^adns: (\S+)/m.exec(text)?.[1], // its first word: `evdns2`, or `c-ares` followed by a version
   };
 }
 
@@ -87,9 +87,35 @@ export const pgbouncerCpe = (version) => `cpe:2.3:a:pgbouncer:pgbouncer:${versio
 // ---------- the checks (pure: facts in, problems out) ----------
 
 /**
+ * Where an image's package records and its files disagree: `deviations` maps `pkg:path` → 'absent' | 'differs from
+ * its listed md5'. `problems` are records that can't be read or list nothing.
+ */
+export function recordDeviations(records, files) {
+  const deviations = new Map();
+  const problems = [];
+  for (const pkg of Object.keys(records).sort()) {
+    let listed = [];
+    try {
+      listed = parseMd5sums(records[pkg].md5sums ?? '');
+    } catch (e) {
+      problems.push(`the ${pkg} file list is unreadable: ${e.message}`);
+      continue;
+    }
+    if (listed.length === 0) problems.push(`the ${pkg} record lists no files`);
+    for (const { md5, path } of listed) {
+      const f = files[path];
+      if (!f) deviations.set(`${pkg}:${path}`, 'absent');
+      else if (f.md5 !== md5) deviations.set(`${pkg}:${path}`, 'differs from its listed md5');
+    }
+  }
+  return { deviations, problems };
+}
+
+/**
  * Every PB10 tie and inventory check that doesn't need the inventory file itself.
  * `facts`: { imageId, labels, versionOutput, records: { pkg: { control, md5sums } }, files: { path: { sha256, md5 } },
- *            entries: [{ path, type }] }; `base`: { records } from the runtime base image; `pins` from the Dockerfile.
+ *            entries: [{ path, type }] }; `base`: { records, files } from the pinned runtime base image; `pins` from
+ *            the Dockerfile.
  */
 export function checkFacts(facts, base, pins) {
   const problems = [];
@@ -147,28 +173,48 @@ export function checkFacts(facts, base, pins) {
       problems.push(
         `the binary reports libevent ${reported.libevent ?? '(none)'}, but the ${LIBEVENT_PKG} record's version is ${control.Version} (upstream ${debianUpstream(control.Version)})`,
       );
-    let listed = [];
-    try {
-      listed = parseMd5sums(rec.md5sums ?? '');
-    } catch (e) {
-      problems.push(`the ${LIBEVENT_PKG} file list is unreadable: ${e.message}`);
-    }
-    if (listed.length === 0) problems.push(`the ${LIBEVENT_PKG} record lists no files`);
-    for (const { md5, path } of listed) {
-      const f = facts.files[path];
-      if (!f) problems.push(`${LIBEVENT_PKG} lists ${path}, which isn't in the image`);
-      else if (f.md5 !== md5)
-        problems.push(`${path} doesn't match the md5 its ${LIBEVENT_PKG} record lists`);
-    }
-    const listedSet = new Set(listed.map((l) => l.path));
-    for (const e of facts.entries) {
-      if (
-        e.type === 'file' &&
-        LIBEVENT_PATHS.some((re) => re.test(e.path)) &&
-        !listedSet.has(e.path)
-      )
-        problems.push(`${e.path} is in the image but not in the ${LIBEVENT_PKG} record`);
-    }
+  }
+
+  // The base is preserved byte for byte: every file of the pinned base image is in the final image, unchanged.
+  // (Removing or altering a base library fails here, whatever its package record says.)
+  for (const [path, f] of Object.entries(base.files)) {
+    const g = facts.files[path];
+    if (!g) problems.push(`${path}, a file of the base image, is missing from the final image`);
+    else if (g.sha256 !== f.sha256) problems.push(`${path} differs from the base image's copy`);
+  }
+  // Only the expected additions: PgBouncer, and libevent's listed files and record. Nothing else.
+  const libeventFiles = new Set();
+  try {
+    for (const { path } of parseMd5sums(facts.records[LIBEVENT_PKG]?.md5sums ?? ''))
+      libeventFiles.add(path);
+  } catch {
+    // reported below
+  }
+  const allowed = new Set([
+    BINARY,
+    `${STATUS_DIR}${LIBEVENT_PKG}`,
+    `${STATUS_DIR}${LIBEVENT_PKG}.md5sums`,
+    ...libeventFiles,
+  ]);
+  for (const e of facts.entries) {
+    if (e.type === 'file' && !base.files[e.path] && !allowed.has(e.path))
+      problems.push(
+        `${e.path} is in the image but is neither a base file nor an expected addition`,
+      );
+  }
+  // Records against files. libevent's record must match its files exactly. The base's own records may deviate from
+  // its files (distroless ships only the CA bundle, and its own os-release), but only exactly as the pinned base
+  // does: any new deviation is a problem.
+  const baseDev = recordDeviations(base.records, base.files);
+  const finalDev = recordDeviations(facts.records, facts.files);
+  for (const d of finalDev.problems) problems.push(d);
+  for (const [key, why] of finalDev.deviations) {
+    if (key.startsWith(`${LIBEVENT_PKG}:`))
+      problems.push(
+        `${key.slice(LIBEVENT_PKG.length + 1)}: ${why}, against its ${LIBEVENT_PKG} record`,
+      );
+    else if (baseDev.deviations.get(key) !== why)
+      problems.push(`${key}: ${why}, which the base image doesn't do`);
   }
   return problems;
 }
@@ -186,9 +232,16 @@ export function debPurl(control, distroVersion) {
   return `pkg:deb/debian/${control.Package}@${encodeURIComponent(control.Version)}?${q.join('&')}`;
 }
 
-/** The CycloneDX inventory: every package record, plus PgBouncer with its CPE and hashes. Deterministic. */
+const required = (v, what) => {
+  if (v === undefined || v === null || v === '')
+    throw new Error(`${what} is missing: the inventory would be incomplete`);
+  return v;
+};
+
+/** The CycloneDX inventory: every package record, plus PgBouncer with its CPE and hashes. Deterministic; it throws
+ * rather than leave anything out. */
 export function buildInventory(facts, pins) {
-  const distroVersion = facts.files[DEBIAN_VERSION]?.text;
+  const distroVersion = required(facts.files[DEBIAN_VERSION]?.text, DEBIAN_VERSION);
   const pkgComponents = Object.keys(facts.records)
     .sort()
     .map((pkg) => {
@@ -200,9 +253,17 @@ export function buildInventory(facts, pins) {
         name: pkg,
         version: c.Version,
         purl: debPurl(c, distroVersion),
-        properties: files
-          .filter((p) => facts.files[p])
-          .map((p) => ({ name: `univarse:file-sha256:${p}`, value: facts.files[p].sha256 })),
+        // Every listed file, explicitly: its hash, or the recorded fact that the image doesn't ship it (a base
+        // deviation checkFacts has already confirmed is the pinned base's own). Nothing is silently left out.
+        properties: files.map((p) => {
+          const f = facts.files[p];
+          return f
+            ? { name: `univarse:file-sha256:${p}`, value: f.sha256 }
+            : {
+                name: `univarse:file-absent:${p}`,
+                value: 'listed by the record, not shipped by the base image',
+              };
+        }),
       };
     });
   const version = facts.labels?.['org.univarse.pgbouncer.version'];
@@ -222,7 +283,9 @@ export function buildInventory(facts, pins) {
         version,
         cpe: pgbouncerCpe(version),
         purl: `pkg:generic/pgbouncer@${version}`,
-        hashes: [{ alg: 'SHA-256', content: facts.files[BINARY]?.sha256 }],
+        hashes: [
+          { alg: 'SHA-256', content: required(facts.files[BINARY]?.sha256, `${BINARY}'s hash`) },
+        ],
         externalReferences: [
           {
             type: 'distribution',
@@ -268,17 +331,18 @@ function docker(args, opts = {}) {
   return r.stdout;
 }
 
-/** Reads an image's records, the files we hash, and every entry's path and type, from `docker export`. */
-async function readImage(image, { hashAll = true } = {}) {
+/**
+ * Reads an image from `docker export`: its package records, every entry's path and type, and (with `hashFiles`) the
+ * SHA-256 and md5 of EVERY regular file, base files included, so each package's files can be checked against its
+ * record. `image` must be an immutable reference (an image ID).
+ */
+async function readImage(image, { hashFiles = true } = {}) {
   // Created, never started: the placeholder command only satisfies images with no default command (distroless).
   const id = docker(['create', image, '/nonexistent']).trim();
   const records = {};
   const files = {};
   const entries = [];
-  const want = (p) =>
-    p.startsWith(STATUS_DIR) ||
-    p === DEBIAN_VERSION ||
-    (hashAll && (p === BINARY || LIBEVENT_PATHS.some((re) => re.test(p))));
+  const want = (p) => hashFiles || p.startsWith(STATUS_DIR) || p === DEBIAN_VERSION;
   try {
     await new Promise((resolve, reject) => {
       const child = spawn('docker', ['export', id]);
@@ -286,19 +350,21 @@ async function readImage(image, { hashAll = true } = {}) {
         (e) => {
           const path = e.path.replace(/^\.?\//, '');
           entries.push({ path, type: e.type });
-          if (!e.data) return;
+          // The parser collects no data for an empty file: hash it as the empty buffer it is.
+          const data =
+            e.data ?? (e.type === 'file' && e.size === 0 && want(path) ? Buffer.alloc(0) : null);
+          if (!data) return;
+          // Every file is hashed, package records included; records are also parsed.
+          files[path] = {
+            sha256: createHash('sha256').update(data).digest('hex'),
+            md5: createHash('md5').update(data).digest('hex'),
+          };
+          if (path === DEBIAN_VERSION) files[path].text = data.toString('utf8').trim();
           if (path.startsWith(STATUS_DIR)) {
             const name = path.slice(STATUS_DIR.length);
             const pkg = name.replace(/\.md5sums$/, '');
             records[pkg] ??= {};
-            records[pkg][name.endsWith('.md5sums') ? 'md5sums' : 'control'] =
-              e.data.toString('utf8');
-          } else {
-            files[path] = {
-              sha256: createHash('sha256').update(e.data).digest('hex'),
-              md5: createHash('md5').update(e.data).digest('hex'),
-            };
-            if (path === DEBIAN_VERSION) files[path].text = e.data.toString('utf8').trim();
+            records[pkg][name.endsWith('.md5sums') ? 'md5sums' : 'control'] = data.toString('utf8');
           }
         },
         { wantData: (p) => want(p.replace(/^\.?\//, '')) },
@@ -315,10 +381,12 @@ async function readImage(image, { hashAll = true } = {}) {
   return { records, files, entries };
 }
 
+/** Facts about an image, read through its resolved, immutable ID throughout: inspection, export and the probe. */
 export async function gatherFacts(image) {
   const [meta] = JSON.parse(docker(['image', 'inspect', image]));
-  const { records, files, entries } = await readImage(image);
-  const versionOutput = docker(['run', '--rm', '--network', 'none', image, '--version']);
+  const id = meta.Id;
+  const { records, files, entries } = await readImage(id);
+  const versionOutput = docker(['run', '--rm', '--network', 'none', id, '--version']);
   return {
     imageId: meta.Id,
     labels: meta.Config?.Labels ?? {},
@@ -331,8 +399,9 @@ export async function gatherFacts(image) {
 
 export async function gatherBase(baseImage) {
   docker(['pull', '-q', baseImage]);
-  const { records } = await readImage(baseImage, { hashAll: false });
-  return { records };
+  const [meta] = JSON.parse(docker(['image', 'inspect', baseImage]));
+  const { records, files } = await readImage(meta.Id);
+  return { records, files };
 }
 
 async function main() {
