@@ -93,6 +93,24 @@ function statementProblems(stmt: readonly SqlToken[]): string[] {
       );
     } else if (isWord(t, 'hold') && isWord(prev, 'with')) {
       problems.push('a cursor WITH HOLD outlives its transaction');
+    } else if (
+      (t.kind === 'word' || t.kind === 'ident') &&
+      /^pg_temp(_\d+)?$/.test(t.value.toLowerCase()) &&
+      next?.kind === 'other' &&
+      next.value === '.'
+    ) {
+      // PostgreSQL makes a relation created in its temporary namespace temporary, TEMP keyword or not.
+      problems.push(`a relation in ${t.value.toLowerCase()} is temporary (session-scoped)`);
+    } else if (isWord(t, 'execute') && !earlier.some((e) => isWord(e, 'grant', 'revoke'))) {
+      // EXECUTE runs the command its expression evaluates to. Only a string constant can be established (it is
+      // read as SQL below); concatenation, format(), a variable, or a prepared statement's name can't be.
+      let j = k + 1;
+      while (stmt[j]?.kind === 'string') j++;
+      const constant = j > k + 1 && (j === stmt.length || isWord(stmt[j], 'into', 'using'));
+      if (!constant)
+        problems.push(
+          'EXECUTE of anything but a string constant: the command it runs can’t be established, refused',
+        );
     }
   });
   return problems;
@@ -163,6 +181,9 @@ const RAW = new Set([...RAW_TAGGED, ...RAW_UNSAFE]);
 /** Where Prisma's own `sql` and `raw` are declared (the generated namespace, or the runtime it re-exports). */
 const PRISMA_DECL =
   /\/(packages\/db\/(src|dist)\/generated\/(platform|tenant)\/internal\/prismaNamespace\.(d\.)?ts|node_modules\/@prisma\/client\/)/;
+/** Where Prisma's raw methods are declared: the generated clients, or Prisma's own packages. */
+const RAW_DECL =
+  /\/(packages\/db\/(src|dist)\/generated\/(platform|tenant)\/|node_modules\/@prisma\/)/;
 /** Where pg's query() is declared. */
 const PG_DECL = /\/node_modules\/(@types\/pg|pg)\//;
 
@@ -233,6 +254,26 @@ export function analyzeSessionSql(program: TS.Program, sf: TS.SourceFile): strin
     if (sym && sym.flags & ts.SymbolFlags.Alias) sym = checker.getAliasedSymbol(sym);
     return (sym?.declarations ?? []).map((d) => d.getSourceFile().fileName.replace(/\\/g, '/'));
   };
+  const symbolOf = (n: TS.Node) => {
+    const sym = checker.getSymbolAtLocation(n);
+    return sym && sym.flags & ts.SymbolFlags.Alias ? checker.getAliasedSymbol(sym) : sym;
+  };
+  const declaredIn = (sym: TS.Symbol | undefined, where: RegExp) =>
+    (sym?.declarations ?? []).some((d) =>
+      where.test(d.getSourceFile().fileName.replace(/\\/g, '/')),
+    );
+  /** A method that runs SQL: one of Prisma's raw methods, or pg's query(), by declaration. */
+  const isSqlMember = (sym: TS.Symbol | undefined) =>
+    !!sym &&
+    ((RAW.has(sym.getName()) && declaredIn(sym, RAW_DECL)) ||
+      (sym.getName() === 'query' && declaredIn(sym, PG_DECL)));
+  /** Whether a value of this type has a SQL-running method (a Prisma client or transaction, a pg client or pool). */
+  const hasSqlMembers = (t: TS.Type): boolean =>
+    t.isUnion()
+      ? t.types.some(hasSqlMembers)
+      : [...RAW, 'query'].some((m) =>
+          isSqlMember(checker.getPropertyOfType(checker.getApparentType(t), m)),
+        );
   const nameOf = (e: TS.Expression) =>
     ts.isPropertyAccessExpression(e) ? e.name.text : ts.isIdentifier(e) ? e.text : undefined;
   /** Prisma's own `sql` / `raw`, resolved by declaration. */
@@ -258,13 +299,11 @@ export function analyzeSessionSql(program: TS.Program, sf: TS.SourceFile): strin
   };
   const literalText = (e: TS.Expression | undefined) =>
     e && (ts.isStringLiteral(e) || ts.isNoSubstitutionTemplateLiteral(e)) ? e.text : undefined;
-  const allowed = new Set<TS.Node>(); // raw-method names used as an immediate callee or tag
 
   const visit = (n: TS.Node): void => {
     if (ts.isTaggedTemplateExpression(n)) {
       const name = nameOf(n.tag);
       if (name && RAW_TAGGED.has(name)) {
-        if (ts.isPropertyAccessExpression(n.tag)) allowed.add(n.tag.name);
         const text = templateText(n.template, name);
         if (text !== null) check(n, text, name);
       } else if (isPrisma(n.tag, 'sql')) {
@@ -275,7 +314,6 @@ export function analyzeSessionSql(program: TS.Program, sf: TS.SourceFile): strin
       const name = nameOf(n.expression);
       const [first] = n.arguments;
       if (name && RAW.has(name) && ts.isPropertyAccessExpression(n.expression)) {
-        allowed.add(n.expression.name);
         if (RAW_UNSAFE.has(name)) {
           const text = literalText(first);
           if (text === undefined)
@@ -300,15 +338,29 @@ export function analyzeSessionSql(program: TS.Program, sf: TS.SourceFile): strin
         else check(n, text, 'pg query()');
       }
     }
-    // Any other reference to a raw method (extracted, bound, destructured, by string key) can't be followed.
-    if (ts.isIdentifier(n) && RAW.has(n.text) && !allowed.has(n)) {
+    // Any other reference to a SQL-running method (extracted, bound, called through .call/.apply, destructured, by a
+    // computed key) can't be followed, so it is refused. Identified by DECLARATION (Prisma's raw methods, pg's
+    // query), and by name as a backstop for raw methods whose types don't resolve.
+    if (
+      ts.isPropertyAccessExpression(n) &&
+      (RAW.has(n.name.text) || isSqlMember(symbolOf(n.name)))
+    ) {
       const p = n.parent;
-      const isKey = ts.isPropertyAccessExpression(p) && p.name === n;
-      if (isKey || ts.isBindingElement(p) || ts.isShorthandPropertyAssignment(p))
-        refuse(n, `${n.text} referenced other than by its immediate call`);
+      const immediate =
+        (ts.isCallExpression(p) && p.expression === n) ||
+        (ts.isTaggedTemplateExpression(p) && p.tag === n);
+      if (!immediate) refuse(n, `${n.name.text} referenced other than by its immediate call`);
     }
-    if (ts.isStringLiteral(n) && RAW.has(n.text) && ts.isElementAccessExpression(n.parent))
-      refuse(n, `${n.text} referenced by a computed key`);
+    if (ts.isElementAccessExpression(n) && hasSqlMembers(checker.getTypeAtLocation(n.expression)))
+      refuse(n, 'computed access on a database client: the member it reaches can’t be established');
+    if (ts.isObjectBindingPattern(n) && hasSqlMembers(checker.getTypeAtLocation(n))) {
+      for (const el of n.elements) {
+        const key = el.propertyName ?? el.name;
+        const named = ts.isIdentifier(key) || ts.isStringLiteral(key) ? key.text : undefined;
+        if (named === undefined || RAW.has(named) || named === 'query')
+          refuse(el, `${named ?? 'a computed member'} destructured from a database client`);
+      }
+    }
     ts.forEachChild(n, visit);
   };
   visit(sf);

@@ -85,6 +85,19 @@ const FORMS: Record<string, [string, RegExp]> = {
     /a cursor WITH HOLD outlives its transaction/,
   ],
   discard: [unsafe('DISCARD ALL'), /DISCARD is session-scoped/],
+  // The temporary namespace makes a relation temporary without TEMP (owner's review of 6297f22).
+  createInPgTemp: [
+    unsafe('CREATE TABLE pg_temp.pb4_tmp (x integer)'),
+    /a relation in pg_temp is temporary/,
+  ],
+  selectIntoPgTemp: [
+    unsafe('SELECT 1 AS x INTO pg_temp.pb4_tmp'),
+    /a relation in pg_temp is temporary/,
+  ],
+  quotedNumberedPgTemp: [
+    unsafe('CREATE TABLE "pg_temp_3".t (x int)'),
+    /a relation in pg_temp_3 is temporary/,
+  ],
 };
 
 /** Hiding places: each must still be found (the lexer decodes them) or refused. */
@@ -163,12 +176,56 @@ const REFUSED: Record<string, [string, RegExp]> = {
   ],
   destructured: [
     `${HEAD}export async function f(p: PlatformClient) { const { $executeRawUnsafe } = p; void $executeRawUnsafe; }`,
-    /\$executeRawUnsafe referenced other than by its immediate call/,
+    /\$executeRawUnsafe destructured from a database client/,
   ],
   computedKey: [
     `${HEAD}export async function f(p: PlatformClient) { await p['$executeRawUnsafe']('SET ROLE x'); }`,
-    /\$executeRawUnsafe referenced by a computed key/,
+    /computed access on a database client/,
   ],
+  // The owner's indirect calls of 6297f22, with the real Prisma types (pg's are in the @univarse/db program below).
+  constKey: [
+    `${HEAD}export async function f(p: PlatformClient) { const method = '$executeRawUnsafe'; await p[method]('SET ROLE univarse_app'); }`,
+    /computed access on a database client/,
+  ],
+  templateKey: [
+    `${HEAD}export async function f(p: PlatformClient) { await p[\`$executeRawUnsafe\`]('SET ROLE univarse_app'); }`,
+    /computed access on a database client/,
+  ],
+  stringVariableKey: [
+    `${HEAD}export async function f(p: PlatformClient, m: string) { await (p as unknown as Record<string, (s: string) => Promise<unknown>>)[m]!('SET ROLE x'); void p[m as keyof PlatformClient]; }`,
+    /computed access on a database client/,
+  ],
+  callThroughCall: [
+    `${HEAD}export async function f(p: PlatformClient) { await p.$executeRawUnsafe.call(p, 'SET ROLE univarse_app'); }`,
+    /\$executeRawUnsafe referenced other than by its immediate call/,
+  ],
+  renamedDestructure: [
+    `${HEAD}export async function f(p: PlatformClient) { const { $executeRawUnsafe: run } = p; await run('SET ROLE x'); }`,
+    /\$executeRawUnsafe destructured from a database client/,
+  ],
+  transactionClientComputed: [
+    `import type { TenantTx } from '@univarse/db';
+export async function f(tx: TenantTx) { const m = '$executeRawUnsafe' as const; await tx[m]('SET ROLE x'); }`,
+    /computed access on a database client/,
+  ],
+  unionComputed: [
+    `${HEAD}export function f(c: PlatformClient | Map<string, string>) { const k = '$executeRawUnsafe'; return c[k as never]; }`,
+    /computed access on a database client/,
+  ],
+  // Inline dynamic SQL whose final command can't be established (owner's review of 6297f22).
+  executeConcatenation: [
+    unsafe("DO $$ BEGIN\n  EXECUTE 'SE' || 'T application_name TO DEFAULT';\nEND $$;"),
+    /EXECUTE of anything but a string constant/,
+  ],
+  executeFormat: [
+    unsafe("DO $$ BEGIN EXECUTE format('%s', 'SET ROLE x'); END $$"),
+    /EXECUTE of anything but a string constant/,
+  ],
+  executeVariable: [
+    unsafe("DO $$ DECLARE q text := 'SET ROLE x'; BEGIN EXECUTE q; END $$"),
+    /EXECUTE of anything but a string constant/,
+  ],
+  executePrepared: [unsafe('EXECUTE q(1)'), /EXECUTE of anything but a string constant/],
   unterminated: [unsafe("SELECT 'open"), /doesn't lex unambiguously: an unterminated string/],
   unicodeEscape: [unsafe("SELECT U&'\\0053ET'"), /doesn't lex unambiguously: a U&/],
 };
@@ -185,7 +242,9 @@ const ALLOWED: Record<string, string> = {
   xactLock: unsafe('SELECT pg_advisory_xact_lock(1)'),
   xactLockShared: unsafe('SELECT pg_advisory_xact_lock_shared(1)'),
   forUpdate: unsafe('SELECT id FROM t FOR UPDATE SKIP LOCKED'),
-  lookAlikeWords: unsafe('SELECT prepared_at, temp_value, listener FROM t'),
+  lookAlikeWords: unsafe('SELECT prepared_at, temp_value, listener, pg_temp_value FROM t'),
+  executeConstant: unsafe("DO $$ DECLARE v int; BEGIN EXECUTE 'SELECT 1' INTO v USING 1; END $$"),
+  grantExecute: unsafe('GRANT EXECUTE ON FUNCTION f() TO univarse_app'),
   boundParameters: `${HEAD}export async function f(p: PlatformClient, id: string, at: Date, ids: string[]) { await p.$queryRaw\`SELECT * FROM t WHERE id = \${id} AND at < \${at} AND id = ANY(\${ids})\`; }`,
 };
 
@@ -244,6 +303,56 @@ describe('[PB4] no session-scoped SQL in production code', { timeout: 120_000 },
 
   it.each(Object.keys(ALLOWED))('[PB4] transaction-scoped or ordinary SQL passes: %s', (name) => {
     expect(check(name)).toEqual([]);
+  });
+
+  it("[PB4] pg's query(), with the real pg types: direct literals checked, indirect calls refused (owner's review of 6297f22)", () => {
+    const PG = `import pg from 'pg';\n`;
+    const pgFixtures: Record<string, [string, RegExp | null]> = {
+      direct: [
+        `${PG}export async function f(c: pg.Client) { await c.query('SET ROLE univarse_app'); }`,
+        /pg query\(\): SET without LOCAL \(SET ROLE\)/,
+      ],
+      pool: [
+        `${PG}export async function f(p: pg.Pool) { await p.query('LISTEN x'); }`,
+        /pg query\(\): LISTEN is session-scoped/,
+      ],
+      poolClient: [
+        `${PG}export async function f(c: pg.PoolClient) { await c.query('DISCARD ALL'); }`,
+        /pg query\(\): DISCARD/,
+      ],
+      bound: [
+        `${PG}export async function f(c: pg.Client) { const run = c.query.bind(c); await run('SET ROLE univarse_app'); }`,
+        /query referenced other than by its immediate call/,
+      ],
+      destructured: [
+        `${PG}export async function f(c: pg.Client) { const { query } = c; void query; }`,
+        /query destructured from a database client/,
+      ],
+      computed: [
+        `${PG}export async function f(c: pg.Client) { await c['query']('SET ROLE x'); }`,
+        /computed access on a database client/,
+      ],
+      variableSql: [
+        `${PG}export async function f(c: pg.Client, sql: string) { await c.query(sql); }`,
+        /pg query\(\) with SQL that isn't a substitution-free literal/,
+      ],
+      allowed: [`${PG}export async function f(c: pg.Client) { await c.query('SELECT 1'); }`, null],
+    };
+    const dbProgram = packageProgram(
+      'packages/db',
+      Object.fromEntries(Object.entries(pgFixtures).map(([n, [t]]) => [path(n), t])),
+    );
+    for (const [name, [, problem]] of Object.entries(pgFixtures)) {
+      const sf = dbProgram
+        .getSourceFiles()
+        .find((x) =>
+          x.fileName.replace(/\\/g, '/').endsWith(`__session_sql_fixtures__/${name}.ts`),
+        );
+      if (!sf) throw new Error(`pg fixture ${name} not in the program`);
+      const v = analyzeSessionSql(dbProgram, sf);
+      if (problem === null) expect(v, name).toEqual([]);
+      else expect(v.join('\n'), name).toMatch(problem);
+    }
   });
 
   it('[PB4] the SQL rules alone: SET LOCAL and UPDATE … SET pass; SET in a later statement still fails', () => {
