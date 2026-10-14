@@ -10,10 +10,21 @@
 // Grype's matches on the inventory must equal its matches on the image itself, and the Debian package identities must
 // be equal too (parity), so the inventory can't silently lose coverage.
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { hostPath } from './release-lib.mjs';
+import { configOf } from './gates.mjs';
+import {
+  checkFacts,
+  checkInventory,
+  DOCKERFILE,
+  dockerfilePins,
+  gatherBase,
+  gatherFacts,
+} from './pgbouncer-inventory.mjs';
+import { hostPath, REPO } from './release-lib.mjs';
+import { readFromTar } from './tar.mjs';
 
 export const GRYPE_IMAGE =
   'anchore/grype:v0.120.1@sha256:e4a44ef45d285b829ce6efe2642980329661bd2d18eab5fc539138d4adaebbbe';
@@ -130,20 +141,27 @@ export function disagreements(grypeReport, trivyReport) {
   return out.sort((a, b) => `${a.package} ${a.id}`.localeCompare(`${b.package} ${b.id}`));
 }
 
-/** Debian identity from a deb purl: name, version, arch and source (`upstream`). */
+/**
+ * Debian identity from a deb purl, nothing normalised away: name, version, arch, source package AND its version
+ * (`upstream=name@version`), and the distro qualifier.
+ */
 export function debIdentity(purl) {
   const m = /^pkg:deb\/debian\/([^@]+)@([^?]+)\?(.*)$/.exec(purl ?? '');
   if (!m) return null;
   const q = new URLSearchParams(m[3]);
   const upstream = q.get('upstream');
+  const at = upstream ? upstream.indexOf('@') : -1;
   return {
     name: m[1],
     version: decodeURIComponent(m[2]),
     arch: q.get('arch'),
-    source: upstream ? upstream.split('@')[0] : m[1],
+    source: upstream ? (at >= 0 ? upstream.slice(0, at) : upstream) : m[1],
+    sourceVersion: upstream && at >= 0 ? upstream.slice(at + 1) : null,
+    distro: q.get('distro'),
   };
 }
-const idKey = (i) => `${i.name}|${i.version}|${i.arch}|${i.source}`;
+const idKey = (i) =>
+  `${i.name}|${i.version}|${i.arch}|${i.source}|${i.sourceVersion ?? ''}|${i.distro}`;
 const debIds = (components) =>
   new Set(
     (components ?? [])
@@ -160,10 +178,13 @@ const debFindings = (report) =>
 const diff = (a, b) => [...a].filter((x) => !b.has(x)).sort();
 
 /**
- * Parity: the inventory loses no coverage. The Debian portion: the inventory's package identities (name, version,
- * arch, source) equal those Grype's own cataloguer finds in the image, AND Grype's Debian findings are equal on both.
- * PgBouncer, separately: exactly one inventory component with the expected CPE, ingested by Grype (it appears in the
- * inventory scan's catalogue), and absent from the image catalogue (Grype can't see it; that's why the CPE exists).
+ * Parity: the inventory loses no coverage, compared across THREE views of the same packages:
+ *   the input inventory, the catalogue Grype ingested from it, and Grype's own catalogue of the image.
+ * The Debian portion: package identities (name, version, arch, source and source version, distro) are equal in all
+ * three, so a package Grype silently dropped or changed while ingesting, even one with no CVEs, fails; and Grype's
+ * Debian findings are equal on inventory and image.
+ * PgBouncer, separately: exactly one inventory component, whose `cpe` FIELD is the expected CPE; Grype's ingested
+ * catalogue has that component with the same `cpe` field; and the image catalogue has none (Grype can't see it).
  */
 export function parity({
   inventory,
@@ -173,14 +194,21 @@ export function parity({
   imageCatalogue,
 }) {
   const problems = [];
-  const invIds = debIds(inventory?.components);
-  const imgIds = debIds(imageCatalogue?.components);
-  if (imgIds.size === 0)
-    problems.push("Grype's catalogue of the image has no Debian packages: parity can't be shown");
-  for (const k of diff(imgIds, invIds))
-    problems.push(`Debian package ${k} is in the image but not in the inventory`);
-  for (const k of diff(invIds, imgIds))
-    problems.push(`Debian package ${k} is in the inventory but not in the image`);
+  const views = {
+    inventory: debIds(inventory?.components),
+    'the catalogue Grype ingested': debIds(inventoryCatalogue?.components),
+    "Grype's catalogue of the image": debIds(imageCatalogue?.components),
+  };
+  for (const [name, ids] of Object.entries(views))
+    if (ids.size === 0) problems.push(`${name} has no Debian packages: parity can't be shown`);
+  const base = views.inventory;
+  for (const [name, ids] of Object.entries(views)) {
+    if (ids === base) continue;
+    for (const k of diff(base, ids))
+      problems.push(`Debian package ${k} is in the inventory but not in ${name}`);
+    for (const k of diff(ids, base))
+      problems.push(`Debian package ${k} is in ${name} but not in the inventory`);
+  }
   const invF = debFindings(inventoryScan);
   const imgF = debFindings(imageScan);
   for (const k of diff(imgF, invF))
@@ -195,11 +223,13 @@ export function parity({
     const want = `cpe:2.3:a:pgbouncer:pgbouncer:${pg[0].version}:*:*:*:*:*:*:*`;
     if (pg[0].cpe !== want)
       problems.push(`the inventory's PgBouncer CPE is ${pg[0].cpe}, expected ${want}`);
-    const ingested = (inventoryCatalogue?.components ?? []).some(
-      (c) =>
-        c.name === 'pgbouncer' && c.version === pg[0].version && JSON.stringify(c).includes(want),
-    );
-    if (!ingested) problems.push(`Grype did not ingest the PgBouncer component with ${want}`);
+    const ingested = (inventoryCatalogue?.components ?? []).filter((c) => c.name === 'pgbouncer');
+    if (ingested.length !== 1)
+      problems.push(`Grype ingested ${ingested.length} PgBouncer components, expected 1`);
+    else if (ingested[0].version !== pg[0].version || ingested[0].cpe !== want)
+      problems.push(
+        `Grype ingested PgBouncer ${ingested[0].version} with CPE ${ingested[0].cpe ?? '(none)'}, expected ${pg[0].version} with ${want}`,
+      );
   }
   if ((imageCatalogue?.components ?? []).some((c) => c.name === 'pgbouncer'))
     problems.push(
@@ -210,7 +240,7 @@ export function parity({
 
 // ---------- the run ----------
 
-function run(args, { env = {}, allowFail = false } = {}) {
+function realRun(args, { allowFail = false } = {}) {
   const r = spawnSync('docker', args, {
     encoding: 'utf8',
     maxBuffer: 1 << 28,
@@ -230,11 +260,51 @@ function run(args, { env = {}, allowFail = false } = {}) {
   return out;
 }
 
+/** The real inventory verifier: facts from the image (by its immutable ID) against the given inventory snapshot. */
+async function realVerifyInventory(imageId, inventory) {
+  const pins = dockerfilePins(readFileSync(join(REPO, DOCKERFILE), 'utf8'));
+  const facts = await gatherFacts(imageId);
+  if (facts.imageId !== imageId)
+    return [`the inventory verifier read image ${facts.imageId}, not ${imageId}`];
+  const base = await gatherBase(pins.runtimeImage);
+  return [...checkFacts(facts, base, pins), ...checkInventory(inventory, facts, pins)];
+}
+
+/** The saved archive's image identity: its config digest (checked against the blob's own hash) and its layer IDs. */
+async function realReadSavedImage(tarPath) {
+  const manifest = JSON.parse((await readFromTar(tarPath, 'manifest.json')).toString('utf8'));
+  const configDigest = configOf(manifest);
+  const blob = await readFromTar(tarPath, manifest[0].Config);
+  if (!blob) throw new Error(`the saved archive has no config blob ${manifest[0].Config}`);
+  const actual = `sha256:${createHash('sha256').update(blob).digest('hex')}`;
+  if (actual !== configDigest)
+    throw new Error(`the saved config's bytes hash to ${actual}, not ${configDigest}`);
+  return { configDigest, diffIds: JSON.parse(blob.toString('utf8')).rootfs?.diff_ids ?? [] };
+}
+
+/**
+ * Binds the evidence to ONE image: Grype's image scan names the saved config digest, and the Trivy report has exactly
+ * the saved layers and an image ID that is this image's (Docker's ID or the config digest, depending on the store).
+ */
+export function bindingProblems({ imageId, saved, grypeImageScan, trivy }) {
+  const problems = [];
+  const gid = grypeImageScan?.source?.target?.imageID;
+  if (gid !== saved.configDigest)
+    problems.push(`Grype's image scan is of ${gid ?? '(unknown)'}, not ${saved.configDigest}`);
+  const tid = trivy?.Metadata?.ImageID;
+  if (tid !== imageId && tid !== saved.configDigest)
+    problems.push(`the Trivy report is for image ${tid ?? '(unknown)'}, not ${imageId}`);
+  if (JSON.stringify(trivy?.Metadata?.DiffIDs ?? null) !== JSON.stringify(saved.diffIds))
+    problems.push("the Trivy report's layers aren't the scanned image's layers");
+  return problems;
+}
+
 /**
  * The gate. `cache`: a docker volume name or a host directory holding the Grype database. `extraEnv` lets the coverage
- * controls point the update at an unreachable URL or tighten the age. Returns { ok, problems, evidence }.
+ * controls point the update at an unreachable URL or tighten the age. `deps` replaces Docker, the inventory verifier
+ * and the archive reader in tests. Returns { ok, problems, evidence }.
  */
-export function runGate({
+export async function runGate({
   image,
   inventoryPath,
   trivyPath,
@@ -242,7 +312,11 @@ export function runGate({
   cache = 'uv-grype-cache',
   extraEnv = {},
   now = Date.now(),
+  deps = {},
 }) {
+  const run = deps.run ?? realRun;
+  const verifyInventory = deps.verifyInventory ?? realVerifyInventory;
+  const readSavedImage = deps.readSavedImage ?? realReadSavedImage;
   mkdirSync(evidenceDir, { recursive: true });
   const work = resolve(evidenceDir);
   const cacheMount = /[\\/]/.test(cache) ? `${hostPath(resolve(cache))}:/cache` : `${cache}:/cache`;
@@ -265,82 +339,119 @@ export function runGate({
       { allowFail: true },
     );
   const evidence = { grypeImage: GRYPE_IMAGE, commands: [] };
-  const problems = [];
   const step = (r) => {
     evidence.commands.push({ cmd: r.cmd, status: r.status });
     return r;
   };
+  // Every outcome leaves its evidence, failures included: what ran, with what result, and why it stopped.
+  const record = (problems) =>
+    writeFileSync(
+      join(work, 'grype-gate-evidence.json'),
+      `${JSON.stringify({ ...evidence, problems }, null, 2)}\n`,
+    );
+  const fail = (problems) => {
+    record(problems);
+    return { ok: false, problems, evidence };
+  };
 
-  // 1. One successful update check per run, downloading when necessary. Its failure stops the gate here.
+  // 0. One immutable image, and one inventory snapshot: resolved and read ONCE, before anything else. Everything below
+  //    uses the image ID (never the tag) and these exact inventory bytes.
+  const inspected = step(
+    run(['image', 'inspect', '--format', '{{.Id}}', image], { allowFail: true }),
+  );
+  const imageId = inspected.stdout.trim();
+  if (inspected.status !== 0 || !/^sha256:[0-9a-f]{64}$/.test(imageId))
+    return fail([`can't resolve ${image} to an immutable image ID (exit ${inspected.status})`]);
+  evidence.image = { reference: image, id: imageId };
+  const snapshot = readFileSync(inventoryPath);
+  let inventory;
+  try {
+    inventory = JSON.parse(snapshot.toString('utf8'));
+  } catch {
+    return fail([`${inventoryPath} is not JSON`]);
+  }
+  writeFileSync(join(work, 'inventory.cdx.json'), snapshot); // Grype scans exactly these bytes
+  evidence.inventorySha256 = createHash('sha256').update(snapshot).digest('hex');
+
+  // 1. The inventory is verified against that exact image: its source-built PgBouncer is exactly what image
+  //    cataloguing misses, so package parity alone could never bind it.
+  const inventoryProblems = await verifyInventory(imageId, inventory);
+  if (inventoryProblems.length) return fail(inventoryProblems.map((p) => `inventory: ${p}`));
+
+  // 2. One successful update check per run, downloading when necessary. Its failure stops the gate here.
   const update = step(grype(['db', 'update'], { GRYPE_DB_REQUIRE_UPDATE_CHECK: 'true' }));
   if (update.status !== 0)
-    return {
-      ok: false,
-      problems: [
-        `grype db update failed (exit ${update.status}): ${update.stderr.trim().slice(-300)}`,
-      ],
-      evidence,
-    };
+    return fail([
+      `grype db update failed (exit ${update.status}): ${update.stderr.trim().slice(-300)}`,
+    ]);
 
-  // 2. The status must exit 0 AND report a valid, fresh database; the output supplements the exit status.
+  // 3. The status must exit 0 AND report a valid, fresh database; the output supplements the exit status.
   const status = step(grype(['db', 'status', '-o', 'json'], SCAN_ENV));
   if (status.status !== 0)
-    return {
-      ok: false,
-      problems: [
-        `grype db status failed (exit ${status.status}): ${status.stderr.trim().slice(-300)}`,
-      ],
-      evidence,
-    };
+    return fail([
+      `grype db status failed (exit ${status.status}): ${status.stderr.trim().slice(-300)}`,
+    ]);
   let statusJson;
   try {
     statusJson = JSON.parse(status.stdout);
   } catch {
-    return { ok: false, problems: ['grype db status -o json printed no JSON'], evidence };
+    return fail(['grype db status -o json printed no JSON']);
   }
   const dbProblems = checkDbStatus(statusJson, now);
-  if (dbProblems.length) return { ok: false, problems: dbProblems, evidence };
+  if (dbProblems.length) return fail(dbProblems);
   evidence.database = {
     built: statusJson.built,
     schemaVersion: statusJson.schemaVersion,
     source: statusJson.from,
   };
 
-  // 3. The installed database's digest, recorded from its import.json (the status output has no checksum).
+  // 4. The installed database's digest, from its import.json. Grype writes its database directory 0700 as root, so the
+  //    reader runs as root but can only read: read-only mount, no network, no capabilities, read-only root filesystem.
+  //    Its successful exit is required before its output is believed.
   const importPath = statusJson.path.replace(/vulnerability\.db$/, 'import.json');
-  // Grype writes its database directory 0700 as root, so the reader runs as root, but can only read: the cache is
-  // mounted read-only, with no network, no capabilities and a read-only root filesystem.
-  const imp = run(
-    [
-      'run',
-      '--rm',
-      '--user',
-      '0:0',
-      '--network',
-      'none',
-      '--cap-drop',
-      'ALL',
-      '--read-only',
-      '-v',
-      `${cacheMount}:ro`,
-      READER_IMAGE,
-      '-e',
-      `process.stdout.write(require('fs').readFileSync(${JSON.stringify(importPath)}))`,
-    ],
-    { allowFail: true },
+  const imp = step(
+    run(
+      [
+        'run',
+        '--rm',
+        '--user',
+        '0:0',
+        '--network',
+        'none',
+        '--cap-drop',
+        'ALL',
+        '--read-only',
+        '-v',
+        `${cacheMount}:ro`,
+        READER_IMAGE,
+        '-e',
+        `process.stdout.write(require('fs').readFileSync(${JSON.stringify(importPath)}))`,
+      ],
+      { allowFail: true },
+    ),
   );
+  if (imp.status !== 0) return fail([`reading ${importPath} failed (exit ${imp.status})`]);
   let digest;
   try {
     digest = importDigest(JSON.parse(imp.stdout));
   } catch {
-    digest = { problem: `import.json at ${importPath} is unreadable` };
+    digest = { problem: `import.json at ${importPath} is not JSON` };
   }
-  if (digest.problem) return { ok: false, problems: [digest.problem], evidence };
+  if (digest.problem) return fail([digest.problem]);
   evidence.database.digest = digest.digest;
 
-  // 4. The scans, all on that one database: the inventory, and the image itself (from a saved archive, no socket).
-  run(['save', image, '-o', join(work, 'image.tar')]);
-  writeFileSync(join(work, 'inventory.cdx.json'), readFileSync(inventoryPath));
+  // 5. The image itself, saved by its ID, and its identity read from the archive.
+  const saved = step(run(['save', imageId, '-o', join(work, 'image.tar')], { allowFail: true }));
+  if (saved.status !== 0) return fail([`docker save ${imageId} failed (exit ${saved.status})`]);
+  let savedImage;
+  try {
+    savedImage = await readSavedImage(join(work, 'image.tar'));
+  } catch (e) {
+    return fail([`the saved image is unreadable: ${e.message}`]);
+  }
+  evidence.image.configDigest = savedImage.configDigest;
+
+  // 6. The scans, both on the one checked database.
   const scans = {
     inventory: step(
       grype(
@@ -369,18 +480,15 @@ export function runGate({
   };
   for (const [name, r] of Object.entries(scans))
     if (r.status !== 0)
-      return {
-        ok: false,
-        problems: [`the ${name} scan failed (exit ${r.status}): ${r.stderr.trim().slice(-300)}`],
-        evidence,
-      };
+      return fail([`the ${name} scan failed (exit ${r.status}): ${r.stderr.trim().slice(-300)}`]);
   const read = (f) => JSON.parse(readFileSync(join(work, f), 'utf8'));
   const inventoryScan = read('grype-inventory.json');
   const imageScan = read('grype-image.json');
-  const inventory = JSON.parse(readFileSync(inventoryPath, 'utf8'));
+  const trivy = JSON.parse(readFileSync(trivyPath, 'utf8'));
 
-  // 5. Parity, routing, disclosure.
-  problems.push(
+  // 7. Binding, parity, routing, disclosure.
+  const problems = [
+    ...bindingProblems({ imageId, saved: savedImage, grypeImageScan: imageScan, trivy }),
     ...parity({
       inventory,
       inventoryScan,
@@ -388,14 +496,13 @@ export function runGate({
       imageScan,
       imageCatalogue: read('grype-image.cdx.json'),
     }),
-  );
+  ];
   const routed = routeFindings(inventoryScan);
   problems.push(...routed.problems);
   for (const f of routed.blocking)
     problems.push(
       `PgBouncer ${f.version}: ${f.id} is ${f.severity} (blocking under the declared policy)`,
     );
-  const trivy = JSON.parse(readFileSync(trivyPath, 'utf8'));
   evidence.blocking = routed.blocking;
   evidence.routedToTrivy = routed.routedToTrivy;
   evidence.disagreements = disagreements(inventoryScan, trivy);
@@ -456,7 +563,7 @@ async function main() {
     );
     process.exit(2);
   }
-  const result = runGate({ image, inventoryPath, trivyPath, evidenceDir, cache });
+  const result = await runGate({ image, inventoryPath, trivyPath, evidenceDir, cache });
   console.log(summary(result));
   process.exit(result.ok ? 0 : 1);
 }
