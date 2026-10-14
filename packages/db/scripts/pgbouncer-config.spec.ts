@@ -16,6 +16,7 @@ import { describe, expect, it } from 'vitest';
 import {
   PGBOUNCER_ADMIN,
   type OwnerOnlyOps,
+  ownerOnlyDirProblems,
   ownerOnlyProblems,
   parseIcacls,
   posixModeProblems,
@@ -175,15 +176,16 @@ describe('[PB9] the auth file is owner-only, checked after writing', () => {
 });
 
 describe("[PB9] the auth file is written fresh, owner-only, and swapped in atomically (owner's review of 14c787f)", () => {
-  const target = join('dir', 'userlist.txt');
-  const tmp = join('dir', '.userlist.txt.r4nd.tmp');
+  const DIR = 'dir';
+  const target = join(DIR, 'userlist.txt');
+  const tmp = join(DIR, '.userlist.txt.r4nd.tmp');
   const USER = String.raw`HOST\someone`;
   type Hook = (path: string) => unknown;
 
   /** A recording world; `over` makes one operation misbehave. */
   function world(
     platform: NodeJS.Platform,
-    over: Partial<Record<'aclCheck' | 'modeCheck' | 'rename' | 'create', Hook>> = {},
+    over: Partial<Record<'aclCheck' | 'modeCheck' | 'rename' | 'create' | 'close', Hook>> = {},
   ) {
     const log: string[] = [];
     const ops: OwnerOnlyOps = {
@@ -194,9 +196,13 @@ describe("[PB9] the auth file is written fresh, owner-only, and swapped in atomi
         return 7;
       },
       fchmod: (_fd, mode) => log.push(`fchmod ${mode.toString(8)}`),
+      chmod: (path, mode) => log.push(`chmod ${path} ${mode.toString(8)}`),
       write: () => log.push('write'),
       fsync: () => log.push('fsync'),
-      close: () => log.push('close'),
+      close: () => {
+        log.push('close');
+        over.close?.('');
+      },
       rename: (from, to) => {
         log.push(`rename ${from} -> ${to}`);
         over.rename?.(from);
@@ -204,16 +210,18 @@ describe("[PB9] the auth file is written fresh, owner-only, and swapped in atomi
       unlink: (path) => log.push(`unlink ${path}`),
       stat: (path) => {
         log.push(`stat ${path}`);
-        return { mode: (over.modeCheck?.(path) as number | undefined) ?? 0o100600, uid: 1001 };
+        const fallback = path === DIR ? 0o40700 : 0o100600;
+        return { mode: (over.modeCheck?.(path) as number | undefined) ?? fallback, uid: 1001 };
       },
       uid: () => 1001,
       icacls: (args) => {
         log.push(`icacls ${args.join(' ')}`);
         const [file = ''] = args;
         if (args.length > 1) return '';
+        const rights = file === DIR ? '(OI)(CI)(F)' : '(F)';
         return (
           (over.aclCheck?.(file) as string | undefined) ??
-          `${file} ${USER}:(F)\n\nSuccessfully processed 1 files`
+          `${file} ${USER}:${rights}\n\nSuccessfully processed 1 files`
         );
       },
       windowsUser: () => USER,
@@ -221,14 +229,17 @@ describe("[PB9] the auth file is written fresh, owner-only, and swapped in atomi
     };
     return { ops, log };
   }
-  /** An operation that can change permissions: an icacls call with options, or fchmod. */
+  /** An operation that can change permissions: an icacls call with options, chmod or fchmod. */
   const changesPermissions = (entry: string) =>
-    /^icacls \S+ \//.test(entry) || entry.startsWith('fchmod');
+    /^icacls \S+ \//.test(entry) || /^f?chmod /.test(entry);
 
-  it('Windows: narrows the empty file, writes, checks read only, renames, checks read only; never /reset', () => {
+  it('Windows: the directory first (reset, owner-only, inheritable), then the empty file narrowed, written, checked read only, renamed, checked read only; /reset never touches a file', () => {
     const { ops, log } = world('win32');
     writeOwnerOnly(target, 'verifiers', ops);
     expect(log).toEqual([
+      `icacls ${DIR} /reset`,
+      `icacls ${DIR} /inheritance:r /grant:r ${USER}:(OI)(CI)F`,
+      `icacls ${DIR}`,
       `create ${tmp}`,
       `icacls ${tmp} /inheritance:r /grant:r ${USER}:F`,
       `icacls ${tmp}`,
@@ -239,14 +250,17 @@ describe("[PB9] the auth file is written fresh, owner-only, and swapped in atomi
       `rename ${tmp} -> ${target}`,
       `icacls ${target}`,
     ]);
-    expect(log.join('\n')).not.toContain('/reset');
+    expect(log.filter((l) => l.includes('/reset'))).toEqual([`icacls ${DIR} /reset`]);
+    expect(log.slice(log.indexOf(`create ${tmp}`)).join('\n')).not.toContain('/reset');
     expect(log.slice(log.indexOf('write')).filter(changesPermissions)).toEqual([]);
   });
 
-  it('POSIX: created 0600, set 0600 while empty, then only read-only checks', () => {
+  it('POSIX: the directory 0700 first, then created 0600, set 0600 while empty, then only read-only checks', () => {
     const { ops, log } = world('linux');
     writeOwnerOnly(target, 'verifiers', ops);
     expect(log).toEqual([
+      `chmod ${DIR} 700`,
+      `stat ${DIR}`,
       `create ${tmp}`,
       'fchmod 600',
       `stat ${tmp}`,
@@ -262,7 +276,7 @@ describe("[PB9] the auth file is written fresh, owner-only, and swapped in atomi
 
   it('a wider empty file is never written to: removed, nothing renamed', () => {
     const { ops, log } = world('win32', {
-      aclCheck: (p) => `${p} ${USER}:(F)\n BUILTIN\\Users:(I)(RX)\n`,
+      aclCheck: (p) => (p === tmp ? `${p} ${USER}:(F)\n BUILTIN\\Users:(I)(RX)\n` : undefined),
     });
     expect(() => {
       writeOwnerOnly(target, 'verifiers', ops);
@@ -302,7 +316,53 @@ describe("[PB9] the auth file is written fresh, owner-only, and swapped in atomi
     expect(() => {
       writeOwnerOnly(target, 'verifiers', c.ops);
     }).toThrow(/EEXIST/);
-    expect(c.log).toEqual([`create ${tmp}`]); // nothing written, closed or removed: it wasn't ours
+    expect(c.log.slice(c.log.indexOf(`create ${tmp}`))).toEqual([`create ${tmp}`]); // nothing written, closed or removed: it wasn't ours
+  });
+
+  it("a directory that isn't the owner's alone (or not inheritably) stops the write before any file is created (owner's review of 5438022)", () => {
+    for (const [platform, over] of [
+      ['win32', { aclCheck: (p: string) => (p === DIR ? `${p} ${USER}:(F)\n` : undefined) }], // not inheritable
+      [
+        'win32',
+        {
+          aclCheck: (p: string) =>
+            p === DIR ? `${p} ${USER}:(OI)(CI)(F)\n Everyone:(OI)(CI)(R)\n` : undefined,
+        },
+      ],
+      ['linux', { modeCheck: (p: string) => (p === DIR ? 0o40755 : undefined) }],
+    ] as const) {
+      const { ops, log } = world(platform, over);
+      expect(() => {
+        writeOwnerOnly(target, 'verifiers', ops);
+      }).toThrow(/^dir: /);
+      expect(log.some((l) => l.startsWith('create'))).toBe(false);
+    }
+  });
+
+  it("a failed close still removes the temporary file, with one close attempt (owner's review of 5438022)", () => {
+    const { ops, log } = world('linux', {
+      close: () => {
+        throw new Error('EIO on close');
+      },
+    });
+    expect(() => {
+      writeOwnerOnly(target, 'verifiers', ops);
+    }).toThrow(/EIO on close/);
+    expect(log.filter((l) => l === 'close')).toHaveLength(1);
+    expect(log.some((l) => l.startsWith('rename'))).toBe(false);
+    expect(log.at(-1)).toBe(`unlink ${tmp}`);
+    // and when closing fails in the cleanup path (an earlier failure left the file open), unlinking is still attempted
+    const early = world('linux', {
+      modeCheck: (p) => (p === tmp ? 0o100644 : undefined),
+      close: () => {
+        throw new Error('EIO on close');
+      },
+    });
+    expect(() => {
+      writeOwnerOnly(target, 'verifiers', early.ops);
+    }).toThrow(/EIO on close/);
+    expect(early.log.filter((l) => l === 'close')).toHaveLength(1);
+    expect(early.log.at(-1)).toBe(`unlink ${tmp}`);
   });
 
   it('on the real filesystem: a file already at the temporary name (possibly wide) is refused, never reused', () => {
@@ -316,6 +376,46 @@ describe("[PB9] the auth file is written fresh, owner-only, and swapped in atomi
       }).toThrow(/EEXIST/);
       expect(readFileSync(planted, 'utf8')).toBe('PLANTED\n'); // not written into, not removed: it isn't ours
       expect(readdirSync(dir)).toEqual(['.userlist.txt.fixed.tmp']);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  // The temporary file's FIRST permissions, captured the moment it's created (before its own narrowing step), with
+  // the directory deliberately broad beforehand: Windows grants Everyone read, inheritably; POSIX is 0777. They must
+  // already be the current account's alone, so no other account can open the file in that gap. This checks the ACL
+  // or mode another account would be refused by; it doesn't open the file as a second account (none exists here).
+  it("on the real filesystem: the new temporary file is owner-only from its creation, under a broad directory (owner's review of 5438022)", () => {
+    const dir = mkdtempSync(join(tmpdir(), 'uv-authfile-'));
+    const atCreation: string[][] = [];
+    const ops: OwnerOnlyOps = {
+      ...realOwnerOnlyOps,
+      createExclusive: (path) => {
+        const fd = realOwnerOnlyOps.createExclusive(path);
+        atCreation.push(
+          process.platform === 'win32'
+            ? parseIcacls(realOwnerOnlyOps.icacls([path]), path)
+            : [(realOwnerOnlyOps.stat(path).mode & 0o777).toString(8)],
+        );
+        return fd;
+      },
+    };
+    try {
+      if (process.platform === 'win32') {
+        realOwnerOnlyOps.icacls([dir, '/grant', 'Everyone:(OI)(CI)R']);
+        expect(parseIcacls(realOwnerOnlyOps.icacls([dir]), dir).join(' ')).toMatch(/Everyone/); // really broad
+      } else {
+        realOwnerOnlyOps.chmod(dir, 0o777);
+      }
+      writeOwnerOnly(join(dir, 'userlist.txt'), 'NEW-CONTENT\n', ops);
+      expect(atCreation).toHaveLength(1);
+      if (process.platform === 'win32') {
+        expect(atCreation[0]).toEqual([`${realOwnerOnlyOps.windowsUser()}:(I)(F)`]); // inherited from the narrowed dir only
+      } else {
+        expect(atCreation[0]).toEqual(['600']);
+      }
+      expect(ownerOnlyDirProblems(dir)).toEqual([]);
+      expect(ownerOnlyProblems(join(dir, 'userlist.txt'))).toEqual([]);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

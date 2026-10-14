@@ -11,6 +11,7 @@
 import { createHash, createHmac, pbkdf2Sync, randomBytes } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import {
+  chmodSync,
   closeSync,
   fchmodSync,
   fsyncSync,
@@ -132,19 +133,29 @@ export function parseIcacls(output: string, file: string): string[] {
 }
 
 /** Problems with an ACL that should grant only `user` full control, with nothing inherited. */
-export function windowsAclProblems(aces: readonly string[], user: string): string[] {
-  const expected = `${user}:(F)`.toLowerCase();
+export function windowsAclProblems(
+  aces: readonly string[],
+  user: string,
+  rights = '(F)',
+): string[] {
+  const expected = `${user}:${rights}`.toLowerCase();
   if (aces.length === 1 && aces[0]?.toLowerCase() === expected) return [];
   return [
-    `the ACL must be exactly "${user}:(F)" with inheritance removed; it has: ${aces.join('; ') || 'nothing'}`,
+    `the ACL must be exactly "${user}:${rights}" with inheritance removed; it has: ${aces.join('; ') || 'nothing'}`,
   ];
 }
 
-/** Problems with a POSIX mode/owner that should be the current user only, mode 0600. */
-export function posixModeProblems(mode: number, uid: number, currentUid: number): string[] {
+/** Problems with a POSIX mode/owner that should be the current user only, with exactly `expected` (0600 for files). */
+export function posixModeProblems(
+  mode: number,
+  uid: number,
+  currentUid: number,
+  expected = 0o600,
+): string[] {
   const problems: string[] = [];
-  if ((mode & 0o777) !== 0o600)
-    problems.push(`mode is ${(mode & 0o777).toString(8).padStart(4, '0')}, expected 0600`);
+  const octal = (m: number) => m.toString(8).padStart(4, '0');
+  if ((mode & 0o777) !== expected)
+    problems.push(`mode is ${octal(mode & 0o777)}, expected ${octal(expected)}`);
   if (uid !== currentUid)
     problems.push(`owned by uid ${uid}, not the current user (${currentUid})`);
   return problems;
@@ -167,6 +178,8 @@ export interface OwnerOnlyOps {
   createExclusive(path: string): number;
   /** POSIX only: sets the open file's mode (never widens: the file was created 0600 and is still empty). */
   fchmod(fd: number, mode: number): void;
+  /** POSIX only: sets the directory's mode. */
+  chmod(path: string, mode: number): void;
   write(fd: number, content: string): void;
   fsync(fd: number): void;
   close(fd: number): void;
@@ -187,6 +200,9 @@ export const realOwnerOnlyOps: OwnerOnlyOps = {
   createExclusive: (path) => openSync(path, 'wx', 0o600),
   fchmod: (fd, mode) => {
     fchmodSync(fd, mode);
+  },
+  chmod: (path, mode) => {
+    chmodSync(path, mode);
   },
   write: (fd, content) => {
     writeSync(fd, content);
@@ -222,25 +238,63 @@ export function ownerOnlyProblems(file: string, ops: OwnerOnlyOps = realOwnerOnl
 }
 
 /**
+ * Problems with `dir`'s permissions, read only: it must be the current user's alone, and on Windows that grant must be
+ * inherited by everything created in it, so a new file is owner-only from the moment it exists.
+ */
+export function ownerOnlyDirProblems(dir: string, ops: OwnerOnlyOps = realOwnerOnlyOps): string[] {
+  if (ops.platform === 'win32')
+    return windowsAclProblems(
+      parseIcacls(ops.icacls([dir]), dir),
+      ops.windowsUser(),
+      '(OI)(CI)(F)',
+    );
+  const st = ops.stat(dir);
+  return posixModeProblems(st.mode, st.uid, ops.uid(), 0o700);
+}
+
+/**
+ * Makes `dir` the current user's alone, inheritably on Windows (`(OI)(CI)F`, inheritance from its parent removed),
+ * then checks it, read only. It is empty of anything secret when this runs: the auth file in it is replaced, never
+ * rewritten, and only after this.
+ */
+export function restrictDirToOwner(dir: string, ops: OwnerOnlyOps = realOwnerOnlyOps): void {
+  if (ops.platform === 'win32') {
+    // /reset first drops other principals' explicit entries (which /inheritance:r keeps). Safe here, unlike on a
+    // file: nothing secret in this directory inherits from it (the auth file's own inheritance is always removed),
+    // and the temporary file is created only after the directory checks out.
+    ops.icacls([dir, '/reset']);
+    ops.icacls([dir, '/inheritance:r', '/grant:r', `${ops.windowsUser()}:(OI)(CI)F`]);
+  } else {
+    ops.chmod(dir, 0o700);
+  }
+  const problems = ownerOnlyDirProblems(dir, ops);
+  if (problems.length) throw new Error(`${dir}: ${problems.join('; ')}`);
+}
+
+/**
  * Writes `content` to `target` readable by the current user only (PB9), so that no file holding it is ever wider:
- *   1. a fresh temporary file beside `target`, created exclusively, 0600 and empty;
- *   2. narrowed while still empty (Windows: inheritance removed, the current account granted; nothing to reset on a
- *      new file), and checked;
+ *   0. the directory is made the current user's alone (on Windows inheritably), and checked, BEFORE anything is
+ *      created in it: a new file's first ACL is inherited from its directory, and Node's mode doesn't narrow it;
+ *   1. a fresh temporary file beside `target`, created exclusively, 0600 and empty: owner-only from its creation;
+ *   2. narrowed explicitly while still empty (Windows: inheritance removed, the current account granted; POSIX: 0600),
+ *      and checked;
  *   3. the content written and flushed, then the permissions checked again, read only;
  *   4. renamed over `target` atomically, and the result checked, read only.
  * A reader holding the old `target` open keeps the old file and never sees the new content. Nothing that changes
- * permissions runs after the content is written. A failure before the rename removes the temporary file and leaves
- * `target` as it was; a failed final check throws, failing the run.
+ * permissions runs after the content is written. A failure before the rename removes the temporary file (even if
+ * closing it fails) and leaves `target` as it was; a failed final check throws, failing the run.
  */
 export function writeOwnerOnly(
   target: string,
   content: string,
   ops: OwnerOnlyOps = realOwnerOnlyOps,
 ): void {
-  const tmp = join(dirname(target), `.${basename(target)}.${ops.random()}.tmp`);
+  const dir = dirname(target);
+  const tmp = join(dir, `.${basename(target)}.${ops.random()}.tmp`);
   const fail = (where: string, problems: string[]) => {
     if (problems.length) throw new Error(`${where}: ${problems.join('; ')}`);
   };
+  restrictDirToOwner(dir, ops);
   const fd = ops.createExclusive(tmp);
   let open = true;
   let renamed = false;
@@ -253,14 +307,17 @@ export function writeOwnerOnly(
     fail(`${tmp} (empty)`, ownerOnlyProblems(tmp, ops));
     ops.write(fd, content);
     ops.fsync(fd);
+    open = false; // one close attempt only, whether or not it succeeds
     ops.close(fd);
-    open = false;
     fail(tmp, ownerOnlyProblems(tmp, ops));
     ops.rename(tmp, target);
     renamed = true;
     fail(target, ownerOnlyProblems(target, ops));
   } finally {
-    if (open) ops.close(fd);
-    if (!renamed) ops.unlink(tmp);
+    try {
+      if (open) ops.close(fd);
+    } finally {
+      if (!renamed) ops.unlink(tmp); // attempted even when closing failed
+    }
   }
 }
