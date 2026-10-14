@@ -3,7 +3,7 @@
 //
 //   node tools/images/pgbouncer-gate-proofs.mjs <image> <evidence-dir> [--cache <volume|dir>] [--only <id>[,<id>…]]
 //
-// The controls build two images of their own (an honest PgBouncer 1.25.0, and that binary relabelled 1.26.0), make
+// The controls build two images of their own (an honest PgBouncer 1.25.0, and that binary relabelled as the pinned version), make
 // edited inventories, and damage only their OWN copy of the database. Every resource a run creates is named for that
 // run (a random run ID) and registered for removal BEFORE it is created; the run removes exactly what it owns, even when
 // it fails part-way. Nothing here changes the gated image, the real inventory or the shared database cache.
@@ -33,7 +33,7 @@ import { hostPath, REPO, TRIVY_IMAGE } from './release-lib.mjs';
 export const VULNERABLE = Object.freeze({
   version: '1.25.0',
   sourceSha256: '290bad449e4580f0174d3677c26c1076d4ce5dd7ca116ae1fca10272ef74d10e',
-  expectCve: 'CVE-2026-19888', // fixed in 1.26.0 (upstream changelog; Grype matches it on 1.25.0)
+  expectCve: 'CVE-2026-19888', // fixed in 1.26.0 (upstream changelog; Grype matches it on 1.25.0); the pin is later still
 });
 /** Every control, in order. A full run must produce exactly these results; `--only` may name only these. */
 export const CONTROLS = Object.freeze([
@@ -295,7 +295,7 @@ export async function proveAll({
       },
     );
 
-    // The same 1.25.0 binary relabelled 1.26.0, with the real pins: the tie check must refuse it, whatever Grype says.
+    // The same 1.25.0 binary relabelled as the pinned version, with the real pins: the tie check must refuse it, whatever Grype says.
     await prove(
       'lying-metadata',
       `a ${VULNERABLE.version} binary labelled ${pins.version} fails the tie check`,

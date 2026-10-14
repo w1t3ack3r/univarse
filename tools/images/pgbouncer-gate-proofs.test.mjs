@@ -6,6 +6,8 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
+import { DOCKERFILE, dockerfilePins, pgbouncerCpe } from './pgbouncer-inventory.mjs';
+import { REPO } from './release-lib.mjs';
 import {
   CONTROLS,
   isChecksumRejection,
@@ -15,6 +17,8 @@ import {
   VULNERABLE,
 } from './pgbouncer-gate-proofs.mjs';
 
+// The harness labels its lying image with the real pin, so the mocked world takes the same pin.
+const PINNED = dockerfilePins(readFileSync(join(REPO, DOCKERFILE), 'utf8')).version;
 const RUN = 'deadbeef';
 const OLD_TAG = `univarse-pgbouncer:proof-${RUN}-${VULNERABLE.version}`;
 const LYING_TAG = `univarse-pgbouncer:proof-${RUN}-lying`;
@@ -29,8 +33,8 @@ function mocks(over = {}) {
     components: [
       {
         name: 'pgbouncer',
-        version: '1.26.0',
-        cpe: 'cpe:2.3:a:pgbouncer:pgbouncer:1.26.0:*:*:*:*:*:*:*',
+        version: PINNED,
+        cpe: pgbouncerCpe(PINNED),
       },
     ],
   };
@@ -48,7 +52,9 @@ function mocks(over = {}) {
       return {
         problems:
           image === LYING_TAG
-            ? [`the binary reports PgBouncer ${VULNERABLE.version}, but the image declares 1.26.0`]
+            ? [
+                `the binary reports PgBouncer ${VULNERABLE.version}, but the image declares ${PINNED}`,
+              ]
             : [],
       };
     },
@@ -73,7 +79,7 @@ function mocks(over = {}) {
         );
       if (opts.image === LYING_TAG)
         return fail(
-          'inventory: the binary reports PgBouncer 1.25.0, but the image declares 1.26.0',
+          `inventory: the binary reports PgBouncer 1.25.0, but the image declares ${PINNED}`,
         );
       if (/edit-.*-isolated$/.test(opts.evidenceDir))
         return fail('the inventory has 0 PgBouncer components, expected 1');

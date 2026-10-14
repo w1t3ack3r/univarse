@@ -303,7 +303,8 @@ jobs:
         run: |
           mkdir -p "$EVIDENCE"
           node --test tools/images/tar.test.mjs tools/images/pgbouncer-inventory.test.mjs \
-            tools/images/pgbouncer-grype-gate.test.mjs tools/images/pgbouncer-gate-proofs.test.mjs \n            tools/images/pgbouncer-upstream.test.mjs
+            tools/images/pgbouncer-grype-gate.test.mjs tools/images/pgbouncer-gate-proofs.test.mjs \
+            tools/images/pgbouncer-upstream.test.mjs
       - name: Verify the PgBouncer runtime base's upstream signature, before building (spec 0013 CS3, spec 0017 D1)
         env:
           COSIGN_VERSION: 3.1.3
