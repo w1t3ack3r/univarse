@@ -12,7 +12,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { join, posix } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { REPO } from './release-lib.mjs';
-import { tarParser } from './tar.mjs';
+import { consumeDockerExport } from './tar.mjs';
 
 export const DOCKERFILE = 'infra/docker/pgbouncer.Dockerfile';
 export const LIBEVENT_PKG = 'libevent-2.1-7t64';
@@ -446,46 +446,34 @@ async function readImage(image, { hashFiles = true } = {}) {
   const files = {};
   const entries = [];
   const want = (p) => hashFiles || p.startsWith(STATUS_DIR) || p === DEBIAN_VERSION;
+  const onEntry = (e) => {
+    const path = e.path.replace(/^\.?\//, '');
+    entries.push({ path, type: e.type, ...(e.link !== undefined ? { link: e.link } : {}) });
+    // The parser collects no data for an empty file: hash it as the empty buffer it is.
+    const data =
+      e.data ?? (e.type === 'file' && e.size === 0 && want(path) ? Buffer.alloc(0) : null);
+    if (!data) return;
+    // Every file is hashed, package records included; records are also parsed.
+    files[path] = {
+      sha256: createHash('sha256').update(data).digest('hex'),
+      md5: createHash('md5').update(data).digest('hex'),
+    };
+    if (path === DEBIAN_VERSION) files[path].text = data.toString('utf8').trim();
+    if (path.startsWith(STATUS_DIR)) {
+      const name = path.slice(STATUS_DIR.length);
+      const pkg = name.replace(/\.md5sums$/, '');
+      records[pkg] ??= {};
+      records[pkg][name.endsWith('.md5sums') ? 'md5sums' : 'control'] = data.toString('utf8');
+    }
+  };
   try {
-    await new Promise((resolve, reject) => {
-      const child = spawn('docker', ['export', id]);
-      const parser = tarParser(
-        (e) => {
-          const path = e.path.replace(/^\.?\//, '');
-          entries.push({ path, type: e.type, ...(e.link !== undefined ? { link: e.link } : {}) });
-          // The parser collects no data for an empty file: hash it as the empty buffer it is.
-          const data =
-            e.data ?? (e.type === 'file' && e.size === 0 && want(path) ? Buffer.alloc(0) : null);
-          if (!data) return;
-          // Every file is hashed, package records included; records are also parsed.
-          files[path] = {
-            sha256: createHash('sha256').update(data).digest('hex'),
-            md5: createHash('md5').update(data).digest('hex'),
-          };
-          if (path === DEBIAN_VERSION) files[path].text = data.toString('utf8').trim();
-          if (path.startsWith(STATUS_DIR)) {
-            const name = path.slice(STATUS_DIR.length);
-            const pkg = name.replace(/\.md5sums$/, '');
-            records[pkg] ??= {};
-            records[pkg][name.endsWith('.md5sums') ? 'md5sums' : 'control'] = data.toString('utf8');
-          }
-        },
-        { wantData: (p) => want(p.replace(/^\.?\//, '')) },
-      );
-      // A malformed archive (the tar reader throws) fails the export rather than crashing or being half-read.
-      child.stdout.on('data', (c) => {
-        try {
-          parser.push(c);
-        } catch (e) {
-          child.kill();
-          reject(e);
-        }
-      });
-      child.on('error', reject);
-      child.on('close', (code) =>
-        code === 0 ? resolve() : reject(new Error(`docker export exited ${code}`)),
-      );
-    });
+    // A malformed or truncated export rejects (consumeTar): no partial inventory is ever produced.
+    await consumeDockerExport(
+      id,
+      onEntry,
+      { wantData: (p) => want(p.replace(/^\.?\//, '')) },
+      { spawn },
+    );
   } finally {
     docker(['rm', id]);
   }

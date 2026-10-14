@@ -87,9 +87,40 @@ export function tarParser(onEntry, { wantData = () => false } = {}) {
     } else if (kind === 'L') gnuLong = data.toString('utf8').replace(/\0+$/, '');
     else if (kind === 'K') gnuLongLink = data.toString('utf8').replace(/\0+$/, '');
   };
+  let ended = false; // an end-of-archive (all-zero) block has been read
+  let failed = null; // once the parser has thrown, it stays failed
+  const guard = (fn) => {
+    if (failed) throw failed;
+    try {
+      return fn();
+    } catch (e) {
+      failed = e;
+      throw e;
+    }
+  };
   return {
-    push(chunk) {
-      buf = Buffer.concat([buf, chunk]);
+    push: (chunk) => guard(() => push(chunk)),
+    /**
+     * Must be called once the stream has ended, before any reader reports success: a stream that stops inside a
+     * header, inside an entry's data, after extended metadata with no entry, or before the end-of-archive marker is
+     * truncated, and is refused.
+     */
+    finish: () =>
+      guard(() => {
+        if (skip > 0 || pending)
+          throw new Error("tar: the stream ended inside an entry's data (truncated)");
+        if (pax || gnuLong !== null || gnuLongLink !== null)
+          throw new Error(
+            'tar: the stream ended after extended metadata, with no entry for it (truncated)',
+          );
+        if (buf.length > 0 && !buf.every((x) => x === 0))
+          throw new Error('tar: the stream ended inside a header (truncated)');
+        if (!ended) throw new Error('tar: the stream has no end-of-archive marker (truncated)');
+      }),
+  };
+  function push(chunk) {
+    buf = Buffer.concat([buf, chunk]);
+    {
       for (;;) {
         if (skip > 0) {
           const n = Math.min(skip, buf.length);
@@ -107,7 +138,11 @@ export function tarParser(onEntry, { wantData = () => false } = {}) {
         if (buf.length < 512) return;
         const h = buf.subarray(0, 512);
         buf = buf.subarray(512);
-        if (h.every((x) => x === 0)) continue;
+        if (h.every((x) => x === 0)) {
+          ended = true;
+          continue;
+        }
+        if (ended) throw new Error('tar: data after the end-of-archive marker');
         const name = h.subarray(0, 100).toString('utf8').replace(/\0.*$/, '');
         const prefix = h.subarray(345, 500).toString('utf8').replace(/\0.*$/, '');
         const size = oct(h.subarray(124, 136));
@@ -139,23 +174,81 @@ export function tarParser(onEntry, { wantData = () => false } = {}) {
         else onEntry(entry);
         skip = padded;
       }
-    },
-  };
+    }
+  }
 }
 
-/** Reads one file's contents out of a tar file on disk. Resolves null when it isn't there. */
-export function readFromTar(tarPath, wanted) {
+/**
+ * THE way to read a tar stream: every reader uses this. Feeds `stream` through a tar parser and resolves only once
+ * the stream has ended AND the archive is complete and well formed (`finish()`). Any parser error, stream error or
+ * premature end REJECTS, after stopping the stream, so the caller's own error handling and cleanup run. It never
+ * throws uncaught, and never resolves from a partial read.
+ */
+export function consumeTar(stream, onEntry, opts) {
   return new Promise((resolve, reject) => {
-    let found = null;
-    const parser = tarParser(
-      (e) => {
-        if (e.data && e.path.replace(/^\.?\//, '') === wanted) found = e.data;
-      },
-      { wantData: (p) => p.replace(/^\.?\//, '') === wanted },
-    );
-    createReadStream(tarPath)
-      .on('data', (c) => parser.push(c))
-      .on('error', reject)
-      .on('end', () => resolve(found));
+    const parser = tarParser(onEntry, opts);
+    let settled = false;
+    const fail = (e) => {
+      if (settled) return;
+      settled = true;
+      stream.destroy();
+      reject(e);
+    };
+    stream.on('data', (c) => {
+      if (settled) return;
+      try {
+        parser.push(c);
+      } catch (e) {
+        fail(e);
+      }
+    });
+    stream.on('error', fail);
+    stream.on('end', () => {
+      if (settled) return;
+      try {
+        parser.finish();
+      } catch (e) {
+        fail(e);
+        return;
+      }
+      settled = true;
+      resolve();
+    });
   });
+}
+
+/**
+ * `docker export` of a created container, through consumeTar: resolves only when the archive is complete AND docker
+ * exited 0. Any failure rejects (and stops docker), so the caller's cleanup (removing the container) runs.
+ */
+export async function consumeDockerExport(containerId, onEntry, opts, { spawn }) {
+  const child = spawn('docker', ['export', containerId]);
+  const exited = new Promise((resolve, reject) => {
+    child.on('error', reject);
+    child.on('close', (code) =>
+      code === 0 ? resolve() : reject(new Error(`docker export exited ${code}`)),
+    );
+  });
+  exited.catch(() => {}); // awaited below on success; on failure the first error is the one reported
+  try {
+    await consumeTar(child.stdout, onEntry, opts);
+    await exited;
+  } catch (e) {
+    child.kill();
+    throw e;
+  }
+}
+
+/** Reads one file's contents out of a tar file on disk. Resolves null when it isn't there; a malformed or truncated
+ * archive rejects (consumeTar). */
+export async function readFromTar(tarPath, wanted) {
+  let found = null;
+  await consumeTar(
+    createReadStream(tarPath),
+    (e) => {
+      if (e.data && e.path.replace(/^\.?\//, '') === wanted) found = e.data;
+    },
+    { wantData: (p) => p.replace(/^\.?\//, '') === wanted },
+  );
+  return found;
 }

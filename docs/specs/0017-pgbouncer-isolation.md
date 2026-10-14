@@ -192,6 +192,20 @@ Implementing PB10 surfaced a policy question and two gaps, now written into PB10
   - **Tests:** 8 tar tests and 21 inventory tests, including both attacks end to end through `checkFacts`, a UTF-8 byte-length control, and truncated or malformed records.
   - **Mutant:** with the old regex decoder put back, 7 of them fail.
   - **Independent cross-check:** Python's `tarfile` wrote the owner's two archives and a UTF-8 one, and our reader agrees with it exactly on all three.
+- **The shared reader's integration,** found in the owner's review of `e156fa1`:
+  - **What was wrong:** a truncated stream still succeeded, because the parser had no end-of-stream check. `readFromTar` let decoder errors escape uncaught, terminating Node instead of rejecting to `savedConfig` and `sameImage`.
+  - **Now, at end of stream:** the parser has a `finish()`. It refuses:
+    - a stream that ends inside a header or inside an entry's data;
+    - extended metadata with no entry after it;
+    - a missing end-of-archive marker;
+    - any data after that marker.
+
+    A parser that has failed stays failed.
+
+  - **One path for every reader:** `consumeTar()` (and `consumeDockerExport()` for `docker export`) feeds the stream, stops it on any error, requires `finish()`, and only then resolves, so errors always reject to the caller. `readFromTar`, `inspect.mjs`, the canary and the PgBouncer inventory all use it.
+  - **Cleanup:** `sameImage` removes its temporary tar in a `finally`, so the normal cleanup runs on failure too.
+  - **Tests:** 13 tar tests cover genuinely truncated streams, with no padding or end blocks appended: the owner's manifest-then-short-pax case, a partial header, orphan metadata and a missing end marker. Malformed input and premature end are each shown to reject through `readFromTar`, `savedConfig`, `sameImage` and the docker-export reader, which also stops docker. Seven mutation checks each fail their intended test.
+  - **Checks still passing:** every image-tool suite. The inspector reads the real PgBouncer image through the new path and passes.
 
 ## Owner review of revision 2
 

@@ -2,13 +2,20 @@
 // Run: node --test tools/images/tar.test.mjs
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { tarParser } from './tar.mjs';
+import { mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { savedConfig, sameImage } from './gates.mjs';
+import { EventEmitter } from 'node:events';
+import { Readable } from 'node:stream';
+import { consumeDockerExport, readFromTar, tarParser } from './tar.mjs';
 import { block, header, paxEntry, paxRecord } from './tar-fixtures.mjs';
 
 const parse = (buf) => {
   const out = [];
   const p = tarParser((e) => out.push(e));
-  p.push(Buffer.concat([buf, Buffer.alloc(1024)]));
+  p.push(Buffer.concat([buf, Buffer.alloc(1024)])); // the two end-of-archive blocks
+  p.finish();
   return out.map(({ path, type, link }) => ({ path, type, link }));
 };
 
@@ -145,4 +152,143 @@ test('[PB10] pax uid and gid override the header; a zero-length extended header 
       { path: 'g2', uid: 0, gid: 0 },
     ],
   );
+});
+
+// ---------- premature EOF and malformed input reject through every caller (owner review of e156fa1) ----------
+
+const fileEntry = (name, content) =>
+  Buffer.concat([header(name, '0', { size: Buffer.byteLength(content) }), block(content)]);
+const END = Buffer.alloc(1024);
+const MANIFEST =
+  '[{"Config":"blobs/sha256/1111111111111111111111111111111111111111111111111111111111111111"}]';
+/** A complete manifest entry, then a pax header declaring 200 bytes but carrying a short payload: genuinely cut off. */
+const truncatedAfterManifest = () =>
+  Buffer.concat([
+    fileEntry('manifest.json', MANIFEST),
+    header('PaxHeaders/x', 'x', { size: 200 }),
+    Buffer.from('20 path=short\n'),
+  ]);
+const malformedPax = () =>
+  Buffer.concat([fileEntry('manifest.json', MANIFEST), paxEntry(['99 path=x\n'], 'f', '0'), END]);
+const finishAfter = (buf) => {
+  const p = tarParser(() => {});
+  p.push(buf);
+  return () => p.finish();
+};
+
+test('[PB10] premature EOF is refused: inside data, inside a header, after metadata, or before the end marker', () => {
+  assert.throws(
+    finishAfter(truncatedAfterManifest()),
+    /ended inside an entry's data \(truncated\)/,
+  );
+  assert.throws(
+    finishAfter(header('f', '0').subarray(0, 100)),
+    /ended inside a header \(truncated\)/,
+  );
+  assert.throws(
+    finishAfter(paxEntry([paxRecord('path', 'p')], 'f', '0').subarray(0, 1024)),
+    /extended metadata, with no entry for it/,
+  );
+  assert.throws(
+    finishAfter(fileEntry('manifest.json', MANIFEST)),
+    /no end-of-archive marker \(truncated\)/,
+  );
+  assert.doesNotThrow(finishAfter(Buffer.concat([fileEntry('manifest.json', MANIFEST), END])));
+});
+
+test('[PB10] data after the end-of-archive marker is refused, and a failed parser stays failed', () => {
+  const p = tarParser(() => {});
+  assert.throws(
+    () => p.push(Buffer.concat([END, header('late', '0')])),
+    /data after the end-of-archive marker/,
+  );
+  assert.throws(() => p.push(END), /data after the end-of-archive marker/);
+  assert.throws(() => p.finish(), /data after the end-of-archive marker/);
+});
+
+/** A temporary tar file holding `bytes`. */
+const tmpTar = (bytes) => {
+  const dir = mkdtempSync(join(tmpdir(), 'uv-tar-'));
+  writeFileSync(join(dir, 'x.tar'), bytes);
+  return { dir, path: join(dir, 'x.tar') };
+};
+
+test('[PB10] readFromTar rejects premature EOF and malformed input (never resolves, never throws uncaught)', async () => {
+  for (const [bytes, re] of [
+    [truncatedAfterManifest(), /truncated/],
+    [malformedPax(), /pax: the record at byte 0 declares 99 bytes/],
+  ]) {
+    const { dir, path } = tmpTar(bytes);
+    try {
+      await assert.rejects(readFromTar(path, 'manifest.json'), re);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+  const { dir, path } = tmpTar(Buffer.concat([fileEntry('manifest.json', MANIFEST), END]));
+  try {
+    assert.equal((await readFromTar(path, 'manifest.json')).toString(), MANIFEST); // the control
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('[PB10] savedConfig and sameImage reject through the caller, and sameImage still removes its temporary tar', async () => {
+  for (const [bytes, re] of [
+    [truncatedAfterManifest(), /truncated/],
+    [malformedPax(), /declares 99 bytes/],
+  ]) {
+    const work = mkdtempSync(join(tmpdir(), 'uv-gates-'));
+    // A stand-in for `docker save image -o <path>` that writes the bad archive.
+    const sh = (_cmd, args) => {
+      writeFileSync(args[args.indexOf('-o') + 1], bytes);
+      return { status: 0, stdout: '', stderr: '' };
+    };
+    try {
+      await assert.rejects(savedConfig('img', work, 'saved.tar', { sh }), re);
+      await assert.rejects(sameImage('img', 'sha256:1', work, { sh }), re);
+      assert.deepEqual(
+        readdirSync(work).filter((f) => f.startsWith('recheck-')),
+        [],
+      ); // cleanup ran
+    } finally {
+      rmSync(work, { recursive: true, force: true });
+    }
+  }
+});
+
+/** A stand-in for `spawn('docker', ['export', id])`: streams `bytes`, then exits with `code`. */
+function fakeSpawn(bytes, code = 0) {
+  const calls = { killed: false };
+  const spawn = () => {
+    const child = new EventEmitter();
+    child.stdout = Readable.from([bytes]);
+    child.kill = () => {
+      calls.killed = true;
+    };
+    child.stdout.on('end', () => setImmediate(() => child.emit('close', code)));
+    child.stdout.on('close', () => setImmediate(() => child.emit('close', code)));
+    return child;
+  };
+  return { spawn, calls };
+}
+
+test('[PB10] every docker-export reader rejects premature EOF, malformed input and a failed docker, and stops docker', async () => {
+  const ok = Buffer.concat([fileEntry('manifest.json', MANIFEST), END]);
+  for (const [bytes, code, re] of [
+    [truncatedAfterManifest(), 0, /truncated/],
+    [malformedPax(), 0, /declares 99 bytes/],
+    [ok, 1, /docker export exited 1/],
+  ]) {
+    const { spawn, calls } = fakeSpawn(bytes, code);
+    await assert.rejects(
+      consumeDockerExport('c1', () => {}, {}, { spawn }),
+      re,
+    );
+    assert.ok(calls.killed, `docker was stopped after: ${re}`);
+  }
+  const seen = [];
+  const { spawn } = fakeSpawn(ok);
+  await consumeDockerExport('c1', (e) => seen.push(e.path), {}, { spawn }); // the control
+  assert.deepEqual(seen, ['manifest.json']);
 });

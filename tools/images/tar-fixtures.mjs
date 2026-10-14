@@ -43,7 +43,9 @@ export function paxEntry(records, name, flag, linkname = '') {
 /** Every entry of an archive, as the tar reader reports it ({ path, type, link }). */
 export function parseArchive(buf, tarParser) {
   const out = [];
-  tarParser((e) => out.push(e)).push(Buffer.concat([buf, Buffer.alloc(1024)]));
+  const p = tarParser((e) => out.push(e));
+  p.push(Buffer.concat([buf, Buffer.alloc(1024)])); // the two end-of-archive blocks
+  p.finish();
   return out.map(({ path, type, link }) =>
     link === undefined ? { path, type } : { path, type, link },
   );
