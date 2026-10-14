@@ -9,7 +9,7 @@
 import { createHash } from 'node:crypto';
 import { spawn, spawnSync } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, posix } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { REPO } from './release-lib.mjs';
 import { tarParser } from './tar.mjs';
@@ -86,6 +86,17 @@ export const pgbouncerCpe = (version) => `cpe:2.3:a:pgbouncer:pgbouncer:${versio
 
 // ---------- the checks (pure: facts in, problems out) ----------
 
+/** libevent's soname link, the only link the build adds; its target must be one of libevent's listed files. */
+export const LIBEVENT_LINKS = ['usr/lib/x86_64-linux-gnu/libevent-2.1.so.7'];
+const SUPPORTED_TYPES = new Set(['file', 'dir', 'symlink']);
+const validHashes = (f) =>
+  !!f && /^[0-9a-f]{64}$/.test(f.sha256 ?? '') && /^[0-9a-f]{32}$/.test(f.md5 ?? '');
+/** path (without a trailing slash) → entry. */
+const entryMap = (entries) =>
+  new Map(
+    entries.map((e) => [e.path.replace(/\/$/, ''), { ...e, path: e.path.replace(/\/$/, '') }]),
+  );
+
 /**
  * Where an image's package records and its files disagree: `deviations` maps `pkg:path` → 'absent' | 'differs from
  * its listed md5'. `problems` are records that can't be read or list nothing.
@@ -114,7 +125,7 @@ export function recordDeviations(records, files) {
 /**
  * Every PB10 tie and inventory check that doesn't need the inventory file itself.
  * `facts`: { imageId, labels, versionOutput, records: { pkg: { control, md5sums } }, files: { path: { sha256, md5 } },
- *            entries: [{ path, type }] }; `base`: { records, files } from the pinned runtime base image; `pins` from
+ *            entries: [{ path, type, link? }] }; `base`: { records, files, entries } from the pinned runtime base image; `pins` from
  *            the Dockerfile.
  */
 export function checkFacts(facts, base, pins) {
@@ -175,6 +186,17 @@ export function checkFacts(facts, base, pins) {
       );
   }
 
+  // Every entry is a supported kind, and every regular file carries valid hashes. Hardlinks are rejected rather than
+  // resolved: neither the base nor the build produces any, so one would be unexplained.
+  for (const e of facts.entries) {
+    if (!SUPPORTED_TYPES.has(e.type))
+      problems.push(
+        `${e.path} is a ${e.type} entry: only regular files, directories and symlinks are supported`,
+      );
+    else if (e.type === 'file' && !validHashes(facts.files[e.path]))
+      problems.push(`${e.path} has no valid SHA-256 and md5`);
+  }
+
   // The base is preserved byte for byte: every file of the pinned base image is in the final image, unchanged.
   // (Removing or altering a base library fails here, whatever its package record says.)
   for (const [path, f] of Object.entries(base.files)) {
@@ -182,7 +204,21 @@ export function checkFacts(facts, base, pins) {
     if (!g) problems.push(`${path}, a file of the base image, is missing from the final image`);
     else if (g.sha256 !== f.sha256) problems.push(`${path} differs from the base image's copy`);
   }
-  // Only the expected additions: PgBouncer, and libevent's listed files and record. Nothing else.
+  // ...and so is every base entry's kind and every base link's target.
+  const finalEntries = entryMap(facts.entries);
+  for (const b of entryMap(base.entries ?? []).values()) {
+    const f = finalEntries.get(b.path);
+    if (!f)
+      problems.push(`${b.path}, a ${b.type} of the base image, is missing from the final image`);
+    else if (f.type !== b.type)
+      problems.push(`${b.path} is a ${f.type}, but the base image has a ${b.type}`);
+    else if (b.type === 'symlink' && f.link !== b.link)
+      problems.push(
+        `${b.path} links to ${f.link ?? '(nothing)'}, but the base image's link points to ${b.link}`,
+      );
+  }
+  // Only the expected additions: PgBouncer; libevent's listed files, its record, and its soname link to one of its
+  // listed files; and the directories holding them. Nothing else.
   const libeventFiles = new Set();
   try {
     for (const { path } of parseMd5sums(facts.records[LIBEVENT_PKG]?.md5sums ?? ''))
@@ -196,12 +232,35 @@ export function checkFacts(facts, base, pins) {
     `${STATUS_DIR}${LIBEVENT_PKG}.md5sums`,
     ...libeventFiles,
   ]);
+  const baseEntries = entryMap(base.entries ?? []);
+  const addedDirsAllowed = new Set();
+  for (const p of [...allowed, ...LIBEVENT_LINKS])
+    for (let d = posix.dirname(p); d !== '.' && d !== '/'; d = posix.dirname(d))
+      addedDirsAllowed.add(d);
   for (const e of facts.entries) {
-    if (e.type === 'file' && !base.files[e.path] && !allowed.has(e.path))
-      problems.push(
-        `${e.path} is in the image but is neither a base file nor an expected addition`,
-      );
+    if (baseEntries.has(e.path.replace(/\/$/, '')) || base.files[e.path]) continue;
+    if (e.type === 'file') {
+      if (!allowed.has(e.path))
+        problems.push(
+          `${e.path} is in the image but is neither a base file nor an expected addition`,
+        );
+    } else if (e.type === 'symlink') {
+      const target = e.link ? posix.normalize(posix.join(posix.dirname(e.path), e.link)) : '';
+      if (!LIBEVENT_LINKS.includes(e.path))
+        problems.push(
+          `${e.path} is a link in the image that is neither the base's nor an expected addition`,
+        );
+      else if (!libeventFiles.has(target))
+        problems.push(
+          `${e.path} links to ${e.link ?? '(nothing)'}, which isn't one of ${LIBEVENT_PKG}'s files`,
+        );
+    } else if (e.type === 'dir' && !addedDirsAllowed.has(e.path.replace(/\/$/, ''))) {
+      problems.push(`${e.path} is a directory in the image that holds no expected addition`);
+    }
   }
+  for (const l of LIBEVENT_LINKS)
+    if (finalEntries.get(l)?.type !== 'symlink')
+      problems.push(`${l}, libevent's soname link, is missing`);
   // Records against files. libevent's record must match its files exactly. The base's own records may deviate from
   // its files (distroless ships only the CA bundle, and its own os-release), but only exactly as the pinned base
   // does: any new deviation is a problem.
@@ -232,6 +291,13 @@ export function debPurl(control, distroVersion) {
   return `pkg:deb/debian/${control.Package}@${encodeURIComponent(control.Version)}?${q.join('&')}`;
 }
 
+/** A file's SHA-256, which must be present and well formed: the inventory is never written with a gap. */
+const sha256Of = (f, path) => {
+  if (!/^[0-9a-f]{64}$/.test(f?.sha256 ?? ''))
+    throw new Error(`${path}'s hash is missing or invalid: the inventory would be incomplete`);
+  return f.sha256;
+};
+
 const required = (v, what) => {
   if (v === undefined || v === null || v === '')
     throw new Error(`${what} is missing: the inventory would be incomplete`);
@@ -246,26 +312,64 @@ export function buildInventory(facts, pins) {
     .sort()
     .map((pkg) => {
       const c = parseControl(facts.records[pkg].control);
-      const files = parseMd5sums(facts.records[pkg].md5sums ?? '').map((l) => l.path);
+      const listed = parseMd5sums(facts.records[pkg].md5sums ?? '');
       return {
         'bom-ref': `deb:${pkg}`,
         type: 'library',
         name: pkg,
         version: c.Version,
         purl: debPurl(c, distroVersion),
-        // Every listed file, explicitly: its hash, or the recorded fact that the image doesn't ship it (a base
-        // deviation checkFacts has already confirmed is the pinned base's own). Nothing is silently left out.
-        properties: files.map((p) => {
-          const f = facts.files[p];
-          return f
-            ? { name: `univarse:file-sha256:${p}`, value: f.sha256 }
-            : {
-                name: `univarse:file-absent:${p}`,
+        // Every listed file, explicitly. A shipped file gets its hash, and if its bytes differ from the record's md5 that
+        // is marked too; a file the image doesn't ship is marked absent. (checkFacts has confirmed any such deviation is
+        // the pinned base's own.) Nothing is silently left out.
+        properties: listed.flatMap(({ md5, path }) => {
+          const f = facts.files[path];
+          if (!f)
+            return [
+              {
+                name: `univarse:file-absent:${path}`,
                 value: 'listed by the record, not shipped by the base image',
-              };
+              },
+            ];
+          const hash = { name: `univarse:file-sha256:${path}`, value: sha256Of(f, path) };
+          return f.md5 === md5
+            ? [hash]
+            : [
+                hash,
+                {
+                  name: `univarse:file-md5-differs-from-record:${path}`,
+                  value: 'shipped as the pinned base image ships it, not as its record lists',
+                },
+              ];
         }),
       };
     });
+  // Every other regular file, and every symlink with its target: so no file of the image is missing from its inventory.
+  const owned = new Set([BINARY]);
+  for (const pkg of Object.keys(facts.records))
+    for (const { path } of parseMd5sums(facts.records[pkg].md5sums ?? '')) owned.add(path);
+  const entries = [...facts.entries].sort((a, b) =>
+    a.path < b.path ? -1 : a.path > b.path ? 1 : 0,
+  );
+  const imageFiles = {
+    'bom-ref': 'image-files',
+    type: 'data',
+    name: 'univarse-pgbouncer image files and links owned by no package',
+    properties: [
+      ...entries
+        .filter((e) => e.type === 'file' && !owned.has(e.path))
+        .map((e) => ({
+          name: `univarse:file-sha256:${e.path}`,
+          value: sha256Of(facts.files[e.path], e.path),
+        })),
+      ...entries
+        .filter((e) => e.type === 'symlink')
+        .map((e) => ({
+          name: `univarse:symlink:${e.path.replace(/\/$/, '')}`,
+          value: required(e.link, `${e.path}'s link target`),
+        })),
+    ],
+  };
   const version = facts.labels?.['org.univarse.pgbouncer.version'];
   return {
     bomFormat: 'CycloneDX',
@@ -283,9 +387,7 @@ export function buildInventory(facts, pins) {
         version,
         cpe: pgbouncerCpe(version),
         purl: `pkg:generic/pgbouncer@${version}`,
-        hashes: [
-          { alg: 'SHA-256', content: required(facts.files[BINARY]?.sha256, `${BINARY}'s hash`) },
-        ],
+        hashes: [{ alg: 'SHA-256', content: sha256Of(facts.files[BINARY], BINARY) }],
         externalReferences: [
           {
             type: 'distribution',
@@ -295,6 +397,7 @@ export function buildInventory(facts, pins) {
         ],
       },
       ...pkgComponents,
+      imageFiles,
     ],
   };
 }
@@ -349,7 +452,7 @@ async function readImage(image, { hashFiles = true } = {}) {
       const parser = tarParser(
         (e) => {
           const path = e.path.replace(/^\.?\//, '');
-          entries.push({ path, type: e.type });
+          entries.push({ path, type: e.type, ...(e.link !== undefined ? { link: e.link } : {}) });
           // The parser collects no data for an empty file: hash it as the empty buffer it is.
           const data =
             e.data ?? (e.type === 'file' && e.size === 0 && want(path) ? Buffer.alloc(0) : null);
@@ -400,8 +503,8 @@ export async function gatherFacts(image) {
 export async function gatherBase(baseImage) {
   docker(['pull', '-q', baseImage]);
   const [meta] = JSON.parse(docker(['image', 'inspect', baseImage]));
-  const { records, files } = await readImage(meta.Id);
-  return { records, files };
+  const { records, files, entries } = await readImage(meta.Id);
+  return { records, files, entries };
 }
 
 async function main() {

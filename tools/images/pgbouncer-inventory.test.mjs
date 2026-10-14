@@ -50,6 +50,25 @@ function fixture() {
     [`${S}${LIBEVENT_PKG}`]: file(evCtl),
     [`${S}${LIBEVENT_PKG}.md5sums`]: file(evSums),
   };
+  // Directories and a base symlink, as a real image has them; the build adds libevent's soname link and its doc dir.
+  const baseEntries = [
+    { path: 'etc/', type: 'dir' },
+    { path: 'usr/lib/x86_64-linux-gnu/', type: 'dir' },
+    { path: 'usr/lib/x86_64-linux-gnu/libz.so.1', type: 'symlink', link: 'libz.so.1.3.1' },
+    ...Object.keys(baseFiles).map((path) => ({ path, type: 'file' })),
+  ];
+  const addedEntries = [
+    { path: 'usr/bin/', type: 'dir' },
+    { path: `usr/share/doc/${LIBEVENT_PKG}/`, type: 'dir' },
+    {
+      path: 'usr/lib/x86_64-linux-gnu/libevent-2.1.so.7',
+      type: 'symlink',
+      link: 'libevent-2.1.so.7.0.2',
+    },
+    ...Object.keys(files)
+      .filter((p) => !baseFiles[p])
+      .map((path) => ({ path, type: 'file' })),
+  ];
   const facts = {
     imageId: 'sha256:abc',
     labels: {
@@ -62,9 +81,9 @@ function fixture() {
       [LIBEVENT_PKG]: { control: evCtl, md5sums: evSums },
     },
     files,
-    entries: Object.keys(files).map((path) => ({ path, type: 'file' })),
+    entries: [...structuredClone(baseEntries), ...addedEntries],
   };
-  const base = { records: baseRecords, files: baseFiles };
+  const base = { records: baseRecords, files: baseFiles, entries: baseEntries };
   const pins = { runtimeImage: 'base@sha256:1', version: '1.26.0', sourceSha256: 'deadbeef' };
   return { facts, base, pins };
 }
@@ -211,4 +230,127 @@ test('[PB10] parsing: Debian purls carry the source package; versions; control f
     adns: 'evdns2',
   });
   assert.equal(pgbouncerCpe('1.26.0'), 'cpe:2.3:a:pgbouncer:pgbouncer:1.26.0:*:*:*:*:*:*:*');
+});
+
+// ---------- links, entry kinds and complete hashes (owner review of 38ef2fa) ----------
+
+const linkOf = (facts, path) => facts.entries.find((e) => e.path === path);
+
+test('[PB10] a retargeted or removed base link fails', () => {
+  let { facts, base, pins } = fixture();
+  linkOf(facts, 'usr/lib/x86_64-linux-gnu/libz.so.1').link = 'libz.so.9';
+  fails(
+    checkFacts(facts, base, pins),
+    /libz\.so\.1 links to libz\.so\.9, but the base image's link points to libz\.so\.1\.3\.1/,
+  );
+  ({ facts, base, pins } = fixture());
+  facts.entries = facts.entries.filter((e) => e.path !== 'usr/lib/x86_64-linux-gnu/libz.so.1');
+  fails(checkFacts(facts, base, pins), /libz\.so\.1, a symlink of the base image, is missing/);
+});
+
+test('[PB10] two links with different targets are different facts (targets are read, not discarded)', () => {
+  const a = fixture();
+  const b = fixture();
+  linkOf(b.facts, 'usr/lib/x86_64-linux-gnu/libz.so.1').link = 'elsewhere';
+  assert.notDeepEqual(a.facts.entries, b.facts.entries);
+  assert.notDeepEqual(buildInventory(a.facts, a.pins), buildInventory(b.facts, b.pins));
+});
+
+test("[PB10] an extra unowned link fails, and so does libevent's soname link pointing outside libevent", () => {
+  let { facts, base, pins } = fixture();
+  facts.entries.push({
+    path: 'usr/lib/x86_64-linux-gnu/libcares.so.2',
+    type: 'symlink',
+    link: 'libz.so.1.3.1',
+  });
+  fails(
+    checkFacts(facts, base, pins),
+    /libcares\.so\.2 is a link in the image that is neither the base's nor an expected addition/,
+  );
+  ({ facts, base, pins } = fixture());
+  linkOf(facts, 'usr/lib/x86_64-linux-gnu/libevent-2.1.so.7').link = 'libz.so.1.3.1';
+  fails(
+    checkFacts(facts, base, pins),
+    /libevent-2\.1\.so\.7 links to libz\.so\.1\.3\.1, which isn't one of libevent-2\.1-7t64's files/,
+  );
+});
+
+test('[PB10] hardlinks, devices and unknown entry kinds are rejected; a base file swapped for a link fails', () => {
+  let { facts, base, pins } = fixture();
+  facts.entries.push({ path: 'usr/bin/pgbouncer2', type: 'hardlink', link: 'usr/bin/pgbouncer' });
+  fails(
+    checkFacts(facts, base, pins),
+    /pgbouncer2 is a hardlink entry: only regular files, directories and symlinks are supported/,
+  );
+  ({ facts, base, pins } = fixture());
+  facts.entries.push({ path: 'dev/sda', type: 'block' }, { path: 'x', type: 'other' });
+  const p = checkFacts(facts, base, pins);
+  fails(p, /dev\/sda is a block entry/);
+  fails(p, /x is a other entry/);
+  ({ facts, base, pins } = fixture());
+  const e = facts.entries.find((x) => x.path === 'etc/ssl/certs/ca-certificates.crt');
+  e.type = 'symlink';
+  e.link = '/tmp/evil.crt';
+  fails(
+    checkFacts(facts, base, pins),
+    /ca-certificates\.crt is a symlink, but the base image has a file/,
+  );
+});
+
+test('[PB10] a present file without a valid SHA-256 fails, even with its md5 intact (libevent)', () => {
+  const { facts, base, pins } = fixture();
+  delete facts.files['usr/lib/x86_64-linux-gnu/libevent-2.1.so.7.0.2'].sha256;
+  fails(checkFacts(facts, base, pins), /libevent-2\.1\.so\.7\.0\.2 has no valid SHA-256 and md5/);
+  assert.throws(
+    () => buildInventory(facts, pins),
+    /libevent-2\.1\.so\.7\.0\.2's hash is missing or invalid/,
+  );
+});
+
+test('[PB10] every regular file is in the inventory, including base files no record lists', () => {
+  const { facts, base, pins } = fixture();
+  // etc/debian_version and the CA bundle's record files are listed by no md5sums: they must still be inventoried.
+  const inv = buildInventory(facts, pins);
+  const names = new Set(inv.components.flatMap((c) => (c.properties ?? []).map((p) => p.name)));
+  for (const e of facts.entries.filter((x) => x.type === 'file' && x.path !== 'usr/bin/pgbouncer'))
+    assert.ok(
+      names.has(`univarse:file-sha256:${e.path}`),
+      `${e.path} is missing from the inventory`,
+    );
+  assert.ok(names.has('univarse:symlink:usr/lib/x86_64-linux-gnu/libz.so.1'));
+  assert.deepEqual(checkFacts(facts, base, pins), []);
+  // An inventory with one of those files removed no longer verifies.
+  const files = inv.components.find((c) => c['bom-ref'] === 'image-files');
+  files.properties = files.properties.filter(
+    (p) => p.name !== 'univarse:file-sha256:etc/debian_version',
+  );
+  fails(checkInventory(inv, facts, pins), /differs from what the image's own facts produce/);
+});
+
+test('[PB10] an approved absence and a present file differing from its record are marked distinctly', () => {
+  const { facts, base, pins } = fixture();
+  // The base ships zlib's library with bytes its own record doesn't list (as distroless does with os-release).
+  for (const f of [base.files, facts.files])
+    f['usr/lib/x86_64-linux-gnu/libz.so.1.3.1'] = file('ZLIB-AS-THE-BASE-SHIPS-IT');
+  assert.deepEqual(checkFacts(facts, base, pins), []);
+  const zlib = buildInventory(facts, pins).components.find((c) => c.name === 'zlib1g');
+  const names = zlib.properties.map((p) => p.name);
+  assert.ok(names.includes('univarse:file-sha256:usr/lib/x86_64-linux-gnu/libz.so.1.3.1'));
+  assert.ok(
+    names.includes('univarse:file-md5-differs-from-record:usr/lib/x86_64-linux-gnu/libz.so.1.3.1'),
+  );
+  assert.ok(!names.some((n) => n.startsWith('univarse:file-absent:')));
+  const ca = buildInventory(facts, pins).components.find((c) => c.name === 'ca-certificates');
+  assert.ok(
+    ca.properties.some((p) => p.name === 'univarse:file-absent:usr/sbin/update-ca-certificates'),
+  );
+  assert.ok(
+    !ca.properties.some((p) => p.name.startsWith('univarse:file-md5-differs-from-record:')),
+  );
+});
+
+test('[PB10] a file entry with no hash record at all fails (not only a record missing its SHA-256)', () => {
+  const { facts, base, pins } = fixture();
+  delete facts.files[`usr/share/doc/${LIBEVENT_PKG}/copyright`];
+  fails(checkFacts(facts, base, pins), /copyright has no valid SHA-256 and md5/);
 });
