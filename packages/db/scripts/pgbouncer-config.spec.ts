@@ -4,6 +4,7 @@ import {
   closeSync,
   mkdtempSync,
   openSync,
+  mkdirSync,
   readdirSync,
   readFileSync,
   readSync,
@@ -21,6 +22,7 @@ import {
   parseIcacls,
   posixModeProblems,
   realOwnerOnlyOps,
+  restrictDirToOwner,
   renderAuthFile,
   renderIni,
   scramVerifier,
@@ -197,6 +199,7 @@ describe("[PB9] the auth file is written fresh, owner-only, and swapped in atomi
       },
       fchmod: (_fd, mode) => log.push(`fchmod ${mode.toString(8)}`),
       chmod: (path, mode) => log.push(`chmod ${path} ${mode.toString(8)}`),
+      setOwnerOnlyDirAcl: (path) => log.push(`setacl ${path}`),
       write: () => log.push('write'),
       fsync: () => log.push('fsync'),
       close: () => {
@@ -229,16 +232,15 @@ describe("[PB9] the auth file is written fresh, owner-only, and swapped in atomi
     };
     return { ops, log };
   }
-  /** An operation that can change permissions: an icacls call with options, chmod or fchmod. */
+  /** An operation that can change permissions: an icacls call with options, a DACL write, chmod or fchmod. */
   const changesPermissions = (entry: string) =>
-    /^icacls \S+ \//.test(entry) || /^f?chmod /.test(entry);
+    /^icacls \S+ \//.test(entry) || /^(f?chmod|setacl) /.test(entry);
 
-  it('Windows: the directory first (reset, owner-only, inheritable), then the empty file narrowed, written, checked read only, renamed, checked read only; /reset never touches a file', () => {
+  it('Windows: the directory first (one DACL write, owner-only, inheritable), then the empty file narrowed, written, checked read only, renamed, checked read only; never /reset', () => {
     const { ops, log } = world('win32');
     writeOwnerOnly(target, 'verifiers', ops);
     expect(log).toEqual([
-      `icacls ${DIR} /reset`,
-      `icacls ${DIR} /inheritance:r /grant:r ${USER}:(OI)(CI)F`,
+      `setacl ${DIR}`,
       `icacls ${DIR}`,
       `create ${tmp}`,
       `icacls ${tmp} /inheritance:r /grant:r ${USER}:F`,
@@ -250,8 +252,10 @@ describe("[PB9] the auth file is written fresh, owner-only, and swapped in atomi
       `rename ${tmp} -> ${target}`,
       `icacls ${target}`,
     ]);
-    expect(log.filter((l) => l.includes('/reset'))).toEqual([`icacls ${DIR} /reset`]);
-    expect(log.slice(log.indexOf(`create ${tmp}`)).join('\n')).not.toContain('/reset');
+    expect(log.join('\n')).not.toContain('/reset');
+    expect(log.slice(0, log.indexOf(`create ${tmp}`)).filter(changesPermissions)).toEqual([
+      `setacl ${DIR}`,
+    ]); // exactly one change to the directory
     expect(log.slice(log.indexOf('write')).filter(changesPermissions)).toEqual([]);
   });
 
@@ -420,6 +424,61 @@ describe("[PB9] the auth file is written fresh, owner-only, and swapped in atomi
       rmSync(dir, { recursive: true, force: true });
     }
   });
+
+  // Native Windows only (it's about ACL inheritance): an existing auth file that still INHERITS the private
+  // directory's ACL, under a broadly permissive ancestor, with a failure injected immediately after the first change
+  // to the directory. The existing file must stay private after every directory change and at the end. A `/reset`
+  // (or any widening step) on the directory would propagate the ancestor's entries to it.
+  it.runIf(process.platform === 'win32')(
+    "native Windows: an existing inheriting auth file stays private through the directory change, even if the next step fails (owner's review of df04c06)",
+    () => {
+      const root = mkdtempSync(join(tmpdir(), 'uv-authfile-'));
+      try {
+        const user = realOwnerOnlyOps.windowsUser();
+        const dir = join(root, 'priv');
+        mkdirSync(dir);
+        realOwnerOnlyOps.icacls([root, '/grant', 'Everyone:(OI)(CI)R']); // the broad ancestor
+        realOwnerOnlyOps.icacls([dir, '/inheritance:r', '/grant:r', `${user}:(OI)(CI)F`]); // private, inheritable
+        const existing = join(dir, 'userlist.txt');
+        writeFileSync(existing, 'SYNTHETIC-VERIFIERS\n');
+        const aclOf = (p: string) => parseIcacls(realOwnerOnlyOps.icacls([p]), p);
+        const PRIVATE = [`${user}:(I)(F)`];
+        expect(aclOf(existing)).toEqual(PRIVATE); // it inherits, unprotected: the unchecked case
+        expect(aclOf(root).join(' ')).toMatch(/Everyone/);
+
+        const afterEachDirChange: string[][] = [];
+        let changes = 0;
+        const changedDir = () => {
+          afterEachDirChange.push(aclOf(existing));
+          if (++changes === 1) throw new Error('injected failure after the first directory change');
+        };
+        const ops: OwnerOnlyOps = {
+          ...realOwnerOnlyOps,
+          setOwnerOnlyDirAcl: (p) => {
+            realOwnerOnlyOps.setOwnerOnlyDirAcl(p);
+            if (p === dir) changedDir();
+          },
+          icacls: (args) => {
+            const out = realOwnerOnlyOps.icacls(args);
+            if (args[0] === dir && args.length > 1) changedDir(); // any icacls change to the directory counts too
+            return out;
+          },
+        };
+        expect(() => {
+          restrictDirToOwner(dir, ops);
+        }).toThrow(/injected failure/);
+        expect(afterEachDirChange).toEqual([PRIVATE]);
+        expect(aclOf(existing)).toEqual(PRIVATE);
+
+        // and without the injected failure, the directory ends exactly owner-only and the file stays private
+        restrictDirToOwner(dir);
+        expect(ownerOnlyDirProblems(dir)).toEqual([]);
+        expect(aclOf(existing)).toEqual(PRIVATE);
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+      }
+    },
+  );
 
   // POSIX swaps the name to the new file and the reader keeps the old one. Windows refuses to replace a file another
   // handle holds open (EPERM): the write fails closed, leaving the old file in place. Either way the old handle can

@@ -191,9 +191,23 @@ export interface OwnerOnlyOps {
   uid(): number;
   /** Windows only: icacls with these arguments; returns its output. */
   icacls(args: string[]): string;
+  /** Windows only: replaces the directory's DACL in one write with a protected, owner-only inheritable one. */
+  setOwnerOnlyDirAcl(dir: string): void;
   windowsUser(): string;
   random(): string;
 }
+
+/**
+ * Replaces a directory's DACL in one write: protected, one inheritable full-control entry for the current account.
+ * `SetAccessControl` with only the Access section set writes the DACL alone (owner and SACL untouched).
+ */
+const SET_OWNER_ONLY_DIR_ACL = [
+  "$ErrorActionPreference = 'Stop'",
+  '$sid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value',
+  '$sec = New-Object System.Security.AccessControl.DirectorySecurity',
+  '$sec.SetSecurityDescriptorSddlForm("D:P(A;OICI;FA;;;$sid)", [System.Security.AccessControl.AccessControlSections]::Access)',
+  '([System.IO.DirectoryInfo]$env:UV_OWNER_ONLY_DIR).SetAccessControl($sec)',
+].join('; ');
 
 export const realOwnerOnlyOps: OwnerOnlyOps = {
   platform: process.platform,
@@ -225,6 +239,21 @@ export const realOwnerOnlyOps: OwnerOnlyOps = {
     return process.getuid();
   },
   icacls: (args) => execFileSync('icacls', args, { encoding: 'utf8' }),
+  setOwnerOnlyDirAcl: (dir) => {
+    // The path travels in the environment, never in the script text, so no quoting can change the command.
+    execFileSync(
+      'powershell.exe',
+      [
+        '-NoProfile',
+        '-NonInteractive',
+        '-ExecutionPolicy',
+        'Bypass',
+        '-Command',
+        SET_OWNER_ONLY_DIR_ACL,
+      ],
+      { env: { ...process.env, UV_OWNER_ONLY_DIR: dir }, stdio: ['ignore', 'ignore', 'pipe'] },
+    );
+  },
   windowsUser,
   random: () => randomBytes(8).toString('hex'),
 };
@@ -253,17 +282,17 @@ export function ownerOnlyDirProblems(dir: string, ops: OwnerOnlyOps = realOwnerO
 }
 
 /**
- * Makes `dir` the current user's alone, inheritably on Windows (`(OI)(CI)F`, inheritance from its parent removed),
- * then checks it, read only. It is empty of anything secret when this runs: the auth file in it is replaced, never
- * rewritten, and only after this.
+ * Makes `dir` the current user's alone, then checks it, read only.
+ * - Windows: ONE write of the final DACL, protected (no inheritance from the parent) with a single inheritable
+ *   full-control entry for the current account's SID (`D:P(A;OICI;FA;;;<SID>)`). Nothing broader is ever applied in
+ *   between (no `/reset`, which would restore the parent's inheritable entries to the directory and, through
+ *   propagation, to any existing child that still inherits from it). Children that inherit are re-derived from this
+ *   private DACL, so they only ever narrow.
+ * - POSIX: mode 0700.
  */
 export function restrictDirToOwner(dir: string, ops: OwnerOnlyOps = realOwnerOnlyOps): void {
   if (ops.platform === 'win32') {
-    // /reset first drops other principals' explicit entries (which /inheritance:r keeps). Safe here, unlike on a
-    // file: nothing secret in this directory inherits from it (the auth file's own inheritance is always removed),
-    // and the temporary file is created only after the directory checks out.
-    ops.icacls([dir, '/reset']);
-    ops.icacls([dir, '/inheritance:r', '/grant:r', `${ops.windowsUser()}:(OI)(CI)F`]);
+    ops.setOwnerOnlyDirAcl(dir);
   } else {
     ops.chmod(dir, 0o700);
   }
