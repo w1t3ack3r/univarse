@@ -563,3 +563,100 @@ function evidenceDirOf(args) {
   const v = args[args.indexOf('-v', args.indexOf('-v') + 1) + 1];
   return v.slice(0, v.lastIndexOf(':/work'));
 }
+
+test("[PB10] binding: a same-layer substitute differing only in run config fails, on both stores (owner's probe)", () => {
+  const extras = {
+    Healthcheck: { Test: ['CMD', '/usr/bin/pgbouncer', '--version'], Interval: 30_000_000_000 },
+    Volumes: { '/var/lib/data': {} },
+    StopSignal: 'SIGKILL',
+  };
+  for (const [field, value] of Object.entries(extras)) {
+    for (const index of [true, false]) {
+      const id = index ? 'sha256:idxA' : 'sha256:cfgA';
+      const expected = expectedIdentity(inspectOf(id, A_LAYERS, { index }));
+      // B: same platform, same layers, same seven familiar fields, one extra field; its own config digest; reports of B.
+      const saved = savedOf('sha256:cfgB', A_LAYERS, { config: { ...RUN_CONFIG, [field]: value } });
+      const p = bindingProblems({
+        expected,
+        saved,
+        ...scansOf('sha256:cfgB', 'sha256:cfgB', A_LAYERS),
+      });
+      has(p, /the saved image's run config isn't the expected image's/);
+    }
+  }
+});
+
+test("[PB10] binding: Docker's legacy zero-valued fields are the only normalisation; a non-zero one is compared", () => {
+  // The classic store's inspect view carries the legacy fields at their zero values; the OCI archive config doesn't.
+  const legacy = {
+    ...RUN_CONFIG,
+    Hostname: '',
+    Domainname: '',
+    AttachStdin: false,
+    AttachStdout: false,
+    AttachStderr: false,
+    Tty: false,
+    OpenStdin: false,
+    StdinOnce: false,
+    Image: '',
+    Volumes: null,
+    OnBuild: null,
+  };
+  const classic = expectedIdentity(inspectOf('sha256:cfgA', A_LAYERS, { config: legacy }));
+  assert.deepEqual(
+    bindingProblems({
+      expected: classic,
+      saved: savedOf('sha256:cfgA', A_LAYERS),
+      ...scansOf('sha256:cfgA', 'sha256:cfgA', A_LAYERS),
+    }),
+    [],
+  );
+  const tty = expectedIdentity(
+    inspectOf('sha256:cfgA', A_LAYERS, { config: { ...legacy, Tty: true } }),
+  );
+  has(
+    bindingProblems({
+      expected: tty,
+      saved: savedOf('sha256:cfgA', A_LAYERS),
+      ...scansOf('sha256:cfgA', 'sha256:cfgA', A_LAYERS),
+    }),
+    /run config isn't the expected image's/,
+  );
+  // Every other field is compared, including ones neither source happened to set before.
+  const shell = expectedIdentity(
+    inspectOf('sha256:idxA', A_LAYERS, {
+      index: true,
+      config: { ...RUN_CONFIG, Shell: ['/bin/sh', '-c'] },
+    }),
+  );
+  has(
+    bindingProblems({
+      expected: shell,
+      saved: savedOf('sha256:cfgA', A_LAYERS),
+      ...scansOf('sha256:cfgA', 'sha256:idxA', A_LAYERS),
+    }),
+    /run config isn't the expected image's/,
+  );
+});
+
+test('[PB10] binding: set-valued fields keep their members (a changed exposed port or volume is caught)', () => {
+  const expected = expectedIdentity(
+    inspectOf('sha256:idxA', A_LAYERS, {
+      index: true,
+      config: { ...RUN_CONFIG, ExposedPorts: { '6432/tcp': {} }, Volumes: { '/data': {} } },
+    }),
+  );
+  const ok = savedOf('sha256:cfgA', A_LAYERS, {
+    config: { ...RUN_CONFIG, ExposedPorts: { '6432/tcp': {} }, Volumes: { '/data': {} } },
+  });
+  const scans = scansOf('sha256:cfgA', 'sha256:idxA', A_LAYERS);
+  assert.deepEqual(bindingProblems({ expected, saved: ok, ...scans }), []);
+  for (const config of [
+    { ...RUN_CONFIG, ExposedPorts: { '5432/tcp': {} }, Volumes: { '/data': {} } },
+    { ...RUN_CONFIG, ExposedPorts: { '6432/tcp': {} } },
+  ])
+    has(
+      bindingProblems({ expected, saved: savedOf('sha256:cfgA', A_LAYERS, { config }), ...scans }),
+      /run config isn't the expected image's/,
+    );
+});

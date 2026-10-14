@@ -270,22 +270,57 @@ async function realVerifyInventory(imageId, inventory) {
   return [...checkFacts(facts, base, pins), ...checkInventory(inventory, facts, pins)];
 }
 
-/** The config fields that define how the image runs: compared between Docker's view and the saved archive. */
-const CONFIG_FIELDS = ['User', 'Entrypoint', 'Cmd', 'Env', 'Labels', 'ExposedPorts', 'WorkingDir'];
-/** Canonical JSON (sorted keys; absent and empty treated alike) for comparing configs from different sources. */
-function canonical(v) {
-  if (v === undefined || v === null || v === '' || (Array.isArray(v) && v.length === 0))
-    return null;
-  if (Array.isArray(v)) return v.map(canonical);
-  if (typeof v === 'object') {
-    const keys = Object.keys(v).sort();
-    if (keys.length === 0) return null;
-    return Object.fromEntries(keys.map((k) => [k, canonical(v[k])]));
-  }
+/**
+ * Docker's legacy container-create fields. `docker image inspect` on the classic image store shows them, at their zero
+ * values, in an image's Config; the OCI image config in an archive never carries them. Each is removed ONLY while it
+ * holds exactly this zero value: a non-zero one (a `Tty: true`, say) is compared like any other field.
+ */
+const DOCKER_ZERO_FIELDS = Object.freeze({
+  Hostname: '',
+  Domainname: '',
+  AttachStdin: false,
+  AttachStdout: false,
+  AttachStderr: false,
+  Tty: false,
+  OpenStdin: false,
+  StdinOnce: false,
+  Image: '',
+});
+/** A value with object keys sorted at every depth, and nothing else changed: values are compared exactly. */
+function sortedKeys(v) {
+  if (Array.isArray(v)) return v.map(sortedKeys);
+  if (v && typeof v === 'object')
+    return Object.fromEntries(
+      Object.keys(v)
+        .sort()
+        .map((k) => [k, sortedKeys(v[k])]),
+    );
   return v;
 }
-const configSubset = (config) =>
-  canonical(Object.fromEntries(CONFIG_FIELDS.map((k) => [k, config?.[k]])));
+/** Absent, null and empty ('' / [] / {}) mean "not set" for a top-level config field, in either source. */
+const unset = (v) =>
+  v === undefined ||
+  v === null ||
+  v === '' ||
+  (Array.isArray(v) && v.length === 0) ||
+  (typeof v === 'object' && !Array.isArray(v) && Object.keys(v).length === 0);
+/**
+ * The COMPLETE runtime config (Healthcheck, Volumes, StopSignal, Shell, OnBuild and every other field included), with
+ * only this narrowly documented normalisation, all at the FIELD level:
+ *   - Docker's legacy zero-valued fields (DOCKER_ZERO_FIELDS) are removed;
+ *   - a field that is absent, null or empty is "not set" (one source writes `Volumes: null`, the other omits it).
+ * Inside a field nothing is normalised: `Volumes: {"/data": {}}` and `ExposedPorts: {"6432/tcp": {}}` keep their
+ * members exactly (their empty `{}` values are what Docker always writes for a set member).
+ */
+function runtimeConfig(config) {
+  const out = {};
+  for (const [k, v] of Object.entries(config ?? {})) {
+    if (Object.hasOwn(DOCKER_ZERO_FIELDS, k) && v === DOCKER_ZERO_FIELDS[k]) continue;
+    if (unset(v)) continue;
+    out[k] = sortedKeys(v);
+  }
+  return sortedKeys(out);
+}
 const platformOf = (p) => `${p.os}/${p.architecture}${p.variant ? `/${p.variant}` : ''}`;
 
 /**
@@ -311,7 +346,7 @@ export function expectedIdentity(inspect) {
     id: m.Id,
     platform: { os: m.Os, architecture: m.Architecture, variant: m.Variant ?? null },
     layers: m.RootFS.Layers,
-    config: configSubset(m.Config),
+    config: runtimeConfig(m.Config),
     idIsConfigDigest: !/image\.index|manifest/.test(media),
   };
 }
@@ -338,7 +373,7 @@ export function bindingProblems({ expected, saved, grypeImageScan, trivy }) {
     );
   if (JSON.stringify(saved.diffIds) !== JSON.stringify(expected.layers))
     problems.push("the saved image's layers aren't the expected image's layers");
-  if (JSON.stringify(configSubset(saved.config)) !== JSON.stringify(expected.config))
+  if (JSON.stringify(runtimeConfig(saved.config)) !== JSON.stringify(expected.config))
     problems.push("the saved image's run config isn't the expected image's");
   if (expected.idIsConfigDigest && saved.configDigest !== expected.id)
     problems.push(
