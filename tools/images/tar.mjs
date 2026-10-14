@@ -203,6 +203,9 @@ export function consumeTar(stream, onEntry, opts) {
       }
     });
     stream.on('error', fail);
+    // A stream destroyed or closed before it ended is truncated, never a success and never left pending. (After a
+    // normal end, `close` follows and finds the promise already settled.)
+    stream.on('close', () => fail(new Error('tar: the stream closed before it ended (truncated)')));
     stream.on('end', () => {
       if (settled) return;
       try {
@@ -221,22 +224,47 @@ export function consumeTar(stream, onEntry, opts) {
  * `docker export` of a created container, through consumeTar: resolves only when the archive is complete AND docker
  * exited 0. Any failure rejects (and stops docker), so the caller's cleanup (removing the container) runs.
  */
-export async function consumeDockerExport(containerId, onEntry, opts, { spawn }) {
-  const child = spawn('docker', ['export', containerId]);
-  const exited = new Promise((resolve, reject) => {
-    child.on('error', reject);
-    child.on('close', (code) =>
-      code === 0 ? resolve() : reject(new Error(`docker export exited ${code}`)),
-    );
+export function consumeDockerExport(containerId, onEntry, opts, { spawn }) {
+  return new Promise((resolve, reject) => {
+    const child = spawn('docker', ['export', containerId]);
+    let settled = false;
+    let archiveComplete = false;
+    let exitedZero = false;
+    // Either side failing rejects at once and stops the other: the stream is destroyed and docker killed, so the
+    // caller's cleanup runs promptly, whichever side failed first.
+    const fail = (e) => {
+      if (settled) return;
+      settled = true;
+      child.stdout?.destroy();
+      try {
+        child.kill();
+      } catch {
+        // already gone
+      }
+      reject(e);
+    };
+    // Success needs both: a complete, well-formed archive AND docker exiting 0.
+    const succeedIfDone = () => {
+      if (settled || !archiveComplete || !exitedZero) return;
+      settled = true;
+      resolve();
+    };
+    child.on('error', fail);
+    child.on('close', (code) => {
+      if (code === 0) {
+        exitedZero = true;
+        succeedIfDone();
+      } else fail(new Error(`docker export exited ${code}`));
+    });
+    if (!child.stdout) {
+      fail(new Error('docker export has no output stream'));
+      return;
+    }
+    consumeTar(child.stdout, onEntry, opts).then(() => {
+      archiveComplete = true;
+      succeedIfDone();
+    }, fail);
   });
-  exited.catch(() => {}); // awaited below on success; on failure the first error is the one reported
-  try {
-    await consumeTar(child.stdout, onEntry, opts);
-    await exited;
-  } catch (e) {
-    child.kill();
-    throw e;
-  }
 }
 
 /** Reads one file's contents out of a tar file on disk. Resolves null when it isn't there; a malformed or truncated

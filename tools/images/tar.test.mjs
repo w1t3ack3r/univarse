@@ -7,8 +7,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { savedConfig, sameImage } from './gates.mjs';
 import { EventEmitter } from 'node:events';
-import { Readable } from 'node:stream';
-import { consumeDockerExport, readFromTar, tarParser } from './tar.mjs';
+import { PassThrough, Readable } from 'node:stream';
+import { consumeDockerExport, consumeTar, readFromTar, tarParser } from './tar.mjs';
 import { block, header, paxEntry, paxRecord } from './tar-fixtures.mjs';
 
 const parse = (buf) => {
@@ -281,14 +281,86 @@ test('[PB10] every docker-export reader rejects premature EOF, malformed input a
     [ok, 1, /docker export exited 1/],
   ]) {
     const { spawn, calls } = fakeSpawn(bytes, code);
-    await assert.rejects(
-      consumeDockerExport('c1', () => {}, {}, { spawn }),
-      re,
-    );
+    await assert.rejects(within(consumeDockerExport('c1', () => {}, {}, { spawn })), re);
     assert.ok(calls.killed, `docker was stopped after: ${re}`);
   }
   const seen = [];
   const { spawn } = fakeSpawn(ok);
-  await consumeDockerExport('c1', (e) => seen.push(e.path), {}, { spawn }); // the control
+  await within(consumeDockerExport('c1', (e) => seen.push(e.path), {}, { spawn })); // the control
   assert.deepEqual(seen, ['manifest.json']);
+});
+
+// ---------- lifecycle: either side failing rejects promptly and stops the other (owner review of ede30ce) ----------
+
+/** Fails the test if `promise` is still pending after `ms`: these regressions are about never hanging. */
+function within(promise, ms = 1000) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) =>
+      setTimeout(() => reject(new Error(`still pending after ${ms} ms`)), ms),
+    ),
+  ]);
+}
+
+/** A controllable stand-in for docker's child process: stdout stays open until the test ends it. */
+function controlledChild() {
+  const child = new EventEmitter();
+  child.stdout = new PassThrough();
+  child.killed = false;
+  child.kill = () => {
+    child.killed = true;
+  };
+  return { child, spawn: () => child };
+}
+
+test('[PB10] consumeTar rejects promptly when the stream closes without ending', async () => {
+  const s = new PassThrough();
+  const p = consumeTar(s, () => {});
+  s.write(header('f', '0', { size: 10 })); // an entry has begun
+  s.destroy();
+  await assert.rejects(within(p), /closed before it ended \(truncated\)/);
+  const empty = new PassThrough();
+  const q = consumeTar(empty, () => {});
+  empty.destroy();
+  await assert.rejects(within(q), /closed before it ended/);
+});
+
+test('[PB10] a child startup failure rejects promptly and stops the stream, though stdout never ended', async () => {
+  const { child, spawn } = controlledChild();
+  const p = consumeDockerExport('c1', () => {}, {}, { spawn });
+  child.emit('error', Object.assign(new Error('spawn docker ENOENT'), { code: 'ENOENT' }));
+  await assert.rejects(within(p), /ENOENT/);
+  assert.ok(child.stdout.destroyed, 'stdout was stopped');
+  assert.ok(child.killed, 'the child was stopped');
+});
+
+test('[PB10] a non-zero child exit rejects promptly and stops the stream, while stdout is still open', async () => {
+  const { child, spawn } = controlledChild();
+  const p = consumeDockerExport('c1', () => {}, {}, { spawn });
+  child.stdout.write(header('f', '0', { size: 10 })); // mid-archive, not ended
+  child.emit('close', 1);
+  await assert.rejects(within(p), /docker export exited 1/);
+  assert.ok(child.stdout.destroyed, 'stdout was stopped');
+});
+
+test('[PB10] success needs both a complete archive and a zero exit, in either order', async () => {
+  const archive = Buffer.concat([fileEntry('manifest.json', MANIFEST), END]);
+  // Archive first: still pending until docker exits 0.
+  let { child, spawn } = controlledChild();
+  let settled = false;
+  let p = consumeDockerExport('c1', () => {}, {}, { spawn }).then(() => (settled = true));
+  child.stdout.end(archive);
+  await new Promise((r) => setTimeout(r, 100));
+  assert.equal(settled, false, 'resolved before docker exited');
+  child.emit('close', 0);
+  await within(p);
+  // Exit first: still pending until the archive is complete.
+  ({ child, spawn } = controlledChild());
+  settled = false;
+  p = consumeDockerExport('c1', () => {}, {}, { spawn }).then(() => (settled = true));
+  child.emit('close', 0);
+  await new Promise((r) => setTimeout(r, 100));
+  assert.equal(settled, false, 'resolved before the archive was complete');
+  child.stdout.end(archive);
+  await within(p);
 });
