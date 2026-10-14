@@ -51,16 +51,17 @@ function statementProblems(stmt: readonly SqlToken[]): string[] {
   stmt.forEach((t, k) => {
     const prev = stmt[k - 1];
     const next = stmt[k + 1];
-    const earlier = stmt.slice(0, k);
     if (isWord(t, 'set')) {
-      // UPDATE … SET, ON CONFLICT DO UPDATE SET, ALTER … SET and ON DELETE/UPDATE SET NULL aren't the SET command.
+      // Not the SET command only by its actual structure (owner review of 40c80fe: a PL/pgSQL <<update>> label
+      // must not exempt it): UPDATE <target> SET, ON CONFLICT DO UPDATE SET, or ON DELETE SET NULL / DEFAULT.
       const notCommand =
-        earlier.some((e) => isWord(e, 'update', 'alter')) || isWord(prev, 'delete', 'update');
+        isUpdateClause(stmt, k) || (isWord(prev, 'delete') && isWord(next, 'null', 'default'));
       if (!notCommand && !isWord(next, 'local'))
         problems.push(
           `SET without LOCAL (SET ${next?.value.toUpperCase() ?? ''}) is session-scoped`,
         );
-    } else if (isWord(t, 'reset') && !earlier.some((e) => isWord(e, 'alter'))) {
+    } else if (isWord(t, 'reset')) {
+      // No exemption (ALTER … RESET included): an <<alter>> label hid one. Production SQL has no ALTER.
       problems.push('RESET is session-scoped');
     } else if (
       (t.kind === 'word' || t.kind === 'ident') &&
@@ -101,7 +102,14 @@ function statementProblems(stmt: readonly SqlToken[]): string[] {
     ) {
       // PostgreSQL makes a relation created in its temporary namespace temporary, TEMP keyword or not.
       problems.push(`a relation in ${t.value.toLowerCase()} is temporary (session-scoped)`);
-    } else if (isWord(t, 'execute') && !earlier.some((e) => isWord(e, 'grant', 'revoke'))) {
+    } else if (
+      isWord(t, 'execute') &&
+      // GRANT / REVOKE EXECUTE ON …: the privilege, by its structure, not by a <<grant>> label earlier on.
+      !(
+        isWord(next, 'on') &&
+        (isWord(prev, 'grant', 'revoke') || (prev?.kind === 'other' && prev.value === ','))
+      )
+    ) {
       // EXECUTE runs the command its expression evaluates to. Only a string constant can be established (it is
       // read as SQL below); concatenation, format(), a variable, or a prepared statement's name can't be.
       let j = k + 1;
@@ -114,6 +122,51 @@ function statementProblems(stmt: readonly SqlToken[]): string[] {
     }
   });
   return problems;
+}
+
+/** Words that end an UPDATE target walking back from its SET: they can't be part of `[ONLY] name [[AS] alias]`. */
+const NOT_A_TARGET = new Set([
+  'begin',
+  'end',
+  'then',
+  'else',
+  'elsif',
+  'loop',
+  'declare',
+  'do',
+  'if',
+  'case',
+  'when',
+  'exception',
+  'for',
+  'while',
+  'perform',
+  'execute',
+  'return',
+  'returning',
+  'select',
+  'from',
+  'where',
+  'set',
+  'with',
+]);
+
+/**
+ * Whether the SET at `k` is an UPDATE's SET clause: walking back, only the target (`[ONLY] [schema .] name
+ * [[AS] alias]`) may lie between it and the word UPDATE. Anything else (a `>>` closing a label, BEGIN, a statement
+ * keyword) ends the walk: an <<update>> label is not an UPDATE.
+ */
+function isUpdateClause(stmt: readonly SqlToken[], k: number): boolean {
+  for (let j = k - 1, steps = 0; j >= 0 && steps < 8; j--, steps++) {
+    const t = stmt[j]!;
+    if (isWord(t, 'update')) return true;
+    const target =
+      t.kind === 'ident' ||
+      (t.kind === 'word' && !NOT_A_TARGET.has(t.value)) ||
+      (t.kind === 'other' && t.value === '.');
+    if (!target) return false;
+  }
+  return false;
 }
 
 /** The tokens of the `index`th argument of the call whose name is at `at`, or undefined if it can't be read. */
@@ -263,17 +316,34 @@ export function analyzeSessionSql(program: TS.Program, sf: TS.SourceFile): strin
       where.test(d.getSourceFile().fileName.replace(/\\/g, '/')),
     );
   /** A method that runs SQL: one of Prisma's raw methods, or pg's query(), by declaration. */
+  /**
+   * Where a callable type's SQL comes from, by its SIGNATURES' declarations (owner review of 40c80fe): pg's query()
+   * ('pg') or one of Prisma's raw methods (its name), whatever the property or variable holding it is declared as
+   * (`interface Db { query: Client['query'] }`, a parameter, a const). Union members are inspected one by one.
+   */
+  const sqlOrigin = (t: TS.Type): string | undefined => {
+    if (t.isUnion()) return t.types.map(sqlOrigin).find((o) => o !== undefined);
+    for (const sig of t.getCallSignatures()) {
+      const decl = sig.getDeclaration() as TS.SignatureDeclaration | undefined;
+      const name = decl?.name && ts.isIdentifier(decl.name) ? decl.name.text : undefined;
+      const file = decl?.getSourceFile().fileName.replace(/\\/g, '/') ?? '';
+      if (name === 'query' && PG_DECL.test(file)) return 'pg';
+      if (name && RAW.has(name) && RAW_DECL.test(file)) return name;
+    }
+    return undefined;
+  };
+  /** A member that runs SQL: by its own declaration, or by its callable type's origin. */
   const isSqlMember = (sym: TS.Symbol | undefined) =>
     !!sym &&
     ((RAW.has(sym.getName()) && declaredIn(sym, RAW_DECL)) ||
-      (sym.getName() === 'query' && declaredIn(sym, PG_DECL)));
-  /** Whether a value of this type has a SQL-running method (a Prisma client or transaction, a pg client or pool). */
+      (sym.getName() === 'query' && declaredIn(sym, PG_DECL)) ||
+      sqlOrigin(checker.getTypeOfSymbol(sym)) !== undefined);
+  /** Whether a value of this type has a SQL-running method (a Prisma client or transaction, a pg client or pool, or
+   * any object with a member whose callable type comes from one). */
   const hasSqlMembers = (t: TS.Type): boolean =>
     t.isUnion()
       ? t.types.some(hasSqlMembers)
-      : [...RAW, 'query'].some((m) =>
-          isSqlMember(checker.getPropertyOfType(checker.getApparentType(t), m)),
-        );
+      : checker.getPropertiesOfType(checker.getApparentType(t)).some(isSqlMember);
   const nameOf = (e: TS.Expression) =>
     ts.isPropertyAccessExpression(e) ? e.name.text : ts.isIdentifier(e) ? e.text : undefined;
   /** Prisma's own `sql` / `raw`, resolved by declaration. */
@@ -302,7 +372,8 @@ export function analyzeSessionSql(program: TS.Program, sf: TS.SourceFile): strin
 
   const visit = (n: TS.Node): void => {
     if (ts.isTaggedTemplateExpression(n)) {
-      const name = nameOf(n.tag);
+      const tagOrigin = sqlOrigin(checker.getTypeAtLocation(n.tag));
+      const name = tagOrigin && RAW_TAGGED.has(tagOrigin) ? tagOrigin : nameOf(n.tag);
       if (name && RAW_TAGGED.has(name)) {
         const text = templateText(n.template, name);
         if (text !== null) check(n, text, name);
@@ -311,9 +382,18 @@ export function analyzeSessionSql(program: TS.Program, sf: TS.SourceFile): strin
         if (text !== null) check(n, text, 'Prisma.sql');
       }
     } else if (ts.isCallExpression(n)) {
-      const name = nameOf(n.expression);
+      // The callee's type origin decides, whatever its syntax: a wrapper's member, a parameter, a variable.
+      const origin = sqlOrigin(checker.getTypeAtLocation(n.expression));
+      const byName = nameOf(n.expression);
+      const name =
+        origin === 'pg'
+          ? 'query'
+          : (origin ??
+            (byName && RAW.has(byName) && ts.isPropertyAccessExpression(n.expression)
+              ? byName
+              : undefined));
       const [first] = n.arguments;
-      if (name && RAW.has(name) && ts.isPropertyAccessExpression(n.expression)) {
+      if (name && RAW.has(name)) {
         if (RAW_UNSAFE.has(name)) {
           const text = literalText(first);
           if (text === undefined)
@@ -328,9 +408,10 @@ export function analyzeSessionSql(program: TS.Program, sf: TS.SourceFile): strin
           refuse(n, "Prisma.raw with SQL that isn't a substitution-free literal");
         else check(n, text, 'Prisma.raw');
       } else if (
-        name === 'query' &&
-        ts.isPropertyAccessExpression(n.expression) &&
-        declFiles(n.expression.name).some((f) => PG_DECL.test(f))
+        origin === 'pg' ||
+        (byName === 'query' &&
+          ts.isPropertyAccessExpression(n.expression) &&
+          declFiles(n.expression.name).some((f) => PG_DECL.test(f)))
       ) {
         const text = literalText(first);
         if (text === undefined)
@@ -361,6 +442,58 @@ export function analyzeSessionSql(program: TS.Program, sf: TS.SourceFile): strin
           refuse(el, `${named ?? 'a computed member'} destructured from a database client`);
       }
     }
+    // FLOW: a value with SQL-running methods may not flow into a type through which they could still be called but
+    // no longer be followed: (a) a type with a SAME-NAMED member that isn't of SQL origin (structural assignment
+    // carries the method across: `interface Db { query(sql: string): … }` given a pg Client), or (b) an erased type
+    // (unknown, any, object, {}), from which a later cast could restore anything. A narrowed view without those
+    // members (`Pick<PlatformClient, 'keyReencryption'>`) can't run SQL and is fine.
+    const lost = (value: TS.Expression, target: TS.Type | undefined, how: string) => {
+      if (!target) return;
+      const source = checker.getApparentType(checker.getTypeAtLocation(value));
+      const sqlNames = checker
+        .getPropertiesOfType(source)
+        .filter(isSqlMember)
+        .map((p) => p.getName());
+      if (sqlNames.length === 0) return;
+      const erased =
+        (target.flags & (ts.TypeFlags.Unknown | ts.TypeFlags.Any | ts.TypeFlags.NonPrimitive)) !==
+          0 ||
+        (!!(target.flags & ts.TypeFlags.Object) &&
+          checker.getPropertiesOfType(checker.getApparentType(target)).length === 0 &&
+          target.getCallSignatures().length === 0 &&
+          checker.getIndexInfosOfType(checker.getApparentType(target)).length === 0);
+      const wrapped = sqlNames.filter((name) => {
+        const there = checker.getPropertyOfType(checker.getApparentType(target), name);
+        return there !== undefined && !isSqlMember(there);
+      });
+      // A string index signature lets any name through (a symbol index, as Prisma's client declares, can't).
+      const indexed = checker
+        .getIndexInfosOfType(checker.getApparentType(target))
+        .some((i) => (i.keyType.flags & ts.TypeFlags.String) !== 0);
+      if (erased || wrapped.length > 0 || indexed)
+        refuse(
+          value,
+          `a database client ${how} ${checker.typeToString(target)}, which ${
+            wrapped.length
+              ? `carries ${wrapped.join(', ')} without its SQL origin`
+              : 'erases its SQL methods'
+          }`,
+        );
+    };
+    if (ts.isCallExpression(n) || ts.isNewExpression(n))
+      for (const arg of n.arguments ?? []) lost(arg, checker.getContextualType(arg), 'passed as');
+    if (ts.isVariableDeclaration(n) && n.type && n.initializer)
+      lost(n.initializer, checker.getTypeFromTypeNode(n.type), 'assigned to');
+    if (ts.isReturnStatement(n) && n.expression)
+      lost(n.expression, checker.getContextualType(n.expression), 'returned as');
+    if (ts.isPropertyAssignment(n))
+      lost(n.initializer, checker.getContextualType(n.initializer), 'stored as');
+    if (ts.isShorthandPropertyAssignment(n))
+      lost(n.name, checker.getContextualType(n.name), 'stored as');
+    if (ts.isAsExpression(n) || ts.isTypeAssertionExpression(n) || ts.isSatisfiesExpression(n))
+      lost(n.expression, checker.getTypeFromTypeNode(n.type), 'asserted as');
+    if (ts.isBinaryExpression(n) && n.operatorToken.kind === ts.SyntaxKind.EqualsToken)
+      lost(n.right, checker.getTypeAtLocation(n.left), 'assigned to');
     ts.forEachChild(n, visit);
   };
   visit(sf);

@@ -226,6 +226,32 @@ export async function f(tx: TenantTx) { const m = '$executeRawUnsafe' as const; 
     /EXECUTE of anything but a string constant/,
   ],
   executePrepared: [unsafe('EXECUTE q(1)'), /EXECUTE of anything but a string constant/],
+  // PL/pgSQL block labels satisfy no exemption (owner's review of 40c80fe; each ran and changed session state).
+  labelGrantExecute: [
+    unsafe("DO $$ <<grant>> BEGIN\n  EXECUTE 'SE' || 'T application_name TO DEFAULT';\nEND; $$;"),
+    /EXECUTE of anything but a string constant/,
+  ],
+  labelUpdateSet: [
+    unsafe("DO $$ <<update>> BEGIN\n  SET application_name = 'pb4_after';\nEND; $$;"),
+    /SET without LOCAL \(SET APPLICATION_NAME\)/,
+  ],
+  labelAlterReset: [
+    unsafe('DO $$ <<alter>> BEGIN\n  RESET application_name;\nEND; $$;'),
+    /RESET is session-scoped/,
+  ],
+  labelUpdateBeforeTarget: [
+    unsafe('DO $$ <<update>> BEGIN t SET a = 1; END $$'),
+    /SET without LOCAL/,
+  ],
+  ifUpdateThenSet: [
+    unsafe('DO $$ BEGIN IF update THEN SET ROLE x; END IF; END $$'),
+    /SET without LOCAL \(SET ROLE\)/,
+  ],
+  // A Prisma raw method held in a wrapper's member keeps its origin.
+  prismaTypedWrapper: [
+    `${HEAD}interface Raw { run: PlatformClient['$executeRawUnsafe'] }\nexport async function g(r: Raw) { await r.run('SET ROLE x'); }`,
+    /\$executeRawUnsafe: SET without LOCAL \(SET ROLE\)/,
+  ],
   unterminated: [unsafe("SELECT 'open"), /doesn't lex unambiguously: an unterminated string/],
   unicodeEscape: [unsafe("SELECT U&'\\0053ET'"), /doesn't lex unambiguously: a U&/],
 };
@@ -245,6 +271,12 @@ const ALLOWED: Record<string, string> = {
   lookAlikeWords: unsafe('SELECT prepared_at, temp_value, listener, pg_temp_value FROM t'),
   executeConstant: unsafe("DO $$ DECLARE v int; BEGIN EXECUTE 'SELECT 1' INTO v USING 1; END $$"),
   grantExecute: unsafe('GRANT EXECUTE ON FUNCTION f() TO univarse_app'),
+  grantListExecute: unsafe('GRANT SELECT, EXECUTE ON FUNCTION f() TO univarse_app'),
+  revokeExecute: unsafe('REVOKE EXECUTE ON FUNCTION f() FROM univarse_app'),
+  updateQualifiedAlias: unsafe('UPDATE ONLY public . t AS x SET a = 1'),
+  updateQuotedAlias: unsafe('UPDATE "Order" o SET a = 1'),
+  onDeleteSetNull: unsafe('CREATE TABLE t (a int REFERENCES u ON DELETE SET NULL)'),
+  narrowedClient: `${HEAD}async function g(k: Pick<PlatformClient, 'tenant'>) { return k.tenant.count(); }\nexport async function f(p: PlatformClient) { return g(p); }`,
   boundParameters: `${HEAD}export async function f(p: PlatformClient, id: string, at: Date, ids: string[]) { await p.$queryRaw\`SELECT * FROM t WHERE id = \${id} AND at < \${at} AND id = ANY(\${ids})\`; }`,
 };
 
@@ -307,7 +339,8 @@ describe('[PB4] no session-scoped SQL in production code', { timeout: 120_000 },
 
   it("[PB4] pg's query(), with the real pg types: direct literals checked, indirect calls refused (owner's review of 6297f22)", () => {
     const PG = `import pg from 'pg';\n`;
-    const pgFixtures: Record<string, [string, RegExp | null]> = {
+    // [source, the problem it must report (null: none), and optionally how many violations exactly]
+    const pgFixtures: Record<string, [string, RegExp | null, number?]> = {
       direct: [
         `${PG}export async function f(c: pg.Client) { await c.query('SET ROLE univarse_app'); }`,
         /pg query\(\): SET without LOCAL \(SET ROLE\)/,
@@ -337,12 +370,42 @@ describe('[PB4] no session-scoped SQL in production code', { timeout: 120_000 },
         /pg query\(\) with SQL that isn't a substitution-free literal/,
       ],
       allowed: [`${PG}export async function f(c: pg.Client) { await c.query('SELECT 1'); }`, null],
+      // Owner's review of 40c80fe: a typed wrapper whose member is pg's own query type, and its caller.
+      typedWrapper: [
+        `import type { Client } from 'pg';\ninterface Db {\n  query: Client['query'];\n}\nasync function run(db: Db) {\n  await db.query('SET ROLE univarse_app');\n}\nexport async function use(client: Client) {\n  await run(client);\n}\n`,
+        /pg query\(\): SET without LOCAL \(SET ROLE\)/,
+        1, // the SET only: a member typed as pg's own query keeps its origin, so passing the client is no loss
+      ],
+      typedWrapperComputed: [
+        `import type { Client } from 'pg';\ninterface Db { query: Client['query'] }\nexport async function f(db: Db) { await db['query']('SET ROLE x'); }`,
+        /computed access on a database client/,
+      ],
+      typedParameter: [
+        `${PG}async function run(q: pg.Client['query']) { await q('LISTEN x'); }\nexport async function use(c: pg.Client) { await run(c.query); }`,
+        /pg query\(\): LISTEN is session-scoped/,
+      ],
+      structuralWrapper: [
+        `${PG}interface Db { query(sql: string): Promise<unknown> }\nasync function run(db: Db) { await db.query('SET ROLE x'); }\nexport async function use(c: pg.Client) { await run(c); }`,
+        /a database client passed as Db, which carries query without its SQL origin/,
+      ],
+      erasedToUnknown: [
+        `${PG}export function f(c: pg.Client) { const x: unknown = c; return x; }`,
+        /a database client assigned to unknown, which erases its SQL methods/,
+      ],
+      castThroughUnknown: [
+        `${PG}interface Db { query(sql: string): Promise<unknown> }\nexport async function f(c: pg.Client) { await (c as unknown as Db).query('SET ROLE x'); }`,
+        /a database client asserted as unknown, which erases its SQL methods/,
+      ],
+      stringIndexed: [
+        `${PG}export function f(c: pg.Client) { const r: Record<string, unknown> = c; return r; }`,
+        /a database client assigned to Record<string, unknown>/,
+      ],
     };
     const dbProgram = packageProgram(
       'packages/db',
       Object.fromEntries(Object.entries(pgFixtures).map(([n, [t]]) => [path(n), t])),
     );
-    for (const [name, [, problem]] of Object.entries(pgFixtures)) {
+    for (const [name, [, problem, count]] of Object.entries(pgFixtures)) {
       const sf = dbProgram
         .getSourceFiles()
         .find((x) =>
@@ -352,6 +415,7 @@ describe('[PB4] no session-scoped SQL in production code', { timeout: 120_000 },
       const v = analyzeSessionSql(dbProgram, sf);
       if (problem === null) expect(v, name).toEqual([]);
       else expect(v.join('\n'), name).toMatch(problem);
+      if (count !== undefined) expect(v, name).toHaveLength(count);
     }
   });
 
