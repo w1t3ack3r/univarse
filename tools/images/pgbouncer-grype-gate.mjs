@@ -260,15 +260,22 @@ function realRun(args, { allowFail = false } = {}) {
   return out;
 }
 
-/** The real inventory verifier: facts from the image (by its immutable ID) against the given inventory snapshot. */
-async function realVerifyInventory(imageId, inventory) {
-  const pins = dockerfilePins(readFileSync(join(REPO, DOCKERFILE), 'utf8'));
+/**
+ * The real inventory verifier, for given pins: facts from the image (by its immutable ID) against the given inventory
+ * snapshot. The gate uses the Dockerfile's pins; the coverage controls pass the pins of the build they made.
+ */
+export const verifyInventoryWith = (pins) => async (imageId, inventory) => {
   const facts = await gatherFacts(imageId);
   if (facts.imageId !== imageId)
     return [`the inventory verifier read image ${facts.imageId}, not ${imageId}`];
   const base = await gatherBase(pins.runtimeImage);
   return [...checkFacts(facts, base, pins), ...checkInventory(inventory, facts, pins)];
-}
+};
+const realVerifyInventory = (imageId, inventory) =>
+  verifyInventoryWith(dockerfilePins(readFileSync(join(REPO, DOCKERFILE), 'utf8')))(
+    imageId,
+    inventory,
+  );
 
 /**
  * Docker's legacy container-create fields. `docker image inspect` on the classic image store shows them, at their zero
@@ -452,6 +459,7 @@ async function gate(
     inventoryPath,
     trivyPath,
     cache = 'uv-grype-cache',
+    dbSubdir = '',
     extraEnv = {},
     now = Date.now(),
     deps = {},
@@ -463,8 +471,15 @@ async function gate(
   const run = deps.run ?? realRun;
   const verifyInventory = deps.verifyInventory ?? realVerifyInventory;
   const readSavedImage = deps.readSavedImage ?? realReadSavedImage;
+  // Coverage controls only: runs after a successful update check and before the status check (the corruption control
+  // damages its own copy of the database here, so status and hash validation must reject it).
+  const afterUpdate = deps.afterUpdate ?? (async () => {});
   const { evidence } = ctx;
   const cacheMount = /[\\/]/.test(cache) ? `${hostPath(resolve(cache))}:/cache` : `${cache}:/cache`;
+  // The database directory inside the cache: the cache itself, or (controls only) a subdirectory holding a copy.
+  if (dbSubdir && !/^[a-z0-9-]+$/.test(dbSubdir))
+    throw new Error(`invalid database subdirectory ${dbSubdir}`);
+  const dbDir = dbSubdir ? `/cache/${dbSubdir}` : '/cache';
   const envArgs = (env) => Object.entries(env).flatMap(([k, v]) => ['-e', `${k}=${v}`]);
   const grype = (args, env) =>
     run(
@@ -476,7 +491,7 @@ async function gate(
         '-v',
         `${hostPath(work)}:/work`,
         '-e',
-        'GRYPE_DB_CACHE_DIR=/cache',
+        `GRYPE_DB_CACHE_DIR=${dbDir}`,
         ...envArgs({ ...env, ...extraEnv }),
         GRYPE_IMAGE,
         ...args,
@@ -543,6 +558,8 @@ async function gate(
     ]);
 
   // 3. The status must exit 0 AND report a valid, fresh database; the output supplements the exit status.
+  await afterUpdate({ cacheMount, dbDir, run });
+
   ctx.stage = 'checking the database status';
   const status = step(grype(['db', 'status', '-o', 'json'], SCAN_ENV));
   if (status.status !== 0)
