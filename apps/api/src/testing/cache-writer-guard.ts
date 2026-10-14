@@ -487,6 +487,62 @@ interface Analysis {
   readonly references: Map<string, { direct: boolean; from: string; at: string }[]>;
 }
 
+/**
+ * The bound-parameter proof, shared by spec 0015's CI10 guard and spec 0017's PB4 check: whether every value of a
+ * type is sent as a bound parameter, never spliced in as SQL.
+ */
+export function boundParameterOf(program: TS.Program): (t: TS.Type) => boolean {
+  const checker = program.getTypeChecker();
+  /**
+   * Whether every value of `t` is sent as a bound parameter, never spliced in as SQL: every member of a union, the
+   * constraint of a type parameter, and the elements of an array must be a primitive (literal types and enums
+   * included) or Date. Intersections pass only as a branded primitive, `string & { … }`.
+   */
+  const PRIMITIVE =
+    ts.TypeFlags.StringLike |
+    ts.TypeFlags.NumberLike |
+    ts.TypeFlags.BigIntLike |
+    ts.TypeFlags.BooleanLike |
+    ts.TypeFlags.EnumLike |
+    ts.TypeFlags.Null |
+    ts.TypeFlags.Undefined;
+  const boundParameter = (t: TS.Type, depth = 0): boolean => {
+    if (depth > 8) return false;
+    if (t.flags & PRIMITIVE) return true;
+    if (t.flags & ts.TypeFlags.TypeParameter) {
+      const c = checker.getBaseConstraintOfType(t);
+      return !!c && c !== t && boundParameter(c, depth + 1);
+    }
+    if (t.isUnion()) return t.types.every((m) => boundParameter(m, depth + 1));
+    if (t.isIntersection()) {
+      return (
+        t.types.some((m) => (m.flags & PRIMITIVE) !== 0) &&
+        t.types.every((m) => (m.flags & PRIMITIVE) !== 0 || brand(m))
+      );
+    }
+    if (checker.isArrayType(t) || checker.isTupleType(t))
+      return checker
+        .getTypeArguments(t as TS.TypeReference)
+        .every((e) => boundParameter(e, depth + 1));
+    const sym = t.getSymbol();
+    return (
+      sym?.getName() === 'Date' &&
+      (sym.declarations ?? []).some((d) => program.isSourceFileDefaultLibrary(d.getSourceFile()))
+    );
+  };
+  /** A brand: an anonymous object type whose properties are all primitives (no methods, nothing SQL-shaped). */
+  const brand = (t: TS.Type) =>
+    !!(t.flags & ts.TypeFlags.Object) &&
+    !!t.getSymbol() &&
+    t.getSymbol()!.getName() === '__type' &&
+    t.getCallSignatures().length === 0 &&
+    t.getProperties().every((p) => {
+      const pt = checker.getTypeOfSymbol(p);
+      return (pt.flags & (PRIMITIVE | ts.TypeFlags.UniqueESSymbol)) !== 0;
+    });
+  return boundParameter;
+}
+
 /** Analyse one file. */
 export function analyzeFile(
   program: TS.Program,
@@ -703,53 +759,7 @@ export function analyzeFile(
     }
     return text;
   };
-  /**
-   * Whether every value of `t` is sent as a bound parameter, never spliced in as SQL: every member of a union, the
-   * constraint of a type parameter, and the elements of an array must be a primitive (literal types and enums
-   * included) or Date. Intersections pass only as a branded primitive, `string & { … }`.
-   */
-  const PRIMITIVE =
-    ts.TypeFlags.StringLike |
-    ts.TypeFlags.NumberLike |
-    ts.TypeFlags.BigIntLike |
-    ts.TypeFlags.BooleanLike |
-    ts.TypeFlags.EnumLike |
-    ts.TypeFlags.Null |
-    ts.TypeFlags.Undefined;
-  const boundParameter = (t: TS.Type, depth = 0): boolean => {
-    if (depth > 8) return false;
-    if (t.flags & PRIMITIVE) return true;
-    if (t.flags & ts.TypeFlags.TypeParameter) {
-      const c = checker.getBaseConstraintOfType(t);
-      return !!c && c !== t && boundParameter(c, depth + 1);
-    }
-    if (t.isUnion()) return t.types.every((m) => boundParameter(m, depth + 1));
-    if (t.isIntersection()) {
-      return (
-        t.types.some((m) => (m.flags & PRIMITIVE) !== 0) &&
-        t.types.every((m) => (m.flags & PRIMITIVE) !== 0 || brand(m))
-      );
-    }
-    if (checker.isArrayType(t) || checker.isTupleType(t))
-      return checker
-        .getTypeArguments(t as TS.TypeReference)
-        .every((e) => boundParameter(e, depth + 1));
-    const sym = t.getSymbol();
-    return (
-      sym?.getName() === 'Date' &&
-      (sym.declarations ?? []).some((d) => program.isSourceFileDefaultLibrary(d.getSourceFile()))
-    );
-  };
-  /** A brand: an anonymous object type whose properties are all primitives (no methods, nothing SQL-shaped). */
-  const brand = (t: TS.Type) =>
-    !!(t.flags & ts.TypeFlags.Object) &&
-    !!t.getSymbol() &&
-    t.getSymbol()!.getName() === '__type' &&
-    t.getCallSignatures().length === 0 &&
-    t.getProperties().every((p) => {
-      const pt = checker.getTypeOfSymbol(p);
-      return (pt.flags & (PRIMITIVE | ts.TypeFlags.UniqueESSymbol)) !== 0;
-    });
+  const boundParameter = boundParameterOf(program);
   /** The tag is Prisma's own `sql` (the generated `Prisma.sql`), resolved by declaration. */
   const PRISMA_SQL_DECL =
     /\/packages\/db\/(src|dist)\/generated\/(platform|tenant)\/internal\/prismaNamespace\.(d\.)?ts$/;
