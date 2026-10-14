@@ -439,7 +439,7 @@ export async function runGate(opts) {
       `${JSON.stringify({ ...ctx.evidence, ...extra, problems }, null, 2)}\n`,
     );
   try {
-    const result = await gate(opts, work, ctx, record);
+    const result = await gate(opts, work, ctx);
     record(result.problems, { stage: ctx.stage });
     return result;
   } catch (e) {
@@ -466,7 +466,6 @@ async function gate(
   },
   work,
   ctx,
-  record,
 ) {
   const run = deps.run ?? realRun;
   const verifyInventory = deps.verifyInventory ?? realVerifyInventory;
@@ -507,7 +506,7 @@ async function gate(
     try {
       return JSON.parse(readFileSync(file, 'utf8'));
     } catch (e) {
-      throw new Error(`${what} is missing or not JSON (${e.message})`);
+      throw new Error(`${what} is missing or not JSON (${e.message})`, { cause: e });
     }
   };
 

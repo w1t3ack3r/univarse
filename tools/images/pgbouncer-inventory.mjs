@@ -10,7 +10,6 @@ import { createHash } from 'node:crypto';
 import { spawn, spawnSync } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join, posix } from 'node:path';
-import { pathToFileURL } from 'node:url';
 import { REPO } from './release-lib.mjs';
 import { consumeDockerExport } from './tar.mjs';
 
@@ -19,11 +18,6 @@ export const LIBEVENT_PKG = 'libevent-2.1-7t64';
 const STATUS_DIR = 'var/lib/dpkg/status.d/';
 const BINARY = 'usr/bin/pgbouncer';
 const DEBIAN_VERSION = 'etc/debian_version';
-const LIBEVENT_PATHS = [
-  /^usr\/lib\/x86_64-linux-gnu\/libevent/,
-  /^usr\/share\/doc\/libevent-/,
-  /^usr\/share\/lintian\/overrides\/libevent-/,
-];
 
 // ---------- pure parsing ----------
 
@@ -105,7 +99,7 @@ export function recordDeviations(records, files) {
   const deviations = new Map();
   const problems = [];
   for (const pkg of Object.keys(records).sort()) {
-    let listed = [];
+    let listed;
     try {
       listed = parseMd5sums(records[pkg].md5sums ?? '');
     } catch (e) {

@@ -20,6 +20,8 @@ import { paxEntry, paxRecord, parseArchive } from './tar-fixtures.mjs';
 const md5 = (s) => createHash('md5').update(s).digest('hex');
 const sha = (s) => createHash('sha256').update(s).digest('hex');
 const file = (content) => ({ sha256: sha(content), md5: md5(content) });
+/** A copy of `obj` without `key`. */
+const without = (obj, key) => Object.fromEntries(Object.entries(obj).filter(([k]) => k !== key));
 const S = 'var/lib/dpkg/status.d/';
 
 /** A tiny base (zlib1g, plus ca-certificates listing a file distroless doesn't ship) and the final image on top. */
@@ -158,7 +160,7 @@ test('[PB10] libevent: altered bytes, a version disagreeing with the binary, or 
     /reports libevent 2\.1\.12-stable, but the libevent-2\.1-7t64 record's version is/,
   );
   ({ facts, base, pins } = fixture());
-  delete facts.records[LIBEVENT_PKG];
+  facts.records = without(facts.records, LIBEVENT_PKG);
   fails(checkFacts(facts, base, pins), /no package record for libevent-2\.1-7t64/);
 });
 
@@ -353,7 +355,7 @@ test('[PB10] an approved absence and a present file differing from its record ar
 
 test('[PB10] a file entry with no hash record at all fails (not only a record missing its SHA-256)', () => {
   const { facts, base, pins } = fixture();
-  delete facts.files[`usr/share/doc/${LIBEVENT_PKG}/copyright`];
+  facts.files = without(facts.files, `usr/share/doc/${LIBEVENT_PKG}/copyright`);
   fails(checkFacts(facts, base, pins), /copyright has no valid SHA-256 and md5/);
 });
 

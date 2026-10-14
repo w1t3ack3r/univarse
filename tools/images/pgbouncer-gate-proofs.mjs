@@ -343,7 +343,7 @@ export async function proveAll({
       'no-version': (i) => ({
         ...i,
         components: i.components.map((c) =>
-          c.name === 'pgbouncer' ? (({ version, ...rest }) => rest)(c) : c,
+          c.name === 'pgbouncer' ? (({ version: _version, ...rest }) => rest)(c) : c,
         ),
       }),
     };
