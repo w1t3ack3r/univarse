@@ -2,13 +2,14 @@
 // (what counts as proved, what it cleans up, what it accepts) is tested in seconds, without the real 45-minute scans.
 // Run: node --test tools/images/pgbouncer-gate-proofs.test.mjs
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import {
   CONTROLS,
   isChecksumRejection,
+  proofVerdict,
   proveAll,
   selectControls,
   VULNERABLE,
@@ -102,7 +103,8 @@ async function run(over = {}, only = null) {
       only,
       deps: m.deps,
     });
-    return { ...out, calls: m.calls };
+    const file = JSON.parse(readFileSync(join(work, 'gate-proofs.json'), 'utf8'));
+    return { ...out, file, calls: m.calls };
   } finally {
     rmSync(work, { recursive: true, force: true });
   }
@@ -225,4 +227,28 @@ test('[PB10] proofs: a full run is ok only with all nine results proved; one fai
   assert.equal(result(errored, 'stale-database').proved, false);
   assert.match(result(errored, 'stale-database').detail, /the control itself errored: boom/);
   assert.equal(errored.ok, false);
+});
+
+test("[PB10] proofs: the evidence file carries the verdict: ok only for exactly the expected controls, each proved (owner's review of ea610ba)", async () => {
+  const full = await run();
+  assert.deepEqual(
+    [full.file.ok, full.file.fullRun, full.file.complete, full.file.proved],
+    [true, true, true, 9],
+  );
+  const one = await run({
+    runGate: (o) => (o.evidenceDir.endsWith('stale') ? { ok: false, problems: [] } : null),
+  });
+  assert.deepEqual([one.file.ok, one.file.fullRun, one.file.proved], [false, true, 8]);
+  const partial = await run({}, ['corrupted-database']);
+  assert.deepEqual([partial.file.ok, partial.file.fullRun], [true, false]); // proved, but not PB10 evidence alone
+
+  const all = CONTROLS.map((id) => ({ id, proved: true }));
+  const swap = (i, change) => all.map((r, j) => (j === i ? { ...r, ...change } : r));
+  assert.equal(proofVerdict([...CONTROLS], all).ok, true);
+  assert.equal(proofVerdict([...CONTROLS], all.slice(1)).ok, false); // one missing
+  assert.equal(proofVerdict([...CONTROLS], [...all, all[0]]).ok, false); // one repeated
+  assert.equal(proofVerdict([...CONTROLS], [all[1], all[0], ...all.slice(2)]).ok, false); // out of order
+  assert.equal(proofVerdict([...CONTROLS], swap(0, { id: 'other' })).ok, false); // a stranger
+  assert.equal(proofVerdict([...CONTROLS], swap(0, { proved: 'yes' })).ok, false); // not strictly true
+  assert.equal(proofVerdict([], []).fullRun, false);
 });

@@ -436,18 +436,39 @@ export async function proveAll({
     }
     for (const t of owned.tags) docker(['rmi', t], { allowFail: true });
   }
-  // A full run must produce every expected control; a selection, exactly its selection. All must be proved.
-  const ids = results.map((r) => r.id);
-  const complete = JSON.stringify(ids) === JSON.stringify(selected);
-  const proved = results.filter((r) => r.proved).length;
+  // A full run must produce every expected control; a selection, exactly its selection. All must be proved. The
+  // evidence file records the verdict itself: `ok` (exactly the selected controls, in order, each proved) and
+  // `fullRun` (the selection is all nine), so PB10's evidence is `ok && fullRun` without re-deriving it.
+  const verdict = proofVerdict(selected, results);
   writeFileSync(
     join(work, 'gate-proofs.json'),
-    `${JSON.stringify({ image, runId, selected, results }, null, 2)}\n`,
+    `${JSON.stringify({ image, runId, ...verdict, selected, results }, null, 2)}\n`,
   );
+  const ids = results.map((r) => r.id);
   console.log(
-    `[gate-proofs] ${proved}/${selected.length} proved${complete ? '' : ` (expected results for: ${selected.join(', ')}; got: ${ids.join(', ') || 'none'})`}`,
+    `[gate-proofs] ${verdict.proved}/${selected.length} proved${verdict.complete ? '' : ` (expected results for: ${selected.join(', ')}; got: ${ids.join(', ') || 'none'})`}${verdict.fullRun ? '' : ' (a partial run: not PB10 evidence on its own)'}`,
   );
-  return { ok: complete && proved === selected.length, results, owned };
+  return { ok: verdict.ok, results, owned };
+}
+
+/**
+ * The run's verdict: `complete` when the results are exactly the selected controls, in order (none missing, extra or
+ * repeated); `ok` when complete and every result is proved (strictly `true`); `fullRun` when the selection is exactly
+ * the nine expected controls.
+ */
+export function proofVerdict(selected, results) {
+  const same = (a, b) => a.length === b.length && a.every((x, i) => x === b[i]);
+  const complete = same(
+    results.map((r) => r.id),
+    selected,
+  );
+  const proved = results.filter((r) => r.proved === true).length;
+  return {
+    ok: complete && proved === selected.length,
+    fullRun: same(selected, CONTROLS),
+    complete,
+    proved,
+  };
 }
 
 async function main() {
