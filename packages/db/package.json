@@ -24,6 +24,7 @@
     "migrate:new:tenant": "prisma migrate dev --create-only --config prisma.tenant.config.ts",
     "rls:check": "tsx scripts/rls-check.ts",
     "seed": "tsx scripts/seed.ts",
+    "test": "vitest run",
     "test:int": "vitest run --config vitest.int.config.ts"
   },
   "dependencies": {

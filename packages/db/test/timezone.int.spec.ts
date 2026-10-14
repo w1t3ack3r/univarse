@@ -1,6 +1,9 @@
 /**
  * Timestamps are stored as the true instant whatever the server's TimeZone (packages/db/src/pool.ts).
  * Meaningful only on a non-UTC server: CI's Postgres runs in Africa/Lagos for this reason.
+ * Since spec 0017 D6 the app roles also have a UTC `timezone` default, so "the session is UTC" alone can no longer
+ * show that the client sent `-c TimeZone=UTC`: the setting's source must be the client (or, through PgBouncer, the
+ * session it re-applies the client's value in), never the role default.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import pg from 'pg';
@@ -12,6 +15,9 @@ let shard: TenantShardClient;
 let platform: PlatformClient;
 let tenantId: string;
 let serverDefault = '';
+const TZ_SOURCE = "SELECT current_setting('TimeZone') AS tz, source FROM pg_settings WHERE name = 'TimeZone'";
+/** Where a session's TimeZone came from: the client's startup option, never a role or server default. */
+const FROM_THE_CLIENT = ['client', 'session'];
 
 beforeAll(async () => {
   loadRootEnv();
@@ -20,9 +26,10 @@ beforeAll(async () => {
   tenantId = (await platform.tenant.findUniqueOrThrow({ where: { slug: 'demo-uni' } })).id;
   const raw = new pg.Client({ connectionString: requireEnv('TENANT_POOL_01_DATABASE_URL') });
   await raw.connect();
-  serverDefault = (await raw.query<{ TimeZone: string }>('SHOW TimeZone')).rows[0]!.TimeZone;
+  const row = (await raw.query<{ tz: string; source: string }>(TZ_SOURCE)).rows[0]!;
+  serverDefault = `${row.tz} (from ${row.source})`;
   await raw.end();
-  console.log(`server default TimeZone: ${serverDefault}`);
+  console.log(`TimeZone without the client option: ${serverDefault}`);
 });
 afterAll(async () => {
   await shard.$disconnect();
@@ -35,6 +42,17 @@ describe('timestamps are true instants (UTC sessions)', () => {
     const [platformTz] = await platform.$queryRaw<{ tz: string }[]>`SELECT current_setting('TimeZone') AS tz`;
     expect(tenantTz!.tz).toBe('UTC');
     expect(platformTz!.tz).toBe('UTC');
+  });
+
+  it("the UTC comes from the client's option, not the role default (spec 0017 D6)", async () => {
+    const [tenant] = await withTenantTx(shard, tenantId, (tx) =>
+      tx.$queryRaw<{ tz: string; source: string }[]>`SELECT current_setting('TimeZone') AS tz, source FROM pg_settings WHERE name = 'TimeZone'`,
+    );
+    const [plat] = await platform.$queryRaw<{ tz: string; source: string }[]>`SELECT current_setting('TimeZone') AS tz, source FROM pg_settings WHERE name = 'TimeZone'`;
+    for (const s of [tenant!, plat!]) {
+      expect(s.tz).toBe('UTC');
+      expect(FROM_THE_CLIENT).toContain(s.source);
+    }
   });
 
   it('a JS Date written through Prisma is stored as the same instant, and lines up with SQL now()', async () => {
