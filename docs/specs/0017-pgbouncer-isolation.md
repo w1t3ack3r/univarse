@@ -182,6 +182,16 @@ Implementing PB10 surfaced a policy question and two gaps, now written into PB10
   - **Now:** the tar reader keeps link targets (header, pax `linkpath`, GNU long links) and exact entry kinds. Base links and entry kinds are compared against the pinned base, and only libevent's soname link may be added. Unsupported kinds are rejected. Every regular file is inventoried with a valid SHA-256, and the two kinds of deviation are marked distinctly.
   - **On the real image:** 1 284 file hashes, 340 symlinks with targets, 166 approved absences, and 1 file differing from its record (distroless's `os-release`).
   - **Tests:** 19 inventory tests and 3 tar tests; 11 mutation checks each fail their intended test.
+- **The PAX decoder,** found in the owner's review of `ff86783`:
+  - **What was wrong:** the reader found `path` and `linkpath` with newline regexes. A link target containing a newline was cut short, so a retargeted base link passed. Text inside a value could pose as a record, disguising an unowned link as a base one.
+  - **Now:** pax records are decoded by their declared **byte** lengths, with every boundary and terminator validated. Text inside a value is never read as metadata. Refused explicitly:
+    - malformed input: overrunning or zero-padded lengths, a missing newline or key, repeated keys, invalid UTF-8;
+    - unsupported input: a size override, or a global header setting a path, link, size or owner.
+  - **Owners:** pax `uid`/`gid` overrides are applied.
+  - **Failing closed:** a reader error fails the export, inspection or canary, never half-reading the archive.
+  - **Tests:** 8 tar tests and 21 inventory tests, including both attacks end to end through `checkFacts`, a UTF-8 byte-length control, and truncated or malformed records.
+  - **Mutant:** with the old regex decoder put back, 7 of them fail.
+  - **Independent cross-check:** Python's `tarfile` wrote the owner's two archives and a UTF-8 one, and our reader agrees with it exactly on all three.
 
 ## Owner review of revision 2
 

@@ -3,23 +3,8 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { tarParser } from './tar.mjs';
+import { block, header, paxEntry, paxRecord } from './tar-fixtures.mjs';
 
-/** One ustar header block (the reader doesn't verify checksums). */
-function header(name, flag, { size = 0, linkname = '' } = {}) {
-  const h = Buffer.alloc(512);
-  h.write(name, 0, 'utf8');
-  h.write('0000644\0', 100, 'latin1');
-  h.write(`${size.toString(8).padStart(11, '0')}\0`, 124, 'latin1');
-  h.write(flag, 156, 'latin1');
-  h.write(linkname, 157, 'utf8');
-  h.write('ustar\0', 257, 'latin1');
-  return h;
-}
-const block = (s) => {
-  const b = Buffer.alloc(Math.ceil(Buffer.byteLength(s) / 512) * 512);
-  b.write(s, 0, 'utf8');
-  return b;
-};
 const parse = (buf) => {
   const out = [];
   const p = tarParser((e) => out.push(e));
@@ -70,4 +55,94 @@ test('[PB10] entry kinds are exact: devices, FIFOs and unknown flags are never r
   ).map((e) => e.type);
   assert.deepEqual(kinds, ['char', 'block', 'dir', 'fifo', 'other']);
   assert.equal(parse(header('f', '0'))[0].type, 'file');
+});
+
+// ---------- pax records are decoded by declared byte length (owner review of ff86783) ----------
+
+test('[PB10] a link target containing a newline is kept whole, not cut at the newline', () => {
+  const target = `libz.so.1.3.1\n${'y'.repeat(140)}`;
+  const [e] = parse(
+    paxEntry(
+      [paxRecord('linkpath', target)],
+      'usr/lib/x86_64-linux-gnu/libz.so.1',
+      '2',
+      'libz.so.1.3.1',
+    ),
+  );
+  assert.equal(e.path, 'usr/lib/x86_64-linux-gnu/libz.so.1');
+  assert.equal(e.link, target);
+});
+
+test('[PB10] text inside a value that looks like a record is never read as metadata', () => {
+  const fake = `x\n${paxRecord('path', 'usr/lib/x86_64-linux-gnu/libz.so.1')}`;
+  const [e] = parse(paxEntry([paxRecord('linkpath', fake)], 'etc/unowned-link', '2'));
+  assert.equal(e.path, 'etc/unowned-link');
+  assert.equal(e.link, fake);
+});
+
+test('[PB10] record lengths count UTF-8 bytes, not characters', () => {
+  const target = 'lïb/日本語/libz.so';
+  const [e] = parse(paxEntry([paxRecord('linkpath', target)], 'l', '2'));
+  assert.equal(e.link, target);
+  // A length counted in characters (as a naive writer might) is short of the record's bytes: refused.
+  const chars = ` linkpath=${target}\n`.length;
+  const wrong = `${chars + String(chars).length} linkpath=${target}\n`;
+  assert.throws(() => parse(paxEntry([wrong], 'l', '2')), /pax: /);
+});
+
+test('[PB10] malformed or unsupported pax input is refused, never half-read', () => {
+  const bad = (records, re) => assert.throws(() => parse(paxEntry(records, 'f', '0')), re);
+  bad(['99 path=short\n'], /declares 99 bytes, which overruns the header/); // truncated: declared beyond the data
+  bad(['14 path=abcdef '], /doesn't end in a newline/);
+  bad(['014 path=abcde\n'], /zero-padded record length/);
+  bad(['11 pathabc\n'], /has no key/); // a well-framed 11-byte record with no '='
+  bad(['x path=a\n'], /malformed record length/);
+  bad([paxRecord('path', 'a'), paxRecord('path', 'b')], /key path is repeated/);
+  bad([paxRecord('size', '5')], /a size override is not supported/);
+  bad([paxRecord('uid', '-1')], /isn't a decimal number/);
+  const invalid = Buffer.concat([
+    Buffer.from('13 path=a'),
+    Buffer.from([0xff, 0xfe]),
+    Buffer.from('\n'),
+  ]);
+  const padded = Buffer.alloc(512);
+  invalid.copy(padded);
+  assert.throws(
+    () =>
+      parse(Buffer.concat([header('P', 'x', { size: invalid.length }), padded, header('f', '0')])),
+    /./,
+  );
+  const g = Buffer.alloc(512);
+  Buffer.from(paxRecord('path', 'everything')).copy(g);
+  assert.throws(
+    () =>
+      parse(
+        Buffer.concat([
+          header('G', 'g', { size: paxRecord('path', 'everything').length }),
+          g,
+          header('f', '0'),
+        ]),
+      ),
+    /global header setting path/,
+  );
+});
+
+test('[PB10] pax uid and gid override the header; a zero-length extended header applies to nothing', () => {
+  const out = [];
+  const p = tarParser((e) => out.push(e));
+  p.push(
+    Buffer.concat([
+      paxEntry([paxRecord('uid', '70000'), paxRecord('gid', '70001')], 'f', '0'),
+      header('Z', 'x'),
+      header('g2', '0'),
+      Buffer.alloc(1024),
+    ]),
+  );
+  assert.deepEqual(
+    out.map(({ path, uid, gid }) => ({ path, uid, gid })),
+    [
+      { path: 'f', uid: 70000, gid: 70001 },
+      { path: 'g2', uid: 0, gid: 0 },
+    ],
+  );
 });

@@ -14,6 +14,8 @@ import {
   parseVersionOutput,
   pgbouncerCpe,
 } from './pgbouncer-inventory.mjs';
+import { tarParser } from './tar.mjs';
+import { paxEntry, paxRecord, parseArchive } from './tar-fixtures.mjs';
 
 const md5 = (s) => createHash('md5').update(s).digest('hex');
 const sha = (s) => createHash('sha256').update(s).digest('hex');
@@ -353,4 +355,34 @@ test('[PB10] a file entry with no hash record at all fails (not only a record mi
   const { facts, base, pins } = fixture();
   delete facts.files[`usr/share/doc/${LIBEVENT_PKG}/copyright`];
   fails(checkFacts(facts, base, pins), /copyright has no valid SHA-256 and md5/);
+});
+
+// ---------- archive-level: entries come from the real tar reader (owner review of ff86783) ----------
+
+test('[PB10] archive: a base link retargeted with a newline-padded pax linkpath is caught', () => {
+  const { facts, base, pins } = fixture();
+  const path = 'usr/lib/x86_64-linux-gnu/libz.so.1';
+  const target = `libz.so.1.3.1\n${'y'.repeat(140)}`;
+  const [e] = parseArchive(
+    paxEntry([paxRecord('linkpath', target)], path, '2', 'libz.so.1.3.1'),
+    tarParser,
+  );
+  assert.equal(e.link, target); // the reader doesn't cut the target at its newline
+  facts.entries = facts.entries.map((x) => (x.path === path ? e : x));
+  fails(checkFacts(facts, base, pins), /libz\.so\.1 links to libz\.so\.1\.3\.1\n/);
+});
+
+test('[PB10] archive: an unowned link whose target hides a fake `path=` record is caught as itself', () => {
+  const { facts, base, pins } = fixture();
+  const fake = `x\n${paxRecord('path', 'usr/lib/x86_64-linux-gnu/libz.so.1')}`;
+  const [e] = parseArchive(
+    paxEntry([paxRecord('linkpath', fake)], 'etc/unowned-link', '2'),
+    tarParser,
+  );
+  assert.equal(e.path, 'etc/unowned-link'); // the embedded text isn't read as metadata
+  facts.entries.push(e);
+  fails(
+    checkFacts(facts, base, pins),
+    /etc\/unowned-link is a link in the image that is neither the base's nor an expected addition/,
+  );
 });

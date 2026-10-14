@@ -472,7 +472,15 @@ async function readImage(image, { hashFiles = true } = {}) {
         },
         { wantData: (p) => want(p.replace(/^\.?\//, '')) },
       );
-      child.stdout.on('data', (c) => parser.push(c));
+      // A malformed archive (the tar reader throws) fails the export rather than crashing or being half-read.
+      child.stdout.on('data', (c) => {
+        try {
+          parser.push(c);
+        } catch (e) {
+          child.kill();
+          reject(e);
+        }
+      });
       child.on('error', reject);
       child.on('close', (code) =>
         code === 0 ? resolve() : reject(new Error(`docker export exited ${code}`)),

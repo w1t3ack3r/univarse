@@ -35,7 +35,14 @@ async function realPackageDir(image) {
       const t = tarParser((e) => {
         if (!found && e.type === 'dir' && /node_modules\/\.pnpm\/@univarse\+db@[^/]+\/node_modules\/@univarse\/db\/dist\/?$/.test(e.path)) found = e.path.replace(/\/$/, '');
       });
-      p.stdout.on('data', (b) => t.push(b));
+      p.stdout.on('data', (b) => {
+        try {
+          t.push(b);
+        } catch (e) {
+          p.kill();
+          reject(e); // a malformed archive fails, never reads as "nothing found"
+        }
+      });
       p.on('error', reject);
       p.on('close', () => (found ? resolve(found) : reject(new Error(`no deployed @univarse/db directory found in ${image}`))));
     });

@@ -41,7 +41,14 @@ try {
   await new Promise((resolve, reject) => {
     const p = spawn('docker', ['export', id]);
     const parser = tarParser((e) => entries.push(e));
-    p.stdout.on('data', (b) => parser.push(b));
+    p.stdout.on('data', (b) => {
+      try {
+        parser.push(b);
+      } catch (e) {
+        p.kill();
+        reject(e); // a malformed archive fails the inspection
+      }
+    });
     p.on('error', reject);
     p.on('close', (code) => (code === 0 ? resolve() : reject(new Error(`docker export exited ${code}`))));
   });

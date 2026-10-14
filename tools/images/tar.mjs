@@ -18,17 +18,74 @@ const TYPES = {
   5: 'dir',
   6: 'fifo',
 };
+const utf8 = new TextDecoder('utf-8', { fatal: true });
+
+/**
+ * Decodes a pax extended header (POSIX.1-2001): records `<len> <key>=<value>\n`, where `<len>` is the record's total
+ * length in BYTES, its own digits included. Records are taken strictly by their declared lengths, so a value may hold
+ * newlines, or text that looks like another record, and none of it is ever read as metadata. Throws on anything
+ * malformed: a non-decimal or zero-padded length, a record overrunning the header, a missing space, `=` or final
+ * newline, an empty key, a repeated key, or invalid UTF-8.
+ */
+export function parsePax(data) {
+  const out = new Map();
+  let i = 0;
+  while (i < data.length) {
+    let j = i;
+    while (j < data.length && data[j] >= 0x30 && data[j] <= 0x39) j++;
+    if (j === i || data[j] !== 0x20) throw new Error(`pax: malformed record length at byte ${i}`);
+    const digits = data.subarray(i, j).toString('latin1');
+    if (digits.length > 1 && digits.startsWith('0'))
+      throw new Error(`pax: zero-padded record length at byte ${i}`);
+    const len = Number(digits);
+    if (!Number.isSafeInteger(len) || len <= j - i + 1 || i + len > data.length)
+      throw new Error(
+        `pax: the record at byte ${i} declares ${digits} bytes, which overruns the header`,
+      );
+    if (data[i + len - 1] !== 0x0a)
+      throw new Error(`pax: the record at byte ${i} doesn't end in a newline`);
+    const body = data.subarray(j + 1, i + len - 1);
+    const eq = body.indexOf(0x3d);
+    if (eq <= 0) throw new Error(`pax: the record at byte ${i} has no key`);
+    const key = utf8.decode(body.subarray(0, eq));
+    if (out.has(key)) throw new Error(`pax: key ${key} is repeated`);
+    out.set(key, utf8.decode(body.subarray(eq + 1)));
+    i += len;
+  }
+  return out;
+}
+
+/** Pax keys that change how an entry is framed or owned; a global header may not set any of them. */
+const PAX_STRUCTURAL = ['path', 'linkpath', 'size', 'uid', 'gid'];
+const decimal = (key, v) => {
+  if (!/^(0|[1-9]\d*)$/.test(v))
+    throw new Error(`pax: ${key}=${JSON.stringify(v)} isn't a decimal number`);
+  return Number(v);
+};
+
 export function tarParser(onEntry, { wantData = () => false } = {}) {
   let buf = Buffer.alloc(0);
   let skip = 0; // bytes (padded to 512) still to consume for the current entry
-  let paxPath = null;
-  let paxLink = null;
+  let pax = null; // the pending extended header's records, applied to the next entry only
   let gnuLong = null;
   let gnuLongLink = null;
-  let pending = null; // { kind: 'x' | 'L' | 'K' | 'file', size, data: Buffer[], entry? }
+  let pending = null; // { kind: 'x' | 'g' | 'L' | 'K' | 'file', size, data: Buffer[], entry? }
   const oct = (b) => {
     const s = b.toString('latin1').replace(/\0.*$/, '').trim();
     return s ? parseInt(s, 8) : 0;
+  };
+  /** A metadata entry's contents, applied once complete. */
+  const finishMeta = (kind, data) => {
+    if (kind === 'x') {
+      pax = parsePax(data);
+      // A size override would change where the data ends; nothing UniVarse inspects needs one.
+      if (pax.has('size')) throw new Error('pax: a size override is not supported');
+    } else if (kind === 'g') {
+      const g = parsePax(data);
+      for (const k of PAX_STRUCTURAL)
+        if (g.has(k)) throw new Error(`pax: a global header setting ${k} is not supported`);
+    } else if (kind === 'L') gnuLong = data.toString('utf8').replace(/\0+$/, '');
+    else if (kind === 'K') gnuLongLink = data.toString('utf8').replace(/\0+$/, '');
   };
   return {
     push(chunk) {
@@ -42,15 +99,8 @@ export function tarParser(onEntry, { wantData = () => false } = {}) {
           if (skip > 0) return;
           if (pending) {
             const data = Buffer.concat(pending.data).subarray(0, pending.size);
-            if (pending.kind === 'x') {
-              const text = data.toString('utf8');
-              const m = /(?:^|\n)\d+ path=([^\n]*)\n/.exec(text);
-              if (m) paxPath = m[1];
-              const l = /(?:^|\n)\d+ linkpath=([^\n]*)\n/.exec(text);
-              if (l) paxLink = l[1];
-            } else if (pending.kind === 'L') gnuLong = data.toString('utf8').replace(/\0+$/, '');
-            else if (pending.kind === 'K') gnuLongLink = data.toString('utf8').replace(/\0+$/, '');
-            else onEntry({ ...pending.entry, data });
+            if (pending.kind === 'file') onEntry({ ...pending.entry, data });
+            else finishMeta(pending.kind, data);
             pending = null;
           }
         }
@@ -63,31 +113,26 @@ export function tarParser(onEntry, { wantData = () => false } = {}) {
         const size = oct(h.subarray(124, 136));
         const flag = String.fromCharCode(h[156] || 48);
         const padded = Math.ceil(size / 512) * 512;
-        if (flag === 'x' || flag === 'L' || flag === 'K') {
-          pending = { kind: flag, size, data: [] };
+        if (flag === 'x' || flag === 'g' || flag === 'L' || flag === 'K') {
+          if (flag === 'x' && pax) throw new Error('pax: two extended headers for one entry');
+          // A zero-length metadata entry has no data blocks to wait for: apply it now.
+          if (size === 0) finishMeta(flag, Buffer.alloc(0));
+          else pending = { kind: flag, size, data: [] };
           skip = padded;
           continue;
         }
-        if (flag === 'g') {
-          skip = padded;
-          continue;
-        }
-        const path = paxPath ?? gnuLong ?? (prefix ? `${prefix}/${name}` : name);
+        const path = pax?.get('path') ?? gnuLong ?? (prefix ? `${prefix}/${name}` : name);
         const link =
-          paxLink ?? gnuLongLink ?? h.subarray(157, 257).toString('utf8').replace(/\0.*$/, '');
-        paxPath = null;
-        paxLink = null;
+          pax?.get('linkpath') ??
+          gnuLongLink ??
+          h.subarray(157, 257).toString('utf8').replace(/\0.*$/, '');
+        const uid = pax?.has('uid') ? decimal('uid', pax.get('uid')) : oct(h.subarray(108, 116));
+        const gid = pax?.has('gid') ? decimal('gid', pax.get('gid')) : oct(h.subarray(116, 124));
+        pax = null;
         gnuLong = null;
         gnuLongLink = null;
         const type = TYPES[flag] ?? 'other';
-        const entry = {
-          path,
-          type,
-          size,
-          uid: oct(h.subarray(108, 116)),
-          gid: oct(h.subarray(116, 124)),
-          mode: oct(h.subarray(100, 108)),
-        };
+        const entry = { path, type, size, uid, gid, mode: oct(h.subarray(100, 108)) };
         if (type === 'symlink' || type === 'hardlink') entry.link = link;
         if (type === 'file' && size > 0 && wantData(path))
           pending = { kind: 'file', size, data: [], entry };
