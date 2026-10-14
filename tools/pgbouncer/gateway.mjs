@@ -12,6 +12,7 @@
 //
 //   node tools/pgbouncer/gateway.mjs      prints the IPv4 address, or fails
 import { spawnSync } from 'node:child_process';
+import { randomBytes } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
 import { READER_IMAGE } from '../images/pgbouncer-grype-gate.mjs';
 
@@ -61,11 +62,25 @@ export function selectGatewayIpv4({ ipv4, ipv6 }) {
   return addr;
 }
 
-/** Discovers the active daemon's host-gateway IPv4 address, bounded by `timeoutMs`. */
-export function discoverGatewayIpv4({ run = spawnSync, timeoutMs = DISCOVERY_TIMEOUT_MS } = {}) {
+/** How long removing a timed-out probe container may take; it is bounded the same way. */
+export const CLEANUP_TIMEOUT_MS = 15_000;
+
+/**
+ * Discovers the active daemon's host-gateway IPv4 address, bounded by `timeoutMs`: the docker client is killed
+ * with SIGKILL when the time is up (a handled SIGTERM can't extend the wait), and the run's own named probe
+ * container is then removed, bounded too. `run` is spawnSync's signature, replaced in tests.
+ */
+export function discoverGatewayIpv4({
+  run = spawnSync,
+  timeoutMs = DISCOVERY_TIMEOUT_MS,
+  random = () => randomBytes(4).toString('hex'),
+} = {}) {
+  const name = `uv-gateway-probe-${random()}`;
   const args = [
     'run',
     '--rm',
+    '--name',
+    name,
     '--network',
     'bridge',
     '--add-host',
@@ -76,11 +91,22 @@ export function discoverGatewayIpv4({ run = spawnSync, timeoutMs = DISCOVERY_TIM
     '-e',
     "process.stdout.write(require('fs').readFileSync('/etc/hosts','utf8'))",
   ];
-  const r = run('docker', args, { encoding: 'utf8', timeout: timeoutMs });
-  if (r.error?.code === 'ETIMEDOUT' || r.signal)
+  const r = run('docker', args, { encoding: 'utf8', timeout: timeoutMs, killSignal: 'SIGKILL' });
+  if (r.error?.code === 'ETIMEDOUT' || r.signal) {
+    // The client is gone; its container may not be. Remove it, by its run-owned name, within a bound.
+    const rm = run('docker', ['rm', '-f', name], {
+      encoding: 'utf8',
+      timeout: CLEANUP_TIMEOUT_MS,
+      killSignal: 'SIGKILL',
+    });
+    const cleanup =
+      rm.status === 0
+        ? ''
+        : ` (removing the probe container ${name} also failed; remove it by hand)`;
     throw new Error(
-      `host-gateway discovery did not finish within ${timeoutMs / 1000} s (is Docker running?)`,
+      `host-gateway discovery did not finish within ${timeoutMs / 1000} s (is Docker running?)${cleanup}`,
     );
+  }
   if (r.error) throw new Error(`host-gateway discovery could not run docker: ${r.error.message}`);
   if (r.status !== 0)
     throw new Error(

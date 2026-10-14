@@ -1,6 +1,7 @@
 // Spec 0017 Design, decision A: host.docker.internal is mapped to the daemon's host-gateway IPv4 address only.
 // Run: node --test tools/pgbouncer/gateway.test.mjs
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import { test } from 'node:test';
 import {
   discoverGatewayIpv4,
@@ -120,9 +121,54 @@ test('discovery is bounded and fails clearly: timeout, docker missing, a failed 
   assert.equal(ok, '192.168.65.254');
   assert.equal(seen.cmd, 'docker');
   assert.equal(seen.opts.timeout, 7000);
+  assert.equal(seen.opts.killSignal, 'SIGKILL'); // a handled SIGTERM can't extend the wait
   assert.ok(seen.args.includes(`${PROBE_HOST}:host-gateway`));
   assert.match(
     seen.args.find((a) => a.startsWith('gcr.io/')),
     /@sha256:[0-9a-f]{64}$/,
   ); // a pinned image
+});
+
+test("a timed-out discovery removes its own named probe container, bounded too (owner's review of 6297f22)", () => {
+  const calls = [];
+  const run = (cmd, args, opts) => {
+    calls.push({ args, opts });
+    return args[0] === 'run'
+      ? { error: Object.assign(new Error('ETIMEDOUT'), { code: 'ETIMEDOUT' }), signal: 'SIGKILL' }
+      : { status: 0 };
+  };
+  assert.throws(
+    () => discoverGatewayIpv4({ run, timeoutMs: 1000, random: () => 'abcd1234' }),
+    /within 1 s/,
+  );
+  assert.deepEqual(calls[0].args.slice(0, 4), [
+    'run',
+    '--rm',
+    '--name',
+    'uv-gateway-probe-abcd1234',
+  ]);
+  assert.deepEqual(calls[1].args, ['rm', '-f', 'uv-gateway-probe-abcd1234']); // its own, by name
+  assert.equal(calls[1].opts.killSignal, 'SIGKILL');
+  assert.ok(calls[1].opts.timeout > 0);
+  // a failed removal is reported, not hidden
+  const failing = (cmd, args) =>
+    args[0] === 'run' ? { error: { code: 'ETIMEDOUT' }, signal: 'SIGKILL' } : { status: 1 };
+  assert.throws(
+    () => discoverGatewayIpv4({ run: failing, timeoutMs: 1000 }),
+    /also failed; remove it by hand/,
+  );
+});
+
+// A real child that handles (ignores) SIGTERM and would sleep 20 s: the bound must still hold. With spawnSync's
+// default SIGTERM, a POSIX child like this outlives the timeout (owner's probe: 100 ms became 758 ms). CI (Linux)
+// exercises that; on Windows any kill terminates the process outright.
+test("discovery's timeout is enforced on a real process that ignores SIGTERM (owner's review of 6297f22)", () => {
+  const STUBBORN =
+    "process.on('SIGTERM', () => {}); setTimeout(() => {}, 20000); process.stdout.write('started')";
+  const run = (cmd, args, opts) =>
+    args[0] === 'run' ? spawnSync(process.execPath, ['-e', STUBBORN], opts) : { status: 0 };
+  const t0 = Date.now();
+  assert.throws(() => discoverGatewayIpv4({ run, timeoutMs: 300 }), /did not finish within 0\.3 s/);
+  const elapsed = Date.now() - t0;
+  assert.ok(elapsed < 3000, `returned after ${elapsed} ms, for a 300 ms bound`);
 });
