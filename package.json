@@ -13,6 +13,7 @@
     "test:int": "turbo run test:int --concurrency=1",
     "dev": "turbo run dev",
     "db:setup": "pnpm --filter @univarse/db run setup",
+    "dev:pgbouncer": "node tools/pgbouncer/run.mjs start",
     "db:migrate": "pnpm --filter @univarse/db run migrate",
     "db:seed": "pnpm --filter @univarse/db run seed && pnpm --filter @univarse/crypto run provision",
     "rls:check": "pnpm --filter @univarse/db run rls:check",

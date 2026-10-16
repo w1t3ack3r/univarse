@@ -25,7 +25,8 @@
     "rls:check": "tsx scripts/rls-check.ts",
     "seed": "tsx scripts/seed.ts",
     "test": "vitest run",
-    "test:int": "vitest run --config vitest.int.config.ts"
+    "test:int": "vitest run --config vitest.int.config.ts",
+    "test:pgbouncer:probe": "vitest run --config vitest.pgbouncer.config.ts"
   },
   "dependencies": {
     "@prisma/adapter-pg": "^7.0.0",
