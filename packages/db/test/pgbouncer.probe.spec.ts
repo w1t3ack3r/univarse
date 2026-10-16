@@ -166,10 +166,18 @@ describe('[PB2] the tenant context never crosses clients (probe profile)', () =>
     }
   }, 30_000);
   afterAll(async () => {
-    for (const f of fixtures)
-      await withTenantTx(shard, f.tenantId, (tx) =>
-        tx.outboxEvent.deleteMany({ where: { type: { startsWith: PREFIX } } }),
-      );
+    // outbox_event is append-only for the app role (DELETE revoked, docs/07 §1), so the app can't remove these
+    // fixtures, rightly. The test's own cleanup removes exactly them, as the superuser, directly; the suites run on
+    // this database next.
+    const su = await client(superuserUrl('univarse_pool_01'));
+    try {
+      const { rowCount } = await su.query('DELETE FROM outbox_event WHERE type LIKE $1', [
+        `${PREFIX}%`,
+      ]);
+      expect(rowCount).toBe(fixtures.reduce((n, f) => n + f.values.length, 0));
+    } finally {
+      await su.end();
+    }
     await shard.$disconnect();
     await platform.$disconnect();
   });
