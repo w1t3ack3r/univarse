@@ -117,8 +117,11 @@ The CI job runs Postgres with its server zone set to `Africa/Lagos`, as today, a
 
 **Locally:**
 
-- `pnpm dev:pgbouncer` starts the same image in compose, in either profile.
-- `pnpm test:int:pgbouncer` runs the probes and the suites through it, serialized with other integration runs as usual.
+- `pnpm dev:pgbouncer <probe|suite>` starts the same image, in either profile, through `tools/pgbouncer/run.mjs`, the same script CI uses (decided in implementation, 2026-10-16: compose would need generated variables for the discovered gateway and CI's user, and a second code path).
+  - **The container:** read-only, no capabilities, no new privileges, published on loopback only.
+  - **Its user is non-root:** the current UID:GID on Linux, because the auth file is 0600 and belongs to that user; the image's 65532 elsewhere, since Docker Desktop reads host files as the host user.
+  - **The mount:** the **`.pgbouncer` directory**, read-only at `/etc/pgbouncer`, with the profile's ini passed as the command. A single-file mount was tried first and failed: it pins the auth file's original inode, so a rotated file (renamed into place by `db:setup`) never reached PgBouncer, even after `RELOAD`.
+- `pnpm test:int:pgbouncer` runs PB7 through the API, the other probes and the three suites, in the CI job's order, then stops PgBouncer. It is serialized with other integration runs as usual. The PB9 rotation re-runs `db:setup`, so it runs only with `PGBOUNCER_PROBE_ROTATION=1` (CI sets it).
 
 **Code changes (small):**
 
