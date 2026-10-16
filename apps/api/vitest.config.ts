@@ -6,7 +6,8 @@ export default defineConfig({
   test: {
     include: ['src/**/*.spec.ts'],
     // Integration specs and the OB12 separate-process proof need services; they have their own configs.
-    exclude: ['src/**/*.int.spec.ts', 'src/**/*.ob12.spec.ts'],
+    // …and spec 0017's PgBouncer probes need PgBouncer up (vitest.pgbouncer.config.ts).
+    exclude: ['src/**/*.int.spec.ts', 'src/**/*.ob12.spec.ts', 'src/**/*.probe.spec.ts'],
     passWithNoTests: true,
   },
 });

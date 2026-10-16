@@ -76,7 +76,14 @@ CMD ["dist/main.js"]          # worker: ["dist/worker.js"]
 Web (`apps/web`) uses Next.js `output: 'standalone'` with the same pattern (`CMD ["server.js"]`).
 
 ### 2.3 Third-party service images
-Gotenberg, ClamAV, Caddy, PgBouncer, Valkey, SeaweedFS: official images **pinned by digest**, scanned like ours, run with the same runtime hardening (§4), and never exposed publicly.
+Gotenberg, ClamAV, Caddy, Valkey, SeaweedFS: official images **pinned by digest**, scanned like ours, run with the same runtime hardening (§4), and never exposed publicly.
+
+**A third-party component built from source** (today: PgBouncer, [spec 0017](specs/0017-pgbouncer-isolation.md) D1 and PB10) follows stricter rules, because a scanner sees only what has a package record:
+- **The build:** from the upstream tarball, checked against its pinned SHA-256, on a pinned builder. The runtime is distroless, pinned by digest, its upstream signature verified before the build.
+- **Anything without a package record has an inventory entry with a CPE.** `tools/images/pgbouncer-inventory.mjs` writes a CycloneDX inventory from the final image (by ID): every regular file hashed, the base validated byte for byte against the pinned base image, and only the expected additions allowed.
+- **The inventory is tied to the build:** the binary's hash and the versions it reports must equal the inventory's.
+- **Scanner responsibility is fixed by provenance, never by whichever scanner reports less.** Genuine Debian packages are gated by Trivy. The source-built component is gated by Grype's CPE match against a freshness-checked database (`tools/images/pgbouncer-grype-gate.mjs`). Both fail on HIGH/CRITICAL, and severity disagreements are disclosed.
+- **Coverage controls** prove the gate catches what it should: a known-vulnerable version, lying metadata, edited inventories, and database failures. A check also fails when upstream publishes a newer release than the pin, as happened with PgBouncer 1.26.1, a security release (spec 0017 revision 5).
 
 ## 3. Build pipeline: scan, SBOM, sign, attest
 

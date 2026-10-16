@@ -15,7 +15,7 @@ import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { makeGates } from './gates.mjs';
 import { REPO, sh } from './release-lib.mjs';
-import { tarParser } from './tar.mjs';
+import { consumeDockerExport } from './tar.mjs';
 
 const ALNUM = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
 const UPPER = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
@@ -29,16 +29,18 @@ const stripeKey = () => ['sk', '_live_'].join('') + pick(ALNUM, 32);
 async function realPackageDir(image) {
   const id = sh('docker', ['create', image]).stdout.trim();
   try {
-    return await new Promise((resolve, reject) => {
-      let found = null;
-      const p = spawn('docker', ['export', id]);
-      const t = tarParser((e) => {
+    let found = null;
+    // A malformed or truncated export rejects (consumeTar): it never reads as "nothing found".
+    await consumeDockerExport(
+      id,
+      (e) => {
         if (!found && e.type === 'dir' && /node_modules\/\.pnpm\/@univarse\+db@[^/]+\/node_modules\/@univarse\/db\/dist\/?$/.test(e.path)) found = e.path.replace(/\/$/, '');
-      });
-      p.stdout.on('data', (b) => t.push(b));
-      p.on('error', reject);
-      p.on('close', () => (found ? resolve(found) : reject(new Error(`no deployed @univarse/db directory found in ${image}`))));
-    });
+      },
+      {},
+      { spawn },
+    );
+    if (!found) throw new Error(`no deployed @univarse/db directory found in ${image}`);
+    return found;
   } finally {
     sh('docker', ['rm', id], { allowFail: true });
   }

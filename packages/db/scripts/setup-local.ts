@@ -8,14 +8,28 @@
  *             univarse_app_platform (platform data)
  *   databases univarse_platform, univarse_pool_01 (owned by univarse_migrator)
  * then writes fresh random role passwords into the git-ignored repo-root .env.
- * Re-running rotates the role passwords. Refuses to run against non-local hosts.
+ * The app roles get a UTC `timezone` default (spec 0017 D6: a default for sessions that send none; the client's
+ * `-c TimeZone=UTC` option stays the setting).
+ * For PgBouncer (spec 0017 D2, PB9) it writes the git-ignored .pgbouncer/: the auth_file, holding each app role's
+ * SCRAM verifier copied exactly from pg_authid plus a pgbouncer_admin entry (not a PostgreSQL role), owner-only and
+ * checked; and the probe and suite profiles' pgbouncer.ini. It logs role names only, never a password or verifier.
+ * Re-running rotates the role passwords and regenerates the auth file. Refuses to run against non-local hosts.
  */
 import { randomBytes } from 'node:crypto';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import { stdin, stdout } from 'node:process';
 import pg from 'pg';
-import { ROOT_ENV_PATH } from './env.js';
+import { REPO_ROOT, ROOT_ENV_PATH } from './env.js';
+import {
+  PGBOUNCER_ADMIN,
+  PGBOUNCER_PORT,
+  renderAuthFile,
+  renderIni,
+  scramVerifier,
+  writeOwnerOnly,
+} from './pgbouncer-config.js';
 
 const host = process.env.PGHOST ?? '127.0.0.1';
 const port = Number(process.env.PGPORT ?? 5432);
@@ -30,6 +44,8 @@ const DATABASES = [
   { name: 'univarse_platform', appRole: ROLES.appPlatform, envPrefix: 'PLATFORM' },
   { name: 'univarse_pool_01', appRole: ROLES.app, envPrefix: 'TENANT_POOL_01' },
 ] as const;
+/** The roles the app connects as: the only ones PgBouncer authenticates (the migrator always connects directly). */
+const APP_ROLES = [ROLES.app, ROLES.appPlatform];
 
 async function promptHidden(question: string): Promise<string> {
   if (process.env.PGSUPERPASSWORD) return process.env.PGSUPERPASSWORD;
@@ -68,6 +84,11 @@ async function main() {
   if (!version || Number(version.server_version_num) < 180000) {
     throw new Error('PostgreSQL 18+ is required (uuidv7()). Set PGPORT to your PG18 instance.');
   }
+  // PgBouncer's auth_file needs SCRAM verifiers (PB9): a server hashing new passwords as md5 is refused up front.
+  const encryption = (await admin.query<{ password_encryption: string }>('SHOW password_encryption')).rows[0];
+  if (encryption?.password_encryption !== 'scram-sha-256') {
+    throw new Error(`password_encryption must be scram-sha-256 (it is ${String(encryption?.password_encryption)}).`);
+  }
 
   const passwords = { migrator: secret(), app: secret(), appPlatform: secret() };
   for (const [key, role] of Object.entries(ROLES) as [keyof typeof ROLES, string][]) {
@@ -80,6 +101,23 @@ async function main() {
     );
     console.log(`  ✓ role ${role} ${exists ? '(password rotated)' : '(created)'}`);
   }
+  // D6: a UTC default for app sessions that send no TimeZone. The client's startup option remains the setting.
+  for (const role of APP_ROLES) {
+    await admin.query(`ALTER ROLE ${ident(role)} SET timezone = 'UTC'`);
+    console.log(`  ✓ role ${role} timezone default UTC`);
+  }
+
+  // PB9: copy each app role's verifier exactly as PostgreSQL stored it, under the same name.
+  const stored = await admin.query<{ rolname: string; rolpassword: string | null }>(
+    'SELECT rolname, rolpassword FROM pg_authid WHERE rolname = ANY($1::text[])',
+    [APP_ROLES],
+  );
+  const verifierOf = (role: string) => stored.rows.find((r) => r.rolname === role)?.rolpassword ?? null;
+  const adminPassword = secret();
+  const authFile = renderAuthFile([
+    ...APP_ROLES.map((user) => ({ user, verifier: verifierOf(user) })),
+    { user: PGBOUNCER_ADMIN, verifier: scramVerifier(adminPassword) },
+  ]);
 
   for (const db of DATABASES) {
     const exists = (await admin.query('SELECT 1 FROM pg_database WHERE datname = $1', [db.name])).rowCount;
@@ -109,17 +147,40 @@ async function main() {
   }
   await admin.end();
 
-  const url = (user: string, pw: string, dbName: string) =>
-    `postgresql://${user}:${pw}@${host}:${port}/${dbName}`;
+  writePgBouncerFiles(authFile);
+
+  const url = (user: string, pw: string, dbName: string, at = `${host}:${port}`) =>
+    `postgresql://${user}:${pw}@${at}/${dbName}`;
+  const bouncer = `127.0.0.1:${PGBOUNCER_PORT}`;
   const generated: Record<string, string> = {};
   for (const db of DATABASES) {
     const appPw = db.appRole === ROLES.app ? passwords.app : passwords.appPlatform;
     generated[`${db.envPrefix}_DATABASE_URL`] = url(db.appRole, appPw, db.name);
     generated[`${db.envPrefix}_MIGRATOR_URL`] = url(ROLES.migrator, passwords.migrator, db.name);
+    // Through PgBouncer (spec 0017): app roles only. Migrations, setup, seeding and rls:check stay direct (PB8).
+    generated[`PGBOUNCER_${db.envPrefix}_DATABASE_URL`] = url(db.appRole, appPw, db.name, bouncer);
   }
+  generated.PGBOUNCER_ADMIN_URL = url(PGBOUNCER_ADMIN, adminPassword, 'pgbouncer', bouncer);
   writeEnv(generated);
   console.log(`  ✓ wrote connection strings to ${ROOT_ENV_PATH} (git-ignored)`);
   console.log('\nNext: pnpm db:migrate && pnpm rls:check');
+}
+
+/** .pgbouncer/: the owner-only auth file (checked after writing), and the two profiles' pgbouncer.ini. */
+function writePgBouncerFiles(authFile: string) {
+  const dir = join(REPO_ROOT, '.pgbouncer');
+  mkdirSync(dir, { recursive: true, mode: 0o700 });
+  const userlist = join(dir, 'userlist.txt');
+  // A fresh owner-only file, checked, then renamed over the old one: never widened, never rewritten in place.
+  writeOwnerOnly(userlist, authFile);
+  console.log(`  ✓ PgBouncer auth file for ${[...APP_ROLES, PGBOUNCER_ADMIN].join(', ')} (owner-only, git-ignored)`);
+  for (const profile of ['probe', 'suite'] as const) {
+    writeFileSync(
+      join(dir, `pgbouncer.${profile}.ini`),
+      renderIni({ profile, databases: DATABASES.map((d) => d.name), serverPort: port }),
+    );
+  }
+  console.log(`  ✓ PgBouncer probe and suite profiles in ${dir}`);
 }
 
 /** Replaces generated keys in .env, preserving any other lines. */

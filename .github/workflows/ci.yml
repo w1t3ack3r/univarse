@@ -150,13 +150,22 @@ jobs:
           docker logs --tail 80 univarse-dev-seaweedfs-1 || true
           docker logs --tail 40 univarse-dev-clamav-1 || true
       - name: DB isolation tests (as app role)
-        run: pnpm --filter @univarse/db test:int
+        # Spec 0017 PB3: machine-readable results too, for pgbouncer-compare.
+        run: pnpm --filter @univarse/db test:int --reporter=default --reporter=json --outputFile.json="$GITHUB_WORKSPACE/suite-results/db.json"
       - name: Envelope encryption tests against real Vault (spec 0006)
-        run: pnpm --filter @univarse/crypto test:int
+        run: pnpm --filter @univarse/crypto test:int --reporter=default --reporter=json --outputFile.json="$GITHUB_WORKSPACE/suite-results/crypto.json"
       # Includes the storage contract tests (FU11, D1 gate) and the file flow against real SeaweedFS + ClamAV.
       - name: API integration tests
         # Verbose: every test's result is in the log, not just totals (spec 0010 completion record).
-        run: pnpm --filter @univarse/api test:int --reporter=verbose
+        run: pnpm --filter @univarse/api test:int --reporter=verbose --reporter=json --outputFile.json="$GITHUB_WORKSPACE/suite-results/api.json"
+      - name: Keep the suites' results for pgbouncer-compare (spec 0017 PB3)
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: suite-results-direct
+          path: suite-results/
+          retention-days: 30
+          if-no-files-found: warn
       # Spec 0012 OB12: the compiled API and worker as two separate processes, each initialized by its own
       # `--import ./dist/otel.js`, exporting to the same collector service as dev (pinned image, file output).
       # Asserts trace structure (parent chain across the outbox, scan link, pg/Valkey spans, service.name)
@@ -284,3 +293,268 @@ jobs:
       - name: Remove the journey containers (always)
         if: always()
         run: docker rm -f uv-e2e-api uv-e2e-web uv-e2e-worker uv-smoke-api uv-smoke-web uv-smoke-worker > /dev/null 2>&1 || true
+
+  # Spec 0017 PB10: the PgBouncer image (built from verified source, on distroless), its gates and its coverage proofs.
+  # Its own job, in parallel with build-test: the Grype database download and the nine coverage controls are slow, and a
+  # failure here names PgBouncer. Every report is kept as an artifact, on failure as well as success.
+  pgbouncer-image:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90 # the nine controls run the Grype gate about ten times on the real database
+    env:
+      EVIDENCE: pgbouncer-evidence # the Grype database cache is "$RUNNER_TEMP/grype-cache" (the runner context isn't allowed here)
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { persist-credentials: false }
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+      - name: Unit tests — tar reader, inventory, Grype gate and the controls harness (spec 0017 PB10)
+        run: |
+          mkdir -p "$EVIDENCE"
+          node --test tools/images/tar.test.mjs tools/images/pgbouncer-inventory.test.mjs \
+            tools/images/pgbouncer-grype-gate.test.mjs tools/images/pgbouncer-gate-proofs.test.mjs \
+            tools/images/pgbouncer-upstream.test.mjs tools/pgbouncer/gateway.test.mjs
+      - name: Verify the PgBouncer runtime base's upstream signature, before building (spec 0013 CS3, spec 0017 D1)
+        env:
+          COSIGN_VERSION: 3.1.3
+          COSIGN_SHA256: 4629c757b7618056f8ddd7e2625ae9fdd94c0372a65049520bc7d9df9efc7f71
+        run: |
+          curl -sSfLo cosign "https://github.com/sigstore/cosign/releases/download/v${COSIGN_VERSION}/cosign-linux-amd64"
+          echo "${COSIGN_SHA256}  cosign" | sha256sum -c -
+          chmod +x cosign
+          df=infra/docker/pgbouncer.Dockerfile
+          # Fail closed: exactly one digest-pinned RUNTIME_IMAGE, and the final stage is built FROM it.
+          test "$(grep -c '^ARG RUNTIME_IMAGE=' "$df")" -eq 1 || { echo "$df must declare RUNTIME_IMAGE exactly once"; exit 1; }
+          base=$(grep -oP '^ARG RUNTIME_IMAGE=\K\S+' "$df")
+          [[ "$base" =~ @sha256:[0-9a-f]{64}$ ]] || { echo "$df: RUNTIME_IMAGE is not digest-pinned: $base"; exit 1; }
+          test "$(grep '^FROM ' "$df" | tail -1)" = 'FROM ${RUNTIME_IMAGE} AS runtime' || { echo "$df: the final stage is not FROM \${RUNTIME_IMAGE}"; exit 1; }
+          echo "PgBouncer runtime base: $base"
+          ./cosign verify "$base" \
+            --certificate-identity keyless@distroless.iam.gserviceaccount.com \
+            --certificate-oidc-issuer https://accounts.google.com > /dev/null
+          rm cosign
+          echo "Upstream signature verified for $base" | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Build the PgBouncer image (spec 0017 D1)
+        run: |
+          docker buildx build --load -f infra/docker/pgbouncer.Dockerfile -t univarse-pgbouncer:ci \
+            --build-arg REVISION="${{ github.sha }}" --build-arg CREATED="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --build-arg VERSION="sha-${GITHUB_SHA::7}" .
+          echo "univarse-pgbouncer:ci image id $(docker image inspect -f '{{.Id}}' univarse-pgbouncer:ci)" | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Inspect the image, and run it hardened — user, labels, no shell, ownership; read-only, UID 65532, no capabilities (spec 0013 CS1, CS4)
+        run: |
+          node tools/images/inspect.mjs univarse-pgbouncer:ci --root usr/bin
+          docker run --rm --read-only --cap-drop ALL --security-opt no-new-privileges --user 65532:65532 \
+            --network none univarse-pgbouncer:ci --version | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Install Trivy (checksum-verified) and fetch its database (spec 0013 CS7)
+        env:
+          TRIVY_VERSION: 0.75.0
+          TRIVY_SHA256: c6e65abddb348e25f10549df887045629cf28cc72453cd1c63acb717316b3f3f
+          TRIVY_DB_REPOSITORY: ghcr.io/aquasecurity/trivy-db:2,public.ecr.aws/aquasecurity/trivy-db:2
+          TRIVY_IMAGE: aquasec/trivy:0.75.0@sha256:af6acf9a6b85dfe389a1941505c0ce9efef52a4719635e1a962f022a3d855daa
+        run: |
+          curl -sSfLo trivy.tgz "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz"
+          echo "${TRIVY_SHA256}  trivy.tgz" | sha256sum -c -
+          tar -xzf trivy.tgz trivy
+          ./trivy image --download-db-only
+          # The controls run Trivy as the pinned container, on its own cache volume: fill that too, once.
+          docker run --rm -e TRIVY_DB_REPOSITORY -v uv-trivy-cache:/root/.cache/trivy "$TRIVY_IMAGE" image --download-db-only
+      - name: Trivy gates — zero HIGH/CRITICAL (Debian packages, routed to Trivy), secrets, misconfiguration, SBOM (spec 0013 CS6–CS8, spec 0017 PB10)
+        run: |
+          ./trivy image --skip-db-update --scanners vuln --format json --output "$EVIDENCE/trivy-pgbouncer.json" univarse-pgbouncer:ci
+          node tools/images/trivy-summary.mjs "$EVIDENCE/trivy-pgbouncer.json" univarse-pgbouncer:ci | tee -a "$GITHUB_STEP_SUMMARY"
+          ./trivy image --skip-db-update --scanners vuln --severity HIGH,CRITICAL --ignorefile .trivyignore.yaml --exit-code 1 univarse-pgbouncer:ci
+          ./trivy image --skip-db-update --scanners secret --secret-config tools/images/trivy-secret.yaml \
+            --image-config-scanners secret --ignorefile .trivyignore.yaml --exit-code 1 univarse-pgbouncer:ci
+          ./trivy image --skip-db-update --scanners misconfig --image-config-scanners misconfig \
+            --severity HIGH,CRITICAL --ignorefile .trivyignore.yaml --exit-code 1 univarse-pgbouncer:ci
+          ./trivy image --skip-db-update --format spdx-json --output "$EVIDENCE/sbom-pgbouncer.spdx.json" univarse-pgbouncer:ci
+      - name: Inventory — generated from the image, then verified against it (spec 0017 PB10)
+        run: |
+          node tools/images/pgbouncer-inventory.mjs generate univarse-pgbouncer:ci "$EVIDENCE/inventory.cdx.json" | tee -a "$GITHUB_STEP_SUMMARY"
+          node tools/images/pgbouncer-inventory.mjs verify univarse-pgbouncer:ci "$EVIDENCE/inventory.cdx.json" | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Grype gate — PgBouncer by CPE, bound to this image and inventory (spec 0017 PB10)
+        run: |
+          mkdir -p "$RUNNER_TEMP/grype-cache"
+          node tools/images/pgbouncer-grype-gate.mjs univarse-pgbouncer:ci "$EVIDENCE/inventory.cdx.json" \
+            "$EVIDENCE/trivy-pgbouncer.json" "$EVIDENCE/gate" --cache "$RUNNER_TEMP/grype-cache" | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Coverage controls — all nine must fail for their intended reasons, the real build must pass (spec 0017 PB10)
+        run: |
+          node tools/images/pgbouncer-gate-proofs.mjs univarse-pgbouncer:ci "$EVIDENCE/proofs" --cache "$RUNNER_TEMP/grype-cache" | tee -a "$GITHUB_STEP_SUMMARY"
+      # Last, so a new upstream release doesn't stop the other gates producing their evidence.
+      - name: No newer upstream PgBouncer release than the pin — a maintenance safeguard, not a substitute for the Grype match (spec 0017 PB10)
+        run: |
+          node tools/images/pgbouncer-upstream.mjs 2>&1 | tee "$EVIDENCE/upstream.txt" | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Keep the evidence (always, failures included)
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: pgbouncer-image-evidence
+          path: |
+            pgbouncer-evidence/**
+            !pgbouncer-evidence/**/*.tar
+          retention-days: 30
+          if-no-files-found: warn
+
+  # Spec 0017 (D3, D4, PB1–PB9): the pooling probes and the three isolation suites through PgBouncer in transaction
+  # mode. The same services and setup as build-test; PgBouncer runs as the runner's own non-root user (the auth file
+  # is 0600 and theirs), with host.docker.internal mapped to the discovered IPv4 gateway (tools/pgbouncer/run.mjs).
+  pgbouncer-isolation:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_PASSWORD: ci-superuser-only
+          TZ: Africa/Lagos # as in build-test: a non-UTC server (PB5's halves need it)
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 20
+      valkey:
+        image: valkey/valkey:8-alpine
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "valkey-cli ping" --health-interval 5s --health-timeout 5s --health-retries 20
+      mailpit:
+        image: axllent/mailpit:v1.27
+        ports: ['1025:1025', '8025:8025']
+      vault:
+        image: hashicorp/vault:2.1.1
+        env:
+          VAULT_DEV_ROOT_TOKEN_ID: ci-root-token-only
+          VAULT_DEV_LISTEN_ADDRESS: 0.0.0.0:8200
+          SKIP_SETCAP: 'true'
+        ports: ['8200:8200']
+    env:
+      NODE_ENV: test
+      PGHOST: 127.0.0.1
+      PGPORT: '5432'
+      PGSUPERPASSWORD: ci-superuser-only
+      VALKEY_URL: redis://127.0.0.1:6379
+      PGBOUNCER_IMAGE: univarse-pgbouncer:ci
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { persist-credentials: false }
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0 (version from packageManager)
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Generate CI-only secrets
+        run: |
+          echo "SESSION_PEPPER=$(openssl rand -base64 32)" >> .env
+          echo "DATA_ENCRYPTION_KEY_ID=ci-1" >> .env
+          echo "DATA_ENCRYPTION_KEY=$(openssl rand -base64 32)" >> .env
+          echo "S3_ACCESS_KEY=uvci$(openssl rand -hex 8)" >> .env
+          echo "S3_SECRET_KEY=$(openssl rand -hex 30)" >> .env
+      - name: Start object storage + ClamAV (compose, same as dev)
+        env: { VALKEY_PASSWORD: ci-compose-interpolation-only }
+        run: |
+          node tools/storage-dev.mjs config
+          docker compose -f infra/compose/compose.dev.yml --env-file .env up -d seaweedfs clamav-test-sigs clamav
+      - name: Build the PgBouncer image (spec 0017 D1; gated in pgbouncer-image)
+        run: docker buildx build --load -f infra/docker/pgbouncer.Dockerfile -t "$PGBOUNCER_IMAGE" .
+      - name: Build (includes Prisma generate)
+        run: pnpm build
+      - name: Unit tests of the runner, the comparison and the gateway discovery (spec 0017)
+        run: node --test tools/pgbouncer/run.test.mjs tools/pgbouncer/compare.test.mjs tools/pgbouncer/gateway.test.mjs
+      - name: Create roles + databases, the auth file and the profiles (db:setup, PB9)
+        run: pnpm db:setup
+      - name: Migrate, directly (PB8)
+        run: pnpm db:migrate
+      - name: Configure Vault (Transit, derived KEK, encrypt/decrypt-only app token)
+        env:
+          VAULT_ROOT_TOKEN: ci-root-token-only
+        run: node tools/vault-dev.mjs
+      - name: Seed, directly (PB8)
+        run: pnpm db:seed
+      - name: PB8 — migrations, setup, seeding and rls:check used direct URLs, never PgBouncer's
+        run: |
+          pnpm rls:check
+          node --input-type=module -e "
+            import { readFileSync } from 'node:fs';
+            const env = Object.fromEntries(readFileSync('.env', 'utf8').split('\n').filter((l) => l.includes('=')).map((l) => [l.slice(0, l.indexOf('=')), l.slice(l.indexOf('=') + 1)]));
+            const direct = Object.entries(env).filter(([k]) => k.endsWith('_MIGRATOR_URL'));
+            if (direct.length === 0) throw new Error('no migrator URLs');
+            const where = (u) => { const x = new URL(u); return x.hostname + ':' + x.port; };
+            const used = [...direct.map(([k, u]) => [k, where(u)]), ['superuser (db:setup)', process.env.PGHOST + ':' + process.env.PGPORT]];
+            for (const [k, hp] of used) console.log(k + ' -> ' + hp);
+            if (used.some(([, hp]) => hp.endsWith(':6432'))) throw new Error('a direct path uses PgBouncer');
+          "
+      - name: Wait for SeaweedFS + ClamAV, create buckets
+        env: { VALKEY_PASSWORD: ci-compose-interpolation-only }
+        run: |
+          docker compose -f infra/compose/compose.dev.yml --env-file .env up -d --wait seaweedfs clamav
+          node tools/storage-dev.mjs buckets
+      - name: Start PgBouncer — probe profile (default_pool_size 2)
+        run: node tools/pgbouncer/run.mjs start probe
+      - name: PB7 — the API sheds PgBouncer's queue timeout as 503 server.busy (probe profile)
+        run: |
+          val() { grep "^$1=" .env | cut -d= -f2-; }
+          PLATFORM_DATABASE_URL="$(val PGBOUNCER_PLATFORM_DATABASE_URL)" \
+          TENANT_POOL_01_DATABASE_URL="$(val PGBOUNCER_TENANT_POOL_01_DATABASE_URL)" \
+            pnpm --filter @univarse/api test:pgbouncer:probe --reporter=verbose
+      - name: PB1, PB2, PB5, PB6, PB9 — the pooling probes, the rotation included (probe profile)
+        env: { PGBOUNCER_PROBE_ROTATION: '1' }
+        run: pnpm --filter @univarse/db test:pgbouncer:probe --reporter=verbose
+      - name: Restart PgBouncer — suite profile (default_pool_size 10)
+        run: node tools/pgbouncer/run.mjs start suite
+      - name: PB3 — the three isolation suites, unchanged, through PgBouncer
+        run: |
+          val() { grep "^$1=" .env | cut -d= -f2-; }
+          export PLATFORM_DATABASE_URL="$(val PGBOUNCER_PLATFORM_DATABASE_URL)"
+          export TENANT_POOL_01_DATABASE_URL="$(val PGBOUNCER_TENANT_POOL_01_DATABASE_URL)"
+          R="$GITHUB_WORKSPACE/suite-results"
+          status=0
+          pnpm --filter @univarse/db test:int --reporter=default --reporter=json --outputFile.json="$R/db.json" || status=1
+          pnpm --filter @univarse/crypto test:int --reporter=default --reporter=json --outputFile.json="$R/crypto.json" || status=1
+          pnpm --filter @univarse/api test:int --reporter=verbose --reporter=json --outputFile.json="$R/api.json" || status=1
+          exit $status
+      - name: PgBouncer's log (always)
+        if: always()
+        run: |
+          mkdir -p suite-results
+          docker logs univarse-pgbouncer > suite-results/pgbouncer.log 2>&1 || true
+          tail -40 suite-results/pgbouncer.log || true
+      - name: Keep the results for pgbouncer-compare (always)
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: suite-results-pgbouncer
+          path: suite-results/
+          retention-days: 30
+          if-no-files-found: warn
+
+  # Spec 0017 PB3: joins the two runs once both have finished; nothing depends on an unfinished job's logs. Runs
+  # whatever they concluded and fails unless both succeeded, so a skipped comparison never reads as a pass.
+  pgbouncer-compare:
+    runs-on: ubuntu-24.04
+    needs: [build-test, pgbouncer-isolation]
+    if: always()
+    timeout-minutes: 10
+    steps:
+      - name: Both runs must have succeeded
+        env:
+          BUILD_TEST: ${{ needs.build-test.result }}
+          ISOLATION: ${{ needs.pgbouncer-isolation.result }}
+        run: |
+          echo "build-test: $BUILD_TEST; pgbouncer-isolation: $ISOLATION"
+          test "$BUILD_TEST" = success && test "$ISOLATION" = success
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { persist-credentials: false }
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: suite-results-direct
+          path: results/direct
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: suite-results-pgbouncer
+          path: results/pgbouncer
+      - name: The same files, tests and skips; every test passed through PgBouncer (PB3)
+        run: |
+          node --test tools/pgbouncer/compare.test.mjs
+          node tools/pgbouncer/compare.mjs results/direct results/pgbouncer | tee -a "$GITHUB_STEP_SUMMARY"

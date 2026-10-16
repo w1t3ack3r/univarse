@@ -5,7 +5,7 @@
 // is root-owned and not group/other-writable. Exits non-zero naming every violation.
 import { spawn, spawnSync } from 'node:child_process';
 import { forbiddenReason, ownershipReason, SHELLS } from './rules.mjs';
-import { tarParser } from './tar.mjs';
+import { consumeDockerExport } from './tar.mjs';
 
 const [image, ...rest] = process.argv.slice(2);
 const arg = (name, fallback) => {
@@ -38,13 +38,8 @@ for (const l of ['source', 'revision', 'created', 'version']) {
 const id = docker('create', image);
 const entries = [];
 try {
-  await new Promise((resolve, reject) => {
-    const p = spawn('docker', ['export', id]);
-    const parser = tarParser((e) => entries.push(e));
-    p.stdout.on('data', (b) => parser.push(b));
-    p.on('error', reject);
-    p.on('close', (code) => (code === 0 ? resolve() : reject(new Error(`docker export exited ${code}`))));
-  });
+  // A malformed or truncated export rejects (consumeTar), and the container is still removed.
+  await consumeDockerExport(id, (e) => entries.push(e), {}, { spawn });
 } finally {
   docker('rm', id);
 }

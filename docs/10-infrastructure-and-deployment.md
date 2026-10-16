@@ -56,7 +56,18 @@ flowchart TB
 
 > **Current state:** see [ADR-015](19-decision-log.md). Postgres runs natively in Phase 0, and dependencies are added to compose as features need them. The list below is the target.
 
-`infra/compose/compose.dev.yml` provides: `postgres` (with `platform` + `pool_01` DBs, roles and extensions via init scripts), `pgbouncer`, `valkey`, `seaweedfs` S3 gateway (+ bucket bootstrap; [ADR-025](19-decision-log.md)), `mailpit` (catches email), `gotenberg`, `clamav`, and an optional `caddy` for `*.univarse.localhost` subdomains.
+`infra/compose/compose.dev.yml` provides: `postgres` (with `platform` + `pool_01` DBs, roles and extensions via init scripts), `valkey`, `seaweedfs` S3 gateway (+ bucket bootstrap; [ADR-025](19-decision-log.md)), `mailpit` (catches email), `gotenberg`, `clamav`, and an optional `caddy` for `*.univarse.localhost` subdomains.
+
+**PgBouncer** ([spec 0017](specs/0017-pgbouncer-isolation.md)) isn't in compose. `tools/pgbouncer/run.mjs` runs it, the same script CI uses:
+
+- **The image:** `infra/docker/pgbouncer.Dockerfile`, PgBouncer built from the verified upstream source on distroless. It is gated by Trivy, a CPE inventory and Grype (CI job `pgbouncer-image`, [09 §2.3](09-container-security.md)).
+- **Its configuration:** `pnpm db:setup` writes the git-ignored `.pgbouncer/`:
+  - the owner-only auth file;
+  - two profiles that differ only in `default_pool_size`: **probe**, 2 (sharing and saturation made certain), and **suite**, 10 (matching each client's pool, [ADR-026](19-decision-log.md));
+  - in both, `transaction` mode, `max_prepared_statements = 0`, `query_wait_timeout = 2`, `ignore_startup_parameters` unset, and `max_packet_size` at its default.
+- **Running it:** `pnpm dev:pgbouncer <probe|suite>` starts it on `127.0.0.1:6432`. It runs read-only, with no capabilities, as a non-root user, with the `.pgbouncer` directory mounted read-only. `host.docker.internal` is mapped to the Docker daemon's discovered host-gateway **IPv4** address (`tools/pgbouncer/gateway.mjs`): on this machine's Docker Desktop, `host-gateway` also produced an unroutable IPv6 address.
+- **Testing through it:** `pnpm test:int:pgbouncer` runs the probes and the three isolation suites through it.
+- **Your own Postgres:** if native PostgreSQL refuses connections from Docker's address range, a `pg_hba.conf` entry for that range (scram, the app databases only) is the developer's own step.
 
 ```bash
 pnpm i

@@ -185,8 +185,12 @@ export async function savedConfig(image, work, name, { sh = realSh } = {}) {
 /** CS6: the tag still names the gated image. Returns { ok, output }. */
 export async function sameImage(image, gatedConfig, work, { sh = realSh } = {}) {
   const tar = `recheck-${Date.now()}.tar`;
-  const now = await savedConfig(image, work, tar, { sh });
-  rmSync(join(work, tar), { force: true });
+  let now;
+  try {
+    now = await savedConfig(image, work, tar, { sh }); // a malformed or truncated save rejects to the caller
+  } finally {
+    rmSync(join(work, tar), { force: true });
+  }
   return now === gatedConfig
     ? { ok: true, output: `${image} is still the gated image (config ${now})` }
     : {

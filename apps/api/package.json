@@ -18,6 +18,7 @@
     "openapi": "node --enable-source-maps dist/cli/openapi.js",
     "test": "vitest run",
     "test:int": "vitest run --config vitest.int.config.ts",
+    "test:pgbouncer:probe": "vitest run --config vitest.pgbouncer.config.ts",
     "test:ob12": "vitest run --config vitest.ob12.config.ts"
   },
   "dependencies": {

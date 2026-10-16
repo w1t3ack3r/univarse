@@ -89,6 +89,24 @@ Policies are applied with the SQL helper `univarse_enable_tenant_rls('<table>')`
 ### 3.4 Isolation tests
 The integration suite creates two tenants with identical data shapes and asserts, for every repository, that tenant A's context can never read, update or delete tenant B's rows. It also asserts that no context at all returns zero rows. See [12 §3](12-testing-strategy.md).
 
+### 3.5 Connection pooling: PgBouncer in transaction mode ([spec 0017](specs/0017-pgbouncer-isolation.md), [ADR-015](19-decision-log.md))
+
+- **What goes through it:** the app roles' connections (`univarse_app`, `univarse_app_platform`). Under transaction pooling, a server connection belongs to a client only for one transaction, then passes to another.
+- **What stays direct:** migrations, `db:setup`, seeding and `rls:check`, which use the migrator's and the superuser's URLs. Prisma Migrate takes a session advisory lock, which needs a session of its own.
+- **The rule: no session state in production SQL.** Anything that outlives a transaction reaches the next client:
+  - the tenant context is set only with `set_config('app.tenant_id', …, true)`, as the first statement of every transaction (§3.2);
+  - nothing session-scoped is used: no `SET` without `LOCAL`, `RESET`, `set_config(…, false)`, session advisory locks (only the `_xact_` variants), `LISTEN`, `PREPARE`, temporary tables (`TEMP`, or a relation in `pg_temp`), `WITH HOLD` cursors or `DISCARD`;
+  - Prisma's adapter names no prepared statements.
+- **The rule's check (PB4):** `apps/api/src/testing/session-sql-guard.ts`, a type-aware static check over the production TypeScript of the API, `@univarse/db` and `@univarse/crypto`. It uses spec 0015's SQL lexer, so comments and literals can't hide a form.
+  - It refuses SQL it can't establish: dynamic `EXECUTE`, non-literal raw SQL, an interpolation not proven a bound parameter, and a database client converted to a type that hides its SQL methods.
+  - **Its limits:** SQL inside stored functions, and code outside those packages.
+- **UTC, two ways (D6):**
+  - every connection sends `-c TimeZone=UTC` (`packages/db/src/pool.ts`), and PgBouncer carries that option to the server;
+  - `db:setup` also gives the app roles a `timezone = 'UTC'` default, for any session that sends nothing. It is a default, not a force.
+- **Authentication (PB9):** PgBouncer's `auth_file` holds each app role's SCRAM verifier, copied exactly from `pg_authid` by `db:setup`, and is owner-only. There is no forced `user=`, and the admin console belongs to `pgbouncer_admin`, which is not a PostgreSQL role.
+- **Saturation:** PgBouncer's `query_wait_timeout` ending a wait in its queue is shed as `503 server.busy`, like Prisma's own transaction wait ([ADR-026](19-decision-log.md); spec 0017 PB7).
+- **The evidence:** the probes and the three isolation suites run through PgBouncer in CI (`pgbouncer-isolation`), and are compared with the direct run (`pgbouncer-compare`); see [12 §3](12-testing-strategy.md).
+
 ## 4. Migrations
 
 - **Authoring workflow (learned the hard way, 2026-10-01):** run `pnpm --filter @univarse/db migrate:new:tenant --name <x>` **once**. It writes the SQL without applying it. Append the RLS/grants SQL to that file, then apply with `pnpm db:migrate` (`migrate deploy`). **Never re-run `migrate dev`** while a created migration is pending: it applies the pending migration *as-is* (without your RLS edits) and then creates an empty follow-up migration. `rls:check` catches the missing RLS, but the local DB then needs a manual rollback.

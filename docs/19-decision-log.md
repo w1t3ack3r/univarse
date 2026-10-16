@@ -119,7 +119,7 @@ Alternatives considered: option — why not.
 | Dependency | Planned | Phase 0 status | Added when |
 |---|---|---|---|
 | PostgreSQL 18 | compose | **Native host install** (`pnpm db:setup` creates least-privilege roles). CI uses the `postgres:18` service container | — |
-| PgBouncer (transaction mode) | compose + prod | **Not yet.** App connects directly. RLS context is already transaction-local (`set_config(…, true)`), so it's PgBouncer-safe by design | Before the staging environment. Add a CI job running the isolation suite *through* PgBouncer |
+| PgBouncer (transaction mode) | compose + prod | **CI-job half closed** ([spec 0017](specs/0017-pgbouncer-isolation.md), 2026-10-16): the isolation suites and the pooling probes run through PgBouncer in transaction mode in CI (`pgbouncer-isolation`), compared with the direct run (`pgbouncer-compare`); locally through `tools/pgbouncer/run.mjs`. **Still open:** PgBouncer in the deployed path; the app connects directly outside those runs. RLS context is transaction-local (`set_config(…, true)`), now proven, not only argued | PgBouncer in the local production-like stack (ADR-030, roadmap item 7.1), with TLS, per-role pools and sizing |
 | Valkey | compose | **Running** (compose, hardened, 127.0.0.1) | Now: rate limits |
 | Mailpit | compose | **Running** | Now: activation codes |
 | S3-compatible storage | MinIO | **Not yet.** MinIO's community image distribution changed in 2025 `[VERIFY]`. Evaluate MinIO vs Garage/SeaweedFS behind the S3 API | Files module (uploads) |
