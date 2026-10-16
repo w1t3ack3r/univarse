@@ -3,6 +3,7 @@
 // `pnpm --filter @univarse/api test:pgbouncer:probe` (or the pgbouncer-isolation job): it needs PgBouncer up in the
 // probe profile, PLATFORM_DATABASE_URL and TENANT_POOL_01_DATABASE_URL pointed at it, and the superuser
 // (PGHOST, PGPORT, PGSUPERPASSWORD) for the unrelated-error control.
+import { existsSync } from 'node:fs';
 import type { ArgumentsHost } from '@nestjs/common';
 import type { NestFastifyApplication } from '@nestjs/platform-fastify';
 import { createPlatformClient, createTenantShardClient } from '@univarse/db';
@@ -11,6 +12,10 @@ import { createApp } from '../../bootstrap.js';
 import { loadConfig } from '../../config/config.js';
 import { ProblemFilter, UNAVAILABLE_RETRY_AFTER_SEC } from './problem.filter.js';
 
+// The repository's .env (as the integration suites' global setup loads it); variables already set win, so CI's
+// PgBouncer URLs in PLATFORM_DATABASE_URL / TENANT_POOL_01_DATABASE_URL are kept.
+const rootEnv = new URL('../../../../../.env', import.meta.url);
+if (existsSync(rootEnv)) process.loadEnvFile(rootEnv);
 const env = process.env as Record<string, string | undefined>;
 const PLATFORM = env.PLATFORM_DATABASE_URL ?? '';
 const TENANT = env.TENANT_POOL_01_DATABASE_URL ?? '';
@@ -56,20 +61,26 @@ const superuser = () => {
   );
 };
 
-let app: NestFastifyApplication;
+let app: NestFastifyApplication | undefined;
+const started = () => {
+  if (!app) throw new Error('the app did not start (see beforeAll)');
+  return app;
+};
 const profile = () =>
-  app
+  started()
     .getHttpAdapter()
     .getInstance()
     .inject({ method: 'GET', url: '/api/v1/tenant/public-profile', headers: { host: HOST } });
 
 beforeAll(async () => {
   // Both URLs must go through PgBouncer, or nothing here tests it.
-  for (const url of [PLATFORM, TENANT]) expect(url).toMatch(/@127\.0\.0\.1:6432\//);
+  // Host and port only: a failed expect on the URL itself would print its password.
+  for (const url of [PLATFORM, TENANT])
+    expect(url ? new URL(url).host : 'unset').toBe('127.0.0.1:6432');
   app = await createApp(loadConfig({ ...process.env, NODE_ENV: 'test', LOG_LEVEL: 'silent' }));
 }, 60_000);
 afterAll(async () => {
-  await app.close();
+  await app?.close(); // undefined when the app never started: the cause is reported by beforeAll
 });
 
 describe('[PB7] saturation outside a transaction is shed as 503 server.busy (ADR-026, probe profile)', () => {

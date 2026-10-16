@@ -409,7 +409,8 @@ describe('[PB9] authentication, credentials and exposure', () => {
           .map((l) => [l.slice(0, l.indexOf('=')), l.slice(l.indexOf('=') + 1)]),
       );
       const fresh = env.PGBOUNCER_PLATFORM_DATABASE_URL!;
-      expect(fresh).not.toBe(old);
+      // Compared without printing either: a failed expect would show both URLs, passwords included.
+      expect(fresh === old, 'db:setup must have changed the password').toBe(false);
       await adminOld.query('RELOAD');
       await adminOld.end();
       const c = await client(fresh, UTC);
