@@ -2,8 +2,13 @@
  * Timestamps are stored as the true instant whatever the server's TimeZone (packages/db/src/pool.ts).
  * Meaningful only on a non-UTC server: CI's Postgres runs in Africa/Lagos for this reason.
  * Since spec 0017 D6 the app roles also have a UTC `timezone` default, so "the session is UTC" alone can no longer
- * show that the client sent `-c TimeZone=UTC`: the setting's source must be the client (or, through PgBouncer, the
- * session it re-applies the client's value in), never the role default.
+ * show that the client sent `-c TimeZone=UTC`. On a DIRECT connection the setting's source shows it: it must be the
+ * client, never the role default.
+ * Through PgBouncer the source can't: PgBouncer re-applies a client's tracked parameter with SET only when it differs
+ * from the server connection's, so with the role default also UTC it sends nothing and the source reads `user`, and
+ * otherwise it reflects PgBouncer's own SET history (measured on 1.26.1, 2026-10-16). There the value is asserted, and
+ * the option's propagation is proven by spec 0017 PB5 (a non-UTC role default, fresh sessions), in the same CI job.
+ * PgBouncer is recognised by the `pgbouncer.version` it announces to clients, not by the URL.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import pg from 'pg';
@@ -15,9 +20,10 @@ let shard: TenantShardClient;
 let platform: PlatformClient;
 let tenantId: string;
 let serverDefault = '';
+let viaPgBouncer: string | undefined; // PgBouncer's version, when connected through it
 const TZ_SOURCE = "SELECT current_setting('TimeZone') AS tz, source FROM pg_settings WHERE name = 'TimeZone'";
 /** Where a session's TimeZone came from: the client's startup option, never a role or server default. */
-const FROM_THE_CLIENT = ['client', 'session'];
+const FROM_THE_CLIENT = ['client'];
 
 beforeAll(async () => {
   loadRootEnv();
@@ -25,11 +31,18 @@ beforeAll(async () => {
   platform = createPlatformClient(requireEnv('PLATFORM_DATABASE_URL'));
   tenantId = (await platform.tenant.findUniqueOrThrow({ where: { slug: 'demo-uni' } })).id;
   const raw = new pg.Client({ connectionString: requireEnv('TENANT_POOL_01_DATABASE_URL') });
+  // pg's Client exposes its protocol connection; PgBouncer (1.26+) sends `pgbouncer.version` as a ParameterStatus.
+  (raw as unknown as { connection: { on: (e: 'parameterStatus', f: (m: { parameterName: string; parameterValue: string }) => void) => void } }).connection.on(
+    'parameterStatus',
+    (m) => {
+      if (m.parameterName === 'pgbouncer.version') viaPgBouncer = m.parameterValue;
+    },
+  );
   await raw.connect();
   const row = (await raw.query<{ tz: string; source: string }>(TZ_SOURCE)).rows[0]!;
   serverDefault = `${row.tz} (from ${row.source})`;
   await raw.end();
-  console.log(`TimeZone without the client option: ${serverDefault}`);
+  console.log(`TimeZone without the client option: ${serverDefault}; ${viaPgBouncer ? `through PgBouncer ${viaPgBouncer}` : 'direct'}`);
 });
 afterAll(async () => {
   await shard.$disconnect();
@@ -51,7 +64,7 @@ describe('timestamps are true instants (UTC sessions)', () => {
     const [plat] = await platform.$queryRaw<{ tz: string; source: string }[]>`SELECT current_setting('TimeZone') AS tz, source FROM pg_settings WHERE name = 'TimeZone'`;
     for (const s of [tenant!, plat!]) {
       expect(s.tz).toBe('UTC');
-      expect(FROM_THE_CLIENT).toContain(s.source);
+      if (!viaPgBouncer) expect(FROM_THE_CLIENT).toContain(s.source); // through PgBouncer: PB5 (see the header)
     }
   });
 
