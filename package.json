@@ -11,6 +11,7 @@
     "lint": "turbo run lint && eslint tools",
     "test": "turbo run test",
     "test:int": "turbo run test:int --concurrency=1",
+    "test:int:pgbouncer": "node tools/pgbouncer/test-int.mjs",
     "dev": "turbo run dev",
     "db:setup": "pnpm --filter @univarse/db run setup",
     "dev:pgbouncer": "node tools/pgbouncer/run.mjs start",
