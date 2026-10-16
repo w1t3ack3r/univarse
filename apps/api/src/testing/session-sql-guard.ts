@@ -262,6 +262,9 @@ export function packageProgram(
   const virt = new Map(Object.entries(virtual).map(([p, t]) => [norm(join(root, p)), t]));
   const getSourceFile = host.getSourceFile.bind(host);
   host.fileExists = (f) => virt.has(norm(f)) || ts.sys.fileExists(f);
+  // Virtual files' directories exist too, so imports between virtual files resolve (`./other.js` → other.ts).
+  host.directoryExists = (d) =>
+    [...virt.keys()].some((k) => k.startsWith(`${norm(d)}/`)) || ts.sys.directoryExists(d);
   host.readFile = (f) => virt.get(norm(f)) ?? ts.sys.readFile(f);
   host.getSourceFile = (f, lang, onError, create) => {
     const v = virt.get(norm(f));
@@ -288,25 +291,9 @@ export function productionSources(program: TS.Program, dir: string): TS.SourceFi
   });
 }
 
-/** The violations in one file: session-scoped SQL, and SQL it can't establish. */
-export function analyzeSessionSql(program: TS.Program, sf: TS.SourceFile): string[] {
+/** The type-aware helpers PB4 shares between the per-file check and the program-wide injection check. */
+export function sqlTypes(program: TS.Program) {
   const checker = program.getTypeChecker();
-  const boundParameter = boundParameterOf(program);
-  const out: string[] = [];
-  const where = (n: TS.Node) =>
-    `${relative(REPO, sf.fileName).replace(/\\/g, '/')}:${String(sf.getLineAndCharacterOfPosition(n.getStart(sf)).line + 1)}`;
-  const refuse = (n: TS.Node, why: string) =>
-    out.push(`${where(n)}: ${why}: refused (fail closed)`);
-  const check = (n: TS.Node, text: string, how: string) => {
-    const r = sessionSqlProblems(text);
-    if ('error' in r) refuse(n, `${how} with SQL that doesn't lex unambiguously: ${r.error}`);
-    else for (const p of r.problems) out.push(`${where(n)}: ${how}: ${p}`);
-  };
-  const declFiles = (n: TS.Node) => {
-    let sym = checker.getSymbolAtLocation(n);
-    if (sym && sym.flags & ts.SymbolFlags.Alias) sym = checker.getAliasedSymbol(sym);
-    return (sym?.declarations ?? []).map((d) => d.getSourceFile().fileName.replace(/\\/g, '/'));
-  };
   const symbolOf = (n: TS.Node) => {
     const sym = checker.getSymbolAtLocation(n);
     return sym && sym.flags & ts.SymbolFlags.Alias ? checker.getAliasedSymbol(sym) : sym;
@@ -344,6 +331,78 @@ export function analyzeSessionSql(program: TS.Program, sf: TS.SourceFile): strin
     t.isUnion()
       ? t.types.some(hasSqlMembers)
       : checker.getPropertiesOfType(checker.getApparentType(t)).some(isSqlMember);
+  /** Whether `target` loses a SQL method of `source`: the reason, or undefined. Unions are checked member by member. */
+  const losesOrigin = (source: TS.Type, target: TS.Type): string | undefined => {
+    if (target.isUnion()) {
+      for (const m of target.types) {
+        if (m.flags & (ts.TypeFlags.Undefined | ts.TypeFlags.Null | ts.TypeFlags.Void)) continue;
+        const why = losesOrigin(source, m);
+        if (why) return why;
+      }
+      return undefined;
+    }
+    const sqlNames = checker
+      .getPropertiesOfType(checker.getApparentType(source))
+      .filter(isSqlMember)
+      .map((p) => p.getName());
+    if (sqlNames.length === 0) return undefined;
+    const apparent = checker.getApparentType(target);
+    const erased =
+      (target.flags & (ts.TypeFlags.Unknown | ts.TypeFlags.Any | ts.TypeFlags.NonPrimitive)) !==
+        0 ||
+      (!!(target.flags & ts.TypeFlags.Object) &&
+        checker.getPropertiesOfType(apparent).length === 0 &&
+        target.getCallSignatures().length === 0 &&
+        checker.getIndexInfosOfType(apparent).length === 0);
+    const wrapped = sqlNames.filter((name) => {
+      const there = checker.getPropertyOfType(apparent, name);
+      return there !== undefined && !isSqlMember(there);
+    });
+    // A string index signature lets any name through (a symbol index, as Prisma's client declares, can't).
+    const indexed = checker
+      .getIndexInfosOfType(apparent)
+      .some((i) => (i.keyType.flags & ts.TypeFlags.String) !== 0);
+    if (wrapped.length) return `carries ${wrapped.join(', ')} without its SQL origin`;
+    if (erased || indexed) return 'erases its SQL methods';
+    return undefined;
+  };
+  /** The given type parameters mentioned anywhere in a type node (`T`, `T[]`, `Wrapper<T>`, `(x: T) => …`). */
+  const mentionedTypeParameters = (node: TS.TypeNode, own: Set<TS.Type>): TS.Type[] => {
+    const found = new Set<TS.Type>();
+    const walk = (x: TS.Node) => {
+      if (ts.isTypeReferenceNode(x)) {
+        const t = checker.getTypeFromTypeNode(x);
+        if (own.has(t)) found.add(t);
+      }
+      ts.forEachChild(x, walk);
+    };
+    walk(node);
+    return [...found];
+  };
+  return { symbolOf, sqlOrigin, isSqlMember, hasSqlMembers, losesOrigin, mentionedTypeParameters };
+}
+
+/** The violations in one file: session-scoped SQL, and SQL it can't establish. */
+export function analyzeSessionSql(program: TS.Program, sf: TS.SourceFile): string[] {
+  const checker = program.getTypeChecker();
+  const boundParameter = boundParameterOf(program);
+  const out: string[] = [];
+  const where = (n: TS.Node) =>
+    `${relative(REPO, sf.fileName).replace(/\\/g, '/')}:${String(sf.getLineAndCharacterOfPosition(n.getStart(sf)).line + 1)}`;
+  const refuse = (n: TS.Node, why: string) =>
+    out.push(`${where(n)}: ${why}: refused (fail closed)`);
+  const check = (n: TS.Node, text: string, how: string) => {
+    const r = sessionSqlProblems(text);
+    if ('error' in r) refuse(n, `${how} with SQL that doesn't lex unambiguously: ${r.error}`);
+    else for (const p of r.problems) out.push(`${where(n)}: ${how}: ${p}`);
+  };
+  const { symbolOf, sqlOrigin, isSqlMember, hasSqlMembers, losesOrigin, mentionedTypeParameters } =
+    sqlTypes(program);
+  const declFiles = (n: TS.Node) => {
+    let sym = checker.getSymbolAtLocation(n);
+    if (sym && sym.flags & ts.SymbolFlags.Alias) sym = checker.getAliasedSymbol(sym);
+    return (sym?.declarations ?? []).map((d) => d.getSourceFile().fileName.replace(/\\/g, '/'));
+  };
   const nameOf = (e: TS.Expression) =>
     ts.isPropertyAccessExpression(e) ? e.name.text : ts.isIdentifier(e) ? e.text : undefined;
   /** Prisma's own `sql` / `raw`, resolved by declaration. */
@@ -447,49 +506,72 @@ export function analyzeSessionSql(program: TS.Program, sf: TS.SourceFile): strin
     // carries the method across: `interface Db { query(sql: string): … }` given a pg Client), or (b) an erased type
     // (unknown, any, object, {}), from which a later cast could restore anything. A narrowed view without those
     // members (`Pick<PlatformClient, 'keyReencryption'>`) can't run SQL and is fine.
-    const lost = (value: TS.Expression, target: TS.Type | undefined, how: string) => {
+    const lostType = (at: TS.Node, source: TS.Type, target: TS.Type | undefined, how: string) => {
       if (!target) return;
-      const source = checker.getApparentType(checker.getTypeAtLocation(value));
-      const sqlNames = checker
-        .getPropertiesOfType(source)
-        .filter(isSqlMember)
-        .map((p) => p.getName());
-      if (sqlNames.length === 0) return;
-      const erased =
-        (target.flags & (ts.TypeFlags.Unknown | ts.TypeFlags.Any | ts.TypeFlags.NonPrimitive)) !==
-          0 ||
-        (!!(target.flags & ts.TypeFlags.Object) &&
-          checker.getPropertiesOfType(checker.getApparentType(target)).length === 0 &&
-          target.getCallSignatures().length === 0 &&
-          checker.getIndexInfosOfType(checker.getApparentType(target)).length === 0);
-      const wrapped = sqlNames.filter((name) => {
-        const there = checker.getPropertyOfType(checker.getApparentType(target), name);
-        return there !== undefined && !isSqlMember(there);
-      });
-      // A string index signature lets any name through (a symbol index, as Prisma's client declares, can't).
-      const indexed = checker
-        .getIndexInfosOfType(checker.getApparentType(target))
-        .some((i) => (i.keyType.flags & ts.TypeFlags.String) !== 0);
-      if (erased || wrapped.length > 0 || indexed)
-        refuse(
-          value,
-          `a database client ${how} ${checker.typeToString(target)}, which ${
-            wrapped.length
-              ? `carries ${wrapped.join(', ')} without its SQL origin`
-              : 'erases its SQL methods'
-          }`,
-        );
+      const why = losesOrigin(source, target);
+      if (why) refuse(at, `a database client ${how} ${checker.typeToString(target)}, which ${why}`);
     };
-    if (ts.isCallExpression(n) || ts.isNewExpression(n))
-      for (const arg of n.arguments ?? []) lost(arg, checker.getContextualType(arg), 'passed as');
-    if (ts.isVariableDeclaration(n) && n.type && n.initializer)
-      lost(n.initializer, checker.getTypeFromTypeNode(n.type), 'assigned to');
-    if (ts.isReturnStatement(n) && n.expression)
-      lost(n.expression, checker.getContextualType(n.expression), 'returned as');
-    if (ts.isPropertyAssignment(n))
-      lost(n.initializer, checker.getContextualType(n.initializer), 'stored as');
-    if (ts.isShorthandPropertyAssignment(n))
-      lost(n.name, checker.getContextualType(n.name), 'stored as');
+    const lost = (value: TS.Expression, target: TS.Type | undefined, how: string) =>
+      lostType(value, checker.getTypeAtLocation(value), target, how);
+    // (A) Wherever a value meets a CONTEXTUAL type (an argument, an initialiser, a return, an array element, a
+    // default, a property, a conditional branch), that type must keep its SQL methods. Reported once, at the
+    // outermost expression of the value (not where it is merely dereferenced or wrapped in parentheses).
+    if (
+      ts.isExpression(n) &&
+      !ts.isParenthesizedExpression(n.parent) &&
+      !(
+        (ts.isPropertyAccessExpression(n.parent) || ts.isElementAccessExpression(n.parent)) &&
+        n.parent.expression === n
+      ) &&
+      !(ts.isCallExpression(n.parent) && n.parent.expression === n) &&
+      !ts.isAsExpression(n.parent) &&
+      !ts.isTypeAssertionExpression(n.parent) &&
+      !ts.isSatisfiesExpression(n.parent)
+    ) {
+      const ctx = checker.getContextualType(n);
+      // A Nest provider's value flows into Nest's `any`: allowed only there; its injection sites are checked by
+      // diViolations (program-wide) instead.
+      if (!(ctx && ctx.flags & ts.TypeFlags.Any && providerValueOf(n))) lost(n, ctx, 'flows into');
+    }
+    // (B) A callback's annotated parameter receives what its contextual signature supplies (map, then, …).
+    if ((ts.isArrowFunction(n) || ts.isFunctionExpression(n)) && n.parameters.some((p) => p.type)) {
+      const ctx = checker.getContextualType(n);
+      // `then(onfulfilled?: ((v) => …) | null)`: the slot's type is a union, so its members' signatures are read
+      // (null and undefined have none).
+      const sig = ctx
+        ? (ctx.isUnion() ? ctx.types : [ctx]).flatMap((t) =>
+            checker.getSignaturesOfType(t, ts.SignatureKind.Call),
+          )[0]
+        : undefined;
+      n.parameters.forEach((p, i) => {
+        const supplied = sig?.getParameters()[i];
+        if (!p.type || !supplied) return;
+        const given = checker.getTypeOfSymbolAtLocation(supplied, n);
+        const target = checker.getTypeFromTypeNode(p.type);
+        if (hasSqlMembers(given)) lostType(p, given, target, 'received as');
+      });
+    }
+    // (C) A client inferred into a generic function's OWN type parameter: the body sees only the constraint, so the
+    // constraint must keep the methods (unconstrained, it could be cast to anything).
+    if (ts.isCallExpression(n) || ts.isNewExpression(n)) {
+      const decl = checker.getResolvedSignature(n)?.getDeclaration();
+      const own = new Set((decl?.typeParameters ?? []).map((tp) => checker.getTypeAtLocation(tp)));
+      if (decl && own.size)
+        (n.arguments ?? []).forEach((arg, i) => {
+          const param = decl.parameters[Math.min(i, decl.parameters.length - 1)];
+          if (!param?.type) return;
+          for (const tp of mentionedTypeParameters(param.type, own)) {
+            const constraint = checker.getBaseConstraintOfType(tp) ?? checker.getUnknownType();
+            if (hasSqlMembers(checker.getTypeAtLocation(arg)))
+              lostType(
+                arg,
+                checker.getTypeAtLocation(arg),
+                constraint,
+                `inferred into ${checker.typeToString(tp)}, constrained to`,
+              );
+          }
+        });
+    }
     if (ts.isAsExpression(n) || ts.isTypeAssertionExpression(n) || ts.isSatisfiesExpression(n))
       lost(n.expression, checker.getTypeFromTypeNode(n.type), 'asserted as');
     if (ts.isBinaryExpression(n) && n.operatorToken.kind === ts.SyntaxKind.EqualsToken)
@@ -500,16 +582,178 @@ export function analyzeSessionSql(program: TS.Program, sf: TS.SourceFile): strin
   return out;
 }
 
+// ---------- Nest providers: the one place a client may flow into `any` ----------
+
+const propName = (p: TS.ObjectLiteralElementLike) =>
+  p.name && (ts.isIdentifier(p.name) || ts.isStringLiteral(p.name)) ? p.name.text : undefined;
+const providerProp = (obj: TS.ObjectLiteralExpression, name: string) =>
+  obj.properties.find(
+    (p): p is TS.PropertyAssignment => ts.isPropertyAssignment(p) && propName(p) === name,
+  );
+
+/**
+ * The provider object literal (`{ provide, useFactory | useValue }`) whose value `n` is: a `useValue`, or what a
+ * `useFactory` function returns (its concise body, or a `return` in it). Otherwise undefined.
+ */
+export function providerValueOf(n: TS.Node): TS.ObjectLiteralExpression | undefined {
+  const providerObject = (prop: TS.Node) =>
+    ts.isPropertyAssignment(prop) &&
+    ts.isObjectLiteralExpression(prop.parent) &&
+    providerProp(prop.parent, 'provide')
+      ? prop.parent
+      : undefined;
+  if (
+    ts.isPropertyAssignment(n.parent) &&
+    n.parent.initializer === n &&
+    propName(n.parent) === 'useValue'
+  )
+    return providerObject(n.parent);
+  let fn: TS.Node | undefined;
+  if ((ts.isArrowFunction(n.parent) || ts.isFunctionExpression(n.parent)) && n.parent.body === n)
+    fn = n.parent;
+  else if (ts.isReturnStatement(n.parent)) {
+    let up: TS.Node = n.parent;
+    while (!ts.isSourceFile(up) && !ts.isFunctionLike(up)) up = up.parent;
+    fn = up;
+  }
+  const holder = fn?.parent;
+  return holder &&
+    ts.isPropertyAssignment(holder) &&
+    holder.initializer === fn &&
+    propName(holder) === 'useFactory'
+    ? providerObject(holder)
+    : undefined;
+}
+
+/**
+ * Program-wide: every Nest provider whose value has SQL methods (a client from `useFactory` or `useValue`) hands it
+ * to Nest's `any`, and it is typed again only where it is injected. So:
+ *   • every parameter injected with that token (`@Inject(TOKEN)`) must be typed to keep the methods' origin;
+ *   • the token may appear only in its declaration, the provider's `provide:`, an `@Inject(…)` and a module's
+ *     `exports:`. Anything else (`moduleRef.get(TOKEN)`, a factory's `inject:` list, …) hands the client to an
+ *     untyped receiver, and is refused.
+ */
+export function diViolations(program: TS.Program, files: readonly TS.SourceFile[]): string[] {
+  const checker = program.getTypeChecker();
+  const { symbolOf, hasSqlMembers, losesOrigin } = sqlTypes(program);
+  const out: string[] = [];
+  const at = (n: TS.Node) => {
+    const sf = n.getSourceFile();
+    return `${relative(REPO, sf.fileName).replace(/\\/g, '/')}:${String(sf.getLineAndCharacterOfPosition(n.getStart(sf)).line + 1)}`;
+  };
+  // 1. The SQL-capable providers: token symbol → the type they provide.
+  const provided = new Map<TS.Symbol, TS.Type>();
+  const allowedUses = new Set<TS.Node>();
+  const findProviders = (n: TS.Node): void => {
+    if (ts.isObjectLiteralExpression(n)) {
+      const provide = providerProp(n, 'provide');
+      const factory = providerProp(n, 'useFactory');
+      const value = providerProp(n, 'useValue');
+      let type: TS.Type | undefined;
+      if (factory) {
+        const sig = checker.getSignaturesOfType(
+          checker.getTypeAtLocation(factory.initializer),
+          ts.SignatureKind.Call,
+        )[0];
+        type = sig ? checker.getAwaitedType(sig.getReturnType()) : undefined;
+      } else if (value) type = checker.getTypeAtLocation(value.initializer);
+      const token = provide ? symbolOf(provide.initializer) : undefined;
+      if (provide && token && type && hasSqlMembers(type)) {
+        provided.set(token, type);
+        allowedUses.add(provide.initializer);
+      }
+    }
+    ts.forEachChild(n, findProviders);
+  };
+  files.forEach(findProviders);
+  if (provided.size === 0) return out;
+  // 2. Every use of those tokens.
+  const visit = (n: TS.Node): void => {
+    if (ts.isIdentifier(n)) {
+      const token = symbolOf(n);
+      const type = token ? provided.get(token) : undefined;
+      if (token && type && !allowedUses.has(n)) {
+        const p = n.parent;
+        const isDeclaration = ts.isVariableDeclaration(p) && p.name === n;
+        const isExport =
+          ts.isArrayLiteralExpression(p) &&
+          ts.isPropertyAssignment(p.parent) &&
+          propName(p.parent) === 'exports';
+        const isImportOrExport =
+          ts.isImportSpecifier(p) || ts.isExportSpecifier(p) || ts.isImportClause(p);
+        const inject =
+          ts.isCallExpression(p) &&
+          p.arguments.length === 1 &&
+          p.arguments[0] === n &&
+          ts.isIdentifier(p.expression) &&
+          p.expression.text === 'Inject' &&
+          ts.isDecorator(p.parent) &&
+          ts.isParameter(p.parent.parent)
+            ? p.parent.parent
+            : undefined;
+        // A factory's `inject: [...]` list hands the client to the factory's parameter at the same position.
+        const list =
+          ts.isArrayLiteralExpression(p) &&
+          ts.isPropertyAssignment(p.parent) &&
+          propName(p.parent) === 'inject' &&
+          ts.isObjectLiteralExpression(p.parent.parent)
+            ? providerProp(p.parent.parent, 'useFactory')?.initializer
+            : undefined;
+        const receiver = (target: TS.Node, type2: TS.Type, how: string) => {
+          const why = losesOrigin(type, type2);
+          if (why)
+            out.push(
+              `${at(target)}: a database client ${how} ${checker.typeToString(type2)}, which ${why}: refused (fail closed)`,
+            );
+        };
+        if (inject) {
+          receiver(inject, checker.getTypeAtLocation(inject), 'injected as');
+        } else if (list && ts.isArrayLiteralExpression(p)) {
+          const param =
+            ts.isArrowFunction(list) || ts.isFunctionExpression(list)
+              ? list.parameters[p.elements.indexOf(n)]
+              : undefined;
+          if (!param?.type)
+            out.push(
+              `${at(n)}: a database client injected into a factory parameter that isn't explicitly typed: refused (fail closed)`,
+            );
+          else
+            receiver(param, checker.getTypeFromTypeNode(param.type), 'injected into a factory as');
+        } else if (ts.isCallExpression(p) && p.arguments.includes(n)) {
+          // A resolver (`ctx.get<PlatformClient>(TOKEN)`): its result must keep the methods. A call whose result
+          // doesn't (an untyped get, get<Db>, a helper taking the token) can't be followed.
+          const result =
+            checker.getAwaitedType(checker.getTypeAtLocation(p)) ?? checker.getTypeAtLocation(p);
+          if (!hasSqlMembers(result))
+            out.push(
+              `${at(n)}: the token ${n.text} of a database client passed to a call whose result (${checker.typeToString(result)}) doesn't keep its SQL methods: refused (fail closed)`,
+            );
+          else receiver(p, result, 'resolved as');
+        } else if (!isDeclaration && !isExport && !isImportOrExport) {
+          out.push(
+            `${at(n)}: the token ${n.text} of a database client used other than by provide, @Inject or exports: refused (fail closed)`,
+          );
+        }
+      }
+    }
+    ts.forEachChild(n, visit);
+  };
+  files.forEach(visit);
+  return out;
+}
+
 /** Every violation across the scanned packages' production sources, and the files scanned (repo-relative). */
 export function sessionSqlScan(): { violations: string[]; files: string[] } {
   const violations: string[] = [];
   const files: string[] = [];
   for (const dir of SCANNED) {
     const program = packageProgram(dir);
-    for (const sf of productionSources(program, dir)) {
+    const sources = productionSources(program, dir);
+    for (const sf of sources) {
       files.push(relative(REPO, sf.fileName).replace(/\\/g, '/'));
       violations.push(...analyzeSessionSql(program, sf));
     }
+    violations.push(...diViolations(program, sources));
   }
   return { violations, files };
 }

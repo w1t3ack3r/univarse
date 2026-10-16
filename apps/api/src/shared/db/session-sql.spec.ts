@@ -5,6 +5,7 @@ import type * as TS from 'typescript';
 import { beforeAll, describe, expect, it } from 'vitest';
 import {
   analyzeSessionSql,
+  diViolations,
   packageProgram,
   sessionSqlProblems,
   sessionSqlScan,
@@ -386,11 +387,11 @@ describe('[PB4] no session-scoped SQL in production code', { timeout: 120_000 },
       ],
       structuralWrapper: [
         `${PG}interface Db { query(sql: string): Promise<unknown> }\nasync function run(db: Db) { await db.query('SET ROLE x'); }\nexport async function use(c: pg.Client) { await run(c); }`,
-        /a database client passed as Db, which carries query without its SQL origin/,
+        /a database client flows into Db, which carries query without its SQL origin/,
       ],
       erasedToUnknown: [
         `${PG}export function f(c: pg.Client) { const x: unknown = c; return x; }`,
-        /a database client assigned to unknown, which erases its SQL methods/,
+        /a database client flows into unknown, which erases its SQL methods/,
       ],
       castThroughUnknown: [
         `${PG}interface Db { query(sql: string): Promise<unknown> }\nexport async function f(c: pg.Client) { await (c as unknown as Db).query('SET ROLE x'); }`,
@@ -398,7 +399,44 @@ describe('[PB4] no session-scoped SQL in production code', { timeout: 120_000 },
       ],
       stringIndexed: [
         `${PG}export function f(c: pg.Client) { const r: Record<string, unknown> = c; return r; }`,
-        /a database client assigned to Record<string, unknown>/,
+        /a database client flows into Record<string, unknown>/,
+      ],
+      // Self-review of 8acfd7d (2026-10-16): flows the per-syntax checks missed.
+      viaGenericConstraint: [
+        `${PG}async function run<T extends { query(s: string): Promise<unknown> }>(c: T) { await c.query('SET ROLE x'); }\nexport async function use(c: pg.Client) { await run(c); }`,
+        /inferred into T, constrained to .*carries query without its SQL origin/,
+      ],
+      viaUnconstrainedGeneric: [
+        `${PG}interface Db { query(sql: string): Promise<unknown> }\nasync function run<T>(c: T) { await (c as unknown as Db).query('SET ROLE x'); }\nexport async function use(c: pg.Client) { await run(c); }`,
+        /inferred into T, constrained to unknown, which erases its SQL methods/,
+      ],
+      viaCallbackParameter: [
+        `${PG}interface Db { query(sql: string): Promise<unknown> }\nexport async function use(c: pg.Client) { await Promise.all([c].map((x: Db) => x.query('SET ROLE x'))); }`,
+        /a database client received as Db, which carries query/,
+      ],
+      viaThenCallback: [
+        `${PG}interface Db { query(sql: string): Promise<unknown> }\nexport async function use(p: Promise<pg.Client>) { await p.then((x: Db) => x.query('SET ROLE x')); }`,
+        /a database client received as Db, which carries query/,
+      ],
+      viaDefaultParameter: [
+        `${PG}interface Db { query(sql: string): Promise<unknown> }\nexport async function use(c: pg.Client, db: Db = c) { await db.query('SET ROLE x'); }`,
+        /a database client flows into Db, which carries query/,
+      ],
+      viaArrayLiteral: [
+        `${PG}interface Db { query(sql: string): Promise<unknown> }\nexport async function use(c: pg.Client) { const xs: Db[] = [c]; await xs[0]!.query('SET ROLE x'); }`,
+        /a database client flows into Db, which carries query/,
+      ],
+      viaOptionalParameter: [
+        `${PG}interface Db { query(sql: string): Promise<unknown> }\nasync function run(db?: Db) { await db?.query('SET ROLE x'); }\nexport async function use(c: pg.Client) { await run(c); }`,
+        /a database client flows into Db \| undefined, which carries query/,
+      ],
+      viaAnyParameter: [
+        `${PG}// eslint-disable-next-line\nfunction keep(x: any) { return x; }\nexport function use(c: pg.Client) { return keep(c); }`,
+        /a database client flows into any, which erases its SQL methods/,
+      ],
+      typedGenericKeepsOrigin: [
+        `${PG}async function run<T extends pg.Client>(c: T) { await c.query('SELECT 1'); }\nexport async function use(c: pg.Client) { await run(c); }`,
+        null,
       ],
     };
     const dbProgram = packageProgram(
@@ -426,3 +464,83 @@ describe('[PB4] no session-scoped SQL in production code', { timeout: 120_000 },
     });
   });
 });
+
+// Self-review of 8acfd7d (2026-10-16): a Nest provider hands its client to Nest's `any`; it is typed again only where
+// injected. Each injection route must keep the SQL methods' origin, and the token may not escape otherwise.
+describe(
+  '[PB4] Nest providers: the client is followed through injection (self-review)',
+  { timeout: 120_000 },
+  () => {
+    const DI_HEAD = `import { Inject } from '@nestjs/common';\nimport type { PlatformClient } from '@univarse/db';\nimport { TOKEN, type Raw } from './di_provider.js';\nvoid Inject;\n`; // no stray use of TOKEN: that is a violation of its own
+    const RESOLVER = `declare const ctx: { get<T>(token: unknown): T };\n`;
+    const DI: Record<string, [string, RegExp | null]> = {
+      di_provider: [
+        `import { createPlatformClient, type PlatformClient } from '@univarse/db';\nexport const TOKEN = Symbol('TOKEN');\nexport interface Raw { $executeRawUnsafe(sql: string): Promise<number> }\nexport const providers = [{ provide: TOKEN, useFactory: (): PlatformClient => createPlatformClient('postgresql://x') }];`,
+        null, // the provider itself: its value flows into Nest's any, which only providers may do
+      ],
+      di_good: [
+        `${DI_HEAD}${RESOLVER}export class Good { constructor(@Inject(TOKEN) readonly p: PlatformClient) {} }\nexport const factory = { provide: Symbol('f'), inject: [TOKEN], useFactory: (p: PlatformClient) => p.tenant };\nexport const resolved = ctx.get<PlatformClient>(TOKEN);`,
+        null,
+      ],
+      di_injectedAsWrapper: [
+        `${DI_HEAD}export class Bad { constructor(@Inject(TOKEN) readonly p: Raw) {} }`,
+        /a database client injected as Raw, which carries \$executeRawUnsafe without its SQL origin/,
+      ],
+      di_injectedAsUnknown: [
+        `${DI_HEAD}export class Bad { constructor(@Inject(TOKEN) readonly p: unknown) {} }`,
+        /a database client injected as unknown, which erases its SQL methods/,
+      ],
+      di_factoryWrapper: [
+        `${DI_HEAD}export const f = { provide: Symbol('f'), inject: [TOKEN], useFactory: (p: Raw) => p };`,
+        /a database client injected into a factory as Raw, which carries/,
+      ],
+      di_factoryUntyped: [
+        `${DI_HEAD}// eslint-disable-next-line\nexport const f = { provide: Symbol('f'), inject: [TOKEN], useFactory: (p) => p };`,
+        /injected into a factory parameter that isn't explicitly typed/,
+      ],
+      di_resolvedAsWrapper: [
+        `${DI_HEAD}${RESOLVER}export const r = ctx.get<Raw>(TOKEN);`,
+        /passed to a call whose result \(Raw\) doesn't keep its SQL methods/,
+      ],
+      di_resolvedUntyped: [
+        `${DI_HEAD}${RESOLVER}export const r = ctx.get(TOKEN);`,
+        /passed to a call whose result \(unknown\) doesn't keep its SQL methods/,
+      ],
+      di_helperTakesToken: [
+        `${DI_HEAD}function helper(t: symbol): void { void t; }\nhelper(TOKEN);`,
+        /passed to a call whose result \(void\) doesn't keep its SQL methods/,
+      ],
+      di_aliased: [
+        `${DI_HEAD}export const alias = TOKEN;`,
+        /used other than by provide, @Inject or exports/,
+      ],
+      di_otherProviderValue: [
+        `${DI_HEAD}interface Holder { db: unknown }\nexport function f(p: PlatformClient): Holder { return { db: p }; }`,
+        /a database client flows into unknown, which erases its SQL methods/,
+      ],
+    };
+    let diProgram: TS.Program;
+    beforeAll(() => {
+      diProgram = packageProgram(
+        'apps/api',
+        Object.fromEntries(
+          Object.entries(DI).map(([n, [t]]) => [`src/__session_sql_fixtures__/${n}.ts`, t]),
+        ),
+      );
+    }, 120_000);
+
+    it.each(Object.entries(DI))('[PB4] injection route %s', (name, [, problem]) => {
+      const all = diProgram
+        .getSourceFiles()
+        .filter((x) => x.fileName.replace(/\\/g, '/').includes('/__session_sql_fixtures__/di_'));
+      const sf = all.find((x) => x.fileName.replace(/\\/g, '/').endsWith(`/${name}.ts`));
+      if (!sf) throw new Error(`fixture ${name} not in the program`);
+      // The program-wide pass over every DI fixture, plus this file's own per-file check.
+      const mine = [...diViolations(diProgram, all), ...analyzeSessionSql(diProgram, sf)].filter(
+        (v) => v.includes(`/${name}.ts:`),
+      );
+      if (problem === null) expect(mine).toEqual([]);
+      else expect(mine.join('\n')).toMatch(problem);
+    });
+  },
+);
