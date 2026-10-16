@@ -49,6 +49,34 @@ Any failure here is a release blocker.
 | 4. Jobs | ✅ **Complete for today's jobs** ([spec 0014](specs/0014-job-isolation.md)).<br>• **Outbox worker: covered.** A pass for tenant A never claims B's events, and B's rows are invisible under A's context (live RLS). Inactive products' events wait. One pass across both tenants attributes every delivery to its own tenant and trace (spec 0012 OB8).<br>• **File-scan worker: covered** (JI1–JI4). A pass for A claims and finishes only A's uploads. A tenant-context spy and a storage spy show every call and object is A's, and in the production pass every storage operation carries its own tenant's log context. Cleanup never reaches B's objects. RLS blocks the claim even with B's id in its filter.<br>• **Key sweep: covered** (JI5–JI7). Only the claimed request's tenant is re-encrypted, and the other tenant's ciphertexts stay byte-for-byte unchanged. Each pass's tenant-context calls name only that tenant. Every column operation under A's context reaches none of B's rows, even with the tenant filters removed | `apps/api/src/shared/outbox/outbox.int.spec.ts` (B8, B10), `shared/observability/propagation.int.spec.ts` (OB8), `modules/files/file-scan.isolation.int.spec.ts`, `shared/crypto/key-sweep.isolation.int.spec.ts` | Each new job type adds the same claim test (a tenant-context spy, per pass) |
 | 5. Caches / files | ✅ **Complete for today's caches and files.** **Files: complete for the first slice** ([spec 0010](specs/0010-file-uploads.md)): server-generated tenant-prefixed keys, private buckets, own-files-only with no existence oracle (RS6 on 4 real routes), presigned POST bound to one key, lease-unique clean keys. **Caches:** rate-limit keys are tenant-prefixed and settings cache keys are tenant-scoped (spec 0007). **Products and keys on the invalidation bus** ([spec 0015](specs/0015-cache-isolation.md)): an invalidation or forget reaches every API and worker instance within 2 s, and a message for A never evicts B. The keyring never returns or caches a stale key, and zeroes each key at its deadline. Future writers of tenant hosts/status and entitlements are bound by a guard test. The shred ledger isn't a cache-isolation check; it's tracked under crypto-shredding and restore safety (spec 0006, with backups) | `modules/files/files.int.spec.ts`, `route-sweep.int.spec.ts`, `shared/infra/rate-limiter.ts`, `shared/infra/cache-isolation.int.spec.ts`, `shared/infra/cache-writers.spec.ts`, `packages/crypto/src/keyring.spec.ts` | Each new cache of tenant-scoped state goes on the bus, with the same tests |
 
+### 3.2 Through PgBouncer, in transaction mode ([spec 0017](specs/0017-pgbouncer-isolation.md))
+
+Every layer above also holds through the intended pooling mode. Two CI jobs, both meant to be required on `main`, prove it:
+
+- **`pgbouncer-isolation`:**
+  - **The probes,** in the probe profile (2 server connections), where sharing and saturation are certain:
+    - PB1, real transaction pooling, and a session canary that leaks;
+    - PB2, 1 000 interleaved tenant reads with exact ids and values, and no leftover context on a shared backend;
+    - PB5, UTC in two independent halves;
+    - PB6, no reliance on named prepared statements;
+    - PB7, PgBouncer's queue timeout shed as `503 server.busy` through the API;
+    - PB9, authentication, a read-only owner-only auth file, and a real password rotation.
+  - **The three isolation suites,** unchanged (DB isolation, crypto, API integration), in the suite profile (10).
+- **`pgbouncer-compare`:** it joins that run with `build-test`'s direct run. It requires the same test files, the same tests, every test passing through PgBouncer, and the same skips. It fails unless both runs succeeded, so a skipped comparison never reads as a pass.
+- **The static half (PB4):** `apps/api/src/shared/db/session-sql.spec.ts` shows that production code uses no session-scoped SQL ([07 §3.5](07-data-and-database.md)).
+
+**Evidence (CI run 38876851157 on `f4442fe`, 2026-10-16):**
+- **The probes:** PB7 3/3 and the others 13/13.
+- **Through PgBouncer:** DB 31/31, crypto 10/10, API 369 passed + 1 skipped.
+- **The comparison:** `PASS` against the direct run.
+- **PB11's mutations** each fail their probe, run on an isolated stack:
+  - session pooling;
+  - `set_config(…, false)` in `withTenantTx`;
+  - each PB5 half, and a skipped server reset;
+  - the PB6 mutant;
+  - no PB7 mapping;
+  - a forced `user=`.
+
 Mutation checks were run on the auth slice (2026-09-30). Disabling the permission check, CSRF, session expiry, or Host-based tenant resolution each made the suite fail.
 
 ## 4. Domain engine testing
