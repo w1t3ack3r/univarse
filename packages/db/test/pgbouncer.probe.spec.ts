@@ -404,10 +404,13 @@ describe('[PB9] authentication, credentials and exposure', () => {
       const old = BOUNCER_PLATFORM;
       // The admin credentials PgBouncer has loaded now: the RELOAD must come from them, before the new ones exist.
       const adminOld = await client(ADMIN);
-      execFileSync('pnpm', ['db:setup'], {
+      // pnpm's own entry, run by Node without a shell (pnpm sets npm_execpath for its scripts; no DEP0190).
+      const entry = process.env.npm_execpath;
+      if (!entry || !/pnpm/i.test(entry))
+        throw new Error('run the probes through pnpm, so db:setup can be run without a shell');
+      execFileSync(process.execPath, [entry, 'db:setup'], {
         cwd: REPO_ROOT,
         stdio: 'ignore',
-        shell: process.platform === 'win32',
       });
       const env = Object.fromEntries(
         (await import('node:fs'))

@@ -23,12 +23,28 @@ export function readEnvFile(text) {
   );
 }
 
-const pnpm = (args, env = {}) =>
-  spawnSync('pnpm', args, {
-    stdio: 'inherit',
-    env: { ...process.env, ...env },
-    shell: process.platform === 'win32',
-  }).status === 0;
+/**
+ * pnpm itself, never through a shell (a shell joins arguments unescaped: Node's DEP0190). Run as a pnpm script,
+ * `npm_execpath` is pnpm's own JavaScript entry, which Node runs directly on every platform; on Windows pnpm is
+ * otherwise a .cmd, which only a shell can start, so this refuses rather than fall back to one.
+ */
+export function pnpmCommand(env = process.env, platform = process.platform) {
+  const entry = env.npm_execpath;
+  if (entry && /pnpm/i.test(entry) && /\.c?js$/i.test(entry)) return [process.execPath, [entry]];
+  if (platform === 'win32')
+    throw new Error(
+      'run this through pnpm (pnpm test:int:pgbouncer), so pnpm can be called without a shell',
+    );
+  return ['pnpm', []];
+}
+
+const pnpm = (args, env = {}) => {
+  const [cmd, pre] = pnpmCommand();
+  return (
+    spawnSync(cmd, [...pre, ...args], { stdio: 'inherit', env: { ...process.env, ...env } })
+      .status === 0
+  );
+};
 
 async function main() {
   if (!process.env.PGSUPERPASSWORD)
