@@ -11,7 +11,7 @@
   - PB11's mutations, each failing its probe.
 - **PB4 and the writer reviews:** cleared by the owner through `291e4f1`. PB4's later rounds were reviewed by Claude under the owner's before-and-after authority (2026-10-16), and the six implementation decisions were approved by the owner.
 
- Before the implementation PR merges, its new checks are made **required** on `main` (owner instruction).
+Before the implementation PR merges, its new checks are made **required** on `main` (owner instruction).
 **Phase:** 0. Roadmap item 4 ([docs/18](../18-roadmap.md)): "isolation tests through the intended pooling mode (transaction pooling), as a CI job" ([ADR-015](../19-decision-log.md)). PgBouncer **in the deployed path** is item 7.1, the local production-like stack, and is out of scope here; this spec builds the pieces it will reuse.
 **Builds on:**
 
