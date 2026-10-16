@@ -2,7 +2,10 @@
 //   1. PgBouncer in the probe profile: PB7 through the API, then PB1, PB2, PB5, PB6, PB9;
 //   2. PgBouncer in the suite profile: the DB isolation, crypto and API integration suites, every app URL through it;
 //   3. PgBouncer stopped, whatever happened.
-// It needs `pnpm db:setup` and `pnpm db:migrate` done, and the superuser for PB5 (PGHOST, PGPORT, PGSUPERPASSWORD).
+// It builds the workspace first (the API runs @univarse/db's and @univarse/crypto's built output, and a stale build
+// gave misleading failures), and checks the superuser is configured before starting anything.
+// It needs `pnpm db:setup` and `pnpm db:migrate` done, and the superuser for PB5, PB7's control and PB2's cleanup
+// (PGHOST, PGPORT, PGSUPERPASSWORD).
 // The PB9 rotation re-runs db:setup, so it rotates your local passwords: it runs only with PGBOUNCER_PROBE_ROTATION=1.
 // Serialise it with other integration runs, as usual.
 import { spawnSync } from 'node:child_process';
@@ -28,6 +31,11 @@ const pnpm = (args, env = {}) =>
   }).status === 0;
 
 async function main() {
+  if (!process.env.PGSUPERPASSWORD)
+    throw new Error(
+      'PGSUPERPASSWORD is not set: the probes need the superuser (PowerShell: $env:PGSUPERPASSWORD = Read-Host -MaskInput)',
+    );
+  if (!pnpm(['build'])) throw new Error('pnpm build failed: the suites would run stale code');
   const failed = [];
   try {
     await start({ profile: 'probe' });
