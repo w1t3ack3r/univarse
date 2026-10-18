@@ -1,6 +1,7 @@
 // Spec 0017: `pnpm test:int:pgbouncer` — locally, what the pgbouncer-isolation CI job runs:
 //   1. PgBouncer in the probe profile: PB7 through the API, then PB1, PB2, PB5, PB6, PB9;
-//   2. PgBouncer in the suite profile: the DB isolation, crypto and API integration suites, every app URL through it;
+//   2. PgBouncer in the suite profile: the DB isolation, crypto and API integration suites, every app URL (and the
+//      relay's, spec 0016) through it;
 //   3. PgBouncer stopped, whatever happened.
 // It builds the workspace first (the API runs @univarse/db's and @univarse/crypto's built output, and a stale build
 // gave misleading failures), and checks the superuser is configured before starting anything.
@@ -71,6 +72,8 @@ async function main() {
     const suiteEnv = {
       PLATFORM_DATABASE_URL: after.PGBOUNCER_PLATFORM_DATABASE_URL,
       TENANT_POOL_01_DATABASE_URL: after.PGBOUNCER_TENANT_POOL_01_DATABASE_URL,
+      // Spec 0016: the relay's tests read .env.worker; this picks its PgBouncer URL.
+      UNIVARSE_RELAY_THROUGH_PGBOUNCER: '1',
     };
     for (const pkg of ['@univarse/db', '@univarse/crypto', '@univarse/api'])
       if (!pnpm(['--filter', pkg, 'test:int'], suiteEnv)) failed.push(`${pkg} test:int`);

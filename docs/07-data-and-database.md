@@ -14,7 +14,8 @@
 |------|-----------|---------|
 | `univarse_migrator` | Owner of schema objects. Runs DDL | Migration job only (CI/CD), never the running app |
 | `univarse_app` | `SELECT/INSERT/UPDATE/DELETE` on tables, `USAGE` on sequences. **`NOBYPASSRLS`, not owner** | API + worker |
-| `univarse_app_platform` | CRUD on platform DB only | API/worker platform modules |
+| `univarse_app_platform` | CRUD on platform DB only; **nothing** on `cache_invalidation_event` | API/worker platform modules |
+| `univarse_relay_platform` | Platform DB only: `USAGE` on the schema, `SELECT` and `UPDATE (attempts, next_attempt_at, status, last_error)` on `cache_invalidation_event`, `EXECUTE` on `cache_invalidation_max_ttl()` and `purge_settled_invalidation_events(integer)`. No `INSERT`, `DELETE`, `TRUNCATE` or `TEMPORARY`, nothing on any other table. Role settings: `transaction_timeout`, `statement_timeout` and `idle_in_transaction_session_timeout` of 5 s | The worker's invalidation relay only ([§6.1](#61-platform-invalidation-capture-spec-0016-adr-031)); its URL is in `.env.worker`, never the root `.env` |
 | `univarse_readonly` | `SELECT` on a curated set of reporting views. RLS still applies | Reporting, read replica |
 | `univarse_audit_writer` (optional) | `INSERT` only on `audit_event` | Audit writer path |
 
@@ -138,7 +139,18 @@ The integration suite creates two tenants with identical data shapes and asserts
 
 - `CHECK` constraints: scores `BETWEEN 0 AND 100`, `amount_kobo > 0` on payments, `valid_to > valid_from`, `level IN (100..700)`.
 - FKs with `ON DELETE RESTRICT` by default. `CASCADE` only for true composition (score entries of a draft sheet).
-- Triggers only for: `updated_at`, the audit hash chain, and preventing updates to immutable rows (belt-and-braces on top of grants). **No business logic in triggers.**
+- Triggers only for: `updated_at`, the audit hash chain, preventing updates to immutable rows (belt-and-braces on top of grants), and **change capture for cache invalidation** on the cached platform tables ([ADR-031](19-decision-log.md), §6.1). **No business logic in triggers.**
+
+### 6.1 Platform invalidation capture ([spec 0016](specs/0016-platform-invalidation-outbox.md), ADR-031)
+
+- **Capture:** an `AFTER INSERT OR UPDATE OR DELETE` row trigger on `tenant` and `tenant_domain` (→ `uv:tenants:invalidate`) and on `tenant_product` (→ `uv:products:invalidate`) writes one row per affected tenant id to `public.cache_invalidation_event`, **in the same transaction**, whoever the writer is: the API, the seed, a migration, `psql`, a stored function or dynamic SQL. An ownership change names the old and the new tenant; a no-op `UPDATE` emits nothing; cascaded deletes and `ON UPDATE CASCADE` moves fire it too. A row holds a channel, a tenant id, a source label (`table:OP`) and bookkeeping, never row values.
+- **TRUNCATE** on those three tables and on the event table is refused by a trigger, for every role (spec 0016 D1).
+- **The functions:** capture and purge are `SECURITY DEFINER`, owned by `univarse_migrator`, with `search_path = pg_catalog, pg_temp` and every reference schema-qualified. No function of the capture is executable by `PUBLIC`.
+- **The event table's guards hold for every role, the owner included:** a settled row can't change, and neither can its identity; status moves only `PENDING` → `PUBLISHED` or `EXPIRED`; `first_observed_at` (the first claim) and `settled_at` are stamped by the database with `clock_timestamp()`; `EXPIRED` is refused before `first_observed_at + cache_invalidation_max_ttl() + 5 s`; a row can be deleted only once settled for 24 h. `cache_invalidation_max_ttl()` equals `MAX_TENANT_CACHE_TTL_MS` (60 s, `@univarse/contracts`), which also caps `TENANT_CACHE_TTL_MS`.
+- **`ENABLE ALWAYS`** on all nine triggers, so `session_replication_role = replica` can't skip them.
+- **The gate:** `pnpm rls:check` fails if a trigger is missing or not `ENABLE ALWAYS`, a definer function's owner or `search_path` changes, a function becomes executable by `PUBLIC`, the app or relay role gains `TEMPORARY`, or the database's maximum TTL no longer equals the constant (`packages/db/scripts/capture-gate.ts`).
+- **The relay** (`PlatformInvalidationRelay`, worker only) claims up to 200 due events with `FOR UPDATE SKIP LOCKED` and a `statement_timestamp()` cutoff, publishes one message per (channel, tenant) until a 2 s deadline, and settles them in the same transaction (a 3 s client timeout, behind the role's 5 s limits). A crash leaves them `PENDING`, so delivery is at least once; eviction is idempotent. A failed publish backs off the rest (250 ms doubling, at most 5 s). Settled events are purged after 24 h, at most 1 000 a minute.
+- **Open by design:** the owner role, or a superuser, can still disable or drop the triggers. The gate detects that on its next run; it doesn't prevent it.
 
 ## 7. Audit log design
 

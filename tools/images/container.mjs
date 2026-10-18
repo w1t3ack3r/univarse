@@ -1,10 +1,18 @@
 // Spec 0013 CS4/CS5: how a UniVarse image is run in CI — one place, so the smoke run and the browser journeys
 // use identical hardening. Values come from the repo-root .env plus the current environment and are passed as
 // `-e NAME` only (the docker CLI reads the value from its own environment): no secret is ever on a command line.
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
+import { parseEnv } from 'node:util';
 
 const rootEnv = new URL('../../.env', import.meta.url);
 if (existsSync(rootEnv)) process.loadEnvFile(rootEnv);
+// Spec 0016 IO17: the relay role's URL, for the WORKER container only. Read from .env.worker (never loaded into this
+// process's environment), so the API container can never inherit it.
+const workerEnv = new URL('../../.env.worker', import.meta.url);
+const workerOnly = () => {
+  const v = existsSync(workerEnv) ? parseEnv(readFileSync(workerEnv, 'utf8')).PLATFORM_RELAY_URL : undefined;
+  return v ? { PLATFORM_RELAY_URL: v } : {};
+};
 
 /** docs/09 §4.2, applied to every container: read-only root, UID 65532, no capabilities, no privilege gain. */
 export const HARDENED = [
@@ -30,8 +38,17 @@ const APP_ENV = [
  * only names that have a value are passed.
  */
 export function dockerRun({ name, image, extra = {}, cmd = [], detach = false }) {
-  const env = { ...process.env, ...extra };
-  const names = [...new Set([...APP_ENV, ...Object.keys(process.env).filter((k) => /^TENANT_POOL_\d+_DATABASE_URL$/.test(k)), ...Object.keys(extra)])];
+  const isWorker = cmd === WORKER_CMD;
+  const { PLATFORM_RELAY_URL: _never, ...inherited } = process.env;
+  const env = { ...inherited, ...(isWorker ? workerOnly() : {}), ...extra };
+  const names = [
+    ...new Set([
+      ...APP_ENV,
+      ...Object.keys(process.env).filter((k) => /^TENANT_POOL_\d+_DATABASE_URL$/.test(k)),
+      ...(isWorker ? ['PLATFORM_RELAY_URL'] : []),
+      ...Object.keys(extra),
+    ]),
+  ].filter((k) => isWorker || k !== 'PLATFORM_RELAY_URL');
   const passed = names.filter((k) => env[k] !== undefined && env[k] !== '');
   // Inside a release run, every container is labelled with the run's ID so cleanup removes only what this run owns.
   const owner = process.env.UV_RELEASE_RUN ? ['--label', `univarse.release.run=${process.env.UV_RELEASE_RUN}`] : [];

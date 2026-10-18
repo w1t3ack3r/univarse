@@ -505,6 +505,8 @@ jobs:
           val() { grep "^$1=" .env | cut -d= -f2-; }
           export PLATFORM_DATABASE_URL="$(val PGBOUNCER_PLATFORM_DATABASE_URL)"
           export TENANT_POOL_01_DATABASE_URL="$(val PGBOUNCER_TENANT_POOL_01_DATABASE_URL)"
+          # Spec 0016: the relay's tests read .env.worker; this picks its PgBouncer URL (the relay role's own pool).
+          export UNIVARSE_RELAY_THROUGH_PGBOUNCER=1
           R="$GITHUB_WORKSPACE/suite-results"
           status=0
           pnpm --filter @univarse/db test:int --reporter=default --reporter=json --outputFile.json="$R/db.json" || status=1

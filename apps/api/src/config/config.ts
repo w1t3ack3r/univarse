@@ -1,3 +1,4 @@
+import { MAX_TENANT_CACHE_TTL_MS } from '@univarse/contracts';
 import { z } from 'zod';
 
 // Boot-time config validation: the app refuses to start on invalid config (docs/02 §11).
@@ -11,6 +12,12 @@ const schema = z.object({
   PORT: z.coerce.number().int().min(1).max(65535).default(8080),
   PLATFORM_DATABASE_URL: z.string().startsWith('postgresql://'),
   /**
+   * Spec 0016 IO17: the platform invalidation relay's own role, for the WORKER only. db:setup writes it to the
+   * git-ignored .env.worker (never the root .env, which the API's development preload loads); every other process
+   * refuses to start with it set (loadConfig).
+   */
+  PLATFORM_RELAY_URL: z.string().startsWith('postgresql://').optional(),
+  /**
    * Comma-separated IPs/CIDRs of OUR edge proxies. X-Forwarded-For/-Host are honoured only when the
    * TCP peer is in this list; the client IP is then the right-most address not in it, so a client
    * prepending forged addresses changes nothing. Empty (default) ⇒ forwarding headers are ignored.
@@ -22,7 +29,8 @@ const schema = z.object({
     .transform((v) => v.split(',').map((s) => s.trim()).filter(Boolean))
     .refine((list) => list.every((s) => /^[0-9a-fA-F:.]+(\/\d{1,3})?$/.test(s)), 'must be IPs or CIDRs'),
   /** How long a resolved host→tenant mapping is cached in memory. */
-  TENANT_CACHE_TTL_MS: z.coerce.number().int().min(0).default(30_000),
+  // Spec 0016 D6: capped by the shared maximum, which the database's expiry bound also uses.
+  TENANT_CACHE_TTL_MS: z.coerce.number().int().min(0).max(MAX_TENANT_CACHE_TTL_MS).default(30_000),
   // Outbox worker poll interval (spec 0002 Part B).
   WORKER_POLL_MS: z.coerce.number().int().min(100).default(2_000),
   /** Valkey/Redis for rate limiting (later: sessions cache, queues). */
@@ -71,12 +79,19 @@ const schema = z.object({
 
 export type AppConfig = z.infer<typeof schema>;
 
-export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
+/**
+ * Validates the environment for one kind of process. Only the worker may hold the relay's credentials
+ * (spec 0016 IO17): any other process with PLATFORM_RELAY_URL set refuses to start.
+ */
+export function loadConfig(
+  env: NodeJS.ProcessEnv = process.env,
+  kind: 'api' | 'worker' = 'api',
+): AppConfig {
   const parsed = schema.safeParse(env);
-  if (!parsed.success) {
-    const issues = parsed.error.issues.map((i) => `  - ${i.path.join('.')}: ${i.message}`).join('\n');
-    throw new Error(`Invalid configuration:\n${issues}`);
-  }
+  const issues = parsed.success ? [] : parsed.error.issues.map((i) => `  - ${i.path.join('.')}: ${i.message}`);
+  if (kind !== 'worker' && env.PLATFORM_RELAY_URL !== undefined)
+    issues.push('  - PLATFORM_RELAY_URL: set, but only the worker may hold the relay role (spec 0016 IO17); it belongs in .env.worker');
+  if (!parsed.success || issues.length > 0) throw new Error(`Invalid configuration:\n${issues.join('\n')}`);
   return parsed.data;
 }
 
