@@ -22,12 +22,9 @@ export interface Actor {
   readonly grants: readonly Grant[];
 }
 
-/** True when the user holds any permission that requires MFA (docs/08 §3.2). */
-export const needsMfa = (grants: readonly Grant[]): boolean => grants.some((g) => isPrivileged(g.permission));
-
-/** Institution-wide permission check. Resource-scoped checks (faculty/department) arrive with those modules. */
-export const canInstitutionWide = (actor: Actor, permission: Permission): boolean =>
-  actor.grants.some((g) => g.permission === permission && g.scopeType === 'INSTITUTION');
+/** True when the user holds any permission that requires MFA (docs/08 §3.2). Classifies; never decides access. */
+export const needsMfa = (holder: { readonly grants: readonly Grant[] }): boolean =>
+  holder.grants.some((g) => isPrivileged(g.permission));
 
 export const isPrivileged = (permission: Permission): boolean =>
   (PERMISSIONS[permission] as { privileged?: boolean }).privileged === true;

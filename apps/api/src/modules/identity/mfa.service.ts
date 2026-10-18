@@ -133,7 +133,7 @@ export class MfaService {
   ) {
     const hasFactor = await this.shards.tx(tenant.shardId, tenant.tenantId, (tx) => this.hasActiveFactor(tx, actor.userId));
     // S2/M8: password-only step-up exists only for non-privileged users.
-    if (!hasFactor && needsMfa(actor.grants)) {
+    if (!hasFactor && needsMfa(actor)) {
       throw new ProblemError(403, 'auth.mfa_enrolment_required', 'Set up multi-factor authentication to continue');
     }
     const second: VerifyInput | null = !hasFactor
@@ -233,7 +233,7 @@ export class MfaService {
         where: { userId: actor.userId, revokedAt: null, id: { not: actor.sessionId } },
         data: { revokedAt: now, revokeReason: 'mfa_disabled' },
       });
-      const privileged = needsMfa((await this.sessions.loadGrants(tx, actor.userId, now)).grants);
+      const privileged = needsMfa(await this.sessions.loadGrants(tx, actor.userId, now));
       const session = await this.sessions.rotate(tx, tenant.tenantId, actor, meta, 'mfa_disabled', {
         mfaAt: null,
         stepUpAt: null,

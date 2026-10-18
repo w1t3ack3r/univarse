@@ -7,6 +7,7 @@ import { CurrentTenant } from '../../shared/tenancy/tenant.guard.js';
 import type { TenantContext } from '../../shared/tenancy/tenant-resolver.service.js';
 import { AllowRestricted, Authenticated, CurrentActor, Public } from './access.guard.js';
 import type { Actor } from './actor.js';
+import { INSTITUTION, PolicyService } from './policy.js';
 import { AuthService } from './auth.service.js';
 import { challengeCookie, clearedSessionCookie, sessionCookie, SessionService } from './session.service.js';
 import { Product } from '../products/product.guard.js';
@@ -19,6 +20,7 @@ export class AuthController {
   constructor(
     private readonly auth: AuthService,
     private readonly sessions: SessionService,
+    private readonly policy: PolicyService,
   ) {}
 
   @Contract(AuthOps.requestActivation)
@@ -121,7 +123,7 @@ export class AuthController {
       displayName: actor.displayName,
       mfa: actor.mfaAt !== null,
       restricted: actor.restricted,
-      permissions: [...new Set(actor.grants.filter((g) => g.scopeType === 'INSTITUTION').map((g) => g.permission))].sort(),
+      permissions: this.policy.held(actor, INSTITUTION),
     };
   }
 }

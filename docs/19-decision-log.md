@@ -337,6 +337,7 @@ Alternatives considered: option — why not.
 
 **Consequences:**
 - The Phase 0 line is reported as **partly met**: institution scope is enforced. `PolicyService` and the negative tests are remaining work, and the resource scopes are **deferred, not met**.
+- **Update (2026-10-18):** `PolicyService` and the negative tests are done ([spec 0018](specs/0018-policy-service.md)); only the resource scopes remain, deferred as decided.
 - No one can be granted a resource-scoped role that silently works or silently over-grants before its module exists.
 
 **Alternatives considered:**
