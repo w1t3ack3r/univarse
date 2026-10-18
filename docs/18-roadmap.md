@@ -101,7 +101,7 @@ Each roadmap line checked against the repository, CI and the decision log.
 - PgBouncer in the deployed path (ADR-015).
 
 **Tracked gaps that stay open:**
-- **Writes the cache guard can't see:** spec 0015's static CI10 guard can't see a type that lies (a cast through `as unknown as string`), stored functions, SQL assembled at run time, or writers outside the API's TypeScript. A database trigger with a platform invalidation outbox closes these: [spec 0016](specs/0016-platform-invalidation-outbox.md), accepted 2026-10-13 with ADR-031, **implementation in progress**: the first PR (the capture triggers, the relay, the relay role's credentials, the `rls:check` gate); the second (monotonic cache deadlines, the resolver's subscriber) closes this gap.
+- **Retiring CI10's bindings** ([spec 0016](specs/0016-platform-invalidation-outbox.md) D3): the database capture now covers every writer, so spec 0015's static guard can be narrowed in a later PR.
 - **Crypto-shredding and restore safety:** the shred ledger (spec 0006). It makes sure a restored backup can't bring back a shredded key's data. It isn't itself a cross-tenant cache-isolation check, and it's built with backups.
 - `GET /users` pagination.
 

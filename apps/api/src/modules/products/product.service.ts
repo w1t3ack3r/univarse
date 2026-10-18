@@ -25,6 +25,7 @@ const alwaysOn = (p: ProductKey) => ALWAYS_ON.includes(p);
  */
 @Injectable()
 export class ProductService implements OnModuleInit {
+  /** Deadlines are performance.now(): load start + TTL (spec 0016 IO12), immune to wall-clock steps. */
   private readonly cache = new Map<string, { value: ReadonlySet<ProductKey>; expiresAt: number }>();
   /** Spec 0015 CI3: bumped by every eviction; a read caches only if it is unchanged since the read began. */
   private readonly generations = new Map<string, number>();
@@ -45,7 +46,7 @@ export class ProductService implements OnModuleInit {
 
   /** P1/P7: active = entitled AND enabled, plus always-on products. Cached per tenant. */
   async active(tenantId: string): Promise<ReadonlySet<ProductKey>> {
-    const now = Date.now();
+    const now = performance.now();
     const hit = this.cache.get(tenantId);
     if (hit && hit.expiresAt > now) return hit.value;
 

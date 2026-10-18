@@ -429,7 +429,7 @@ Alternatives considered: option — why not.
 - **Hold signing entirely:** leaves "images signed" unmet with no local path to it.
 
 ## ADR-031 — Change-capture triggers on the cached platform tables, with a platform invalidation outbox
-**Status:** Accepted (2026-10-13), with [spec 0016](specs/0016-platform-invalidation-outbox.md) revision 5 (owner review of `8bad3aa`). **Implementation in progress:** spec 0016's first PR (capture, relay, credentials) amends docs/07's trigger rule (§6, §6.1); its second PR (the caches and the resolver) completes it.
+**Status:** Accepted (2026-10-13), with [spec 0016](specs/0016-platform-invalidation-outbox.md) revision 5 (owner review of `8bad3aa`). **Implemented** in two PRs: spec 0016's first (capture, relay, credentials; docs/07's trigger rule amended, §6 and §6.1) and second (monotonic caches, the resolver's subscriber and global generation). Evidence: the spec's implementation notes.
 - **Amends** [07](07-data-and-database.md)'s rule "Triggers only for: `updated_at`, the audit hash chain, and preventing updates to immutable rows", by adding change capture for cache invalidation. The event table's own guards fall under the existing "immutable rows" category.
 
 **Context:**

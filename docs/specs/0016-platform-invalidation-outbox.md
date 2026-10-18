@@ -1,6 +1,6 @@
 # Spec 0016: Platform invalidation outbox — database triggers capture every change to the cached platform tables
 
-**Status:** **Accepted (2026-10-13)** by the owner: revision 5, after review of `8bad3aa`, with [ADR-031](../19-decision-log.md) Accepted alongside. **Implementation in progress,** in two PRs: PR A (the database capture, the relay and its credentials) and PR B (monotonic cache deadlines, the resolver's subscriber); see [Implementation notes (PR A)](#implementation-notes-pr-a). Revisions 2–5 each answered the owner's review of the previous one ([reviews below](#owner-review-of-revision-4)). The owner decided D1–D6 as written, and the 60 s maximum with the existing 30 s default.
+**Status:** **Accepted (2026-10-13)** by the owner: revision 5, after review of `8bad3aa`, with [ADR-031](../19-decision-log.md) Accepted alongside. **Implemented** in two PRs: PR A (the database capture, the relay and its credentials; #73) and PR B (monotonic cache deadlines, the resolver's subscriber); see [Implementation notes (PR A)](#implementation-notes-pr-a) and [(PR B)](#implementation-notes-pr-b). CI10's bindings are retired later (D3). Revisions 2–5 each answered the owner's review of the previous one ([reviews below](#owner-review-of-revision-4)). The owner decided D1–D6 as written, and the 60 s maximum with the existing 30 s default.
 **Phase:** 0. A follow-up to [spec 0015](0015-cache-isolation.md), which is complete for today's caches. It does not reopen spec 0015 and is not a Phase 0 exit criterion by itself; it closes the limits spec 0015 recorded.
 **Builds on:**
 
@@ -286,6 +286,25 @@ D3 now says the CI10 guard is retired only after the complete replacement has pa
 - `shared/infra/platform-invalidation-relay.int.spec.ts`: 12/12. The backlog drained in 43.6 s over 22 passes against the 162.5 s bound (P = 367, D = 19, 200 distinct pairs); the healthy maximum from commit to both API instances was 324 ms over 20 changes.
 - **IO19 mutations, each failing its intended test:** a missing capture trigger on each table (IO1); an `UPDATE` branch emitting only the new tenant (IO4); no no-op check (IO4); `SECURITY INVOKER` capture (IO1, the app role); an unqualified table with `pg_temp` first (IO16); `ENABLE` rather than `ENABLE ALWAYS` (IO15); no TRUNCATE trigger (IO6); `DELETE` granted to the relay, and `UPDATE`, `DELETE` or `SELECT` granted to the app role (IO17); no `USAGE` on the schema (IO17's success controls); a supplied `first_observed_at` honoured, early `EXPIRED` allowed, and a 1-hour delete guard (the guard tests); marking events published before publishing (Valkey down); publishing without the claiming lock (IO10); no batch deadline (backlog); a clipped-budget timeout counted as a failure (clipped budget, and the unit test); a `now()` claim cutoff and a `now()` first observation (the paused relay); `next_attempt_at` defaulting to `-infinity` (fairness); coalescing by tenant only (unit); no maximum on the configured TTL (unit); the relay URL written to the root `.env` (IO17's preload test).
 - **IO19 items for PR B:** expiry against a relay's own TTL (PR A's relay has none, and the database refuses early expiry: a relay expiring without the bound failed IO7); cache lifetime from the end of the load; `Date.now()` deadlines; the resolver's three.
+
+## Implementation notes (PR B)
+
+**Scope:** IO3, IO13, and the rest of IO12 (monotonic deadlines from the load's start; the long transaction; differing instance TTLs).
+
+**Decisions, for the owner's approval:**
+
+1. **The resolver subscribes** to `uv:tenants:invalidate` when its module starts, as `ProductService` does. A message evicts that tenant's entries and every negative entry (D5).
+2. **One global generation,** bumped by every tenants message and by `invalidate()`; a lookup caches its result, positive or negative, only if it is unchanged since the lookup began (IO13).
+3. **Both caches use `performance.now()`** from the start of the load. The unit tests step `Date.now()` back and simulate slow loads, with no new seam.
+4. **IO13's held lookup** is tested on a resolver built with a client whose read is held open, and its own subscribed bus, with the real relay and database. IO3 and the new-host test use two real API instances. The IO12 timing tests shorten the database's maximum to 3–4 s and restore it in `finally`.
+5. **"The relay's own configured TTL"** (IO12): the relay has none. It never reads `TENANT_CACHE_TTL_MS` and expires only against the database's bound, which the guard enforces.
+
+**Evidence (local, isolated stack).**
+
+- Unit: API 298/298, including the resolver's and the products cache's 7 new tests.
+- `shared/tenancy/tenant-invalidation.int.spec.ts` 5/5: every writer of IO3 reaches both instances within 2 s; a new and a newly verified host resolve on both within 2 s; the overtaken negative lookup isn't cached; expiry waits for first observation + max + 5 s in both IO12 tests.
+- **IO19 mutations, each failing its intended test:** `Date.now()` deadlines and lifetime from the load's end, for each cache (the unit tests); no negative-entry eviction (unit and the new-host test); no resolver generation (unit); a per-tenant generation (unit and the in-flight test); no resolver subscriber (IO3); expiry counted from the change rather than its first observation (the long-transaction test).
+- Not green locally: tests needing envelope encryption (auth activation, products) fail with `KeyUnavailableError` because the local Vault is sealed; CI runs Vault in dev mode.
 
 ## Affected docs (in the implementation PR)
 
