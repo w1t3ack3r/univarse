@@ -239,7 +239,7 @@ export class AuthService {
     // Second factor (spec 0001 M4/M8): MFA users get a challenge, never a session, at this point.
     const { hasFactor, privileged } = await this.shards.tx(tenant.shardId, tenant.tenantId, async (tx) => ({
       hasFactor: await this.mfa.hasActiveFactor(tx, user.id),
-      privileged: needsMfa((await this.sessions.loadGrants(tx, user.id, now)).grants),
+      privileged: needsMfa(await this.sessions.loadGrants(tx, user.id, now)),
     }));
     if (hasFactor) {
       return { kind: 'mfa_challenge', challengeToken: await this.mfa.startChallenge(tenant, user.id, meta.ip) };

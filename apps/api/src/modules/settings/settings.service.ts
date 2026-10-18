@@ -15,7 +15,8 @@ import { ProblemError } from '../../shared/errors/problem.js';
 import { requireIfMatch, stale } from '../../shared/http/etag.js';
 import type { TenantContext } from '../../shared/tenancy/tenant-resolver.service.js';
 import { enforcePermission } from '../identity/access.guard.js';
-import { canInstitutionWide, type Actor } from '../identity/actor.js';
+import type { Actor } from '../identity/actor.js';
+import { INSTITUTION, PolicyService } from '../identity/policy.js';
 import { SessionService, type SessionMeta } from '../identity/session.service.js';
 import { ProductService } from '../products/product.service.js';
 import { cacheKey, SettingsCache, type CachedSetting } from './settings-cache.js';
@@ -52,6 +53,7 @@ export class SettingsService {
     private readonly audit: AuditWriter,
     private readonly cache: SettingsCache,
     @Inject(SETTINGS_REGISTRY) private readonly registry: SettingsRegistry,
+    private readonly policy: PolicyService,
   ) {}
 
   /** ST12: the typed effective value. Callers are already inside their own product's guard. */
@@ -180,7 +182,8 @@ export class SettingsService {
       version: e.version,
       updatedAt: e.updatedAt?.toISOString() ?? null,
       updatedBy: user,
-      canManage: canInstitutionWide(actor, def.manage),
+      // Shown to whoever holds the permission; the change itself still needs MFA and a fresh step-up (ST4, S9).
+      canManage: this.policy.holds(actor, def.manage, INSTITUTION),
     };
   }
 

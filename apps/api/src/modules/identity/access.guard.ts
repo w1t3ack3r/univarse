@@ -13,7 +13,8 @@ import type { Permission } from '@univarse/contracts';
 import type { FastifyRequest } from 'fastify';
 import { ProblemError } from '../../shared/errors/problem.js';
 import { NO_TENANT } from '../../shared/tenancy/tenant.guard.js';
-import { canInstitutionWide, hasFreshStepUp, isPrivileged, requiresStepUp, type Actor } from './actor.js';
+import { hasFreshStepUp, type Actor } from './actor.js';
+import { evaluate, INSTITUTION, type Refusal } from './policy.js';
 import { readSessionCookie, SessionService } from './session.service.js';
 
 const ACCESS = 'univarse:access';
@@ -99,21 +100,25 @@ export class AccessGuard implements CanActivate {
   }
 }
 
+/** Spec 0018 D3: each refusal's problem response, unchanged from before the policy was centralised. */
+export const REFUSALS: Record<Refusal, () => ProblemError> = {
+  forbidden: () => new ProblemError(403, 'auth.forbidden', 'Forbidden'),
+  mfa_required: () => new ProblemError(403, 'auth.mfa_required', 'Multi-factor authentication required'),
+  step_up_required: () => new ProblemError(428, 'auth.step_up_required', 'Confirm your identity to continue'),
+};
+
 /**
- * The permission checks of a `@RequirePermission` route, for permissions only known at run time
- * (e.g. a setting's own manage permission, spec 0007 ST4): held institution-wide, MFA if privileged,
- * and a fresh step-up if the catalog flags it (S9).
+ * The permission checks of a `@RequirePermission` route, also for permissions only known at run time
+ * (e.g. a setting's own manage permission, spec 0007 ST4). The policy decides (spec 0018): held institution-wide,
+ * MFA if privileged, and a fresh step-up if the catalog flags it (S9); this maps its refusal to a response.
  */
 export function enforcePermission(actor: Actor, permission: Permission): void {
-  if (!canInstitutionWide(actor, permission)) throw new ProblemError(403, 'auth.forbidden', 'Forbidden');
-  if (isPrivileged(permission) && !actor.mfaAt) {
-    throw new ProblemError(403, 'auth.mfa_required', 'Multi-factor authentication required');
-  }
-  if (requiresStepUp(permission)) enforceStepUp(actor);
+  const decision = evaluate(actor, permission, INSTITUTION, new Date());
+  if (!decision.allowed) throw REFUSALS[decision.reason]();
 }
 
 function enforceStepUp(actor: Actor): void {
-  if (!hasFreshStepUp(actor, new Date())) throw new ProblemError(428, 'auth.step_up_required', 'Confirm your identity to continue');
+  if (!hasFreshStepUp(actor, new Date())) throw REFUSALS.step_up_required();
 }
 
 export const CurrentActor = createParamDecorator((_: unknown, ctx: ExecutionContext): Actor => {

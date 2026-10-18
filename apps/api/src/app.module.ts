@@ -5,6 +5,7 @@ import { APP_CONFIG, type AppConfig } from './config/config.js';
 import { HealthController } from './modules/health/health.controller.js';
 import { AccessGuard } from './modules/identity/access.guard.js';
 import { AuthController } from './modules/identity/auth.controller.js';
+import { PolicyService } from './modules/identity/policy.js';
 import { AuthService } from './modules/identity/auth.service.js';
 import { MfaController } from './modules/identity/mfa.controller.js';
 import { MfaService } from './modules/identity/mfa.service.js';
@@ -96,6 +97,8 @@ export class AppModule {
         Outbox,
         RateLimiter,
         SessionService,
+        // Spec 0018: every permission decision.
+        PolicyService,
         OneTimeCodeService,
         PasswordAttempts,
         MfaService,
