@@ -6,6 +6,7 @@
  *   pnpm rls:check
  */
 import pg from 'pg';
+import { captureGateProblems } from './capture-gate.js';
 import { loadRootEnv, requireEnv } from './env.js';
 
 const ALLOWLIST = new Set(['_prisma_migrations']);
@@ -66,6 +67,15 @@ async function main() {
 
   await client.end();
 
+  // Spec 0016 IO15: the platform invalidation capture (triggers, functions, no TEMPORARY), on the platform database.
+  const platform = new pg.Client({ connectionString: requireEnv('PLATFORM_MIGRATOR_URL') });
+  await platform.connect();
+  try {
+    problems.push(...(await captureGateProblems(platform)).map((p) => `platform capture: ${p}`));
+  } finally {
+    await platform.end();
+  }
+
   if (checked.length === 0) problems.push('no tenant tables found — did migrations run?');
   if (problems.length > 0) {
     console.error(`✗ RLS check failed (${problems.length} problem(s)):`);
@@ -73,6 +83,7 @@ async function main() {
     process.exit(1);
   }
   console.log(`✓ RLS check passed: ${checked.length} tenant tables isolated, all uniques and FKs tenant-scoped.`);
+  console.log('✓ Platform invalidation capture intact: 9 triggers ENABLE ALWAYS, functions locked down, no TEMPORARY, the maximum TTL unchanged.');
 }
 
 main().catch((err: unknown) => {

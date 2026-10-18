@@ -68,7 +68,7 @@ Isolation-layer coverage and known gaps: [docs/12 §3.1](docs/12-testing-strateg
 ```bash
 pnpm install
 pnpm db:setup      # asks for your local postgres superuser password (hidden), creates
-                   # least-privilege roles + databases, writes .env (git-ignored)
+                   # least-privilege roles + databases, writes .env and .env.worker (git-ignored)
 pnpm db:migrate    # platform + tenant migrations (RLS, grants)
 pnpm dev:secrets && pnpm dev:infra   # Valkey, Mailpit (UI http://127.0.0.1:8025), Vault, SeaweedFS (S3), ClamAV (Docker; give Docker ≥ 4 GB, docs/10 §4.1)
 pnpm db:seed       # demo-uni, test-poly, paused-uni (suspended) + each tenant's data key (needs Vault)
@@ -84,6 +84,8 @@ Use `PGPORT=5433 pnpm db:setup` if your PostgreSQL 18 runs on another port.
 **Vault (spec 0006):** `pnpm dev:infra` also initialises and unseals a local Vault and writes a least-privilege `VAULT_TOKEN` to `.env`. Its unseal key and root token stay in the git-ignored `.vault-dev.json`; deleting that file means resetting the `univarse-dev_vault-data` volume and re-seeding. After a Docker restart, `pnpm dev:vault` unseals it again. Key operations (rotate, sweep, v1 migration, retired-key destroy, KEK re-wrap): `pnpm --filter @univarse/api build && pnpm --filter @univarse/api keys status` (see `apps/api/src/cli/keys.ts`).
 
 **Traces (spec 0012, optional):** `pnpm dev:traces` starts a local OpenTelemetry Collector that writes spans to `infra/compose/otel/out/traces.jsonl`; `pnpm dev:traces:jaeger` adds Jaeger's UI on http://127.0.0.1:16686. Then run the API and worker with `OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:14318`. With no endpoint set, nothing is exported. Stop the collector and Jaeger when you're done; on an 8 GB machine memory matters (docs/10 §4).
+
+**Platform invalidation relay (spec 0016):** the worker relays the database's cache invalidation events on its own role, whose URL `pnpm db:setup` writes to `.env.worker` (never `.env`); the worker refuses to start without it, so **rerun `pnpm db:setup` before `pnpm db:migrate`** after pulling it (it also rotates your local passwords). Don't run a worker while integration tests run: its relay would claim their events. The design assumes your PostgreSQL host's clock is kept in sync (NTP), with no large forward steps.
 
 `pnpm dev` runs the outbox worker next to the API, so activation and reset codes arrive in Mailpit. Requests never send email themselves (spec 0002 B7).
 

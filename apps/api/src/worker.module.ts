@@ -11,8 +11,10 @@ import { KeyMaintenance } from './shared/crypto/key-maintenance.js';
 import { ClamdScanner } from './modules/files/clamd-scanner.js';
 import { FileScanWorker } from './modules/files/file-scan.worker.js';
 import { FileStorage } from './modules/files/file-storage.js';
+import { createPlatformClient } from '@univarse/db';
 import { DbModule } from './shared/db/db.module.js';
 import { MAILER, SmtpMailer, type Mailer } from './shared/infra/mailer.js';
+import { PlatformInvalidationRelay } from './shared/infra/platform-invalidation-relay.js';
 import { shutdownHook } from './shared/observability/shutdown-hook.js';
 import { OutboxWorker } from './shared/outbox/outbox-worker.js';
 
@@ -77,9 +79,23 @@ export class WorkerModule {
         FileStorage,
         ClamdScanner,
         FileScanWorker,
+        // Spec 0016: the platform invalidation relay, on its own role's connection. Only the worker process has
+        // PLATFORM_RELAY_URL (loadConfig refuses it elsewhere), so the keys CLI never gets one.
+        ...(config.PLATFORM_RELAY_URL ? [relayProvider(config.PLATFORM_RELAY_URL)] : []),
         ...(overrides.onShutdown ? [shutdownHook(overrides.onShutdown)] : []),
       ],
       exports: [APP_CONFIG],
     };
   }
+}
+
+function relayProvider(url: string) {
+  return {
+    provide: PlatformInvalidationRelay,
+    inject: [InvalidationBus],
+    useFactory: (bus: InvalidationBus) =>
+      new PlatformInvalidationRelay(createPlatformClient(url), (channel, tenantId, timeoutMs) =>
+        bus.publish(channel, tenantId, timeoutMs),
+      ),
+  };
 }

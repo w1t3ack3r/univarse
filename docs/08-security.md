@@ -41,6 +41,7 @@
 | T18 | **Timer or score manipulation** | Client clock tampering, replaying answers after time-out, editing scores after release | Server-authoritative timer and deadlines. Answers after the deadline are rejected. Idempotent answer writes. Released CA scores change only via the amendment path. Every change is audited (spec 0002) |
 | T19 | **One product degrading another** | CA-test or live-lecture spike exhausting shared DB connections or CPU; a noisy tenant | Runtime roles, per-role pools, per-product queues and rate limits, circuit breakers (ADR-020). The cross-product isolation load test is a GA gate |
 | T20 | **Live-session abuse** | Attendance code shared off-site; spam or abusive Q&A; poll stuffing | Attendance codes rotate every ≤ 30 s and are bound to the live session. One response per student per poll. Moderated Q&A with per-user rate limits. Every attendance and moderation action is logged |
+| T22 | **Stale tenant status, hosts or entitlements** | A suspended tenant, a removed domain or a revoked product still served by another instance, because a write bypassed the in-code invalidation (a migration, `psql`, a stored function) | Database triggers capture every committed change to the cached platform tables in the same transaction; the worker's relay publishes it at least once; every cache is bounded by the shared 60 s maximum TTL ([07 §6.1](07-data-and-database.md), spec 0016). **Limits, stated:** the owner role (`univarse_migrator`) or a superuser can disable the triggers, which `pnpm rls:check` detects on its next run but doesn't prevent; and expiring an unpublished event assumes the database host's clock is NTP-disciplined and slewed (no large forward steps), which is assumed, not enforced |
 | T21 | **Over-powerful tenant admin** | A compromised or malicious IT Admin disabling controls | IT Admin guardrails ([01 §5.4](01-product-brief.md)): can't read secrets, alter audit, weaken platform security baselines, or reach other tenants. Privileged + step-up + audited |
 
 Revisit the threat model at the start of every roadmap phase. New modules add rows.
@@ -166,6 +167,7 @@ Built in [spec 0010](specs/0010-file-uploads.md).
 - Distinct secrets per environment. Dev secrets are useless in prod.
 - DB credentials: separate users per service role ([07 §1](07-data-and-database.md)). Prefer IAM/short-lived credentials where the provider supports them.
 - gitleaks runs in pre-commit and CI. A detected secret = rotate first, then clean history.
+- **The invalidation relay's role reaches only the worker** ([spec 0016](specs/0016-platform-invalidation-outbox.md) IO17): `pnpm db:setup` writes `PLATFORM_RELAY_URL` to the git-ignored `.env.worker`, never to the root `.env` that the API's development preload loads; only `worker.ts` loads it; worker containers receive it by name, API containers never; and the API refuses to start with it set.
 
 ## 11. Security in the development lifecycle
 

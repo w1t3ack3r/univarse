@@ -40,7 +40,8 @@ export default tseslint.config(
             'packages/crypto/scripts/*.ts',
           ],
           defaultProject: 'tsconfig.base.json',
-          maximumDefaultProjectFileMatchCount_THIS_WILL_SLOW_DOWN_LINTING: 16,
+          // 24 since spec 0016 added the capture gate and its suite (18 files today); raise it deliberately, not by habit.
+          maximumDefaultProjectFileMatchCount_THIS_WILL_SLOW_DOWN_LINTING: 24,
         },
         tsconfigRootDir: import.meta.dirname,
       },

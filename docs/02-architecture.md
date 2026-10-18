@@ -237,6 +237,8 @@ sequenceDiagram
 
 **Propagation of status changes.** Each API instance caches host → tenant (including status) for `TENANT_CACHE_TTL_MS` (default 30 s). The instance performing a lifecycle change invalidates its own cache immediately. **Other instances converge within the TTL**, so a suspension may take up to 30 s to block every request cluster-wide. Before multi-instance production, publish lifecycle changes over Valkey pub/sub so all instances invalidate at once (tracked in the roadmap). Already-issued sessions are covered: the tenant guard runs before session lookup on every request, and this is tested.
 
+**The platform invalidation path ([spec 0016](specs/0016-platform-invalidation-outbox.md)),** beside the tenant outbox: a database trigger captures every committed change to `tenant`, `tenant_domain` and `tenant_product`, by any writer, in the same transaction; the worker's relay publishes it on `uv:tenants:invalidate` or `uv:products:invalidate`, at least once ([07 §6.1](07-data-and-database.md)). The products cache already subscribes; the resolver's subscriber follows in the spec's second PR. `TENANT_CACHE_TTL_MS` is capped by `MAX_TENANT_CACHE_TTL_MS` (60 s), which the database's expiry bound also uses, so a lost message is bounded by one shared maximum.
+
 `REQUESTED → PROVISIONING → ONBOARDING → ACTIVE ⇄ SUSPENDED → OFFBOARDING (60-day export window) → ARCHIVED → PURGED`. See [03](03-domain-model.md) §12 for the state machine. Provisioning is an idempotent, resumable job: create tenant rows → seed defaults (roles, grading scheme, settings) → create first institution admin → DNS/TLS for the subdomain → mark ONBOARDING.
 
 ### 7.4 Promotion pool → dedicated

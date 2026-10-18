@@ -1,6 +1,6 @@
 # Spec 0016: Platform invalidation outbox — database triggers capture every change to the cached platform tables
 
-**Status:** **Accepted (2026-10-13)** by the owner: revision 5, after review of `8bad3aa`, with [ADR-031](../19-decision-log.md) Accepted alongside. **Not implemented yet.** Revisions 2–5 each answered the owner's review of the previous one ([reviews below](#owner-review-of-revision-4)). The owner decided D1–D6 as written, and the 60 s maximum with the existing 30 s default.
+**Status:** **Accepted (2026-10-13)** by the owner: revision 5, after review of `8bad3aa`, with [ADR-031](../19-decision-log.md) Accepted alongside. **Implementation in progress,** in two PRs: PR A (the database capture, the relay and its credentials) and PR B (monotonic cache deadlines, the resolver's subscriber); see [Implementation notes (PR A)](#implementation-notes-pr-a). Revisions 2–5 each answered the owner's review of the previous one ([reviews below](#owner-review-of-revision-4)). The owner decided D1–D6 as written, and the 60 s maximum with the existing 30 s default.
 **Phase:** 0. A follow-up to [spec 0015](0015-cache-isolation.md), which is complete for today's caches. It does not reopen spec 0015 and is not a Phase 0 exit criterion by itself; it closes the limits spec 0015 recorded.
 **Builds on:**
 
@@ -260,6 +260,32 @@ The owner found the architecture right. Five corrections and one explicit test w
 6. **The in-flight negative lookup test is explicit,** and the resolver's generation is global, so it works before any tenant id is known (IO13).
 
 D3 now says the CI10 guard is retired only after the complete replacement has passed CI and merged.
+
+## Implementation notes (PR A)
+
+**Scope.** The owner approved the split on 2026-10-18. PR A: the migration (table, triggers, functions, guards, grants), the relay role and its credentials, the TTL cap, the IO15 gate, the relay, and IO1, IO2, IO4–IO11, IO14–IO18 (IO12's database parts: the stamp, early expiry refused, the cap). PR B: the monotonic caches, the resolver's subscriber and global generation (IO13), and IO3 and the rest of IO12, end to end across instances.
+
+**Decisions made while implementing, for the owner's approval:**
+
+1. **The relay goes through PgBouncer in the isolation job.** `db:setup` adds the relay role to the auth file and writes `PGBOUNCER_PLATFORM_RELAY_URL` to `.env.worker`; it is its own pool. The PB3 suites set `UNIVARSE_RELAY_THROUGH_PGBOUNCER=1`, so the same tests run direct and pooled.
+2. **The event table is a Prisma model; the triggers, functions and grants are hand-written SQL** in the migration. The relay uses raw SQL on its own platform client.
+3. **Test seams are constructor options:** a pause after `BEGIN`, after the claim and before the commit; the clock; the jitter; the publish function. The crash tests terminate the relay's backend **as the relay role** (a role may signal its own backends; no superuser). IO8's crash also aborts the pass: killing the connection alone doesn't stop the JavaScript from publishing before its next statement fails.
+4. **Only `worker.ts` loads `.env.worker`.** The Design also names `otel.ts` "when it starts the worker", but `otel.ts` never reads the relay's URL, so loading it there would only widen where it lives.
+5. **The worker refuses to start without `PLATFORM_RELAY_URL`** (an error naming `pnpm db:setup`). The `keys` CLI, which reuses the worker module, never gets a relay: its config is the API kind, which refuses the URL.
+6. **The relay's tests read `.env.worker` only, never `process.env`,** so a test process never holds the URL where the API's config would see it. `tools/images/container.mjs` passes it to **worker** containers only, by name (`-e`), read from `.env.worker`; API containers never receive it.
+7. **The IO15 gate also checks that `cache_invalidation_max_ttl()` equals `MAX_TENANT_CACHE_TTL_MS`.** Two tests shorten it briefly and restore it in `finally`; a run that dies in between is caught by the next `pnpm rls:check`.
+8. **`last_error` is a fixed label**, `PublishTimeout` or `PublishFailed`, never the client's message. The backoff's ±20 % jitter never exceeds the 5 s cap. A pass that throws (the database unreachable) makes the loop wait 250 ms doubling, at most 5 s.
+9. **`.env.worker` is written like the root `.env`** (mode 0600 when created), not with spec 0017's `writeOwnerOnly`, which restricts the parent directory to the owner: here that is the repository root. The root `.env` already holds the more powerful migrator password.
+10. **ESLint's default-project cap rises from 16 to 24** for the two new files under `packages/db/scripts` and `packages/db/test`.
+11. **Owner action after merging:** rerun `pnpm db:setup` before `pnpm db:migrate` (it creates the relay role, writes `.env.worker`, and rotates local passwords). The local release flow's worker container needs `.env.worker` too.
+
+**Evidence (local, isolated stack: a scratch worktree and a disposable PostgreSQL 18; Valkey from the dev stack).**
+
+- Unit: API 291/291 (the coalescing, budget, failure-class and backoff rules; the TTL cap; the API's refusal; the migration's value), db 27/27.
+- `packages/db/test/cache-invalidation.int.spec.ts`: 24/24; the whole db integration suite 55/55; `pnpm rls:check` passes with the gate.
+- `shared/infra/platform-invalidation-relay.int.spec.ts`: 12/12. The backlog drained in 43.6 s over 22 passes against the 162.5 s bound (P = 367, D = 19, 200 distinct pairs); the healthy maximum from commit to both API instances was 324 ms over 20 changes.
+- **IO19 mutations, each failing its intended test:** a missing capture trigger on each table (IO1); an `UPDATE` branch emitting only the new tenant (IO4); no no-op check (IO4); `SECURITY INVOKER` capture (IO1, the app role); an unqualified table with `pg_temp` first (IO16); `ENABLE` rather than `ENABLE ALWAYS` (IO15); no TRUNCATE trigger (IO6); `DELETE` granted to the relay, and `UPDATE`, `DELETE` or `SELECT` granted to the app role (IO17); no `USAGE` on the schema (IO17's success controls); a supplied `first_observed_at` honoured, early `EXPIRED` allowed, and a 1-hour delete guard (the guard tests); marking events published before publishing (Valkey down); publishing without the claiming lock (IO10); no batch deadline (backlog); a clipped-budget timeout counted as a failure (clipped budget, and the unit test); a `now()` claim cutoff and a `now()` first observation (the paused relay); `next_attempt_at` defaulting to `-infinity` (fairness); coalescing by tenant only (unit); no maximum on the configured TTL (unit); the relay URL written to the root `.env` (IO17's preload test).
+- **IO19 items for PR B:** expiry against a relay's own TTL (PR A's relay has none, and the database refuses early expiry: a relay expiring without the bound failed IO7); cache lifetime from the end of the load; `Date.now()` deadlines; the resolver's three.
 
 ## Affected docs (in the implementation PR)
 

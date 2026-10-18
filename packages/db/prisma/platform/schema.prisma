@@ -238,3 +238,22 @@ model KeyReencryption {
 
   @@map("key_reencryption")
 }
+
+/// Spec 0016 (ADR-031): an invalidation captured by a trigger on tenant, tenant_domain or tenant_product, in the
+/// writer's transaction; the worker's relay publishes it. Its partial indexes, functions, guard triggers and grants
+/// are hand-written in the migration (20261018120000_cache_invalidation_outbox). Never row values (IO14).
+model CacheInvalidationEvent {
+  id              String    @id @default(dbgenerated("uuidv7()")) @db.Uuid
+  channel         String
+  tenantId        String    @map("tenant_id") @db.Uuid
+  source          String
+  createdAt       DateTime  @default(dbgenerated("clock_timestamp()")) @map("created_at") @db.Timestamptz(6)
+  firstObservedAt DateTime? @map("first_observed_at") @db.Timestamptz(6)
+  attempts        Int       @default(0)
+  nextAttemptAt   DateTime  @default(dbgenerated("clock_timestamp()")) @map("next_attempt_at") @db.Timestamptz(6)
+  status          String    @default("PENDING")
+  settledAt       DateTime? @map("settled_at") @db.Timestamptz(6)
+  lastError       String?   @map("last_error")
+
+  @@map("cache_invalidation_event")
+}
