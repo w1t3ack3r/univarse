@@ -21,7 +21,19 @@ export const DEFAULT_PUB = join(REPO, 'infra', 'signing', 'cosign.pub');
 export const ROLES = Object.freeze({
   api: Object.freeze({ repo: 'univarse-api', dockerfile: 'infra/docker/api.Dockerfile' }),
   web: Object.freeze({ repo: 'univarse-web', dockerfile: 'infra/docker/web.Dockerfile' }),
+  // Spec 0019 D3/D4: the stack's migrate job, and the source-built PgBouncer (spec 0017).
+  migrate: Object.freeze({ repo: 'univarse-migrate', dockerfile: 'infra/docker/migrate.Dockerfile' }),
+  pgbouncer: Object.freeze({ repo: 'univarse-pgbouncer', dockerfile: 'infra/docker/pgbouncer.Dockerfile' }),
 });
+/**
+ * Releases signed before spec 0019 hold only api and web. `pnpm images:prune` re-verifies such a kept release as it
+ * was signed; the deploy requires every role in ROLES, so it never accepts one.
+ */
+export const LEGACY_ROLE_NAMES = Object.freeze(['api', 'web']);
+/** The role sets a release may have: all of ROLES (every release from spec 0019 on), or the legacy pair. */
+export const ROLE_SETS = Object.freeze([Object.freeze(Object.keys(ROLES)), LEGACY_ROLE_NAMES]);
+/** The ROLES entries for `names`, as a trusted table for verifyRelease. */
+export const rolesOf = (names) => Object.freeze(Object.fromEntries(names.map((n) => [n, ROLES[n]])));
 /** Every container a release starts carries this label with the run's ID; cleanup removes only those (LR10). */
 export const RUN_LABEL = 'univarse.release.run';
 /** Container-name suffix for this release run ('' outside a release, e.g. in CI, where names stay as they were). */
@@ -93,4 +105,17 @@ export function predicatesFrom(stdout) {
     .split('\n')
     .filter((l) => l.trim().startsWith('{'))
     .map((l) => JSON.parse(Buffer.from(JSON.parse(l).payload, 'base64').toString('utf8')).predicate);
+}
+
+/**
+ * CS3: the runtime base a Dockerfile builds its final stage from: exactly one digest-pinned `ARG RUNTIME_IMAGE`,
+ * and the last stage is `FROM ${RUNTIME_IMAGE} AS runtime`. Fails closed (throws), as CI's check does.
+ */
+export function runtimeBaseOf(text, file) {
+  const bases = [...text.matchAll(/^ARG RUNTIME_IMAGE=(\S+)$/gm)].map((m) => m[1]);
+  if (bases.length !== 1) throw new Error(`${file} must declare RUNTIME_IMAGE exactly once`);
+  if (!/@sha256:[0-9a-f]{64}$/.test(bases[0])) throw new Error(`${file}: RUNTIME_IMAGE is not digest-pinned: ${bases[0]}`);
+  const last = text.split(/\r?\n/).filter((l) => l.startsWith('FROM ')).at(-1);
+  if (last?.trim() !== 'FROM ${RUNTIME_IMAGE} AS runtime') throw new Error(`${file}: the final stage is not FROM \${RUNTIME_IMAGE}`);
+  return bases[0];
 }

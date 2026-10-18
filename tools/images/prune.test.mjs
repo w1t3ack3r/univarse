@@ -663,3 +663,47 @@ test('[LR8] an orphan signature index that lists a candidate itself protects it;
   assert.ok(!deleted(plan).has(`univarse-api@${dg(3)}`));
   assert.ok(plan.untag.some((u) => u.repo === 'univarse-api' && u.tag === 'sha-bbbbbbb-rehearsal'));
 });
+
+// Spec 0019: releases from now on carry four roles; earlier ones (api, web) stay kept and verifiable as signed.
+const FOUR = ['api', 'web', 'migrate', 'pgbouncer'];
+const repoOf = { api: 'univarse-api', web: 'univarse-web', migrate: 'univarse-migrate', pgbouncer: 'univarse-pgbouncer' };
+
+test('[LS3] a four-role record nominates its four images; a record naming another role set nominates nothing', () => {
+  const base = `sha-${A.slice(0, 7)}-rehearsal`;
+  const images = Object.fromEntries(FOUR.map((r, i) => [r, { repo: repoOf[r], tag: base, digest: dg(100 + i) }]));
+  const record = { commit: A, rehearsal: true, images };
+  const repos = nominations(record).map((n) => `${n.repo}:${n.tag}`);
+  for (const r of FOUR) assert.ok(repos.includes(`${repoOf[r]}:${base}`), `${r} nominated`);
+  const three = { ...record, images: { api: images.api, web: images.web, migrate: images.migrate } };
+  assert.deepEqual(nominations(three), []);
+});
+
+test('[LS3] a kept four-role release yields targets covering every signed digest, with its role set', () => {
+  const trust = {};
+  FOUR.forEach((role, i) => (trust[`${repoOf[role]}@${dg(200 + i)}`] = { kind: 'release', commit: A, role, startedOn: 'T' }));
+  trust[`univarse-api@${dg(299)}`] = { kind: 'release', commit: A, role: 'api', startedOn: 'T' }; // a second api digest
+  const { targets, problems } = verificationTargets(trust, [A]);
+  assert.deepEqual(problems, []);
+  assert.ok(targets.every((t) => t.roles.join() === FOUR.join()));
+  const apis = new Set(targets.map((t) => t.images.api.digest));
+  assert.deepEqual([...apis].sort(), [dg(200), dg(299)].sort());
+  for (const role of FOUR) assert.ok(targets.every((t) => t.images[role].repo === repoOf[role]));
+});
+
+test('[LS3] a kept release signed for migrate but not pgbouncer is reported by name, and stops --apply', () => {
+  const trust = {};
+  ['api', 'web', 'migrate'].forEach((role, i) => (trust[`${repoOf[role]}@${dg(300 + i)}`] = { kind: 'release', commit: A, role, startedOn: 'T' }));
+  const { targets, problems } = verificationTargets(trust, [A]);
+  assert.deepEqual(targets, []);
+  assert.match(problems.join(), /kept release a{40}: no pgbouncer image signed for that role in univarse-pgbouncer/);
+});
+
+test('[LS3] a kept legacy release (api, web) is verified as the legacy set', () => {
+  const trust = {
+    [`univarse-api@${dg(400)}`]: { kind: 'release', commit: A, role: 'api', startedOn: 'T' },
+    [`univarse-web@${dg(401)}`]: { kind: 'release', commit: A, role: 'web', startedOn: 'T' },
+  };
+  const { targets, problems } = verificationTargets(trust, [A]);
+  assert.deepEqual(problems, []);
+  assert.deepEqual(targets.map((t) => t.roles.join()), ['api,web']);
+});

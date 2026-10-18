@@ -1,0 +1,28 @@
+{
+  "name": "@univarse/migrate",
+  "version": "0.0.0",
+  "private": true,
+  "description": "The stack's migrate job (spec 0019 D3): roles and databases, migrations, rls:check, the seed and tenant data keys, once per deploy. Shipped as the signed `migrate` image.",
+  "type": "module",
+  "files": [
+    "dist",
+    "prisma"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "eslint .",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@univarse/crypto": "workspace:*",
+    "@univarse/db": "workspace:*",
+    "@univarse/db-ops": "workspace:*",
+    "pg": "^8.16.0",
+    "prisma": "^7.0.0"
+  },
+  "devDependencies": {
+    "@types/pg": "^8.15.0",
+    "vitest": "^4.1.11"
+  }
+}

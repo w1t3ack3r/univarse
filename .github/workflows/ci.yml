@@ -184,7 +184,7 @@ jobs:
       - name: E2E — edge → web → API → DB, desktop + mobile (spec 0005 W10)
         run: pnpm --filter @univarse/web test:e2e
 
-      # Spec 0013: the images UniVarse builds (API/worker and web). Built once here; every check below runs
+      # Spec 0013: the images UniVarse builds (API/worker, web, and spec 0019's migrate job). Built once here; every check below runs
       # against that build. PR runs never push or sign (this job is contents: read only).
       - name: Verify the distroless base image's upstream signature (spec 0013 CS3)
         env:
@@ -196,16 +196,18 @@ jobs:
           chmod +x cosign
           api_base=$(grep -oP '^ARG RUNTIME_IMAGE=\K\S+' infra/docker/api.Dockerfile)
           web_base=$(grep -oP '^ARG RUNTIME_IMAGE=\K\S+' infra/docker/web.Dockerfile)
+          migrate_base=$(grep -oP '^ARG RUNTIME_IMAGE=\K\S+' infra/docker/migrate.Dockerfile)
           test "$api_base" = "$web_base" || { echo "api and web pin different runtime bases"; exit 1; }
+          test "$api_base" = "$migrate_base" || { echo "api and migrate pin different runtime bases"; exit 1; }
           echo "Runtime base: $api_base"
           ./cosign verify "$api_base" \
             --certificate-identity keyless@distroless.iam.gserviceaccount.com \
             --certificate-oidc-issuer https://accounts.google.com > /dev/null
           echo "Upstream signature verified for $api_base" | tee -a "$GITHUB_STEP_SUMMARY"
-      - name: Build the API and web images once (spec 0013 CS1, CS2)
+      - name: Build the API, web and migrate images once (spec 0013 CS1, CS2; spec 0019 D3)
         run: |
           created=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-          for img in api web; do
+          for img in api web migrate; do
             docker buildx build --load -f "infra/docker/${img}.Dockerfile" -t "univarse-${img}:ci" \
               --build-arg REVISION="${{ github.sha }}" --build-arg CREATED="$created" --build-arg VERSION="sha-${GITHUB_SHA::7}" .
             echo "univarse-${img}:ci image id $(docker image inspect -f '{{.Id}}' univarse-${img}:ci), size $(docker image inspect -f '{{.Size}}' univarse-${img}:ci) bytes" | tee -a "$GITHUB_STEP_SUMMARY"
@@ -213,6 +215,7 @@ jobs:
           # CS6: every later check runs against exactly these images; each re-checks the ID first.
           echo "API_IMAGE_ID=$(docker image inspect -f '{{.Id}}' univarse-api:ci)" >> "$GITHUB_ENV"
           echo "WEB_IMAGE_ID=$(docker image inspect -f '{{.Id}}' univarse-web:ci)" >> "$GITHUB_ENV"
+          echo "MIGRATE_IMAGE_ID=$(docker image inspect -f '{{.Id}}' univarse-migrate:ci)" >> "$GITHUB_ENV"
       - name: Inspect the images — user, labels, no shell, no UniVarse source/test/env files, ownership (spec 0013 CS1, CS2)
         run: |
           node --test tools/images/rules.test.mjs
@@ -221,8 +224,11 @@ jobs:
           node --test tools/images/prune.test.mjs
           node --test tools/images/registry-lock.test.mjs
           node --test tools/images/gates.test.mjs
+          node --test tools/images/release-lib.test.mjs
+          node --test tools/images/migrate-smoke.test.mjs
           node tools/images/inspect.mjs univarse-api:ci --root app
           node tools/images/inspect.mjs univarse-web:ci --root app
+          node tools/images/inspect.mjs univarse-migrate:ci --root app
       # Spec 0013 CS7–CS9 / ADR-029. Fail closed: each gate is its own step and the job stops at the first one
       # that fails or errors (a scanner or DB failure is a failure, never "no findings").
       - name: Install Trivy (checksum-verified) and check exceptions and policy (spec 0013 CS7)
@@ -239,8 +245,8 @@ jobs:
         env:
           TRIVY_DB_REPOSITORY: ghcr.io/aquasecurity/trivy-db:2,public.ecr.aws/aquasecurity/trivy-db:2
         run: |
-          for img in api web; do
-            want=$([ "$img" = api ] && echo "$API_IMAGE_ID" || echo "$WEB_IMAGE_ID")
+          for img in api web migrate; do
+            case "$img" in api) want="$API_IMAGE_ID" ;; web) want="$WEB_IMAGE_ID" ;; migrate) want="$MIGRATE_IMAGE_ID" ;; esac
             test "$(docker image inspect -f '{{.Id}}' "univarse-${img}:ci")" = "$want" || { echo "univarse-${img}:ci is not the image that was built and tested"; exit 1; }
             # Every severity, for the record (the DB is fetched fresh here; a fetch failure fails the step).
             ./trivy image --scanners vuln --format json --output "trivy-${img}.json" "univarse-${img}:ci"
@@ -250,20 +256,20 @@ jobs:
           done
       - name: Secret gate — any finding blocks; node_modules, image config and history included (spec 0013 CS7)
         run: |
-          for img in api web; do
+          for img in api web migrate; do
             ./trivy image --skip-db-update --scanners secret --secret-config tools/images/trivy-secret.yaml \
               --image-config-scanners secret --ignorefile .trivyignore.yaml --exit-code 1 "univarse-${img}:ci"
           done
       - name: Misconfiguration gate — Dockerfiles and image configuration, HIGH/CRITICAL block (spec 0013 CS7)
         run: |
           ./trivy config --severity HIGH,CRITICAL --ignorefile .trivyignore.yaml --exit-code 1 infra/docker
-          for img in api web; do
+          for img in api web migrate; do
             ./trivy image --skip-db-update --scanners misconfig --image-config-scanners misconfig \
               --severity HIGH,CRITICAL --ignorefile .trivyignore.yaml --exit-code 1 "univarse-${img}:ci"
           done
       - name: SBOM from each built image, SPDX JSON (spec 0013 CS8)
         run: |
-          for img in api web; do
+          for img in api web migrate; do
             ./trivy image --skip-db-update --format spdx-json --output "sbom-${img}.spdx.json" "univarse-${img}:ci"
             echo "univarse-${img}:ci SBOM: $(node -e "console.log(JSON.parse(require('fs').readFileSync('sbom-${img}.spdx.json','utf8')).packages.length)") packages" | tee -a "$GITHUB_STEP_SUMMARY"
           done
@@ -282,6 +288,10 @@ jobs:
         run: node tools/images/gate-proofs.mjs | tee -a "$GITHUB_STEP_SUMMARY"
       - name: Hardened runtime smoke — read-only, UID 65532, no capabilities (spec 0013 CS4)
         run: node tools/images/smoke.mjs --api univarse-api:ci --web univarse-web:ci
+      - name: Migrate job smoke — bootstrap, migrations, rls:check, seed and keys on a fresh database, hardened, twice (spec 0019 LS4)
+        run: |
+          test "$(docker image inspect -f '{{.Id}}' univarse-migrate:ci)" = "$MIGRATE_IMAGE_ID" || { echo "univarse-migrate:ci is not the image that was built and tested"; exit 1; }
+          node tools/images/migrate-smoke.mjs univarse-migrate:ci | tee -a "$GITHUB_STEP_SUMMARY"
       - name: Browser journeys against the containerised API, worker and web — desktop + mobile (spec 0013 CS5)
         # The same Playwright suite as source-mode E2E, but the API, worker and web are the images built above,
         # under the CI hardening, behind the same edge: login, MFA (TOTP, recovery code), step-up, reset via

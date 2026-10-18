@@ -21,6 +21,7 @@ import { join } from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import { stdin, stdout } from 'node:process';
 import pg from 'pg';
+import { bootstrap, DATABASES, POOLED_ROLES, ROLES } from '../../db-ops/src/bootstrap.js';
 import { REPO_ROOT, ROOT_ENV_PATH, WORKER_ENV_PATH } from './env.js';
 import {
   PGBOUNCER_ADMIN,
@@ -35,21 +36,6 @@ const host = process.env.PGHOST ?? '127.0.0.1';
 const port = Number(process.env.PGPORT ?? 5432);
 const superUser = process.env.PGSUPERUSER ?? 'postgres';
 
-const ROLES = {
-  migrator: 'univarse_migrator',
-  app: 'univarse_app',
-  appPlatform: 'univarse_app_platform',
-  // Spec 0016 IO17: the platform invalidation relay; the worker only. Its table grants are in the migration.
-  relayPlatform: 'univarse_relay_platform',
-} as const;
-const DATABASES = [
-  { name: 'univarse_platform', appRole: ROLES.appPlatform, envPrefix: 'PLATFORM' },
-  { name: 'univarse_pool_01', appRole: ROLES.app, envPrefix: 'TENANT_POOL_01' },
-] as const;
-/** The roles the app connects as: the only ones PgBouncer authenticates (the migrator always connects directly). */
-const APP_ROLES = [ROLES.app, ROLES.appPlatform];
-/** The roles PgBouncer authenticates: the app's, and the relay's (its own pool, spec 0017's note on 0016). */
-const POOLED_ROLES = [...APP_ROLES, ROLES.relayPlatform];
 /** Only in .env.worker (IO17): removed from the root .env should an older setup have put them there. */
 const WORKER_ONLY_KEYS = ['PLATFORM_RELAY_URL', 'PGBOUNCER_PLATFORM_RELAY_URL'];
 
@@ -67,10 +53,6 @@ async function promptHidden(question: string): Promise<string> {
 }
 
 const secret = () => randomBytes(24).toString('hex'); // [0-9a-f] only: safe to inline in SQL
-const ident = (s: string) => {
-  if (!/^[a-z_][a-z0-9_]*$/.test(s)) throw new Error(`Unsafe identifier ${s}`);
-  return s;
-};
 
 async function connect(database: string, password: string) {
   const client = new pg.Client({ host, port, user: superUser, password, database });
@@ -97,73 +79,24 @@ async function main() {
   }
 
   const passwords = { migrator: secret(), app: secret(), appPlatform: secret(), relayPlatform: secret() };
-  for (const [key, role] of Object.entries(ROLES) as [keyof typeof ROLES, string][]) {
-    const exists = (await admin.query('SELECT 1 FROM pg_roles WHERE rolname = $1', [role])).rowCount;
-    const verb = exists ? 'ALTER' : 'CREATE';
-    // CREATEDB for the migrator is LOCAL ONLY (Prisma shadow DB for `migrate dev`). Never in prod.
-    const extra = key === 'migrator' ? 'CREATEDB' : 'NOCREATEDB';
-    await admin.query(
-      `${verb} ROLE ${ident(role)} WITH LOGIN NOSUPERUSER NOCREATEROLE NOBYPASSRLS ${extra} PASSWORD '${passwords[key]}'`,
-    );
-    console.log(`  ✓ role ${role} ${exists ? '(password rotated)' : '(created)'}`);
-  }
-  // D6: a UTC default for app sessions that send no TimeZone. The client's startup option remains the setting.
-  for (const role of APP_ROLES) {
-    await admin.query(`ALTER ROLE ${ident(role)} SET timezone = 'UTC'`);
-    console.log(`  ✓ role ${role} timezone default UTC`);
-  }
-  // Spec 0016 IO11: the relay's transaction limits, server-side, behind its 3 s client timeout.
-  await admin.query(
-    `ALTER ROLE ${ROLES.relayPlatform} SET transaction_timeout = '5s'`,
-  );
-  await admin.query(`ALTER ROLE ${ROLES.relayPlatform} SET statement_timeout = '5s'`);
-  await admin.query(`ALTER ROLE ${ROLES.relayPlatform} SET idle_in_transaction_session_timeout = '5s'`);
-  await admin.query(`ALTER ROLE ${ROLES.relayPlatform} SET timezone = 'UTC'`);
-  console.log(`  ✓ role ${ROLES.relayPlatform} timeouts 5 s (transaction, statement, idle in transaction)`);
+  await admin.end();
+  // The roles, databases and privileges (shared with the stack's migrate job, spec 0019).
+  await bootstrap({ connect: (db) => connect(db, superPassword), passwords, migratorCreatedb: true, log: (l) => console.log(l) });
 
-  // PB9: copy each app role's verifier exactly as PostgreSQL stored it, under the same name.
-  const stored = await admin.query<{ rolname: string; rolpassword: string | null }>(
-    'SELECT rolname, rolpassword FROM pg_authid WHERE rolname = ANY($1::text[])',
-    [POOLED_ROLES],
-  );
+  // PB9: copy each pooled role's verifier exactly as PostgreSQL stored it, under the same name.
+  const reader = await connect('postgres', superPassword);
+  let stored: pg.QueryResult<{ rolname: string; rolpassword: string | null }>;
+  try {
+    stored = await reader.query('SELECT rolname, rolpassword FROM pg_authid WHERE rolname = ANY($1::text[])', [POOLED_ROLES]);
+  } finally {
+    await reader.end();
+  }
   const verifierOf = (role: string) => stored.rows.find((r) => r.rolname === role)?.rolpassword ?? null;
   const adminPassword = secret();
   const authFile = renderAuthFile([
     ...POOLED_ROLES.map((user) => ({ user, verifier: verifierOf(user) })),
     { user: PGBOUNCER_ADMIN, verifier: scramVerifier(adminPassword) },
   ]);
-
-  for (const db of DATABASES) {
-    const exists = (await admin.query('SELECT 1 FROM pg_database WHERE datname = $1', [db.name])).rowCount;
-    if (!exists) {
-      await admin.query(`CREATE DATABASE ${ident(db.name)} OWNER ${ROLES.migrator} ENCODING 'UTF8' TEMPLATE template0`);
-    }
-    await admin.query(`REVOKE ALL ON DATABASE ${ident(db.name)} FROM PUBLIC`);
-    await admin.query(`GRANT CONNECT ON DATABASE ${ident(db.name)} TO ${ident(db.appRole)}`);
-    // The relay: CONNECT to the platform database only, and USAGE on its schema (below); no TEMPORARY, nothing else.
-    if (db.name === 'univarse_platform')
-      await admin.query(`GRANT CONNECT ON DATABASE ${ident(db.name)} TO ${ROLES.relayPlatform}`);
-
-    const c = await connect(db.name, superPassword);
-    try {
-      await c.query(`ALTER SCHEMA public OWNER TO ${ROLES.migrator}`);
-      await c.query('REVOKE ALL ON SCHEMA public FROM PUBLIC');
-      await c.query(`GRANT USAGE ON SCHEMA public TO ${ident(db.appRole)}`);
-      if (db.name === 'univarse_platform') await c.query(`GRANT USAGE ON SCHEMA public TO ${ROLES.relayPlatform}`);
-      await c.query(
-        `ALTER DEFAULT PRIVILEGES FOR ROLE ${ROLES.migrator} IN SCHEMA public ` +
-          `GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO ${ident(db.appRole)}`,
-      );
-      await c.query(
-        `ALTER DEFAULT PRIVILEGES FOR ROLE ${ROLES.migrator} IN SCHEMA public ` +
-          `GRANT USAGE, SELECT ON SEQUENCES TO ${ident(db.appRole)}`,
-      );
-    } finally {
-      await c.end();
-    }
-    console.log(`  ✓ database ${db.name} ${exists ? '(exists, privileges refreshed)' : '(created)'}`);
-  }
-  await admin.end();
 
   writePgBouncerFiles(authFile);
 

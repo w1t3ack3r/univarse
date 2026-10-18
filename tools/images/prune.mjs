@@ -30,13 +30,16 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { basename, dirname, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { ROLE_SETS, ROLES, rolesOf } from './release-lib.mjs';
 
 export const KEEP_RELEASES = 20;
 const FALLBACK = /^sha256-([0-9a-f]{64})$/;
 const DIGEST = /^sha256:[0-9a-f]{64}$/;
 const COMMIT = /^[0-9a-f]{40}$/;
 /** The repositories releases push to (ROLES in release-lib.mjs), and the earliest rehearsals' negative-check repo. */
-export const RELEASE_REPOS = { api: 'univarse-api', web: 'univarse-web' };
+export const RELEASE_REPOS = Object.freeze(Object.fromEntries(Object.entries(ROLES).map(([role, r]) => [role, r.repo])));
+/** The release role set exactly matching `names` (a record's, or a release's signed roles), or undefined. */
+const roleSetOf = (names) => ROLE_SETS.find((set) => set.length === names.length && names.every((n) => set.includes(n)));
 const LEGACY_UNSIGNED_REPO = 'univarse-unsigned-check';
 export const fallbackTag = (digest) => `sha256-${digest.slice('sha256:'.length)}`;
 
@@ -49,7 +52,11 @@ export function nominations(record) {
   if (!COMMIT.test(record?.commit ?? '') || typeof record.rehearsal !== 'boolean') return [];
   const base = `sha-${record.commit.slice(0, 7)}${record.rehearsal ? '-rehearsal' : ''}`;
   const out = [];
-  for (const [role, repo] of Object.entries(RELEASE_REPOS)) {
+  // Only a record naming exactly one release role set (spec 0019: four roles; before it, api and web).
+  const set = roleSetOf(Object.keys(record.images ?? {}));
+  if (!set) return [];
+  for (const role of set) {
+    const repo = RELEASE_REPOS[role];
     const img = record.images?.[role];
     if (img?.repo !== repo || img.tag !== base || !DIGEST.test(img.digest ?? '')) return [];
     out.push({ repo, tag: base, subject: img.digest });
@@ -330,26 +337,35 @@ export function verificationTargets(trust, keptCommits) {
         )
         .map(([k]) => k.slice(repo.length + 1))
         .sort();
-      if (byRole[role].length === 0)
-        problems.push(`kept release ${c}: no ${role} image signed for that role in ${repo}`);
     }
-    if (Object.values(byRole).some((ds) => ds.length === 0)) continue;
-    // Pair each digest with the first of the other role, so every signed digest is verified at least once.
-    const pairs = new Set();
-    for (const api of byRole.api) pairs.add(`${api} ${byRole.web[0]}`);
-    for (const web of byRole.web) pairs.add(`${byRole.api[0]} ${web}`);
-    for (const pair of [...pairs].sort()) {
-      const [api, web] = pair.split(' ');
-      targets.push({
-        file: `${c.slice(0, 7)} (from signed provenance)`,
-        commit: c,
-        rehearsal: false,
-        images: {
-          api: { repo: RELEASE_REPOS.api, digest: api },
-          web: { repo: RELEASE_REPOS.web, digest: web },
-        },
-      });
+    // The smallest release role set covering the roles signed for this commit (spec 0019: a release from before it
+    // holds api and web only); every role of that set must be signed.
+    const signed = Object.keys(byRole).filter((r) => byRole[r].length > 0);
+    const set = [...ROLE_SETS].sort((a, b) => a.length - b.length).find((s) => signed.every((r) => s.includes(r)));
+    if (!set) {
+      problems.push(`kept release ${c}: its signed roles (${signed.join(', ')}) match no release role set`);
+      continue;
     }
+    const missing = set.filter((role) => byRole[role].length === 0);
+    for (const role of missing)
+      problems.push(`kept release ${c}: no ${role} image signed for that role in ${RELEASE_REPOS[role]}`);
+    if (missing.length) continue;
+    // Each signed digest of each role, with the first digest of every other role, so every one is verified once.
+    const seen = new Set();
+    for (const role of set)
+      for (const d of byRole[role]) {
+        const pick = Object.fromEntries(set.map((r) => [r, r === role ? d : byRole[r][0]]));
+        const key = set.map((r) => pick[r]).join(' ');
+        if (seen.has(key)) continue;
+        seen.add(key);
+        targets.push({
+          file: `${c.slice(0, 7)} (from signed provenance)`,
+          commit: c,
+          rehearsal: false,
+          roles: set,
+          images: Object.fromEntries(set.map((r) => [r, { repo: RELEASE_REPOS[r], digest: pick[r] }])),
+        });
+      }
   }
   return { targets, problems };
 }
@@ -559,7 +575,7 @@ async function main(argv) {
       printPlan(plan);
       for (const t of verify.targets)
         console.log(
-          `[prune] would verify ${t.file}: api ${t.images.api.digest}, web ${t.images.web.digest}`,
+          `[prune] would verify ${t.file}: ${t.roles.map((role) => `${role} ${t.images[role].digest}`).join(', ')}`,
         );
       for (const p of verify.problems) console.log(`[prune] --apply would REFUSE: ${p}`);
       console.log(
@@ -619,13 +635,14 @@ async function main(argv) {
     }
     const verifyAll = (when) => {
       for (const r of verify.targets) {
-        const v = verifyRelease(r, { pub, commit: r.commit, registry: `${alias}:5000` });
+        // As it was signed: its own role set (spec 0019; a release from before it holds api and web only).
+        const v = verifyRelease(r, { pub, commit: r.commit, registry: `${alias}:5000`, roles: rolesOf(r.roles) });
         if (!v.ok)
           throw new Error(
             `${when}: kept release ${r.file} does not verify:\n  ${v.problems.join('\n  ')}`,
           );
         console.log(
-          `[prune] ${when}: ${r.file} verified (signature, SBOM, provenance): api ${r.images.api.digest}, web ${r.images.web.digest}`,
+          `[prune] ${when}: ${r.file} verified (signature, SBOM, provenance): ${r.roles.map((role) => `${role} ${r.images[role].digest}`).join(', ')}`,
         );
       }
       console.log(

@@ -2,7 +2,8 @@
 // re-verifies everything against the trusted public key, offline, on the exact digests named.
 //   node tools/images/verify-release.mjs <record.json> [--pub path] [--commit sha]
 // Exits non-zero (naming each failure) unless:
-//   • the record names EXACTLY the roles in ROLES (api, web) — no more, no fewer — each with its trusted repository;
+//   • the record names EXACTLY the roles in ROLES (api, web, migrate, pgbouncer; or `roles`, for prune's legacy
+//     re-verification) — no more, no fewer — each with its trusted repository;
 //   • for each image, the signature, the SBOM attestation and the provenance attestation verify against the key;
 //   • the signed provenance names that role, its trusted Dockerfile (from ROLES, never the record), the expected
 //     commit (--commit, else the repository's HEAD; never the record's own value), and `rehearsal: false`.
@@ -10,24 +11,24 @@
 // the rehearsal flag is bound into the signed provenance, so editing the record's JSON changes nothing.
 import { readFileSync } from 'node:fs';
 import { basename, dirname } from 'node:path';
-import { cosign as realCosign, DEFAULT_PUB, PREDICATES, predicatesFrom, ROLES, sh, TOOL_REGISTRY, VERIFY_FLAGS } from './release-lib.mjs';
+import { cosign as realCosign, DEFAULT_PUB, LEGACY_ROLE_NAMES, PREDICATES, predicatesFrom, ROLES, rolesOf, sh, TOOL_REGISTRY, VERIFY_FLAGS } from './release-lib.mjs';
 
 const gitHead = () => sh('git', ['rev-parse', 'HEAD']).stdout.trim();
 
-export function verifyRelease(record, { pub = DEFAULT_PUB, commit, allowRehearsal = false, cosign = realCosign, head = gitHead, registry = TOOL_REGISTRY } = {}) {
+export function verifyRelease(record, { pub = DEFAULT_PUB, commit, allowRehearsal = false, cosign = realCosign, head = gitHead, registry = TOOL_REGISTRY, roles = ROLES } = {}) {
   const problems = [];
   const expectedCommit = commit ?? head();
   if (record.commit !== expectedCommit) problems.push(`record commit ${record.commit} is not the expected ${expectedCommit}`);
 
   // Roles: exactly the trusted set, each with its trusted repository.
-  const roles = Object.keys(record.images ?? {});
-  for (const role of Object.keys(ROLES)) if (!roles.includes(role)) problems.push(`the record has no ${role} image`);
-  for (const role of roles) if (!(role in ROLES)) problems.push(`the record names an unknown image role "${role}"`);
+  const named = Object.keys(record.images ?? {});
+  for (const role of Object.keys(roles)) if (!named.includes(role)) problems.push(`the record has no ${role} image`);
+  for (const role of named) if (!(role in roles)) problems.push(`the record names an unknown image role "${role}"`);
 
   const mounts = [[dirname(pub), '/trusted']];
   const key = `/trusted/${basename(pub)}`;
   const results = {};
-  for (const [role, trusted] of Object.entries(ROLES)) {
+  for (const [role, trusted] of Object.entries(roles)) {
     const img = record.images?.[role];
     if (!img) continue;
     if (img.repo !== trusted.repo) {
@@ -77,12 +78,20 @@ if (process.argv[1]?.endsWith('verify-release.mjs')) {
   const [file, ...rest] = process.argv.slice(2);
   const arg = (n) => (rest.includes(`--${n}`) ? rest[rest.indexOf(`--${n}`) + 1] : undefined);
   if (!file) {
-    console.error('usage: verify-release.mjs <record.json> [--pub path] [--commit sha]');
+    console.error('usage: verify-release.mjs <record.json> [--pub path] [--commit sha] [--legacy]');
     process.exit(2);
   }
   const record = JSON.parse(readFileSync(file, 'utf8'));
-  // The deploy's check: never the record's own commit (it is editable), never a rehearsal.
-  const { ok, problems, results } = verifyRelease(record, { pub: arg('pub') ?? DEFAULT_PUB, commit: arg('commit') });
+  // The deploy's check: never the record's own commit (it is editable), never a rehearsal; every role in ROLES.
+  // --legacy re-checks a release from before spec 0019 (api and web) as it was signed. It says nothing about
+  // deployability: the deploy never passes it.
+  const legacy = rest.includes('--legacy');
+  const { ok, problems, results } = verifyRelease(record, {
+    pub: arg('pub') ?? DEFAULT_PUB,
+    commit: arg('commit'),
+    ...(legacy ? { roles: rolesOf(LEGACY_ROLE_NAMES) } : {}),
+  });
+  if (legacy && ok) console.log('[verify-release] --legacy: verified as signed (api, web); NOT deployable (the stack needs every role)');
   if (!ok) {
     for (const p of problems) console.error(`[verify-release] REJECT ${p}`);
     process.exit(1);

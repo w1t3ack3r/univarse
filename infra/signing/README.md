@@ -25,7 +25,11 @@ commit the new public key in a PR that says why, and re-release: images signed b
 
 `pnpm images:release` from a clean `main` builds, gates, publishes to the local registry (127.0.0.1:5000),
 signs, attests and verifies, then writes a record under `releases/` (git-ignored; an index, not proof).
-`pnpm images:verify releases/<record>.json` re-verifies a record against `cosign.pub`, as the local deploy does.
+Since spec 0019 a release holds four images: `api` (also the worker), `web`, `migrate` (the stack's migration job)
+and `pgbouncer`.
+`pnpm images:verify releases/<record>.json` re-verifies a record against `cosign.pub`, as the local deploy does:
+all four images. `--legacy` re-checks a release from before spec 0019 (api and web only) as it was signed; such a
+release is never deployable.
 
 ## Pruning the local registry (LR8)
 
