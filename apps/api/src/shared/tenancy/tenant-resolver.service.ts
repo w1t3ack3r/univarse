@@ -1,7 +1,8 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, type OnModuleInit } from '@nestjs/common';
 import type { PlatformClient } from '@univarse/db';
 import { APP_CONFIG, type AppConfig } from '../../config/config.js';
 import { PLATFORM_DB } from '../db/db.module.js';
+import { CHANNELS, InvalidationBus } from '../infra/invalidation-bus.js';
 
 export interface TenantContext {
   readonly tenantId: string;
@@ -15,6 +16,7 @@ export interface TenantContext {
 
 interface CacheEntry {
   value: TenantContext | null;
+  /** performance.now() deadline: load start + TTL (spec 0016 IO12). */
   expiresAt: number;
 }
 
@@ -24,24 +26,38 @@ const HOSTNAME = /^(?=.{1,253}$)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9
 /**
  * Resolves the tenant from the request Host ONLY (docs/02 §7.2 rule 1).
  * Negative results are cached too, so unknown-host floods don't hit the database.
+ *
+ * Spec 0016: every committed change to tenant or tenant_domain arrives on `uv:tenants:invalidate` (from the
+ * database's capture, via the worker's relay). A message evicts that tenant's entries and every negative entry
+ * (D5: a new or newly verified host is negative until then). A global generation, bumped by every message and by
+ * invalidate(), guards each lookup: its result, positive or negative, is cached only if the generation is unchanged
+ * since it began (IO13), which works before any tenant id is known. Deadlines are monotonic (IO12).
  */
 @Injectable()
-export class TenantResolver {
+export class TenantResolver implements OnModuleInit {
   private readonly cache = new Map<string, CacheEntry>();
+  private generation = 0;
   private static readonly MAX_ENTRIES = 5_000;
 
   constructor(
     @Inject(PLATFORM_DB) private readonly platform: PlatformClient,
     @Inject(APP_CONFIG) private readonly config: AppConfig,
+    private readonly bus: InvalidationBus,
   ) {}
+
+  onModuleInit(): void {
+    this.bus.on(CHANNELS.tenants, (tenantId) => this.evict(tenantId));
+  }
 
   async resolveHost(rawHost: string): Promise<TenantContext | null> {
     const host = rawHost.toLowerCase().replace(/\.$/, '');
     if (!HOSTNAME.test(host)) return null;
 
-    const now = Date.now();
+    const start = performance.now();
     const hit = this.cache.get(host);
-    if (hit && hit.expiresAt > now) return hit.value;
+    if (hit && hit.expiresAt > start) return hit.value;
+
+    const generation = this.generation;
 
     const domain = await this.platform.tenantDomain.findUnique({
       where: { hostname: host },
@@ -61,13 +77,24 @@ export class TenantResolver {
           }
         : null;
 
-    if (this.cache.size >= TenantResolver.MAX_ENTRIES) this.cache.clear();
-    this.cache.set(host, { value, expiresAt: now + this.config.TENANT_CACHE_TTL_MS });
+    // A tenants message during the read means the result may be stale (or a stale "unknown"): serve, never cache.
+    if (this.generation === generation) {
+      if (this.cache.size >= TenantResolver.MAX_ENTRIES) this.cache.clear();
+      this.cache.set(host, { value, expiresAt: start + this.config.TENANT_CACHE_TTL_MS });
+    }
     return value;
   }
 
   /** Call after lifecycle changes (suspend/resume) so they take effect immediately. */
   invalidate(): void {
     this.cache.clear();
+    this.generation++;
+  }
+
+  /** D5: the tenant's entries and every negative entry; bumps the global generation. */
+  private evict(tenantId: string): void {
+    this.generation++;
+    for (const [host, entry] of this.cache)
+      if (entry.value === null || entry.value.tenantId === tenantId) this.cache.delete(host);
   }
 }
