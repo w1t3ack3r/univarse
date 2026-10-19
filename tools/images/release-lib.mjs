@@ -2,7 +2,8 @@
 // deploy runs (LR9). Tools run as pinned containers (L2); nothing is installed on the host.
 import { spawnSync } from 'node:child_process';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { readFileSync } from 'node:fs';
+import { basename, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 export const REPO = fileURLToPath(new URL('../../', import.meta.url));
@@ -118,4 +119,26 @@ export function runtimeBaseOf(text, file) {
   const last = text.split(/\r?\n/).filter((l) => l.startsWith('FROM ')).at(-1);
   if (last?.trim() !== 'FROM ${RUNTIME_IMAGE} AS runtime') throw new Error(`${file}: the final stage is not FROM \${RUNTIME_IMAGE}`);
   return bases[0];
+}
+
+/** The PEM body of a public key, whitespace removed, so two copies compare equal regardless of line endings. */
+export const pemBody = (pem) => pem.replace(/-----(BEGIN|END) [A-Z ]+-----/g, '').replace(/\s+/g, '');
+
+/**
+ * LR5's precondition, checked before any build: the password opens the signing key, and that key is the one the
+ * committed public key names. cosign derives the public key from the encrypted private key in its pinned
+ * container with no network; the password reaches it by environment only. Returns a problem, or null.
+ */
+export function signingKeyProblem({ key, pub, password, run = sh }) {
+  const r = run('docker', ['run', '--rm', '--network', 'none', '-e', 'COSIGN_PASSWORD', '-v', `${hostPath(dirname(key))}:/key:ro`, COSIGN_IMAGE, 'public-key', '--key', `/key/${basename(key)}`], {
+    env: { COSIGN_PASSWORD: password },
+    allowFail: true,
+  });
+  if (r.status !== 0) {
+    return /decrypt|decryption failed/i.test(`${r.stderr}${r.stdout}`)
+      ? `the signing key ${key} could not be opened with that password (if COSIGN_PASSWORD is set in your shell, it is the one used)`
+      : `cosign could not read the signing key ${key} (exit ${String(r.status)})`;
+  }
+  if (pemBody(r.stdout) !== pemBody(readFileSync(pub, 'utf8'))) return `the signing key ${key} is not the key ${pub} names: its signatures would never verify`;
+  return null;
 }

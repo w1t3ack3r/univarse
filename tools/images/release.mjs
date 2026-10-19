@@ -14,7 +14,7 @@ import { configOf, makeGates, samePushed, sameImage, TRIVY_CACHE } from './gates
 import { readFromTar } from './tar.mjs';
 import {
   COMPOSE, COSIGN_IMAGE, cosign, DEFAULT_KEY, DEFAULT_PUB, HOST_REGISTRY, hostPath, IDENTITY, IDENTITY_ISSUER, PREDICATES, ROLES,
-  registryConfigDigest, registryDigest, REPO, runtimeBaseOf, sh, SIGN_FLAGS, TOOL_REGISTRY, TRIVY_IMAGE,
+  registryConfigDigest, registryDigest, REPO, runtimeBaseOf, sh, SIGN_FLAGS, signingKeyProblem, TOOL_REGISTRY, TRIVY_IMAGE,
 } from './release-lib.mjs';
 import { cleanupRun, ensureService as ensure, newRun, stopIfStarted as stopStarted } from './release-cleanup.mjs';
 import { acquireRegistryLock } from './registry-lock.mjs';
@@ -69,6 +69,10 @@ async function main() {
   const hostNet = sh('docker', ['run', '--rm', '--network', 'host', '--entrypoint', 'sh', TRIVY_IMAGE, '-c', 'nc -z -w 3 127.0.0.1 5432'], { allowFail: true });
   if (hostNet.status !== 0) throw new Error('Docker host networking is off (or Postgres is down). Docker Desktop: Settings → Resources → Network → Enable host networking, then Apply & restart.');
   const password = process.env.COSIGN_PASSWORD ?? (await askHidden(`Password for ${KEY}: `));
+  // LR5, checked now rather than after an hour of gates: the password opens the key, and it is cosign.pub's key.
+  const keyProblem = signingKeyProblem({ key: KEY, pub: PUB, password });
+  if (keyProblem) throw new Error(`${keyProblem}. Nothing was built or published.`);
+  console.log(`signing key opens, and matches ${basename(PUB)}`);
   mkdirSync(WORK, { recursive: true });
   console.log(`commit ${record.commit} (${record.branch})${rehearsal ? ' — REHEARSAL' : ''}; work dir ${WORK}`);
 
