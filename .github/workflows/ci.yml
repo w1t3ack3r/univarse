@@ -227,6 +227,7 @@ jobs:
           node --test tools/images/release-lib.test.mjs
           node --test tools/images/migrate-smoke.test.mjs
           node --test tools/images/signing-key.test.mjs
+          node --test tools/images/password-prompt.test.mjs
           node tools/images/inspect.mjs univarse-api:ci --root app
           node tools/images/inspect.mjs univarse-web:ci --root app
           node tools/images/inspect.mjs univarse-migrate:ci --root app

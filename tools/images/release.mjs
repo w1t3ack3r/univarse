@@ -14,7 +14,7 @@ import { configOf, makeGates, samePushed, sameImage, TRIVY_CACHE } from './gates
 import { readFromTar } from './tar.mjs';
 import {
   COMPOSE, COSIGN_IMAGE, cosign, DEFAULT_KEY, DEFAULT_PUB, HOST_REGISTRY, hostPath, IDENTITY, IDENTITY_ISSUER, PREDICATES, ROLES,
-  registryConfigDigest, registryDigest, REPO, runtimeBaseOf, sh, SIGN_FLAGS, signingKeyProblem, TOOL_REGISTRY, TRIVY_IMAGE,
+  registryConfigDigest, registryDigest, REPO, runtimeBaseOf, sh, SIGN_FLAGS, signingKeyProblem, TOOL_REGISTRY, TRIVY_IMAGE, cleanTypedPassword,
 } from './release-lib.mjs';
 import { cleanupRun, ensureService as ensure, newRun, stopIfStarted as stopStarted } from './release-cleanup.mjs';
 import { acquireRegistryLock } from './registry-lock.mjs';
@@ -326,7 +326,9 @@ function cleanup() {
 function askHidden(prompt) {
   return new Promise((resolve, reject) => {
     if (!process.stdin.isTTY) return reject(new Error('no terminal for the signing password: run in a terminal, or set COSIGN_PASSWORD in your own shell'));
-    process.stdout.write(prompt);
+    // Ask the terminal not to bracket pastes while we read (PSReadLine leaves bracketed paste on); whatever still
+    // arrives as escape sequences or control characters is removed by cleanTypedPassword.
+    process.stdout.write(`\u001b[?2004l${prompt}`);
     process.stdin.setRawMode(true);
     process.stdin.resume();
     let pw = '';
@@ -337,7 +339,7 @@ function askHidden(prompt) {
           process.stdin.pause();
           process.stdin.off('data', onData);
           process.stdout.write('\n');
-          return resolve(pw);
+          return resolve(cleanTypedPassword(pw));
         }
         if (ch === '\u0003') return reject(new Error('cancelled'));
         if (ch === '\u007f' || ch === '\b') pw = pw.slice(0, -1);
