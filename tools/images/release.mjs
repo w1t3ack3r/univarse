@@ -149,8 +149,9 @@ async function main() {
   step('PgBouncer: inventory, Grype gate by CPE, the nine coverage controls, the upstream pin (spec 0017 PB10)');
   await recheck();
   const pgb = join(WORK, 'pgbouncer');
-  const grypeCache = join(WORK, 'grype-cache');
-  mkdirSync(grypeCache, { recursive: true });
+  // The Grype database (~3 GB) persists in the same volume CI's scripts default to, so a rerun downloads only a newer
+  // one; the gate still updates it and refuses one older than 48 h, and the controls damage only their own copy.
+  const grypeCache = 'uv-grype-cache';
   const inventory = join(pgb, 'inventory.cdx.json');
   mkdirSync(pgb, { recursive: true });
   sh('node', ['tools/images/pgbouncer-inventory.mjs', 'generate', 'univarse-pgbouncer:release', inventory], { stdio: 'inherit' });
