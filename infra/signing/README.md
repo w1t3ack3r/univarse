@@ -7,6 +7,15 @@ UniVarse images are signed with **the owner's local cosign key**: never a hosted
 - The **private key** lives outside the repository at `%USERPROFILE%\.univarse\signing\cosign.key`, encrypted with a
   password only the owner knows. Back both up yourself. Nothing in this repository stores the password.
 
+## Key history
+
+| From | Public key (sha256 of `cosign.pub`) | Why it changed |
+| ---- | ----------------------------------- | -------------- |
+| 2026-10-19 | `555c9408cac366559691946ae7531bf2f8d738e00dd80313a042b42739c79b73` | **Rotated:** the password of the 2026-10-12 key was lost. A key can't be opened without it, so it was replaced, offline, by the owner. The old pair is kept aside, unused, in case the password is found. |
+| 2026-10-12 | `386c0f55f82e60005a03526454cd287d10eb87534d4e829c1dd7e774900de194` | The first key. Signed the release of `12083b8` (spec 0013 LR10). **No longer trusted:** releases it signed don't verify against the current `cosign.pub`. |
+
+**Lesson recorded:** store the password in a password manager **before** generating the pair, and prove it opens the key right away (`cosign public-key --key …` with the password, compared with `cosign.pub`). The release checks both before it builds anything.
+
 ## Generating the key pair (owner only, offline)
 
 From the repository root in PowerShell. It runs the pinned cosign image with **no network**, and you type the
