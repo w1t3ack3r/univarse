@@ -7,6 +7,19 @@ UniVarse images are signed with **the owner's local cosign key**: never a hosted
 - The **private key** lives outside the repository at `%USERPROFILE%\.univarse\signing\cosign.key`, encrypted with a
   password only the owner knows. Back both up yourself. Nothing in this repository stores the password.
 
+## Key history
+
+| From | Public key (sha256 of `cosign.pub`) | Why it changed |
+| ---- | ----------------------------------- | -------------- |
+| 2026-10-19 (second) | `48815009fd3ce65dd495bce41eea2312895960af2a2de8668e6559b5344a4e31` | **Rotated again, before it signed anything:** the previous key's password was displayed in clear while being entered (Windows PowerShell 5.1 has no `Read-Host -MaskInput`; it echoed the input), so it was treated as exposed and replaced. The exposed pair is kept aside, unused. |
+| 2026-10-19 (first) | `555c9408cac366559691946ae7531bf2f8d738e00dd80313a042b42739c79b73` | **No longer trusted** (exposed, see above; it signed nothing). **Rotated:** the password of the 2026-10-12 key was lost. A key can't be opened without it, so it was replaced, offline, by the owner. The old pair is kept aside, unused, in case the password is found. |
+| 2026-10-12 | `386c0f55f82e60005a03526454cd287d10eb87534d4e829c1dd7e774900de194` | The first key. Signed the release of `12083b8` (spec 0013 LR10). **No longer trusted:** releases it signed don't verify against the current `cosign.pub`. |
+
+**Lessons recorded:**
+
+- Store the password in a password manager **before** generating the pair, and prove it opens the key right away (`cosign public-key --key …` with the password, compared with `cosign.pub`). The release checks both before it builds anything.
+- **Enter it masked.** Windows PowerShell 5.1 has no `Read-Host -MaskInput` (that's PowerShell 7) and echoes the input. In 5.1: `$env:COSIGN_PASSWORD = [System.Net.NetworkCredential]::new('', (Read-Host -AsSecureString 'Signing key password')).Password`, then `Remove-Item Env:COSIGN_PASSWORD` when done.
+
 ## Generating the key pair (owner only, offline)
 
 From the repository root in PowerShell. It runs the pinned cosign image with **no network**, and you type the
