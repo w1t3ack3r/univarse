@@ -6,7 +6,7 @@ import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, before, test } from 'node:test';
-import { COSIGN_IMAGE, hostPath, pemBody, sh, signingKeyProblem } from './release-lib.mjs';
+import { COSIGN_IMAGE, hostPath, hostUser, pemBody, sh, signingKeyProblem } from './release-lib.mjs';
 
 const PASSWORD = 'throwaway-test-password-0001';
 let dir;
@@ -14,7 +14,7 @@ const pair = (name, password) => {
   const d = join(dir, name);
   mkdirSync(d);
   // The cosign image has no shell: it writes cosign.key and cosign.pub into its working directory.
-  sh('docker', ['run', '--rm', '--network', 'none', '-e', 'COSIGN_PASSWORD', '-v', `${hostPath(d)}:/k`, '-w', '/k', COSIGN_IMAGE, 'generate-key-pair'], { env: { COSIGN_PASSWORD: password } });
+  sh('docker', ['run', '--rm', '--network', 'none', ...hostUser(), '-e', 'COSIGN_PASSWORD', '-v', `${hostPath(d)}:/k`, '-w', '/k', COSIGN_IMAGE, 'generate-key-pair'], { env: { COSIGN_PASSWORD: password } });
   return { key: join(d, 'cosign.key'), pub: join(d, 'cosign.pub') };
 };
 let a;

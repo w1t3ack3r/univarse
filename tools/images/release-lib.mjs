@@ -121,6 +121,12 @@ export function runtimeBaseOf(text, file) {
   return bases[0];
 }
 
+/**
+ * On Linux, run a container as the host user, so it can read an owner-only file mounted from the host (a 0600 key)
+ * and write into an owner-only directory. Docker Desktop's file sharing (Windows, macOS) ignores Unix permissions.
+ */
+export const hostUser = () => (process.platform === 'linux' && process.getuid ? ['--user', `${String(process.getuid())}:${String(process.getgid())}`] : []);
+
 /** The PEM body of a public key, whitespace removed, so two copies compare equal regardless of line endings. */
 export const pemBody = (pem) => pem.replace(/-----(BEGIN|END) [A-Z ]+-----/g, '').replace(/\s+/g, '');
 
@@ -130,7 +136,7 @@ export const pemBody = (pem) => pem.replace(/-----(BEGIN|END) [A-Z ]+-----/g, ''
  * container with no network; the password reaches it by environment only. Returns a problem, or null.
  */
 export function signingKeyProblem({ key, pub, password, run = sh }) {
-  const r = run('docker', ['run', '--rm', '--network', 'none', '-e', 'COSIGN_PASSWORD', '-v', `${hostPath(dirname(key))}:/key:ro`, COSIGN_IMAGE, 'public-key', '--key', `/key/${basename(key)}`], {
+  const r = run('docker', ['run', '--rm', '--network', 'none', ...hostUser(), '-e', 'COSIGN_PASSWORD', '-v', `${hostPath(dirname(key))}:/key:ro`, COSIGN_IMAGE, 'public-key', '--key', `/key/${basename(key)}`], {
     env: { COSIGN_PASSWORD: password },
     allowFail: true,
   });
