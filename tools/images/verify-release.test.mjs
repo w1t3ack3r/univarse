@@ -2,11 +2,17 @@
 // Run with `node --test tools/images/verify-release.test.mjs`.
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { ROLES } from './release-lib.mjs';
+import { LEGACY_ROLE_NAMES, ROLES, rolesOf } from './release-lib.mjs';
 import { verifyRelease } from './verify-release.mjs';
 
 const COMMIT = 'a'.repeat(40);
-const D = { api: `sha256:${'1'.repeat(64)}`, web: `sha256:${'2'.repeat(64)}`, unsigned: `sha256:${'3'.repeat(64)}` };
+const D = {
+  api: `sha256:${'1'.repeat(64)}`,
+  web: `sha256:${'2'.repeat(64)}`,
+  unsigned: `sha256:${'3'.repeat(64)}`,
+  migrate: `sha256:${'4'.repeat(64)}`,
+  pgbouncer: `sha256:${'5'.repeat(64)}`,
+};
 
 /** A fake registry of signed images: digest → the externalParameters of its signed provenance. */
 function fakeCosign(signed) {
@@ -32,20 +38,22 @@ const record = (over = {}) => ({
   images: {
     api: { repo: ROLES.api.repo, dockerfile: ROLES.api.dockerfile, digest: D.api },
     web: { repo: ROLES.web.repo, dockerfile: ROLES.web.dockerfile, digest: D.web },
+    migrate: { repo: ROLES.migrate.repo, dockerfile: ROLES.migrate.dockerfile, digest: D.migrate },
+    pgbouncer: { repo: ROLES.pgbouncer.repo, dockerfile: ROLES.pgbouncer.dockerfile, digest: D.pgbouncer },
   },
   ...over,
 });
 const verify = (rec, signed, opts = {}) => verifyRelease(rec, { pub: '/keys/cosign.pub', commit: COMMIT, cosign: fakeCosign(signed).cosign, ...opts });
-const real = { [D.api]: prov('api'), [D.web]: prov('web') };
+const real = { [D.api]: prov('api'), [D.web]: prov('web'), [D.migrate]: prov('migrate'), [D.pgbouncer]: prov('pgbouncer') };
 
-test('[LR9] a real release with exactly api and web, signed provenance matching the trusted roles, verifies', () => {
+test('[LR9] a real release with exactly api, web, migrate and pgbouncer, signed provenance matching the trusted roles, verifies', () => {
   const r = verify(record(), real);
   assert.deepEqual(r.problems, []);
   assert.equal(r.ok, true);
 });
 
 test('[LR9] fix 1: a rehearsal is rejected in deploy mode, even when the record JSON is edited to say otherwise', () => {
-  const rehearsalSigned = { [D.api]: prov('api', { rehearsal: true }), [D.web]: prov('web', { rehearsal: true }) };
+  const rehearsalSigned = { ...real, [D.api]: prov('api', { rehearsal: true }), [D.web]: prov('web', { rehearsal: true }) };
   const edited = record({ rehearsal: false }); // the editable flag lies; the signed provenance doesn't
   const deploy = verify(edited, rehearsalSigned);
   assert.equal(deploy.ok, false);
@@ -54,7 +62,7 @@ test('[LR9] fix 1: a rehearsal is rejected in deploy mode, even when the record 
 });
 
 test('[LR9] fix 1: provenance that omits the rehearsal flag is not deployable', () => {
-  const noFlag = { [D.api]: prov('api', { rehearsal: undefined }), [D.web]: prov('web') };
+  const noFlag = { ...real, [D.api]: prov('api', { rehearsal: undefined }) };
   const r = verify(record(), noFlag);
   assert.equal(r.ok, false);
   assert.match(r.problems.join('\n'), /api: .*rehearsal/);
@@ -101,4 +109,33 @@ test('[LR9] an unsigned digest, and a different commit, are rejected', () => {
   rec.images.api = { ...rec.images.api, digest: D.unsigned };
   assert.match(verify(rec, real).problems.join('\n'), /no signatures found/);
   assert.match(verify(record({ commit: 'b'.repeat(40) }), real).problems.join('\n'), /is not the expected/);
+});
+
+test('[LS3] a legacy release (api and web, from before spec 0019) is not deployable, but verifies as signed for prune', () => {
+  const legacy = record();
+  delete legacy.images.migrate;
+  delete legacy.images.pgbouncer;
+  const signed = { [D.api]: prov('api'), [D.web]: prov('web') };
+  const asDeploy = verify(legacy, signed);
+  assert.equal(asDeploy.ok, false);
+  assert.match(asDeploy.problems.join('\n'), /no migrate image/);
+  assert.match(asDeploy.problems.join('\n'), /no pgbouncer image/);
+  assert.deepEqual(verify(legacy, signed, { roles: rolesOf(LEGACY_ROLE_NAMES) }).problems, []);
+});
+
+test('[LS3] a migrate image in the pgbouncer slot (both signed) is rejected by the signed role', () => {
+  const rec = record();
+  rec.images.pgbouncer = { ...rec.images.pgbouncer, digest: D.migrate };
+  const r = verify(rec, real);
+  assert.match(r.problems.join('\n'), /pgbouncer: signed provenance does not name role pgbouncer/);
+});
+
+
+test('[LS3] verified as the legacy set, a record naming any other role is refused (the set is exact, both ways)', () => {
+  const rec = record();
+  delete rec.images.pgbouncer; // api, web, migrate: not the legacy pair
+  const signed = { [D.api]: prov('api'), [D.web]: prov('web'), [D.migrate]: prov('migrate') };
+  const r = verify(rec, signed, { roles: rolesOf(LEGACY_ROLE_NAMES) });
+  assert.equal(r.ok, false);
+  assert.match(r.problems.join('\n'), /unknown image role "migrate"/);
 });

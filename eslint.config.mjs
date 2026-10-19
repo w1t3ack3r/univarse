@@ -79,9 +79,10 @@ export default tseslint.config(
     },
   },
 
-  // Operator CLIs (apps/*/src/cli): stdout is their interface. They print numbers and versions only.
+  // Operator CLIs (apps/*/src/cli), and the migrate job's entrypoint (spec 0019 D3): stdout is their interface.
+  // They print names, counts and versions only.
   {
-    files: ['apps/*/src/cli/**/*.ts'],
+    files: ['apps/*/src/cli/**/*.ts', 'apps/migrate/src/main.ts'],
     rules: { 'no-console': 'off' },
   },
 

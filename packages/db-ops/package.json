@@ -1,0 +1,29 @@
+{
+  "name": "@univarse/db-ops",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Database operations run directly against PostgreSQL, never through PgBouncer (spec 0017 PB8): roles and databases, rls:check with the invalidation capture gate, the seed. Used by `pnpm db:setup`/`rls:check`/`db:seed` and the stack's migrate job (spec 0019 D3).",
+  "type": "module",
+  "files": [
+    "dist"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "eslint ."
+  },
+  "dependencies": {
+    "@univarse/contracts": "workspace:*",
+    "@univarse/db": "workspace:*",
+    "pg": "^8.16.0"
+  },
+  "devDependencies": {
+    "@types/pg": "^8.15.0"
+  }
+}

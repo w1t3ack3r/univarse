@@ -14,7 +14,7 @@ import { configOf, makeGates, samePushed, sameImage, TRIVY_CACHE } from './gates
 import { readFromTar } from './tar.mjs';
 import {
   COMPOSE, COSIGN_IMAGE, cosign, DEFAULT_KEY, DEFAULT_PUB, HOST_REGISTRY, hostPath, IDENTITY, IDENTITY_ISSUER, PREDICATES, ROLES,
-  registryConfigDigest, registryDigest, REPO, sh, SIGN_FLAGS, TOOL_REGISTRY, TRIVY_IMAGE,
+  registryConfigDigest, registryDigest, REPO, runtimeBaseOf, sh, SIGN_FLAGS, TOOL_REGISTRY, TRIVY_IMAGE,
 } from './release-lib.mjs';
 import { cleanupRun, ensureService as ensure, newRun, stopIfStarted as stopStarted } from './release-cleanup.mjs';
 import { acquireRegistryLock } from './registry-lock.mjs';
@@ -29,13 +29,15 @@ const PUB = opt('pub', DEFAULT_PUB);
 const WORK = join(tmpdir(), `univarse-release-${Date.now()}`);
 // The images and Dockerfiles come from the trusted ROLES table (release-lib), the same one verification uses.
 const IMAGES = Object.fromEntries(Object.entries(ROLES).map(([role, r]) => [role, r.dockerfile]));
+/** CS1: where each image's own files live, for the inspection (pgbouncer ships one binary under usr/bin). */
+const INSPECT_ROOT = { api: 'app', web: 'app', migrate: 'app', pgbouncer: 'usr/bin' };
 // This run's ID: every container it starts is labelled with it, and cleanup removes only those (LR10). Children
 // (smoke, journeys, run-container) read it from the environment for their labels and container names.
 const RUN = newRun(`${Date.now().toString(36)}${randomBytes(3).toString('hex')}`);
 process.env.UV_RELEASE_RUN = RUN.runId;
 // schema 2: `refs` lists every registry tag this release pushed. Informational only: `pnpm images:prune` (LR8)
 // never trusts a record to authorise a deletion.
-const record = { schema: 2, rehearsal, startedAt: new Date().toISOString(), images: {}, gates: {}, negatives: {}, refs: [] };
+const record = { schema: 3, rehearsal, startedAt: new Date().toISOString(), images: {}, gates: {}, negatives: {}, refs: [] };
 /** The host's local `localhost:5000/…` tag copies; removed at cleanup (the registry keeps the pushed images). */
 const hostTags = [];
 function pushTag(local, repo, tag, opts) {
@@ -71,12 +73,15 @@ async function main() {
   console.log(`commit ${record.commit} (${record.branch})${rehearsal ? ' — REHEARSAL' : ''}; work dir ${WORK}`);
 
   // ── CS3: the base image's upstream signature (a read-only check of public data; our own signing stays offline)
-  step('verify the base image upstream (CS3)');
-  const base = /^ARG RUNTIME_IMAGE=(\S+)$/m.exec(readFileSync(join(REPO, IMAGES.api), 'utf8'))[1];
-  if (/^ARG RUNTIME_IMAGE=(\S+)$/m.exec(readFileSync(join(REPO, IMAGES.web), 'utf8'))[1] !== base) throw new Error('api and web pin different runtime bases');
-  cosign(['verify', base, '--certificate-identity', IDENTITY, '--certificate-oidc-issuer', IDENTITY_ISSUER], { offline: false });
-  record.baseImage = { ref: base, upstreamSignature: 'verified' };
-  console.log(`verified ${base}`);
+  step('verify each runtime base upstream (CS3)');
+  // Every role's Dockerfile: one digest-pinned RUNTIME_IMAGE, the final stage FROM it (fail closed); each distinct
+  // base's upstream signature verified (api, web and migrate share the Node base; pgbouncer has distroless base).
+  const bases = Object.fromEntries(Object.entries(IMAGES).map(([role, file]) => [role, runtimeBaseOf(readFileSync(join(REPO, file), 'utf8'), file)]));
+  for (const base of new Set(Object.values(bases))) {
+    cosign(['verify', base, '--certificate-identity', IDENTITY, '--certificate-oidc-issuer', IDENTITY_ISSUER], { offline: false });
+    console.log(`verified ${base}`);
+  }
+  record.baseImages = Object.fromEntries(Object.entries(bases).map(([role, ref]) => [role, { ref, upstreamSignature: 'verified' }]));
 
   // ── LR1: build once
   step('build once (LR1)');
@@ -103,7 +108,7 @@ async function main() {
   // ── LR2: the same gates as CI, on that build
   step('inspection (CS1, CS2)');
   sh('node', ['--test', 'tools/images/rules.test.mjs']);
-  for (const name of Object.keys(IMAGES)) must(gates.inspection(`univarse-${name}:release`), `inspection of univarse-${name}`);
+  for (const name of Object.keys(IMAGES)) must(gates.inspection(`univarse-${name}:release`, INSPECT_ROOT[name]), `inspection of univarse-${name}`);
   record.gates.inspection = 'pass';
 
   step('exceptions and policy (CS7)');
@@ -136,6 +141,21 @@ async function main() {
   must(gates.dockerfiles('infra/docker'), 'Dockerfile misconfiguration gate');
   record.gates.vulnerability = record.gates.secret = record.gates.misconfiguration = 'pass';
 
+  // Spec 0017 PB10, as CI's pgbouncer-image job runs it: Trivy alone can't see a source-built binary's CVEs.
+  step('PgBouncer: inventory, Grype gate by CPE, the nine coverage controls, the upstream pin (spec 0017 PB10)');
+  await recheck();
+  const pgb = join(WORK, 'pgbouncer');
+  const grypeCache = join(WORK, 'grype-cache');
+  mkdirSync(grypeCache, { recursive: true });
+  const inventory = join(pgb, 'inventory.cdx.json');
+  mkdirSync(pgb, { recursive: true });
+  sh('node', ['tools/images/pgbouncer-inventory.mjs', 'generate', 'univarse-pgbouncer:release', inventory], { stdio: 'inherit' });
+  sh('node', ['tools/images/pgbouncer-inventory.mjs', 'verify', 'univarse-pgbouncer:release', inventory], { stdio: 'inherit' });
+  sh('node', ['tools/images/pgbouncer-grype-gate.mjs', 'univarse-pgbouncer:release', inventory, join(WORK, 'trivy-pgbouncer.json'), join(pgb, 'gate'), '--cache', grypeCache], { stdio: 'inherit' });
+  sh('node', ['tools/images/pgbouncer-gate-proofs.mjs', 'univarse-pgbouncer:release', join(pgb, 'proofs'), '--cache', grypeCache], { stdio: 'inherit' });
+  sh('node', ['tools/images/pgbouncer-upstream.mjs'], { stdio: 'inherit' });
+  record.gates.pgbouncer = 'inventory verified, Grype gate passed, nine coverage controls proved, no newer upstream release';
+
   step('secret-gate coverage canaries (CS13): app file, a deployed @univarse package in node_modules, config env and label, history');
   await recheck();
   const canaries = await proveSecretCoverage('univarse-api:release', WORK);
@@ -148,6 +168,11 @@ async function main() {
   await recheck();
   sh('node', ['tools/images/smoke.mjs', '--api', 'univarse-api:release', '--web', 'univarse-web:release'], { stdio: 'inherit' });
   record.gates.smoke = 'pass';
+
+  step('migrate job smoke (spec 0019 LS4): bootstrap, migrations, rls:check, seed and keys on a fresh database, then again with no change');
+  await recheck();
+  sh('node', ['tools/images/migrate-smoke.mjs', 'univarse-migrate:release'], { stdio: 'inherit' });
+  record.gates.migrateSmoke = 'pass';
 
   step('browser journeys against the containerised API, worker and web (CS5)');
   await ensureService('clamav');
@@ -180,7 +205,7 @@ async function main() {
   for (const [name, img] of Object.entries(record.images)) {
     const ref = `${TOOL_REGISTRY}/${img.repo}@${img.digest}`;
     cosign(['sign', '--key', keyIn, ...SIGN_FLAGS, ref], { mounts: keyMounts, env: { COSIGN_PASSWORD: password } });
-    writeFileSync(join(WORK, `provenance-${name}.json`), JSON.stringify(provenance(name, img, base, created), null, 2));
+    writeFileSync(join(WORK, `provenance-${name}.json`), JSON.stringify(provenance(name, img, bases[name], created), null, 2));
     cosign(['attest', '--key', keyIn, '--type', PREDICATES.sbom, '--predicate', `/work/sbom-${name}.spdx.json`, ...SIGN_FLAGS, ref], { mounts: keyMounts, env: { COSIGN_PASSWORD: password } });
     cosign(['attest', '--key', keyIn, '--type', PREDICATES.provenance, '--predicate', `/work/provenance-${name}.json`, ...SIGN_FLAGS, ref], { mounts: keyMounts, env: { COSIGN_PASSWORD: password } });
     console.log(`signed and attested ${ref}`);
