@@ -33,7 +33,12 @@
     "ci:policy": "node tools/ci-policy/workflow-policy.mjs",
     "dev:infra:down": "docker compose -f infra/compose/compose.dev.yml --env-file .env down",
     "test:e2e": "turbo run test:e2e",
-    "dev:vault": "node tools/vault-dev.mjs"
+    "dev:vault": "node tools/vault-dev.mjs",
+    "stack:init": "pnpm --filter @univarse/stack run init",
+    "stack:deploy": "pnpm --filter @univarse/stack run deploy",
+    "stack:vault": "pnpm --filter @univarse/stack run vault",
+    "stack:down": "pnpm --filter @univarse/stack run down",
+    "stack:smoke": "pnpm --filter @univarse/stack run smoke"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

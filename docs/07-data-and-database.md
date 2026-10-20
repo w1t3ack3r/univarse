@@ -106,6 +106,7 @@ The integration suite creates two tenants with identical data shapes and asserts
   - `db:setup` also gives the app roles a `timezone = 'UTC'` default, for any session that sends nothing. It is a default, not a force.
 - **Authentication (PB9):** PgBouncer's `auth_file` holds each app role's SCRAM verifier, copied exactly from `pg_authid` by `db:setup`, and is owner-only. There is no forced `user=`, and the admin console belongs to `pgbouncer_admin`, which is not a PostgreSQL role.
 - **Saturation:** PgBouncer's `query_wait_timeout` ending a wait in its queue is shed as `503 server.busy`, like Prisma's own transaction wait ([ADR-026](19-decision-log.md); spec 0017 PB7).
+- **In the deployed path** (the local production-like stack, [spec 0019](specs/0019-local-production-stack.md)): the API's and worker's only route to PostgreSQL is PgBouncer, with client TLS required (`client_tls_sslmode = require`) and PostgreSQL verified against the stack CA (`server_tls_sslmode = verify-full`). The app connects with `sslmode=verify-full`. The migrate job connects directly, as above.
 - **The evidence:** the probes and the three isolation suites run through PgBouncer in CI (`pgbouncer-isolation`), and are compared with the direct run (`pgbouncer-compare`); see [12 §3](12-testing-strategy.md).
 
 ## 4. Migrations

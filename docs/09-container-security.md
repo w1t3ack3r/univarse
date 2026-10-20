@@ -156,6 +156,9 @@ volumes: [{ name: tmp, emptyDir: { medium: Memory, sizeLimit: 64Mi } }]
 | Cluster | Managed control plane, private API endpoint (or authorised networks), RBAC least privilege, audit logs enabled, nodes auto-upgraded, CIS benchmark scan (kube-bench) quarterly |
 
 ### 4.2 Docker Compose (dev / staging-lite / small single-host deployments)
+
+The reference implementation is the local production-like stack, `infra/stack/compose.yml` ([spec 0019](specs/0019-local-production-stack.md)). It applies this anchor to every service, and `compose.spec` checks it, ClamAV's writable root excepted. One exception is stated there: Caddy keeps `NET_BIND_SERVICE` in its bounding set, because its binary carries that file capability. Its images are referenced only by digest, and the deploy supplies the four UniVarse ones from a verified record. Internal connections are TLS on the database path (spec 0019 D7). The stack's Vault listener is plaintext on the internal network until PR C.
+
 ```yaml
 x-hardening: &hardening
   read_only: true

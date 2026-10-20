@@ -1,0 +1,196 @@
+# Spec 0019 (ADR-030): the local production-like stack. Started ONLY by `pnpm stack:deploy <record>`, which verifies
+# the release first and fills the four UNIVARSE_*_IMAGE variables with the verified digests (LS2, LS3). It names no
+# UniVarse image itself; every other image is pinned by digest (tools/stack/src/config.ts keeps the same pins).
+#
+# Networks (LS1): only Caddy is on `edge` and publishes ports, on 127.0.0.1. `app` and `db` are internal. PostgreSQL is on `db`
+# only, shared with PgBouncer and the migrate job; the API and worker reach it through PgBouncer (LS5).
+# Secrets and certificates come from ${UNIVARSE_STACK_DIR} (`pnpm stack:init`, owner-only) and from volumes that
+# `stack:init` fills with the right owners; nothing secret is in this file (LS9).
+
+name: univarse-stack
+
+x-hardening: &hardening
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: ['no-new-privileges:true']
+  tmpfs: ['/tmp:rw,noexec,nosuid,size=64m']
+  restart: unless-stopped
+  logging: { driver: json-file, options: { max-size: '10m', max-file: '5' } }
+
+services:
+  postgres:
+    image: postgres:18@sha256:74935e72241653ca55e0414067e6d8763aceb8a810eb51b452253ec3dcfc4336
+    <<: *hardening
+    # The data volume takes the image directory's owner (postgres, 999) on first use; no entrypoint privileges needed.
+    user: '999:999'
+    tmpfs: ['/tmp:rw,noexec,nosuid,size=64m', '/var/run/postgresql:rw,noexec,nosuid,size=4m']
+    env_file: ['${UNIVARSE_STACK_DIR:?run pnpm stack:init}/postgres.env']
+    command:
+      - postgres
+      - -c
+      - ssl=on
+      - -c
+      - ssl_cert_file=/certs/server.crt
+      - -c
+      - ssl_key_file=/certs/server.key
+      - -c
+      - password_encryption=scram-sha-256
+      # LS5: TLS only, SCRAM only (no plaintext, no trust); the file is in the certificate volume `stack:init` fills.
+      - -c
+      - hba_file=/certs/pg_hba.conf
+    volumes:
+      - pgdata:/var/lib/postgresql
+      - pg-certs:/certs:ro
+    networks: [db]
+    mem_limit: 512m
+    healthcheck:
+      test: ['CMD', 'pg_isready', '-U', 'postgres', '-h', '127.0.0.1']
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  pgbouncer:
+    image: ${UNIVARSE_PGBOUNCER_IMAGE:?pnpm stack:deploy sets the verified image}
+    <<: *hardening
+    # Its configuration, auth file and TLS key come from a volume `stack:init` fills, owned by the image's user.
+    volumes:
+      - pgbouncer-conf:/etc/pgbouncer:ro
+    networks: [app, db]
+    depends_on: { postgres: { condition: service_healthy } }
+    mem_limit: 64m
+
+  valkey:
+    image: valkey/valkey:8-alpine@sha256:081c2f5cb575efc901aa80ff9cdbd1ec6a301682fd35e1ebb4b0990a4a4a8507
+    <<: *hardening
+    user: '999:1000'
+    command: ['valkey-server', '/etc/valkey/valkey.conf']
+    volumes:
+      - valkey-conf:/etc/valkey:ro
+    networks: [app]
+    mem_limit: 128m
+
+  seaweedfs:
+    image: chrislusf/seaweedfs:4.48@sha256:4e61d15fd35994cb1e43e1e553dff106794841fd9a99ade2fc8c8bfce4d7872d
+    <<: *hardening
+    user: '1000:1000'
+    entrypoint: ['/usr/bin/weed']
+    command: ['server', '-dir=/data', '-ip.bind=0.0.0.0', '-s3', '-s3.port=8333', '-s3.config=/etc/seaweedfs/s3.json', '-master.volumeSizeLimitMB=128', '-volume.max=16']
+    volumes:
+      - seaweedfs-data:/data
+      - seaweedfs-conf:/etc/seaweedfs:ro
+    # Browsers upload and download through Caddy (files.stack.univarse.localhost), presigned.
+    networks: [app]
+    mem_limit: 256m
+
+  mailpit:
+    image: axllent/mailpit:v1.27@sha256:e22dce5b36f93c77082e204a3942fb6b283b7896e057458400a4c88344c3df68
+    <<: *hardening
+    # Its UI is reached only through Caddy (mail.stack.univarse.localhost); no published port.
+    networks: [app]
+    mem_limit: 64m
+
+  vault:
+    image: hashicorp/vault:2.1.1@sha256:47f14a6acb98f48d798a07df7c83f23a6e636e1cf724c5f8ff165cb32667a1e2
+    <<: *hardening
+    # Run as the vault user directly (the image entrypoint would need privileges to switch users).
+    user: '100:1000'
+    entrypoint: ['vault']
+    command: ['server', '-config=/vault/config/stack.hcl']
+    volumes:
+      - vault-data:/vault/file
+      - ./vault/stack.hcl:/vault/config/stack.hcl:ro
+    networks: [app]
+    mem_limit: 256m
+
+  clamav:
+    image: clamav/clamav:stable@sha256:ebec5bc138401b36ae987caa1a3fa3c3b2a21ed3d51f0bfa5852825e663e67b0
+    <<: *hardening
+    # D10: started for the scan check only, and stopped after.
+    profiles: [scan]
+    read_only: false # freshclam writes its database in place
+    volumes:
+      - clamav-db:/var/lib/clamav
+    networks: [app]
+    mem_limit: 3g
+
+  # LS4: runs once per deploy, before the API, worker and web; direct to PostgreSQL (PB8), never through PgBouncer.
+  migrate:
+    image: ${UNIVARSE_MIGRATE_IMAGE:?pnpm stack:deploy sets the verified image}
+    <<: *hardening
+    profiles: [job]
+    restart: 'no'
+    env_file: ['${UNIVARSE_STACK_DIR:?run pnpm stack:init}/migrate.env']
+    volumes:
+      - stack-ca:/ca:ro
+    networks: [db, app]
+    mem_limit: 512m
+
+  api:
+    image: ${UNIVARSE_API_IMAGE:?pnpm stack:deploy sets the verified image}
+    <<: *hardening
+    env_file: ['${UNIVARSE_STACK_DIR:?run pnpm stack:init}/api.env']
+    volumes:
+      - stack-ca:/ca:ro
+    networks: [app]
+    mem_limit: 1g
+
+  worker:
+    image: ${UNIVARSE_API_IMAGE:?pnpm stack:deploy sets the verified image}
+    <<: *hardening
+    command: ['--enable-source-maps', '--import', './dist/otel.js', 'dist/worker.js']
+    # Only the worker's env file holds the relay role's URL (spec 0016 IO17).
+    env_file: ['${UNIVARSE_STACK_DIR:?run pnpm stack:init}/worker.env']
+    volumes:
+      - stack-ca:/ca:ro
+    networks: [app]
+    mem_limit: 512m
+
+  web:
+    image: ${UNIVARSE_WEB_IMAGE:?pnpm stack:deploy sets the verified image}
+    <<: *hardening
+    env_file: ['${UNIVARSE_STACK_DIR:?run pnpm stack:init}/web.env']
+    networks: [app]
+    mem_limit: 512m
+
+  caddy:
+    image: caddy:2.11.7@sha256:685ae3d7c34d9b5f8caeddc5d14051db7bbd88ff1f5a2fa0c16bd8ca328fb7af
+    <<: *hardening
+    # The image gives /usr/bin/caddy the file capability cap_net_bind_service, and the kernel refuses to exec a
+    # binary whose file capabilities exceed the bounding set ("operation not permitted" under cap_drop ALL). So this
+    # one capability stays in the bounding set. Caddy listens on 8080 and never uses it; it is the stack's only
+    # cap_add (compose.spec and the smoke check hold that).
+    cap_add: [NET_BIND_SERVICE]
+    user: '65532:65532'
+    ports: ['127.0.0.1:80:8080']
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+    tmpfs: ['/tmp:rw,noexec,nosuid,size=64m', '/config:rw,noexec,nosuid,size=4m']
+    # The only container on `edge`, the only one with a published port. It reaches everything else over `app`,
+    # where its fixed address is the one the API trusts for forwarding headers (TRUSTED_PROXIES).
+    networks:
+      edge: {}
+      app: { ipv4_address: 172.31.219.10 }
+    mem_limit: 128m
+
+networks:
+  edge: {}
+  app:
+    internal: true
+    ipam: { config: [{ subnet: 172.31.219.0/24 }] }
+  db: { internal: true }
+
+volumes:
+  # Data, managed here.
+  pgdata:
+  seaweedfs-data:
+  vault-data:
+  clamav-db:
+  caddy-data:
+  # Configuration and keys: created and filled by the deploy (tools/stack/src/volumes.ts) with each image's owner
+  # and mode (a TLS key 0600, as PostgreSQL requires), which a file mounted from Windows can't express.
+  pg-certs: { external: true, name: univarse-stack-pg-certs }
+  pgbouncer-conf: { external: true, name: univarse-stack-pgbouncer-conf }
+  valkey-conf: { external: true, name: univarse-stack-valkey-conf }
+  seaweedfs-conf: { external: true, name: univarse-stack-seaweedfs-conf }
+  stack-ca: { external: true, name: univarse-stack-ca }

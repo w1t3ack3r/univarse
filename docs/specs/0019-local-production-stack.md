@@ -54,33 +54,36 @@ And two closures ride on it: PgBouncer in the deployed path (ADR-015) and ADR-01
 
 ## Design
 
-**Files.**
+**Files** (as built in PR A2; the notes below give the changes from the first design).
 
-- `infra/stack/compose.yml`: the stack. No UniVarse image is named in it; the deploy writes `infra/stack/.digests.env` (git-ignored) from the verified record, and the compose file reads `${UNIVARSE_API_IMAGE}` and the others from it.
-- `infra/stack/caddy/Caddyfile`, `infra/stack/pgbouncer/` (rendered by `stack:init` from spec 0017's renderer), `infra/stack/vault/stack.hcl`.
-- `tools/stack/init.mjs` (`pnpm stack:init`), `tools/stack/deploy.mjs` (`pnpm stack:deploy`), `tools/stack/vault.mjs` (`pnpm stack:vault init|unseal|status`), `tools/stack/smoke.mjs`, `tools/stack/down.mjs` (`pnpm stack:down`, keeps volumes).
-- `infra/docker/migrate.Dockerfile`: the fourth role.
+- `infra/stack/compose.yml`: the stack. No UniVarse image is named in it: the deploy passes the four verified references to compose as `UNIVARSE_API_IMAGE`, `UNIVARSE_WEB_IMAGE`, `UNIVARSE_MIGRATE_IMAGE` and `UNIVARSE_PGBOUNCER_IMAGE`, and compose refuses to start without them.
+- `infra/stack/caddy/Caddyfile`, `infra/stack/vault/stack.hcl`. PgBouncer's configuration, PostgreSQL's `pg_hba.conf`, Valkey's and SeaweedFS's are rendered by the deploy into `~/.univarse/stack/rendered/` and copied into owner-only volumes; nothing secret is in the repository.
+- `tools/stack/src/` (TypeScript, run with `tsx`): `init.ts` (`pnpm stack:init [--rotate]`), `deploy.ts` and `deploy-deps.ts` (`pnpm stack:deploy`), `vault.ts` (`pnpm stack:vault status|init|unseal`), `smoke.ts` (`pnpm stack:smoke`), `down.ts` (`pnpm stack:down`, keeps volumes), with `render.ts`, `secrets.ts`, `certs.ts` and `volumes.ts`.
+- `infra/docker/migrate.Dockerfile`: the fourth role (PR A1).
 
-**Networks.**
+**Networks** (as built).
 
 | Network | Internal | Members |
 | ------- | -------- | ------- |
-| `edge`  | no (publishes 127.0.0.1:80/443) | caddy, web, api |
-| `app`   | yes | api, worker, web, pgbouncer, valkey, seaweedfs, mailpit, clamav, vault |
-| `db`    | yes | pgbouncer, postgres, migrate |
+| `edge`  | no (publishes `127.0.0.1:80`) | caddy |
+| `app`   | yes | caddy (fixed address `172.31.219.10`), api, worker, web, pgbouncer, valkey, seaweedfs, mailpit, vault, clamav, migrate |
+| `db`    | yes | postgres, pgbouncer, migrate |
 
-The worker never joins `edge`. The web app reaches the API over `app` (`API_INTERNAL_URL`); Caddy reaches both over `edge`. Mailpit's UI is reachable only through Caddy at `https://mail.stack.univarse.localhost`, so codes can be read without a published port.
+Only Caddy is on `edge`. It reaches the API and web over `app`, from the fixed address the API trusts for forwarding headers (`TRUSTED_PROXIES`). The web app reaches the API over `app`. Mailpit's UI and SeaweedFS's S3 endpoint are reachable only through Caddy (`mail.stack.univarse.localhost`, `files.stack.univarse.localhost`).
 
-**The deploy, in order.**
+**The deploy, in order** (`tools/stack/src/deploy.ts`; every side effect is a step the tests record).
 
-1. Acquire the registry lock (spec 0013 LR8), holder `deploy`.
-2. Read the record; `verifyRelease(record, { commit: --commit ?? HEAD })`, with the roles and Dockerfiles from the checkout's `ROLES`. Any problem: print each, release the lock, exit non-zero. Nothing has been created.
-3. Write `.digests.env` with the four verified references.
-4. Scan third-party images (D8), report.
-5. Start PostgreSQL (if not running) and run the `migrate` job; wait for success.
-6. Start the rest: `docker compose -f infra/stack/compose.yml --env-file infra/stack/.digests.env up -d --wait`. Replaced containers stop as their successors start; locally, a short gap is acceptable.
-7. Smoke (LS6). On failure, print logs, exit non-zero (the new containers stay for inspection; the previous digests are recorded in `.digests.prev.env` for a manual roll back with the same command and the previous record).
-8. Release the lock.
+1. Acquire the registry lock (spec 0013 LR8), holder `deploy`. Everything after this is inside `try … finally`, so the lock is released whatever fails.
+2. Start the local registry container if it is stopped (it is stopped again afterwards only if the deploy started it).
+3. `verifyRelease(record, { commit: --commit ?? HEAD })` with all four roles. Any problem: print each and exit non-zero. Nothing has been created, written or started.
+4. Render the env files and configuration into `~/.univarse/stack/` (owner-only) and fill the volumes. Scan the third-party images (D8) and report.
+5. Start Vault. Sealed: stop and ask the owner for `pnpm stack:vault unseal`. First deploy: initialise it. Then complete its setup (Transit, the KEK, the policy, the app token; idempotent) and render again with the app token.
+6. Start PostgreSQL and run the `migrate` job. A failed job stops the deploy; nothing new starts.
+7. Start SeaweedFS and create the quarantine and clean buckets (idempotent).
+8. Start the rest: `docker compose -p univarse-stack -f infra/stack/compose.yml up -d --wait --remove-orphans`.
+9. Smoke (LS6), retried for up to 90 s while the services settle. On failure, print the containers' last log lines and exit non-zero, saving no state.
+10. Record the running digests, and the two deploys before, in `releases/deploy-state.json` (`images:prune` keeps them).
+11. Release the lock.
 
 **The `migrate` image.** Built from the same lockfile; runs as UID 65532 with a read-only root; its command is fixed (`migrate-and-seed`), with the domain (`SEED_DOMAIN=stack.univarse.localhost`) and connection strings from its env file. `rls:check` runs inside it after migrating, and its failure fails the job.
 
@@ -103,6 +106,97 @@ The worker never joins `edge`. The web app reaches the API over `app` (`API_INTE
 - The migrate image, hardened (read-only, UID 65532, no capabilities), against a disposable PostgreSQL 18: the first run bootstrapped, migrated both schemas, passed rls:check (14 tables, capture intact), seeded `*.stack.univarse.localhost` and created three data keys; the second changed nothing; no generated secret in either output.
 - `12083b8`: deploy mode **rejects** it (no migrate, no pgbouncer image); `--legacy` **verifies** both images against `infra/signing/cosign.pub`. `pnpm images:prune` (dry run) keeps it and would verify it as the legacy set.
 - Unit: `verify-release` 10, `prune` 28, `release-lib` 3, `migrate-smoke` 2, `@univarse/migrate` 6; PB4's guard passes over the moved code.
+
+## Implementation notes (PR A2)
+
+**Decisions made while implementing, for the owner's approval:**
+
+1. **Networks.** Only Caddy is on `edge`, not the web app and the API as the first design had. Caddy reaches them over `app` from a fixed address, which is the one address the API trusts for `X-Forwarded-*`. There is no separate `data` network: Valkey, SeaweedFS, Mailpit and Vault are on `app`, which is internal. So LS1's "`db` and `data` are internal" holds as "`app` and `db` are internal".
+2. **The digests reach compose as variables, not through a `.digests.env` file.** Nothing is written before verification, and no file can go stale. The running digests are recorded after the smoke, in `releases/deploy-state.json`.
+3. **The first deploy initialises Vault**, and every deploy completes any missing part of its setup (resumable, idempotent). A sealed Vault stops the deploy before the database, naming the owner's step (`pnpm stack:vault unseal`). PR A's Vault listener is plaintext on the internal `app` network. TLS and the audit device are PR C (LS8).
+4. **The registry is started directly** (`docker start univarse-dev-registry-1`), never through the dev compose, so the deploy never reads the root `.env` (LS9).
+5. **The D8 scans are cached per digest** in `~/.univarse/stack/scans.json`. The pins change only in a reviewed PR, and rescanning every image on every deploy took minutes. A failed scan is reported and retried next time; scans never block.
+6. **A bucket step.** The API and worker need the quarantine and clean buckets, which dev creates after `compose up` (`tools/storage-dev.mjs buckets`). The stack's SeaweedFS publishes no port, so the deploy creates them with `weed shell` inside its container before the API and worker start, and checks the listing (`weed shell` exits 0 even when a command fails).
+7. **Caddy keeps one capability, `NET_BIND_SERVICE`.** The official image gives `/usr/bin/caddy` that file capability, and the kernel refuses to exec a binary whose file capabilities exceed the bounding set. Under `cap_drop: ALL` the result was "operation not permitted". Caddy listens on 8080 and never uses the capability. It is the stack's only `cap_add`: `compose.spec` and the smoke's runtime inspection both refuse any other.
+8. **Env files escape `$`.** Compose interpolates `$` inside `env_file` values. The SCRAM verifiers are full of `$`, so the first real deploy corrupted them: the migrate job failed authentication, and compose printed verifier fragments as unknown variable names. Every `$` is now written `$$`. A test runs a `$`-heavy value through `docker compose config`. The affected secrets were rotated (`pnpm stack:init --rotate`) and the stack's database volume was reset; the log holding the fragments was deleted.
+9. **TLS verification on the database path.**
+   - The API and worker connect with `sslmode=verify-full`, through PgBouncer.
+   - PgBouncer verifies PostgreSQL (`server_tls_sslmode = verify-full`, the stack CA).
+   - The migrate job's URLs say `sslmode=require`, because Prisma's schema engine doesn't accept `verify-full`. **The limit:** the schema engine's connections (migrations) are encrypted but don't verify PostgreSQL's certificate. The job's node-postgres connections (bootstrap, `rls:check`, seed, data keys) treat `require` as verify-full and do verify it, until node-postgres's next major version changes that. Both legs are on the internal `db` network.
+10. **The smoke retries for up to 90 s.** The worker has no healthcheck, so `up --wait` can return before its first pass; the first real smoke ran too early.
+
+**Evidence (2026-10-20, local, release `0cf53d8`).**
+
+- **The deploy:** `pnpm stack:deploy releases/2026-10-20-0cf53d8.json` exited 0. It verified the four digests against `infra/signing/cosign.pub`:
+  - api `sha256:af11b58c…`
+  - web `sha256:c53bcfcb…`
+  - migrate `sha256:2ba12ba9…`
+  - pgbouncer `sha256:c27b9b0b…`
+
+  The migrate job bootstrapped, migrated, passed `rls:check` and seeded `*.stack.univarse.localhost`. The smoke passed.
+- **The deploy's stops, as designed:**
+  - a stopped Vault came back sealed, and the deploy refused before the database with the unseal instruction (`pnpm stack:vault unseal`, then deploy again);
+  - an earlier run failed the migrate job (finding 8), and nothing new started.
+- **LS1 and LS6 through Caddy** (`127.0.0.1:80`, `Host: demo-uni.stack.univarse.localhost`):
+
+  | Request | Status |
+  | ------- | ------ |
+  | `/health/live` | 200 |
+  | `/api/v1/tenant/public-profile` (names `demo-uni`) | 200 |
+  | `/login` | 200 |
+  | an unknown tenant | 404 |
+
+  At runtime the smoke's `docker inspect` found no problem. The API, worker, web and PgBouncer run as 65532.
+- **LS5:**
+  - a plaintext `psql` to PgBouncer from the `app` network was refused with `FATAL: SSL required`;
+  - PgBouncer's log shows a separate pool for each role (`univarse_platform/univarse_app_platform`, `univarse_pool_01/univarse_app`, `univarse_platform/univarse_relay_platform`), each with TLSv1.3 on both legs.
+- **LS9:** the 32 generated values (passwords, verifier parts, Vault's unseal key and tokens) were searched for in every deploy log, the compose file and the repository's 517 files: **0 hits**.
+- **LS10:** idle after the smoke, 575 MiB in all:
+
+  | Service | Memory (MiB) |
+  | ------- | ------------ |
+  | worker | 149 |
+  | api | 138 |
+  | seaweedfs | 85 |
+  | postgres | 82 |
+  | web | 62 |
+  | vault | 29 |
+  | caddy | 11 |
+  | pgbouncer | 9 |
+  | mailpit | 7 |
+  | valkey | 4 |
+
+  The limits sum to at most 3,584 MB without ClamAV (`compose.spec`).
+- **LS11 mutations, each killed by its test:**
+  - a port on `0.0.0.0`;
+  - the API given `db`;
+  - a tag in place of a digest;
+  - a second capability on Caddy;
+  - a secret literal in the compose file;
+  - verification after `up`;
+  - the lock released before startup;
+  - the migrate job skipped;
+  - the bucket step skipped;
+  - PgBouncer's client TLS optional;
+  - the API's URL without `verify-full`;
+  - env files with `$` unescaped.
+- **Unit:** `@univarse/stack`, 48 tests:
+
+  | File | Tests |
+  | ---- | ----- |
+  | `deploy.spec` | 18 |
+  | `compose.spec` | 12 |
+  | `render.spec` | 9 |
+  | `secrets.spec` | 5 |
+  | `certs.spec` | 5 |
+
+  `compose.spec` needs the Docker CLI, not a running stack.
+
+**Not yet shown, carried to PR B:**
+
+- `SHOW POOLS`: PgBouncer's admin has only a stored verifier, deliberately with no password to log in with;
+- spec 0017's PB1 run through the stack's PgBouncer;
+- LS10's peak during the E2E run, which runs against the stack over HTTPS in PR B.
 
 ## Affected docs (in the implementation PRs)
 
