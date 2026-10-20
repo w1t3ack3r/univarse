@@ -66,10 +66,10 @@ And two closures ride on it: PgBouncer in the deployed path (ADR-015) and ADR-01
 | Network | Internal | Members |
 | ------- | -------- | ------- |
 | `edge`  | no (publishes `127.0.0.1:80`) | caddy |
-| `app`   | yes | caddy (fixed address `172.31.219.10`), api, worker, web, pgbouncer, valkey, seaweedfs, mailpit, vault, clamav, migrate |
+| `app`   | yes | caddy (fixed address `172.31.219.10`), web (`172.31.219.11`), api, worker, web, pgbouncer, valkey, seaweedfs, mailpit, vault, clamav, migrate |
 | `db`    | yes | postgres, pgbouncer, migrate |
 
-Only Caddy is on `edge`. It reaches the API and web over `app`, from the fixed address the API trusts for forwarding headers (`TRUSTED_PROXIES`). The web app reaches the API over `app`. Mailpit's UI and SeaweedFS's S3 endpoint are reachable only through Caddy (`mail.stack.univarse.localhost`, `files.stack.univarse.localhost`).
+Only Caddy is on `edge`. It reaches the API and web over `app`. The web app's server components call the API over `app`, passing the user's Host as `X-Forwarded-Host`. The API trusts forwarding headers only from Caddy's and the web app's fixed addresses (`TRUSTED_PROXIES`), as in dev, where both are on `127.0.0.1`. Mailpit's UI and SeaweedFS's S3 endpoint are reachable only through Caddy (`mail.stack.univarse.localhost`, `files.stack.univarse.localhost`).
 
 **The deploy, in order** (`tools/stack/src/deploy.ts`; every side effect is a step the tests record).
 
@@ -124,6 +124,11 @@ Only Caddy is on `edge`. It reaches the API and web over `app`, from the fixed a
    - PgBouncer verifies PostgreSQL (`server_tls_sslmode = verify-full`, the stack CA).
    - The migrate job's URLs say `sslmode=require`, because Prisma's schema engine doesn't accept `verify-full`. **The limit:** the schema engine's connections (migrations) are encrypted but don't verify PostgreSQL's certificate. The job's node-postgres connections (bootstrap, `rls:check`, seed, data keys) treat `require` as verify-full and do verify it, until node-postgres's next major version changes that. Both legs are on the internal `db` network.
 10. **The smoke retries for up to 90 s.** The worker has no healthcheck, so `up --wait` can return before its first pass; the first real smoke ran too early.
+11. **The API trusts the web app's forwarding headers too, and the smoke reads the login page.** The owner opened the stack in a browser and got "We couldn't find this institution". The API had trusted only Caddy's address, so it ignored the `X-Forwarded-Host` the web app's server components send, and resolved no tenant. The smoke had passed because that page answers 200. Now:
+    - the web app has a fixed address, and the API trusts it as well (still a fixed list, never a blanket "trust all", docs/08 §3.4);
+    - the smoke requires `/login` to name the institution (`Demo University`), and not to say "find this institution".
+
+    The stricter smoke failed on the broken stack; after the fix, the redeploy passed, and the page shows "Demo University, Lagos". Both mutations were killed: Caddy alone in `TRUSTED_PROXIES`, and web without its fixed address.
 
 **Evidence (2026-10-20, local, release `0cf53d8`).**
 
@@ -143,7 +148,7 @@ Only Caddy is on `edge`. It reaches the API and web over `app`, from the fixed a
   | ------- | ------ |
   | `/health/live` | 200 |
   | `/api/v1/tenant/public-profile` (names `demo-uni`) | 200 |
-  | `/login` | 200 |
+  | `/login` (names "Demo University, Lagos"; finding 11) | 200 |
   | an unknown tenant | 404 |
 
   At runtime the smoke's `docker inspect` found no problem. The API, worker, web and PgBouncer run as 65532.
@@ -179,13 +184,14 @@ Only Caddy is on `edge`. It reaches the API and web over `app`, from the fixed a
   - the bucket step skipped;
   - PgBouncer's client TLS optional;
   - the API's URL without `verify-full`;
-  - env files with `$` unescaped.
-- **Unit:** `@univarse/stack`, 48 tests:
+  - env files with `$` unescaped;
+  - the web app's address not trusted, or not fixed (finding 11).
+- **Unit:** `@univarse/stack`, 50 tests:
 
   | File | Tests |
   | ---- | ----- |
   | `deploy.spec` | 18 |
-  | `compose.spec` | 12 |
+  | `compose.spec` | 13 |
   | `render.spec` | 9 |
   | `secrets.spec` | 5 |
   | `certs.spec` | 5 |

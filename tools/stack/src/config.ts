@@ -36,9 +36,14 @@ export const ROLE_VARS = Object.freeze({
 });
 export type Role = keyof typeof ROLE_VARS;
 
-/** The `app` network's fixed address plan: the API trusts forwarding headers only from Caddy's address (docs/08 §3.4). */
+/**
+ * The `app` network's fixed address plan. The API trusts forwarding headers only from these two (docs/08 §3.4):
+ * Caddy, and the web app, whose server components call the API with the user's Host as X-Forwarded-Host
+ * (apps/web/src/lib/server-api.ts), as the dev edge and web do on 127.0.0.1.
+ */
 export const APP_SUBNET = '172.31.219.0/24';
 export const CADDY_IP = '172.31.219.10';
+export const WEB_IP = '172.31.219.11';
 
 /** D10: the sum of the long-running containers' memory limits, without ClamAV (a profile), must stay within this. */
 export const MEMORY_BUDGET_MB = 3584;

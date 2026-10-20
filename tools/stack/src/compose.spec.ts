@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { envText } from './render.js';
-import { COMPOSE_FILE, isDigestRef, MEMORY_BUDGET_MB, PROJECT, ROLE_VARS, THIRD_PARTY } from './config.js';
+import { CADDY_IP, COMPOSE_FILE, isDigestRef, MEMORY_BUDGET_MB, PROJECT, ROLE_VARS, THIRD_PARTY, WEB_IP } from './config.js';
 
 interface Service {
   image: string;
@@ -68,6 +68,11 @@ describe('[LS1] the shape', () => {
     const onDb = Object.entries(config.services).filter(([, s]) => 'db' in (s.networks ?? {})).map(([n]) => n).sort();
     expect(onDb).toEqual(['migrate', 'pgbouncer', 'postgres']);
     for (const s of ['api', 'worker', 'web']) expect(Object.keys(svc(s).networks ?? {})).toEqual(['app']);
+  });
+
+  it('[LS1] Caddy and the web app hold the fixed addresses the API trusts for forwarding headers', () => {
+    const ip = (s: string) => (svc(s).networks?.app as { ipv4_address?: string } | null | undefined)?.ipv4_address;
+    expect([ip('caddy'), ip('web')]).toEqual([CADDY_IP, WEB_IP]);
   });
 
   it('[LS1] every service is read-only (ClamAV excepted: freshclam writes its database), capability-free, no-new-privileges, memory-limited', () => {

@@ -2,7 +2,7 @@
 // (`stack:vault`). Pure, so the content is unit-tested; the deploy writes the results into STACK_DIR, owner-only,
 // right before it starts anything. Nothing here is ever printed.
 import { renderAuthFile } from '../../../packages/db/scripts/pgbouncer-config.js';
-import { CADDY_IP, STACK_DOMAIN } from './config.js';
+import { CADDY_IP, STACK_DOMAIN, WEB_IP } from './config.js';
 
 export interface StackSecrets {
   readonly postgresSuperuser: string;
@@ -68,7 +68,7 @@ export function renderEnvFiles(s: StackSecrets, v: VaultTokens): Readonly<Record
       // Bind inside the container (the default 127.0.0.1 would be unreachable); trust forwarding only from Caddy.
       HOST: '0.0.0.0',
       PORT: '8080',
-      TRUSTED_PROXIES: CADDY_IP,
+      TRUSTED_PROXIES: `${CADDY_IP},${WEB_IP}`,
     },
     // Only the worker holds the relay role (spec 0016 IO17), through its own PgBouncer pool.
     'worker.env': {

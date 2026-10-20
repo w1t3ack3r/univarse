@@ -149,7 +149,9 @@ services:
     image: ${UNIVARSE_WEB_IMAGE:?pnpm stack:deploy sets the verified image}
     <<: *hardening
     env_file: ['${UNIVARSE_STACK_DIR:?run pnpm stack:init}/web.env']
-    networks: [app]
+    # A fixed address: its server components forward the user's Host to the API, which trusts it (TRUSTED_PROXIES).
+    networks:
+      app: { ipv4_address: 172.31.219.11 }
     mem_limit: 512m
 
   caddy:

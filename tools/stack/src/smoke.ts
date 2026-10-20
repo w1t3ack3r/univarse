@@ -96,7 +96,8 @@ async function probe(): Promise<string[]> {
   };
   await check('API health', tenant, '/health/live', (r) => r.status === 200);
   await check('tenant request', tenant, '/api/v1/tenant/public-profile', (r) => r.status === 200 && r.body.includes('demo-uni'));
-  await check('web /login', tenant, '/login', (r) => r.status === 200);
+  // A 200 alone isn't enough: an unresolved tenant renders "couldn't find this institution" with status 200.
+  await check('web /login names the institution', tenant, '/login', (r) => r.status === 200 && r.body.includes('Demo University') && !r.body.includes('find this institution'));
   const worker = logsOf('worker');
   if (!worker.stdout.includes('"event":"worker.started"')) problems.push('the worker did not log worker.started');
   if (!worker.stdout.includes('"event":"cache.invalidation.relayed"')) problems.push('the worker\'s relay published nothing (the seed leaves invalidations to relay)');
