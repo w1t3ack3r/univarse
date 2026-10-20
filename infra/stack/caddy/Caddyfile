@@ -1,0 +1,26 @@
+# Spec 0019: the stack's edge, as production's (docs/10 §3). PR A serves HTTP on the stack's own names
+# (*.stack.univarse.localhost, D6); PR B adds HTTPS from Caddy's internal CA, the redirect and HSTS.
+# Caddy listens on 8080 inside its container (unprivileged); compose publishes it as 127.0.0.1:80.
+{
+	admin off
+	auto_https off
+	http_port 8080
+}
+
+# Mail (Mailpit's UI): read activation and reset codes without publishing Mailpit.
+http://mail.stack.univarse.localhost:8080 {
+	reverse_proxy mailpit:8025
+}
+
+# Object storage: browsers upload and download here, presigned (spec 0010).
+http://files.stack.univarse.localhost:8080 {
+	reverse_proxy seaweedfs:8333
+}
+
+# Every tenant: /api/* and /health/* to the API, everything else to the web app, as the dev edge routes (spec 0005 W2).
+# Caddy sets X-Forwarded-For/-Host/-Proto itself; the API trusts them only from Caddy's address.
+http://*.stack.univarse.localhost:8080 {
+	@api path /api/* /health/*
+	reverse_proxy @api api:8080
+	reverse_proxy web:3000
+}

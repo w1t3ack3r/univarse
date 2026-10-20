@@ -85,6 +85,8 @@ Use `PGPORT=5433 pnpm db:setup` if your PostgreSQL 18 runs on another port.
 
 **Traces (spec 0012, optional):** `pnpm dev:traces` starts a local OpenTelemetry Collector that writes spans to `infra/compose/otel/out/traces.jsonl`; `pnpm dev:traces:jaeger` adds Jaeger's UI on http://127.0.0.1:16686. Then run the API and worker with `OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:14318`. With no endpoint set, nothing is exported. Stop the collector and Jaeger when you're done; on an 8 GB machine memory matters (docs/10 §4).
 
+**The local production-like stack (spec 0019):** the owner's signed release, run by digest, hardened, on its own PostgreSQL, Vault and the rest, with no use of `.env`. Run `pnpm stack:init` once, then `pnpm stack:deploy releases/<record>.json`, and open http://demo-uni.stack.univarse.localhost. After a restart, `pnpm stack:vault unseal`, then deploy again. `pnpm stack:down` stops it and keeps its data. The details are in docs/10 §4.2.
+
 **Platform invalidation relay (spec 0016):** the worker relays the database's cache invalidation events on its own role, whose URL `pnpm db:setup` writes to `.env.worker` (never `.env`); the worker refuses to start without it, so **rerun `pnpm db:setup` before `pnpm db:migrate`** after pulling it (it also rotates your local passwords). Don't run a worker while integration tests run: its relay would claim their events. The design assumes your PostgreSQL host's clock is kept in sync (NTP), with no large forward steps.
 
 `pnpm dev` runs the outbox worker next to the API, so activation and reset codes arrive in Mailpit. Requests never send email themselves (spec 0002 B7).
