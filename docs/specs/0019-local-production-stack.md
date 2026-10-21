@@ -129,6 +129,7 @@ Only Caddy is on `edge`. It reaches the API and web over `app`. The web app's se
     - the smoke requires `/login` to name the institution (`Demo University`), and not to say "find this institution".
 
     The stricter smoke failed on the broken stack; after the fix, the redeploy passed, and the page shows "Demo University, Lagos". Both mutations were killed: Caddy alone in `TRUSTED_PROXIES`, and web without its fixed address.
+12. **Vault has a healthcheck** (2026-10-21). A redeploy that recreated the Vault container reported "Vault is not reachable" instead of the unseal step: with no healthcheck, `up --wait vault` returned before its listener answered, and `vaultState()` read that as absent. It is now healthy once `vault status` exits 0 or 2 (unsealed or sealed), so the wait means Vault can be read. `compose.spec` holds it; it fails with the healthcheck removed, or with one that rejects a sealed Vault. PR C's TLS listener changes the address it checks.
 
 **Evidence (2026-10-20, local, release `0cf53d8`).**
 
@@ -186,12 +187,12 @@ Only Caddy is on `edge`. It reaches the API and web over `app`. The web app's se
   - the API's URL without `verify-full`;
   - env files with `$` unescaped;
   - the web app's address not trusted, or not fixed (finding 11).
-- **Unit:** `@univarse/stack`, 50 tests:
+- **Unit:** `@univarse/stack`, 51 tests:
 
   | File | Tests |
   | ---- | ----- |
   | `deploy.spec` | 18 |
-  | `compose.spec` | 13 |
+  | `compose.spec` | 14 |
   | `render.spec` | 9 |
   | `secrets.spec` | 5 |
   | `certs.spec` | 5 |

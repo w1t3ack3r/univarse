@@ -101,6 +101,13 @@ services:
       - ./vault/stack.hcl:/vault/config/stack.hcl:ro
     networks: [app]
     mem_limit: 256m
+    # Healthy once its listener answers, sealed or not (`vault status` exits 0 unsealed, 2 sealed, 1 unreachable), so
+    # the deploy's `up --wait vault` returns only when vaultState() can read it. PR C's TLS changes the address.
+    healthcheck:
+      test: ['CMD-SHELL', 'vault status -address=http://127.0.0.1:8200 >/dev/null 2>&1; [ $$? -ne 1 ]']
+      interval: 2s
+      timeout: 3s
+      retries: 15
 
   clamav:
     image: clamav/clamav:stable@sha256:ebec5bc138401b36ae987caa1a3fa3c3b2a21ed3d51f0bfa5852825e663e67b0

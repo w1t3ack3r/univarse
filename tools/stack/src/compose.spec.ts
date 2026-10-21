@@ -21,6 +21,7 @@ interface Service {
   networks?: Record<string, unknown>;
   ports?: { host_ip?: string; published?: string; target: number }[];
   volumes?: { type: string; source?: string; target: string }[];
+  healthcheck?: { test?: string[] };
 }
 interface Config {
   services: Record<string, Service>;
@@ -94,6 +95,16 @@ describe('[LS1] the shape', () => {
       if (s.user !== undefined) expect([name, s.user.startsWith('0')]).toEqual([name, false]);
       for (const v of s.volumes ?? []) expect([name, v.source ?? '']).not.toEqual([name, expect.stringContaining('docker.sock')]);
     }
+  });
+});
+
+describe('[D9] Vault', () => {
+  it('[D9] Vault has a healthcheck that passes once its listener answers, sealed or not, so `up --wait vault` means it can be read', () => {
+    // Without one, `--wait` returned as soon as the container ran, and the deploy read an unanswering Vault as absent.
+    const test = svc('vault').healthcheck?.test ?? [];
+    expect(test[0]).toBe('CMD-SHELL');
+    // `vault status`: 0 unsealed, 2 sealed (or uninitialised), 1 unreachable; only 1 is unhealthy.
+    expect(test.slice(1).join(' ')).toMatch(/^vault status -address=http:\/\/127\.0\.0\.1:8200 .*\[ \$\$\? -ne 1 \]$/);
   });
 });
 
