@@ -4,7 +4,7 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { writeOwnerOnly } from '../../../packages/db/scripts/pgbouncer-config.js';
-import { COMPOSE_FILE, PROJECT, RELEASES, STACK_DIR, THIRD_PARTY } from './config.js';
+import { COMPOSE_FILE, PROJECT, RELEASES, STACK_DIR, THIRD_PARTY, TUNNEL_IMAGE } from './config.js';
 import type { DeployDeps } from './deploy.js';
 import { nextState } from './state.js';
 import { docker } from './docker.js';
@@ -13,7 +13,7 @@ import { envText, renderEnvFiles, renderPgBouncerIni, renderPgHba, renderS3Confi
 import { ensureStackDir, loadSecrets } from './secrets.js';
 import { smoke } from './smoke.js';
 import { ensureVault, loadVaultInit, tokensOf, vaultState } from './vault.js';
-import { fillVolumes, renderedDir } from './volumes.js';
+import { fillVolumes, markApplied, renderedDir } from './volumes.js';
 
 const TRIVY_IMAGE = 'aquasec/trivy:0.75.0@sha256:af6acf9a6b85dfe389a1941505c0ce9efef52a4719635e1a962f022a3d855daa';
 
@@ -25,7 +25,7 @@ export function compose(args: readonly string[], images: Readonly<Record<string,
   return { status: r.status ?? 1 };
 }
 
-function prepare(withVault: boolean): void {
+function prepare(withVault: boolean): string[] {
   ensureStackDir();
   const secrets = loadSecrets();
   const tokens = withVault ? tokensOf(loadVaultInit()) : { appToken: '' };
@@ -40,7 +40,7 @@ function prepare(withVault: boolean): void {
     's3.json': renderS3Config(secrets),
   };
   for (const [name, text] of Object.entries(files)) writeOwnerOnly(join(rendered, name), text);
-  fillVolumes();
+  return fillVolumes();
 }
 
 /**
@@ -52,7 +52,8 @@ function scanThirdParty(): string[] {
   const file = join(STACK_DIR, 'scans.json');
   const known: Record<string, { critical: number; high: number; scannedAt: string }> = existsSync(file) ? (JSON.parse(readFileSync(file, 'utf8')) as Record<string, { critical: number; high: number; scannedAt: string }>) : {};
   const lines: string[] = [];
-  for (const [name, ref] of Object.entries(THIRD_PARTY)) {
+  // B4: the test tunnel's forwarder is reported with the stack's own images.
+  for (const [name, ref] of Object.entries({ ...THIRD_PARTY, socat: TUNNEL_IMAGE })) {
     const seen = known[ref];
     if (seen) {
       lines.push(`[stack:deploy] D8 ${name}: CRITICAL ${String(seen.critical)}, HIGH ${String(seen.high)} (scanned ${seen.scannedAt.slice(0, 10)}; reported, not blocking)`);
@@ -134,6 +135,9 @@ export function realDeps(): DeployDeps {
     lock: (holder) => acquireRegistryLock(RELEASES, holder),
     verify: verifyRelease,
     prepare,
+    markApplied: () => {
+      markApplied();
+    },
     scanThirdParty,
     compose,
     vaultState: () => vaultState(),

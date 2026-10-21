@@ -45,7 +45,8 @@ function deps(over: Partial<DeployDeps> = {}, signed = SIGNED, vault: VaultState
     lock: (holder) => acquireRegistryLock(lockDir, holder),
     verify: (rec, { commit }) =>
       (realVerify as unknown as (r: ReleaseRecord, o: object) => Verification)(rec, { commit, pub: '/keys/cosign.pub', cosign: fakeCosign(signed) }),
-    prepare: (withVault) => void calls.push(`prepare:${String(withVault)}`),
+    prepare: (withVault) => (calls.push(`prepare:${String(withVault)}`), []),
+    markApplied: () => void calls.push('markApplied'),
     scanThirdParty: () => (calls.push('scan'), []),
     compose: (args) => (calls.push(`compose:${args.join(' ')}`), { status: 0 }),
     vaultState: () => (calls.push('vaultState'), vault),
@@ -137,10 +138,30 @@ describe('[LS3][LS4] a verified record: the order of the deploy', () => {
       'compose:up -d --wait seaweedfs',
       'buckets',
       `compose:up -d --wait --remove-orphans ${SERVICES.join(' ')}`,
+      'markApplied',
       'smoke',
       'saveState',
     ]);
     expect(calls.at(-1)).toBe('registry-stop');
+  });
+
+  it('[LS5] a changed certificate or configuration restarts exactly the services that read it: PostgreSQL before the migrate job, the rest once the stack is up', async () => {
+    const d = deps({ prepare: (withVault) => (calls.push(`prepare:${String(withVault)}`), withVault ? ['pgbouncer', 'caddy'] : ['postgres']) });
+    expect((await deploy(record(), COMMIT, d)).ok).toBe(true);
+    const e = effects();
+    const at = (c: string) => e.indexOf(c);
+    expect(at('compose:restart postgres')).toBe(at('compose:up -d --wait postgres') + 1);
+    expect(at('compose:restart postgres')).toBeLessThan(at('compose:--profile job run --rm migrate'));
+    const up = at(`compose:up -d --wait --remove-orphans ${SERVICES.join(' ')}`);
+    expect(e.slice(up + 1, up + 3)).toEqual(['compose:restart caddy pgbouncer', `compose:up -d --wait ${SERVICES.join(' ')}`]);
+    expect(at('compose:restart caddy pgbouncer')).toBeLessThan(at('smoke'));
+    // Recorded as loaded only after the restarts succeeded.
+    expect(at('markApplied')).toBe(up + 3);
+  });
+
+  it('[LS5] nothing changed: nothing restarts', async () => {
+    await deploy(record(), COMMIT, deps());
+    expect(calls.some((c) => c.startsWith('compose:restart'))).toBe(false);
   });
 
   it('[LS4] a failed migrate job starts nothing new and saves no state', async () => {

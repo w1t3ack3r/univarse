@@ -114,9 +114,26 @@ services:
     <<: *hardening
     # D10: started for the scan check only, and stopped after.
     profiles: [scan]
-    read_only: false # freshclam writes its database in place
+    read_only: false # the entrypoint writes clamd.conf, and freshclam its database, in place
+    # The image's entrypoint runs as root: it owns its database and run directory to the clamav user, writes its
+    # configuration, and the daemons open their logs before dropping to clamav. These five capabilities, a subset of
+    # Docker's defaults (which dev runs with), and no others; compose.spec holds that. A third-party image, stated.
+    cap_add: [CHOWN, DAC_OVERRIDE, FOWNER, SETGID, SETUID]
+    # The UniVarse test signature (spec 0010), as in dev: one extra file beside the normal databases.
+    entrypoint: ['sh', '-c', 'cp /fixtures/univarse-test.ndb /var/lib/clamav/ && exec /init']
+    environment:
+      # Fail closed (spec 0010 FU3), as in dev: the image's defaults would report an encrypted or oversized file clean.
+      CLAMD_CONF_AlertExceedsMax: 'yes'
+      CLAMD_CONF_AlertEncrypted: 'yes'
+      CLAMD_CONF_AlertEncryptedArchive: 'yes'
+      CLAMD_CONF_AlertEncryptedDoc: 'yes'
+      CLAMD_CONF_StreamMaxLength: '25M'
+      CLAMD_CONF_MaxFileSize: '25M'
+      CLAMD_CONF_MaxScanSize: '100M'
+      CLAMD_CONF_MaxScanTime: '60000'
     volumes:
       - clamav-db:/var/lib/clamav
+      - ../compose/clamav/test-sigs:/fixtures:ro
     networks: [app]
     mem_limit: 3g
 
@@ -166,13 +183,15 @@ services:
     <<: *hardening
     # The image gives /usr/bin/caddy the file capability cap_net_bind_service, and the kernel refuses to exec a
     # binary whose file capabilities exceed the bounding set ("operation not permitted" under cap_drop ALL). So this
-    # one capability stays in the bounding set. Caddy listens on 8080 and never uses it; it is the stack's only
-    # cap_add (compose.spec and the smoke check hold that).
+    # one capability stays in the bounding set. Caddy listens on 8080 and 8443 and never uses it; it is the stack's
+    # only cap_add (compose.spec and the smoke check hold that).
     cap_add: [NET_BIND_SERVICE]
     user: '65532:65532'
-    ports: ['127.0.0.1:80:8080']
+    # PR B: HTTPS on 443, and 80 only to redirect to it.
+    ports: ['127.0.0.1:443:8443', '127.0.0.1:80:8080']
     volumes:
       - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-tls:/etc/caddy/tls:ro
       - caddy-data:/data
     tmpfs: ['/tmp:rw,noexec,nosuid,size=64m', '/config:rw,noexec,nosuid,size=4m']
     # The only container on `edge`, the only one with a published port. It reaches everything else over `app`,
@@ -203,3 +222,4 @@ volumes:
   valkey-conf: { external: true, name: univarse-stack-valkey-conf }
   seaweedfs-conf: { external: true, name: univarse-stack-seaweedfs-conf }
   stack-ca: { external: true, name: univarse-stack-ca }
+  caddy-tls: { external: true, name: univarse-stack-caddy-tls }

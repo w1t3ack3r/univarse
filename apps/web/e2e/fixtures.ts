@@ -8,13 +8,16 @@ import type { Page } from '@playwright/test';
 import { hashPassword } from '../../api/src/modules/identity/password.js';
 import { enrolTestTotp, resetReplayGuard, totpCode } from '../../api/src/testing/mfa-helpers.js';
 import { base32Decode, hotp, timeStep } from '../../api/src/modules/identity/totp.js';
+import { loadE2eEnv } from './env.js';
 
 const rootEnv = new URL('../../../.env', import.meta.url);
-if (existsSync(rootEnv)) process.loadEnvFile(rootEnv);
+// Spec 0019 B4: the dev chain reads the root .env; the stack run gets everything from `pnpm stack:e2e` instead.
+export const E2E = loadE2eEnv(process.env, () => {
+  if (existsSync(rootEnv)) process.loadEnvFile(rootEnv);
+});
 
-export const EDGE_PORT = Number(process.env.EDGE_PORT ?? 4180);
 export type Slug = 'demo-uni' | 'test-poly';
-export const hostUrl = (slug: Slug) => `http://${slug}.univarse.localhost:${EDGE_PORT}`;
+export const hostUrl = (slug: Slug) => E2E.origin(slug);
 /** Random per run: no credential literal in the repo (gitleaks), and still meets the password policy. */
 export const PASSWORD = `E2e-${randomBytes(12).toString('base64url')}-7a`;
 
@@ -70,6 +73,12 @@ export async function makeUser(
   const role = await db.role.findUniqueOrThrow({ where: { tenantId_key: { tenantId: tid, key: opts.role } } });
   await db.roleAssignment.create({ data: { tenantId: tid, userId: user.id, roleId: role.id, scopeType: 'INSTITUTION' } });
   created.push({ tenantId: tid, userId: user.id });
+  if (E2E.stack && (opts.mfa || opts.recoveryCode)) {
+    const enrolled = await enrolThroughApp(slug, username);
+    await resetReplayGuard(shard, tid, user.id); // the confirm step used this step's code
+    const recoveryCode = opts.recoveryCode ? enrolled.recoveryCodes[0] : undefined;
+    return { id: user.id, username, displayName, email: user.email!, secret: enrolled.secret, ...(recoveryCode ? { recoveryCode } : {}) };
+  }
   const secret = opts.mfa || opts.recoveryCode ? await enrolTestTotp(shard, tid, user.id) : undefined;
   let recoveryCode: string | undefined;
   if (opts.recoveryCode) {
@@ -77,6 +86,32 @@ export async function makeUser(
     await db.recoveryCode.create({ data: { tenantId: tid, userId: user.id, codeHash: recoveryHash(user.id, recoveryCode) } });
   }
   return { id: user.id, username, displayName, email: user.email!, ...(secret ? { secret } : {}), ...(recoveryCode ? { recoveryCode } : {}) };
+}
+
+/**
+ * Spec 0019 B4 (stack only): TOTP enrolled through the app's own enrolment requests, as its screens make them, through
+ * the edge. The server encrypts the secret with its tenant key through its own Vault, so the run never needs the stack's
+ * Vault. Returns the key and the recovery codes the app shows once.
+ */
+async function enrolThroughApp(slug: Slug, username: string): Promise<{ secret: Buffer; recoveryCodes: string[] }> {
+  const origin = hostUrl(slug);
+  let cookie = '';
+  const post = async (path: string, body: unknown): Promise<Record<string, unknown>> => {
+    const res = await fetch(`${origin}${path}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', origin, ...(cookie ? { cookie } : {}) },
+      body: JSON.stringify(body),
+    });
+    const sid = res.headers.getSetCookie().map((c) => c.split(';')[0] ?? '').find((c) => c.startsWith('__Host-uv_sid='));
+    if (sid) cookie = sid;
+    if (!res.ok) throw new Error(`stack MFA enrolment: ${path} answered ${String(res.status)}`);
+    return res.status === 204 ? {} : ((await res.json()) as Record<string, unknown>);
+  };
+  await post('/api/v1/auth/login', { username, password: PASSWORD });
+  const key = Buffer.from(base32Decode(String((await post('/api/v1/auth/mfa/totp/enrol', { password: PASSWORD })).secret)));
+  const { recoveryCodes } = (await post('/api/v1/auth/mfa/totp/confirm', { code: hotp(key, timeStep(Date.now())) })) as { recoveryCodes: string[] };
+  await post('/api/v1/auth/logout', {});
+  return { secret: key, recoveryCodes };
 }
 
 const B32 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';

@@ -20,7 +20,7 @@ interface Service {
   user?: string;
   networks?: Record<string, unknown>;
   ports?: { host_ip?: string; published?: string; target: number }[];
-  volumes?: { type: string; source?: string; target: string }[];
+  volumes?: { type: string; source?: string; target: string; read_only?: boolean }[];
   healthcheck?: { test?: string[] };
 }
 interface Config {
@@ -62,6 +62,12 @@ describe('[LS1] the shape', () => {
     expect(onEdge).toEqual(['caddy']);
   });
 
+  it('[LS1][LS7] Caddy publishes exactly HTTPS (443) and the redirect (80), and reads its certificate read-only', () => {
+    const ports = (svc('caddy').ports ?? []).map((p) => `${p.host_ip ?? ''}:${String(p.published)}->${String(p.target)}`).sort();
+    expect(ports).toEqual(['127.0.0.1:443->8443', '127.0.0.1:80->8080']);
+    expect((svc('caddy').volumes ?? []).find((v) => v.target === '/etc/caddy/tls')).toMatchObject({ source: 'caddy-tls', read_only: true });
+  });
+
   it('[LS1] the app and db networks are internal; PostgreSQL is on db only, shared with PgBouncer and the migrate job', () => {
     expect(config.networks.app?.internal).toBe(true);
     expect(config.networks.db?.internal).toBe(true);
@@ -85,9 +91,9 @@ describe('[LS1] the shape', () => {
     }
   });
 
-  it('[LS1] the only capability added anywhere is NET_BIND_SERVICE, on Caddy (its binary\'s file capability)', () => {
-    const added = Object.entries(config.services).filter(([, s]) => (s.cap_add ?? []).length).map(([n, s]) => [n, s.cap_add]);
-    expect(added).toEqual([['caddy', ['NET_BIND_SERVICE']]]);
+  it("[LS1] capabilities are added only where stated: NET_BIND_SERVICE on Caddy (its binary's file capability), ClamAV's root-entrypoint set; none on a UniVarse service", () => {
+    const added = Object.fromEntries(Object.entries(config.services).filter(([, s]) => (s.cap_add ?? []).length).map(([n, s]) => [n, [...(s.cap_add ?? [])].sort()]));
+    expect(added).toEqual({ caddy: ['NET_BIND_SERVICE'], clamav: ['CHOWN', 'DAC_OVERRIDE', 'FOWNER', 'SETGID', 'SETUID'] });
   });
 
   it('[LS1] no service runs as root by configuration, and none mounts the Docker socket', () => {
@@ -136,7 +142,8 @@ describe('[LS9] no secret in the compose file', () => {
       expect([name, Object.keys(s.environment ?? {}).filter((k) => secretName.test(k))]).toEqual([name, []]);
     // Image digests are the only long hex in the file; nothing base64-shaped at all.
     const text = readFileSync(COMPOSE_FILE, 'utf8').replace(/@sha256:[0-9a-f]{64}/g, '');
-    expect(text.match(/[0-9a-f]{24,}|[A-Za-z0-9+/_-]{32,}={0,2}/g) ?? []).toEqual([]);
+    // Generated secrets are hex, or base64url with digits; a long setting name (CLAMD_CONF_AlertEncryptedArchive) is neither.
+    expect(text.match(/[0-9a-f]{24,}|(?=[A-Za-z0-9+/_-]*\d)[A-Za-z0-9+/_-]{32,}={0,2}/g) ?? []).toEqual([]);
   });
 });
 

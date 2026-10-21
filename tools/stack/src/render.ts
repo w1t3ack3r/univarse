@@ -9,6 +9,8 @@ export interface StackSecrets {
   readonly roles: Readonly<Record<'migrator' | 'app' | 'appPlatform' | 'relayPlatform', string>>;
   /** SCRAM-SHA-256 verifiers of the role passwords: what PostgreSQL and PgBouncer store (spec 0017 PB9). */
   readonly verifiers: Readonly<Record<'migrator' | 'app' | 'appPlatform' | 'relayPlatform', string>>;
+  /** B5: the admin console's password (stack:pools, the isolation probe) and the verifier PgBouncer stores. */
+  readonly pgbouncerAdminPassword: string;
   readonly pgbouncerAdminVerifier: string;
   readonly sessionPepper: string;
   readonly valkeyPassword: string;
@@ -34,6 +36,7 @@ const enc = encodeURIComponent;
  */
 const url = (user: string, password: string, at: string, db: string, sslmode: 'verify-full' | 'require' = 'verify-full') =>
   `postgresql://${user}:${enc(password)}@${at}/${db}?sslmode=${sslmode}`;
+export const dbUrl = url;
 
 /** The settings every API and worker process shares. */
 function appCommon(s: StackSecrets, v: VaultTokens): EnvFile {
@@ -50,7 +53,8 @@ function appCommon(s: StackSecrets, v: VaultTokens): EnvFile {
     VAULT_ADDR: 'http://vault:8200',
     VAULT_TOKEN: v.appToken,
     S3_ENDPOINT: 'http://seaweedfs:8333',
-    S3_PUBLIC_ENDPOINT: `http://files.${STACK_DOMAIN}`,
+    // PR B: browsers reach storage through Caddy over HTTPS (presigned URLs are signed for this origin).
+    S3_PUBLIC_ENDPOINT: `https://files.${STACK_DOMAIN}`,
     S3_ACCESS_KEY: s.s3AccessKey,
     S3_SECRET_KEY: s.s3SecretKey,
     SMTP_URL: 'smtp://mailpit:1025',
@@ -80,7 +84,7 @@ export function renderEnvFiles(s: StackSecrets, v: VaultTokens): Readonly<Record
       HOSTNAME: '0.0.0.0',
       PORT: '3000',
       API_INTERNAL_URL: 'http://api:8080',
-      STORAGE_UPLOAD_ORIGIN: `http://files.${STACK_DOMAIN}`,
+      STORAGE_UPLOAD_ORIGIN: `https://files.${STACK_DOMAIN}`,
     },
     // LS4: direct to PostgreSQL (PB8), as the superuser for the bootstrap and the roles after it.
     'migrate.env': {
