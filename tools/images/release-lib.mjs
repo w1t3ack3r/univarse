@@ -148,3 +148,19 @@ export function signingKeyProblem({ key, pub, password, run = sh }) {
   if (pemBody(r.stdout) !== pemBody(readFileSync(pub, 'utf8'))) return `the signing key ${key} is not the key ${pub} names: its signatures would never verify`;
   return null;
 }
+
+/**
+ * What a raw-mode prompt received, as the password typed: terminal escape sequences removed (a terminal in
+ * bracketed-paste mode, as PowerShell's PSReadLine leaves it, wraps pasted text in ESC[200~ … ESC[201~) and any
+ * other control character dropped. Printable characters, spaces and non-ASCII letters are kept as they are.
+ */
+export function cleanTypedPassword(raw) {
+  // Matching control characters is the point here.
+  /* eslint-disable no-control-regex */
+  const cleaned = raw
+    .replace(/\u001b\[[0-9;?]*[ -/]*[@-~]/g, '') // CSI sequences, including ESC[200~ and ESC[201~
+    .replace(/\u001b./g, '') // any other two-character escape
+    .replace(/[\u0000-\u001f\u007f]/g, ''); // remaining C0 controls and DEL
+  /* eslint-enable no-control-regex */
+  return cleaned;
+}
