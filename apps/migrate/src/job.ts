@@ -6,6 +6,7 @@
 //   5. tenant data keys (spec 0006 E11), through the key provider.
 // The steps are injected so the order and the stops are unit-tested; main.ts wires the real ones. Errors name
 // variables, never their values.
+import { vaultAddrProblem } from '@univarse/crypto';
 
 export const REQUIRED = [
   'PLATFORM_MIGRATOR_URL',
@@ -43,6 +44,9 @@ export function envProblems(env: JobEnv): string[] {
   for (const k of ['PLATFORM_MIGRATOR_URL', 'TENANT_POOL_01_MIGRATOR_URL', 'PLATFORM_DATABASE_URL', 'TENANT_POOL_01_DATABASE_URL', 'BOOTSTRAP_SUPERUSER_URL'])
     if (env[k] && !env[k].startsWith('postgresql://')) problems.push(`${k} is not a postgresql:// URL`);
   if (env.SEED_DOMAIN && !DOMAIN.test(env.SEED_DOMAIN)) problems.push('SEED_DOMAIN is not a lower-case domain name');
+  // Spec 0019 C1: refused at start, before anything is migrated (the key step comes last).
+  const vault = vaultAddrProblem({ KEY_PROVIDER: env.KEY_PROVIDER === 'local' ? 'local' : 'vault', NODE_ENV: env.NODE_ENV, VAULT_ADDR: env.VAULT_ADDR });
+  if (vault) problems.push(vault);
   const given = BOOTSTRAP.filter((k) => env[k]);
   if (given.length > 0 && given.length < BOOTSTRAP.length)
     problems.push(`bootstrap needs all of ${BOOTSTRAP.join(', ')}, or none (missing: ${BOOTSTRAP.filter((k) => !env[k]).join(', ')})`);

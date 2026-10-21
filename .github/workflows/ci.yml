@@ -60,15 +60,8 @@ jobs:
       mailpit:
         image: axllent/mailpit:v1.27
         ports: ['1025:1025', '8025:8025']
-      # KEK for envelope encryption (spec 0006, ADR-023). Dev mode is fine for an ephemeral CI run;
-      # tools/vault-dev.mjs configures Transit, the derived KEK and a least-privilege app token.
-      vault:
-        image: hashicorp/vault:2.1.1
-        env:
-          VAULT_DEV_ROOT_TOKEN_ID: ci-root-token-only
-          VAULT_DEV_LISTEN_ADDRESS: 0.0.0.0:8200
-          SKIP_SETCAP: 'true'
-        ports: ['8200:8200']
+      # Vault (spec 0006, ADR-023) runs from compose, as in dev, not as a service: the production images refuse a
+      # plaintext VAULT_ADDR (spec 0019 C1), so it needs its TLS listener and certificate (see "Start Vault" below).
     env:
       NODE_ENV: test
       PGHOST: 127.0.0.1
@@ -130,9 +123,12 @@ jobs:
         run: pnpm db:setup
       - name: Migrate
         run: pnpm db:migrate
-      - name: Configure Vault (Transit, derived KEK, encrypt/decrypt-only app token)
-        env:
-          VAULT_ROOT_TOKEN: ci-root-token-only
+      - name: Start Vault as in dev, with its TLS listener for the images (spec 0019 C1)
+        env: { VALKEY_PASSWORD: ci-compose-interpolation-only }
+        run: |
+          node tools/vault-tls.mjs
+          docker compose -f infra/compose/compose.dev.yml --env-file .env up -d --wait vault
+      - name: Configure Vault (initialise, unseal, Transit, derived KEK, encrypt/decrypt-only app token)
         run: node tools/vault-dev.mjs
       - name: RLS gate
         run: pnpm rls:check
@@ -228,6 +224,8 @@ jobs:
           node --test tools/images/migrate-smoke.test.mjs
           node --test tools/images/signing-key.test.mjs
           node --test tools/images/password-prompt.test.mjs
+          node --test tools/images/container.test.mjs
+          node --test tools/vault-tls.test.mjs
           node tools/images/inspect.mjs univarse-api:ci --root app
           node tools/images/inspect.mjs univarse-web:ci --root app
           node tools/images/inspect.mjs univarse-migrate:ci --root app

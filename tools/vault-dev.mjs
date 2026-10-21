@@ -1,6 +1,6 @@
 // DEV/CI ONLY (ADR-023, spec 0006). Makes a running Vault ready for UniVarse:
 //   1. local: initialise once (1 unseal share) and unseal on every start; keys go to the git-ignored
-//      .vault-dev.json, never to .env or stdout.   CI: Vault runs in dev mode; VAULT_ROOT_TOKEN is set.
+//      .vault-dev.json, never to .env or stdout.   CI build-test: as local, from compose. CI pgbouncer-isolation: dev mode, VAULT_ROOT_TOKEN set.
 //   2. ensure the Transit engine, the derived aes256-gcm96 KEK, and the app policy (encrypt/decrypt only)
 //   3. ensure .env holds a working least-privilege app token (VAULT_TOKEN) plus KEY_PROVIDER/VAULT_ADDR,
 //      and (dev/CI only) the operator key-admin token VAULT_ADMIN_TOKEN for the `keys` CLI and tests.

@@ -81,4 +81,14 @@ describe('[LS4] the migrate job', () => {
   it('[LS4] a non-postgresql URL is refused', () => {
     expect(envProblems({ ...ENV, PLATFORM_MIGRATOR_URL: 'mysql://x' })).toEqual(['PLATFORM_MIGRATOR_URL is not a postgresql:// URL']);
   });
+
+  it('[LS8] in production a plaintext VAULT_ADDR stops the job before any step (spec 0019 C1); https and development pass', async () => {
+    const plain = { ...ENV, NODE_ENV: 'production', KEY_PROVIDER: 'vault', VAULT_ADDR: 'http://127.0.0.1:8200' };
+    expect(envProblems(plain)).toEqual([expect.stringMatching(/VAULT_ADDR must be https:\/\/ in production/)]);
+    const { steps, calls } = recorder();
+    await expect(runJob(plain, steps)).rejects.toThrow(/VAULT_ADDR must be https/);
+    expect(calls).toEqual([]);
+    expect(envProblems({ ...plain, VAULT_ADDR: 'https://vault:8200' })).toEqual([]);
+    expect(envProblems({ ...plain, NODE_ENV: 'development' })).toEqual([]);
+  });
 });

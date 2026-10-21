@@ -51,10 +51,13 @@ services:
     cap_add: [CHOWN, SETUID, SETGID, DAC_OVERRIDE, FOWNER]
     # The entrypoint's `server` already loads every file in /vault/config; adding -config twice binds twice.
     command: ['server']
-    ports: ['127.0.0.1:8200:8200']
+    # 8200 plain, for development; 8201 TLS, for the production images run against it (spec 0019 C1).
+    ports: ['127.0.0.1:8200:8200', '127.0.0.1:8201:8201']
     volumes:
       - vault-data:/vault/file
       - ./vault/dev.hcl:/vault/config/dev.hcl:ro
+      # The TLS listener's certificate and key (tools/vault-tls.mjs; `pnpm dev:infra` makes them first).
+      - ./vault/tls:/vault/tls:ro
     environment: { VAULT_ADDR: 'http://127.0.0.1:8200' }
 
   gotenberg:

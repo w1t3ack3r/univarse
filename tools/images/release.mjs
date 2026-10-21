@@ -19,6 +19,7 @@ import {
 import { cleanupRun, ensureService as ensure, newRun, stopIfStarted as stopStarted } from './release-cleanup.mjs';
 import { acquireRegistryLock } from './registry-lock.mjs';
 import { verifyRelease } from './verify-release.mjs';
+import { vaultTlsProblem } from './vault-tls.mjs';
 
 const argv = process.argv.slice(2);
 const flag = (n) => argv.includes(`--${n}`);
@@ -68,6 +69,9 @@ async function main() {
   for (const [p, what] of [[KEY, 'signing key'], [PUB, 'public key']]) if (!existsSync(p)) throw new Error(`${what} not found at ${p}`);
   const hostNet = sh('docker', ['run', '--rm', '--network', 'host', '--entrypoint', 'sh', TRIVY_IMAGE, '-c', 'nc -z -w 3 127.0.0.1 5432'], { allowFail: true });
   if (hostNet.status !== 0) throw new Error('Docker host networking is off (or Postgres is down). Docker Desktop: Settings → Resources → Network → Enable host networking, then Apply & restart.');
+  // Spec 0019 C1: the images refuse a plaintext Vault, so the smoke and journeys use the dev Vault's TLS listener.
+  const vaultTls = await vaultTlsProblem();
+  if (vaultTls) throw new Error(vaultTls);
   const password = process.env.COSIGN_PASSWORD ?? (await askHidden(`Password for ${KEY}: `));
   // LR5, checked now rather than after an hour of gates: the password opens the key, and it is cosign.pub's key.
   const keyProblem = signingKeyProblem({ key: KEY, pub: PUB, password });
