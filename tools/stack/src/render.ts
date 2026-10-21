@@ -43,14 +43,14 @@ function appCommon(s: StackSecrets, v: VaultTokens): EnvFile {
   return {
     NODE_ENV: 'production',
     LOG_LEVEL: 'info',
-    // The stack CA, for PgBouncer's and (PR C) Vault's certificates.
+    // The stack CA, for PgBouncer's and Vault's certificates.
     NODE_EXTRA_CA_CERTS: '/ca/ca.crt',
     PLATFORM_DATABASE_URL: url('univarse_app_platform', s.roles.appPlatform, BOUNCER, 'univarse_platform'),
     TENANT_POOL_01_DATABASE_URL: url('univarse_app', s.roles.app, BOUNCER, 'univarse_pool_01'),
     VALKEY_URL: `redis://:${enc(s.valkeyPassword)}@valkey:6379`,
     SESSION_PEPPER: s.sessionPepper,
     KEY_PROVIDER: 'vault',
-    VAULT_ADDR: 'http://vault:8200',
+    VAULT_ADDR: 'https://vault:8200', // C2: TLS only, verified against the stack CA (NODE_EXTRA_CA_CERTS)
     VAULT_TOKEN: v.appToken,
     S3_ENDPOINT: 'http://seaweedfs:8333',
     // PR B: browsers reach storage through Caddy over HTTPS (presigned URLs are signed for this origin).
@@ -101,7 +101,7 @@ export function renderEnvFiles(s: StackSecrets, v: VaultTokens): Readonly<Record
       TENANT_POOL_01_DATABASE_URL: url('univarse_app', s.roles.app, PG, 'univarse_pool_01', 'require'),
       SEED_DOMAIN: STACK_DOMAIN,
       KEY_PROVIDER: 'vault',
-      VAULT_ADDR: 'http://vault:8200',
+      VAULT_ADDR: 'https://vault:8200', // C2: TLS only, verified against the stack CA (NODE_EXTRA_CA_CERTS)
       VAULT_TOKEN: v.appToken,
     },
   };

@@ -135,8 +135,8 @@ export function realDeps(): DeployDeps {
     lock: (holder) => acquireRegistryLock(RELEASES, holder),
     verify: verifyRelease,
     prepare,
-    markApplied: () => {
-      markApplied();
+    markApplied: (services) => {
+      markApplied({ services });
     },
     scanThirdParty,
     compose,

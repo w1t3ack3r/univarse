@@ -177,6 +177,7 @@ CREATE TABLE audit_event (
 
 ## 8. Encryption of sensitive fields
 
+- **In the deployed path** (the local production-like stack, [spec 0019](specs/0019-local-production-stack.md) C2–C4): Vault is reached only over TLS, and its file audit device records every wrap and unwrap with values HMAC'd. A Vault that can't write its audit log refuses the request, and the provider reports `provider_unavailable` (fail closed, spec 0006 E6).
 - **Envelope encryption** ([spec 0006](specs/0006-envelope-encryption.md), [ADR-023](19-decision-log.md)):
   - **Keys:** a per-tenant data key (DEK) wrapped by a KEK in **Vault Transit**. The KEK is a derived `aes256-gcm96` key; the wrap context `univarse:dek:<tenantId>:<version>` binds each wrap to its tenant and version.
   - **Storage:** wrapped DEKs live in the **platform** DB (`tenant_data_key`), never in a tenant shard.

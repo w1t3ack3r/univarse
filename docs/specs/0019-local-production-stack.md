@@ -294,6 +294,39 @@ Only Caddy is on `edge`. It reaches the API and web over `app`. The web app's se
   - an unstated capability on any service (exact sets on Caddy and ClamAV).
 - **Unit:** `@univarse/stack` has 70 tests; `@univarse/web`'s unit tests include `e2e/env.spec`.
 
+## Implementation notes (PR C1)
+
+**Decisions made while implementing, for the owner's approval** (C1–C5 above were approved before it):
+
+1. **A changed Vault certificate restarts Vault at once.** A restart seals Vault, so it can't wait for the end of the deploy as the other services do. The deploy restarts it right after starting it, records that restart for Vault's volume alone, and stops with the usual "Vault is sealed: run `pnpm stack:vault unseal`". The next deploy doesn't restart it again. Every other pending restart is untouched by that early record.
+2. **The audit device comes first in Vault's setup**, so every later setup request is recorded too. It is enabled on an existing Vault by the next deploy (setup is idempotent).
+3. **The smoke proves the audit with Vault's own HMACs.** It asks `sys/audit-hash/file` (with the root token, inside the container) for the HMAC of its random test values, and finds exactly those in the log: the wrap's plaintext and context, and the unwrap's returned plaintext. It also checks that neither raw value is anywhere in the last 500 lines.
+4. **C4's throwaway Vault runs in server mode, as the stack's.** A dev-mode Vault exits with a panic on `SIGHUP`, even with a writable log, so it can't show the reopen. The test runs the stack's pinned image initialised, unsealed and set up by `vault.ts` itself, with the audit volume its own. It makes the log unwritable by its owner (no capability needed) and sends `SIGHUP` so Vault reopens it. Then Vault answers `500` and the app's provider fails closed, as `provider_unavailable`, after its one retry. Restored, Vault serves again.
+5. **`stack:e2e` and `stack:isolation` start Playwright and Vitest with Node directly, never a shell.** On Windows the shell read a `-g "W6|W10"` pattern as a pipe; arguments now arrive exactly as given.
+
+**Evidence (2026-10-21, local, release `0cf53d8`):**
+
+- **The first deploy** recreated Vault on TLS (healthy through the TLS healthcheck) and stopped sealed, as designed. After `pnpm stack:vault unseal`, which now goes over TLS, the deploy passed, its smoke including the audit check.
+- **`vault audit list`** shows `file/`.
+- **A plain HTTP request to `vault:8200` from the `app` network** got `400 Bad Request`: the listener speaks TLS only.
+- **The API and worker** run with `VAULT_ADDR=https://vault:8200`.
+- **The E2E suite: 34 of 34** over TLS Vault (desktop and mobile, with ClamAV for `[FU9]`, stopped after). During it, the audit log's `transit/decrypt` entries grew from 2 to 6: the app's own unwraps, after a restart had emptied its key caches, each logged with `hmac-sha256:` values. An earlier run straight after that restart failed two desktop sign-ins at the 5-second wait, a cold start. They passed in 36 of 36 repeats and in the final run.
+- **`pnpm stack:isolation`:** 4 of 4.
+- **C4, the throwaway Vault:** the app's own DEK wrap and unwrap were found in its audit log as HMACs, never in clear. With the log unwritable, wrap and unwrap each failed as `provider_unavailable`; restored, unwrap returned the 32-byte key.
+- **LS11 mutations, each killed:**
+  - the listener in plaintext;
+  - no TLS minimum;
+  - the healthcheck over HTTP;
+  - the audit log on no volume of its own;
+  - the app reaching Vault over HTTP;
+  - the audit check accepting values in clear, or a missing unwrap;
+  - no audit device configured;
+  - a Vault restart not recorded;
+  - an early Vault record clearing every pending restart.
+- **Unit:** `@univarse/stack` has 78 tests, `audit-failclosed.spec` included (it needs Docker, as `compose.spec` and `certs.spec` do).
+
+**Still to do, in C2:** C1's refusal of a plaintext `VAULT_ADDR` in production, the dev Vault's TLS listener for the production-image runs, and then a new release.
+
 ## Affected docs (in the implementation PRs)
 
 - **[10](../10-infrastructure-and-deployment.md):** a "local production-like stack" section: networks, commands, memory, the trust-store step, unsealing.

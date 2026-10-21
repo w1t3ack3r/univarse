@@ -165,6 +165,7 @@ pnpm stack:down                              # stop it; volumes are kept
   - PostgreSQL is on `db` with only PgBouncer and the migrate job;
   - the API and worker reach the database only through PgBouncer, over TLS verified against the stack CA.
 - **Memory:** the limits sum to at most 3.5 GB without ClamAV (`--profile scan`). Idle it uses about 0.6 GB (spec 0019's notes).
+- **Vault** listens only with TLS (the stack CA's certificate) and logs every request to its audit volume, values HMAC'd. If the audit log can't be written, Vault refuses requests and the app fails closed. A changed Vault certificate (after `stack:init --rotate`) restarts Vault, which comes back sealed: the deploy then asks for `pnpm stack:vault unseal`.
 - **Secrets** live only in `~/.univarse/stack/`: `secrets.json`, `vault-init.json` (Vault's unseal key and root token), `certs/` (the stack CA's key), `edge/` (the edge CA's key) and the rendered env files. `pnpm stack:init --rotate` replaces the secrets and internal certificates, and the next deploy applies them, restarting each service whose files changed. The edge CA changes only with `--rotate-edge`, after which it must be installed again. A PostgreSQL superuser password is fixed when the database volume is first created, so after rotating it, reset `univarse-stack_pgdata` (the stack's data is demo data).
 
 ## 5. Deployment process

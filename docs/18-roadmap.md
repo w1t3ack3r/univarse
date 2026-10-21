@@ -124,7 +124,7 @@ Each roadmap line checked against the repository, CI and the decision log.
 7. **The local production-like stack (ADR-030),** in this order:
    1. PgBouncer in the deployed path. **Built** (spec 0019 PR A2, 2026-10-20): the stack's API and worker reach PostgreSQL only through it, over verified TLS. PB1 through the stack's PgBouncer follows in PR B;
    2. local HTTPS edge with a local certificate authority (CSP and `Secure` cookies over HTTPS). **Built** (spec 0019 PR B, 2026-10-21): Caddy with a name-constrained edge CA, the redirect and HSTS at the edge; PB1 and PB2 pass through the stack's PgBouncer;
-   3. Vault with TLS and its audit device, running the `vault` provider (closes ADR-018);
+   3. Vault with TLS and its audit device, running the `vault` provider (closes ADR-018). **Partly built** (spec 0019 PR C1, 2026-10-21): the stack's Vault on TLS with its audit device, failing closed. **Still to do:** C2 (production refuses a plaintext Vault), then the new release on the stack, which closes ADR-018;
    4. a local deploy of verified digests. **Built** (spec 0019 PR A2, 2026-10-20; LS3's tests, and the first real deploy of `0cf53d8`). **Blocking, transferred from spec 0013 LR9.** The deploy:
       - holds the registry lock for the whole of verification and startup;
       - verifies the exact digests with `verifyRelease` before starting any container, against roles and Dockerfiles from trusted code and the commit from the deployment target;

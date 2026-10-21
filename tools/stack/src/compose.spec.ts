@@ -110,7 +110,7 @@ describe('[D9] Vault', () => {
     const test = svc('vault').healthcheck?.test ?? [];
     expect(test[0]).toBe('CMD-SHELL');
     // `vault status`: 0 unsealed, 2 sealed (or uninitialised), 1 unreachable; only 1 is unhealthy.
-    expect(test.slice(1).join(' ')).toMatch(/^vault status -address=http:\/\/127\.0\.0\.1:8200 .*\[ \$\$\? -ne 1 \]$/);
+    expect(test.slice(1).join(' ')).toMatch(/^vault status -address=https:\/\/127\.0\.0\.1:8200 .*\[ \$\$\? -ne 1 \]$/);
   });
 });
 
@@ -132,6 +132,24 @@ describe('[LS2] only digests', () => {
     const r = spawnSync('docker', ['compose', '-p', PROJECT, '-f', COMPOSE_FILE, 'config'], { encoding: 'utf8', env: { ...process.env, UNIVARSE_STACK_DIR: stackDir } });
     expect(r.status).not.toBe(0);
     expect(r.stderr).toMatch(/pnpm stack:deploy sets the verified image/);
+  });
+});
+
+describe('[LS8] Vault: TLS only, and its audit device on its own volume (C2, C3)', () => {
+  it('[LS8] Vault reads its certificate read-only and writes its audit log to its own volume; its healthcheck verifies TLS', () => {
+    const v = svc('vault') as Service & { healthcheck?: { test?: string[] } };
+    expect((v.volumes ?? []).find((m) => m.target === '/vault/tls')).toMatchObject({ source: 'vault-tls', read_only: true });
+    expect((v.volumes ?? []).find((m) => m.target === '/vault/logs')).toMatchObject({ source: 'vault-audit' });
+    expect((v.healthcheck?.test ?? []).join(' ')).toMatch(/-address=https:\/\/127\.0\.0\.1:8200 -ca-cert=\/vault\/tls\/ca\.crt -tls-server-name=vault/);
+  });
+
+  it('[LS8] its listener has TLS on (1.2 at least) and no plaintext switch; its API address is https', () => {
+    const hcl = readFileSync(join(COMPOSE_FILE, '..', 'vault', 'stack.hcl'), 'utf8').replace(/#.*$/gm, '');
+    expect(hcl).not.toMatch(/tls_disable/);
+    expect(hcl).toMatch(/tls_cert_file\s*=\s*"\/vault\/tls\/vault\.crt"/);
+    expect(hcl).toMatch(/tls_key_file\s*=\s*"\/vault\/tls\/vault\.key"/);
+    expect(hcl).toMatch(/tls_min_version\s*=\s*"tls12"/);
+    expect(hcl).toMatch(/api_addr\s*=\s*"https:\/\/vault:8200"/);
   });
 });
 

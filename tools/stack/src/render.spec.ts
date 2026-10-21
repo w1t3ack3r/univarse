@@ -76,5 +76,7 @@ describe('the edge and the containers', () => {
     expect(env('web.env')).toMatchObject({ HOSTNAME: '0.0.0.0', PORT: '3000', API_INTERNAL_URL: 'http://api:8080' });
     expect(env('api.env').S3_PUBLIC_ENDPOINT).toBe(`https://files.${STACK_DOMAIN}`);
     expect(env('migrate.env').SEED_DOMAIN).toBe(STACK_DOMAIN);
+    // LS8 (C2): every process that reaches Vault does so over TLS, verified against the stack CA.
+    for (const f of ['api.env', 'worker.env', 'migrate.env']) expect([f, env(f).VAULT_ADDR, env(f).NODE_EXTRA_CA_CERTS]).toEqual([f, 'https://vault:8200', '/ca/ca.crt']);
   });
 });

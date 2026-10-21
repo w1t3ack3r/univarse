@@ -46,7 +46,7 @@ function deps(over: Partial<DeployDeps> = {}, signed = SIGNED, vault: VaultState
     verify: (rec, { commit }) =>
       (realVerify as unknown as (r: ReleaseRecord, o: object) => Verification)(rec, { commit, pub: '/keys/cosign.pub', cosign: fakeCosign(signed) }),
     prepare: (withVault) => (calls.push(`prepare:${String(withVault)}`), []),
-    markApplied: () => void calls.push('markApplied'),
+    markApplied: (services) => void calls.push(services ? `markApplied:${services.join(',')}` : 'markApplied'),
     scanThirdParty: () => (calls.push('scan'), []),
     compose: (args) => (calls.push(`compose:${args.join(' ')}`), { status: 0 }),
     vaultState: () => (calls.push('vaultState'), vault),
@@ -157,6 +157,27 @@ describe('[LS3][LS4] a verified record: the order of the deploy', () => {
     expect(at('compose:restart caddy pgbouncer')).toBeLessThan(at('smoke'));
     // Recorded as loaded only after the restarts succeeded.
     expect(at('markApplied')).toBe(up + 3);
+  });
+
+  it('[LS8] a changed Vault certificate restarts Vault at once, records it, and stops for the owner to unseal', async () => {
+    let restarted = false;
+    const d = deps({
+      prepare: (withVault) => (calls.push(`prepare:${String(withVault)}`), withVault ? [] : ['vault']),
+      compose: (args) => (calls.push(`compose:${args.join(' ')}`), args[0] === 'restart' && (restarted = true), { status: 0 }),
+      vaultState: () => (calls.push('vaultState'), restarted ? 'sealed' : 'ready'),
+    });
+    const r = await deploy(record(), COMMIT, d);
+    expect(r.problems.join()).toMatch(/pnpm stack:vault unseal/);
+    const e = effects();
+    const at = (c: string) => e.indexOf(c);
+    expect(e.slice(at('compose:up -d --wait vault'), at('compose:up -d --wait vault') + 5)).toEqual([
+      'compose:up -d --wait vault',
+      'compose:restart vault',
+      'compose:up -d --wait vault',
+      'markApplied:vault',
+      'vaultState',
+    ]);
+    expect(calls.some((c) => c.includes('postgres'))).toBe(false);
   });
 
   it('[LS5] nothing changed: nothing restarts', async () => {
