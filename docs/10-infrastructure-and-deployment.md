@@ -139,6 +139,28 @@ Browse `http://demo-uni.univarse.localhost:3000`. `*.localhost` resolves to loop
 
 **Decision ([ADR-026](19-decision-log.md)):** keep 10 connections and the 2 s wait, now explicit. Shed the overflow as **503 `server.busy` + `Retry-After`** instead of a 500 (see [07 §2](07-data-and-database.md)). Add capacity with API replicas and shard resources ([§6](#6-scaling)). Repeat this measurement on the staging hardware before pilot. Its numbers, not these, size the replicas and PgBouncer.
 
+### 4.2 The local production-like stack ([spec 0019](specs/0019-local-production-stack.md), [ADR-030](19-decision-log.md))
+
+The release's verified images, run as production would run them, on this machine. It is separate from `pnpm dev`: its own PostgreSQL 18, Vault, Valkey, SeaweedFS and Mailpit, its own secrets, and no use of the root `.env`.
+
+```bash
+pnpm stack:init                              # once: secrets and the stack CA in ~/.univarse/stack (owner-only)
+pnpm stack:deploy releases/<record>.json     # verify the record, then migrate, start and smoke-check
+pnpm stack:vault unseal                      # after a restart (the deploy says when)
+pnpm stack:smoke                             # the smoke check again, on the running stack
+pnpm stack:down                              # stop it; volumes are kept
+```
+
+- **The address:** `http://demo-uni.stack.univarse.localhost` (Caddy on `127.0.0.1:80`; HTTPS is PR B). Mailpit is at `http://mail.stack.univarse.localhost`.
+- **The deploy only runs verified digests.** It holds the registry lock throughout, and it verifies the record with the committed public key before anything is created. A rejected record starts nothing.
+- **Networks:**
+  - only Caddy publishes a port;
+  - `app` and `db` are internal;
+  - PostgreSQL is on `db` with only PgBouncer and the migrate job;
+  - the API and worker reach the database only through PgBouncer, over TLS verified against the stack CA.
+- **Memory:** the limits sum to at most 3.5 GB without ClamAV (`--profile scan`). Idle it uses about 0.6 GB (spec 0019's notes).
+- **Secrets** live only in `~/.univarse/stack/`: `secrets.json`, `vault-init.json` (Vault's unseal key and root token), `certs/` (the stack CA's key) and the rendered env files. `pnpm stack:init --rotate` replaces the secrets and certificates; the next deploy applies them. A PostgreSQL superuser password is fixed when the database volume is first created, so after rotating it, reset `univarse-stack_pgdata` (the stack's data is demo data).
+
 ## 5. Deployment process
 
 1. Merge to `main` → CI builds, tests, scans, signs images → **staging deploy** (Helm upgrade, digests pinned) → migration job → smoke tests → e2e subset.

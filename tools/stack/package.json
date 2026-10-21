@@ -1,0 +1,21 @@
+{
+  "name": "@univarse/stack",
+  "version": "0.0.0",
+  "private": true,
+  "description": "The local production-like stack (spec 0019, ADR-030): secrets and certificates (stack:init), the verified deploy (stack:deploy), Vault (stack:vault), the smoke check. Runs the verified images by digest only.",
+  "type": "module",
+  "scripts": {
+    "init": "tsx src/init.ts",
+    "deploy": "tsx src/deploy.ts",
+    "vault": "tsx src/vault.ts",
+    "down": "tsx src/down.ts",
+    "smoke": "tsx src/smoke.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "eslint .",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "tsx": "^4.20.0",
+    "vitest": "^4.1.11"
+  }
+}
