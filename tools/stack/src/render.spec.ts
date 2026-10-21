@@ -74,7 +74,7 @@ describe('the edge and the containers', () => {
   it('the API and web listen inside their containers, and the API trusts forwarding only from Caddy and the web app', () => {
     expect(env('api.env')).toMatchObject({ HOST: '0.0.0.0', PORT: '8080', TRUSTED_PROXIES: `${CADDY_IP},${WEB_IP}`, NODE_ENV: 'production', KEY_PROVIDER: 'vault' });
     expect(env('web.env')).toMatchObject({ HOSTNAME: '0.0.0.0', PORT: '3000', API_INTERNAL_URL: 'http://api:8080' });
-    expect(env('api.env').S3_PUBLIC_ENDPOINT).toBe(`http://files.${STACK_DOMAIN}`);
+    expect(env('api.env').S3_PUBLIC_ENDPOINT).toBe(`https://files.${STACK_DOMAIN}`);
     expect(env('migrate.env').SEED_DOMAIN).toBe(STACK_DOMAIN);
   });
 });

@@ -2,5 +2,5 @@ import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
   resolve: { alias: { '@': new URL('./src', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1') } },
-  test: { include: ['src/**/*.spec.ts'], passWithNoTests: false },
+  test: { include: ['src/**/*.spec.ts', 'e2e/**/*.spec.ts'], passWithNoTests: false },
 });

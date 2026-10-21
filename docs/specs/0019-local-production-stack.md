@@ -216,6 +216,59 @@ Only Caddy is on `edge`. It reaches the API and web over `app`. The web app's se
 - spec 0017's PB1 run through the stack's PgBouncer;
 - LS10's peak during the E2E run, which runs against the stack over HTTPS in PR B.
 
+## Implementation notes (PR B)
+
+**Decisions made while implementing, for the owner's approval** (B1–B6 above were approved before it):
+
+1. **MFA test users enrol through the app (the owner's choice, 2026-10-21).** The fixtures' direct TOTP enrolment encrypts the secret with the tenant key through Vault, which the tunnel doesn't reach. In stack mode, `makeUser` signs in and makes the enrolment screens' own requests (begin, confirm, sign out) through Caddy, so the server encrypts the secret with its own Vault access. The confirm step's recovery codes serve the `recoveryCode` option. Nothing else is published.
+2. **A changed volume restarts the services that read it.** This is a bug in PR A's deploy, found here. The deploy refilled the certificate and configuration volumes but never restarted a running container, so PostgreSQL kept serving its old certificate after the internal CA was reissued: the migrate job failed verification, as it should. A rotation would have left Valkey and PgBouncer on the old secrets the same way. Now:
+   - `volumes.json` records each volume's content as filled and as loaded;
+   - a volume is filled only when its content changed (or it is missing);
+   - the services reading an unloaded volume restart: PostgreSQL before the migrate job, the rest once the stack is up;
+   - only then is the content recorded as loaded, so a deploy that stops early (a sealed Vault, a failed job) leaves the restart pending.
+
+   Shown live: the internal CA was reissued under a running stack, and the deploy restarted exactly PostgreSQL, PgBouncer, the API and the worker, and passed.
+3. **The smoke makes its own test invalidation**, as LS6 says. PR A's smoke relied on the seed's invalidations, which only a first deploy leaves. It failed honestly once the worker was recreated after they had been relayed. It now inserts and deletes a `tenant_domain` row under a reserved `.invalid` name, as the superuser inside the PostgreSQL container, and waits for the worker to log a relay after that moment.
+4. **PgBouncer's certificate names `localhost` and `127.0.0.1` too.** Through the tunnel, node-postgres passes TLS no host for an IP address, so Node checks the name `localhost`. `verify-full` holds; only the stack CA can issue it. The internal certificates carry a version, and an older set is reissued by the next `stack:init`.
+5. **The tunnel's forwarder is socat 1.8.1.3.** 1.8.0.3, first chosen, carried CVE-2026-56123, a CRITICAL heap overflow in socat itself (fixed in 1.8.1.2), plus four HIGH in OpenSSL. socat is the listening process, so it was refused rather than reported. 1.8.1.3 had 0 HIGH/CRITICAL on 2026-10-21.
+6. **Certificate lifetimes.** The edge CA lasts 825 days and Caddy's certificate 397 days (within what browsers accept). `--rotate` never touches the edge CA, which the owner trusts; `--rotate-edge` replaces it, and then it must be installed again.
+7. **`stack:init` upgrades in place.** A `secrets.json` from before PR B gains only PgBouncer's admin password; every other secret is kept, so no database reset is needed.
+8. **Before an E2E run, only the rate-limit counters (`rl:*`) in the stack's Valkey are cleared.** Caddy ignores the tests' `X-Forwarded-For`, as production would, so every test arrives from one address.
+
+**Evidence (2026-10-21, local, release `0cf53d8`):**
+
+- **The deploy over HTTPS:**
+  - #83's healthcheck made the first deploy stop at "Vault is sealed" (not "not reachable"); after `pnpm stack:vault unseal`, the deploy passed;
+  - the smoke verifies the certificate against the edge CA;
+  - HSTS appears exactly once, `max-age=63072000; includeSubDomains`, on `/login` and on an API answer;
+  - `/login` carries a nonce CSP;
+  - plain HTTP answers `308` to the same URL over HTTPS;
+  - the relay published the smoke's test invalidation.
+- **Live mutations of Caddy's configuration**, each failing the smoke:
+  - `preload` added: refused on both responses;
+  - `defer` removed: an API answer carried two HSTS headers, the edge's and the API's own `…; preload`. That is exactly what B1 prevents.
+- **LS5:**
+  - `pnpm stack:pools` showed one pool per role (`univarse_app_platform`, `univarse_relay_platform`, `univarse_app`) and the admin console, with no port published;
+  - with PgBouncer stopped, it failed with "PgBouncer is not reachable" (exit 1).
+- **B6, `pnpm stack:isolation`:** PB1 and PB2 passed through the stack's PgBouncer, 4 of 4:
+  - pooling is real at the stack's pool size;
+  - the swapped-tenant check fails;
+  - 1 000 interleaved reads each saw exactly their tenant's rows;
+  - a context-free query on a tenant's backend saw no context and no rows.
+
+  The fixtures were removed exactly. With PB2's tenant check weakened, the self-check failed (live mutation).
+- **B4, the tunnel:** after each run (passing, and two failing ones) no tunnel container or network remained, and `127.0.0.1:16432` refused connections.
+- **LS11 mutations, each killed by its test:**
+  - the edge CA without its name constraint;
+  - a second HSTS header, or `preload`, accepted;
+  - Caddy published on `0.0.0.0`;
+  - the tunnel on `0.0.0.0`, to PostgreSQL, or left after a failed run;
+  - stack mode falling back to `.env`, or starting with a setting missing;
+  - a changed certificate not restarting PostgreSQL;
+  - restarts recorded before they happen;
+  - a pending restart forgotten.
+- **Unit:** `@univarse/stack` has 70 tests; `@univarse/web`'s unit tests include `e2e/env.spec`.
+
 ## Affected docs (in the implementation PRs)
 
 - **[10](../10-infrastructure-and-deployment.md):** a "local production-like stack" section: networks, commands, memory, the trust-store step, unsealing.

@@ -22,6 +22,7 @@ import {
 } from '../src/tenant.js';
 import { loadRootEnv, REPO_ROOT, requireEnv } from '../scripts/env.js';
 import { ownerOnlyProblems } from '../scripts/pgbouncer-config.js';
+import { tenantRowProblems } from './tenant-rows.js';
 
 loadRootEnv();
 const BOUNCER_PLATFORM = requireEnv('PGBOUNCER_PLATFORM_DATABASE_URL');
@@ -126,20 +127,6 @@ describe('[PB1] transaction pooling is real (probe profile)', () => {
   }, 60_000);
 });
 
-/** Tenant rows as read, against what that tenant must see: exactly its ids, its values, its count. */
-export function tenantRowProblems(
-  rows: { tenantId: string; type: string }[],
-  expected: { tenantId: string; values: string[] },
-): string[] {
-  const problems: string[] = [];
-  if (rows.some((r) => r.tenantId !== expected.tenantId)) problems.push('a row of another tenant');
-  const values = rows.map((r) => r.type).sort();
-  if (JSON.stringify(values) !== JSON.stringify([...expected.values].sort()))
-    problems.push('the wrong values');
-  if (rows.length !== expected.values.length)
-    problems.push(`${rows.length} rows, expected ${expected.values.length}`);
-  return problems;
-}
 
 describe('[PB2] the tenant context never crosses clients (probe profile)', () => {
   let shard: TenantShardClient;

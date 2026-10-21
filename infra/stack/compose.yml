@@ -166,13 +166,15 @@ services:
     <<: *hardening
     # The image gives /usr/bin/caddy the file capability cap_net_bind_service, and the kernel refuses to exec a
     # binary whose file capabilities exceed the bounding set ("operation not permitted" under cap_drop ALL). So this
-    # one capability stays in the bounding set. Caddy listens on 8080 and never uses it; it is the stack's only
-    # cap_add (compose.spec and the smoke check hold that).
+    # one capability stays in the bounding set. Caddy listens on 8080 and 8443 and never uses it; it is the stack's
+    # only cap_add (compose.spec and the smoke check hold that).
     cap_add: [NET_BIND_SERVICE]
     user: '65532:65532'
-    ports: ['127.0.0.1:80:8080']
+    # PR B: HTTPS on 443, and 80 only to redirect to it.
+    ports: ['127.0.0.1:443:8443', '127.0.0.1:80:8080']
     volumes:
       - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-tls:/etc/caddy/tls:ro
       - caddy-data:/data
     tmpfs: ['/tmp:rw,noexec,nosuid,size=64m', '/config:rw,noexec,nosuid,size=4m']
     # The only container on `edge`, the only one with a published port. It reaches everything else over `app`,
@@ -203,3 +205,4 @@ volumes:
   valkey-conf: { external: true, name: univarse-stack-valkey-conf }
   seaweedfs-conf: { external: true, name: univarse-stack-seaweedfs-conf }
   stack-ca: { external: true, name: univarse-stack-ca }
+  caddy-tls: { external: true, name: univarse-stack-caddy-tls }

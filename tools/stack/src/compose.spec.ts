@@ -20,7 +20,7 @@ interface Service {
   user?: string;
   networks?: Record<string, unknown>;
   ports?: { host_ip?: string; published?: string; target: number }[];
-  volumes?: { type: string; source?: string; target: string }[];
+  volumes?: { type: string; source?: string; target: string; read_only?: boolean }[];
   healthcheck?: { test?: string[] };
 }
 interface Config {
@@ -60,6 +60,12 @@ describe('[LS1] the shape', () => {
     for (const p of svc('caddy').ports ?? []) expect(p.host_ip).toBe('127.0.0.1');
     const onEdge = Object.entries(config.services).filter(([, s]) => 'edge' in (s.networks ?? {})).map(([n]) => n);
     expect(onEdge).toEqual(['caddy']);
+  });
+
+  it('[LS1][LS7] Caddy publishes exactly HTTPS (443) and the redirect (80), and reads its certificate read-only', () => {
+    const ports = (svc('caddy').ports ?? []).map((p) => `${p.host_ip ?? ''}:${String(p.published)}->${String(p.target)}`).sort();
+    expect(ports).toEqual(['127.0.0.1:443->8443', '127.0.0.1:80->8080']);
+    expect((svc('caddy').volumes ?? []).find((v) => v.target === '/etc/caddy/tls')).toMatchObject({ source: 'caddy-tls', read_only: true });
   });
 
   it('[LS1] the app and db networks are internal; PostgreSQL is on db only, shared with PgBouncer and the migrate job', () => {

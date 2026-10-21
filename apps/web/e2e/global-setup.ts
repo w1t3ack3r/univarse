@@ -4,6 +4,8 @@ import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 export default function globalSetup(): () => void {
+  // Spec 0019 B4: against the stack, its own worker delivers the mail.
+  if (process.env.E2E_STACK === '1') return () => undefined;
   const repo = fileURLToPath(new URL('../../..', import.meta.url));
   // Spec 0013 CS5: with E2E_API_IMAGE set, the worker is the built image under the CI hardening.
   const image = process.env.E2E_API_IMAGE;

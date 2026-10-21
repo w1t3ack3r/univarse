@@ -125,6 +125,8 @@ Revisit the threat model at the start of every roadmap phase. New modules add ro
 | `Cross-Origin-Resource-Policy` | `same-origin` (API) |
 | `Cache-Control` | `no-store` on authenticated API responses and pages with personal data |
 
+**HSTS on the local stack ([spec 0019](specs/0019-local-production-stack.md) B1):** Caddy sets `max-age=63072000; includeSubDomains`, with no `preload`, on every response, replacing what the app sent. **Production's value, `preload` included, is an open decision before the pilot:** preloading is hard to reverse, and `includeSubDomains` already commits every subdomain to HTTPS. Before production, every affected subdomain must be shown to serve HTTPS, with no legitimate service relying on HTTP.
+
 CSP starts in `report-only` mode in staging, reports go to an endpoint, and it's enforced before Phase 3 pilots.
 
 ## 7. File uploads
@@ -167,6 +169,7 @@ Built in [spec 0010](specs/0010-file-uploads.md).
 - Prod/staging secrets live in a cloud secret manager (AWS Secrets Manager / GCP Secret Manager / Vault). They're delivered to workloads via External Secrets Operator (k8s) or injected env at deploy time (compose), and rotated at least annually or immediately on suspicion.
 - Distinct secrets per environment. Dev secrets are useless in prod.
 - DB credentials: separate users per service role ([07 §1](07-data-and-database.md)). Prefer IAM/short-lived credentials where the provider supports them.
+- **The local stack's keys** ([spec 0019](specs/0019-local-production-stack.md) D9, B2) live only in `~/.univarse/stack/`, owner-only: the internal stack CA's key, the edge CA's key (never in a container), Vault's unseal share and root token, and every generated password. The owner trusts the edge CA in their user's root store. It is name-constrained to `stack.univarse.localhost`, so its key can't be used to impersonate any other site to that browser.
 - gitleaks runs in pre-commit and CI. A detected secret = rotate first, then clean history.
 - **The invalidation relay's role reaches only the worker** ([spec 0016](specs/0016-platform-invalidation-outbox.md) IO17): `pnpm db:setup` writes `PLATFORM_RELAY_URL` to the git-ignored `.env.worker`, never to the root `.env` that the API's development preload loads; only `worker.ts` loads it; worker containers receive it by name, API containers never; and the API refuses to start with it set.
 

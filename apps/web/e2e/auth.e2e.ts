@@ -4,7 +4,7 @@
  */
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
-import { animationsSettled, cleanup, clearReplayGuard, currentTotp, hostUrl, makeUser, PASSWORD, randomClientIp } from './fixtures';
+import { animationsSettled, cleanup, clearReplayGuard, currentTotp, E2E, hostUrl, makeUser, PASSWORD, randomClientIp } from './fixtures';
 
 const DEMO = hostUrl('demo-uni');
 const POLY = hostUrl('test-poly');
@@ -123,6 +123,27 @@ test('[W2] the session cookie is HttpOnly and nothing is kept in web storage', a
     readable: document.cookie,
   }));
   expect(stored).toEqual({ local: [], session: [], readable: '' });
+});
+
+test('[LS7] over HTTPS on the stack: HSTS exactly once, without preload, on pages and API answers; the session cookie is __Host-, Secure, HttpOnly, SameSite=Lax', async ({ page, context }) => {
+  test.skip(!E2E.stack, 'the stack run only (spec 0019 B1): the dev edge serves plain HTTP');
+  const hsts = (headers: { name: string; value: string }[]) => headers.filter((h) => h.name.toLowerCase() === 'strict-transport-security').map((h) => h.value);
+  const pageRes = await page.goto(`${DEMO}/login`);
+  expect(hsts(await pageRes!.headersArray())).toEqual(['max-age=63072000; includeSubDomains']);
+  // The API sends its production value; the edge replaces it (B1).
+  const apiRes = await page.request.get(`${DEMO}/api/v1/tenant/public-profile`);
+  expect(hsts(apiRes.headersArray())).toEqual(['max-age=63072000; includeSubDomains']);
+  const u = await makeUser('demo-uni', { role: 'STUDENT' });
+  await signIn(page, DEMO, u.username);
+  await expect(page).toHaveURL(`${DEMO}/workspace`);
+  const sid = (await context.cookies(DEMO)).find((c) => c.name === '__Host-uv_sid');
+  expect({ secure: sid?.secure, httpOnly: sid?.httpOnly, sameSite: sid?.sameSite, path: sid?.path, domain: sid?.domain }).toEqual({
+    secure: true,
+    httpOnly: true,
+    sameSite: 'Lax',
+    path: '/',
+    domain: new URL(DEMO).hostname, // __Host-: host-only, no Domain attribute
+  });
 });
 
 test('[W8] pages carry the nonce CSP and security headers, with no CSP violations', async ({ page }) => {

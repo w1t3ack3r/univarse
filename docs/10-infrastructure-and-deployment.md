@@ -144,14 +144,20 @@ Browse `http://demo-uni.univarse.localhost:3000`. `*.localhost` resolves to loop
 The release's verified images, run as production would run them, on this machine. It is separate from `pnpm dev`: its own PostgreSQL 18, Vault, Valkey, SeaweedFS and Mailpit, its own secrets, and no use of the root `.env`.
 
 ```bash
-pnpm stack:init                              # once: secrets and the stack CA in ~/.univarse/stack (owner-only)
+pnpm stack:init                              # once: secrets, the stack CA and the edge CA in ~/.univarse/stack (owner-only)
+pnpm stack:trust                             # the edge CA's fingerprint, and how to install (and remove) it: your step
 pnpm stack:deploy releases/<record>.json     # verify the record, then migrate, start and smoke-check
 pnpm stack:vault unseal                      # after a restart (the deploy says when)
 pnpm stack:smoke                             # the smoke check again, on the running stack
+pnpm stack:pools                             # PgBouncer's SHOW POOLS, from inside the stack
+pnpm stack:isolation                         # spec 0017's PB1 and PB2 through the stack's PgBouncer
+pnpm stack:e2e                               # the Playwright suite against the stack over HTTPS
 pnpm stack:down                              # stop it; volumes are kept
 ```
 
-- **The address:** `http://demo-uni.stack.univarse.localhost` (Caddy on `127.0.0.1:80`; HTTPS is PR B). Mailpit is at `http://mail.stack.univarse.localhost`.
+- **The address:** `https://demo-uni.stack.univarse.localhost` (Caddy on `127.0.0.1:443`; `:80` only redirects). Mailpit is at `https://mail.stack.univarse.localhost`.
+- **Trust:** the certificate comes from UniVarse's own edge CA, which can vouch only for `stack.univarse.localhost` and its subdomains. Install it in your user's trust store after checking its fingerprint (`pnpm stack:trust` prints the commands, including removal). Chrome and Edge use that store; Firefox keeps its own. Verification is never disabled.
+- **Tests against the stack:** `stack:e2e` and `stack:isolation` open a temporary tunnel that publishes PgBouncer (never PostgreSQL) on `127.0.0.1:16432` for the run only, with TLS and passwords still required. It is removed afterwards, even after a failure, and checked gone. Their settings come from `~/.univarse/stack`, never the root `.env`.
 - **The deploy only runs verified digests.** It holds the registry lock throughout, and it verifies the record with the committed public key before anything is created. A rejected record starts nothing.
 - **Networks:**
   - only Caddy publishes a port;
@@ -159,7 +165,7 @@ pnpm stack:down                              # stop it; volumes are kept
   - PostgreSQL is on `db` with only PgBouncer and the migrate job;
   - the API and worker reach the database only through PgBouncer, over TLS verified against the stack CA.
 - **Memory:** the limits sum to at most 3.5 GB without ClamAV (`--profile scan`). Idle it uses about 0.6 GB (spec 0019's notes).
-- **Secrets** live only in `~/.univarse/stack/`: `secrets.json`, `vault-init.json` (Vault's unseal key and root token), `certs/` (the stack CA's key) and the rendered env files. `pnpm stack:init --rotate` replaces the secrets and certificates; the next deploy applies them. A PostgreSQL superuser password is fixed when the database volume is first created, so after rotating it, reset `univarse-stack_pgdata` (the stack's data is demo data).
+- **Secrets** live only in `~/.univarse/stack/`: `secrets.json`, `vault-init.json` (Vault's unseal key and root token), `certs/` (the stack CA's key), `edge/` (the edge CA's key) and the rendered env files. `pnpm stack:init --rotate` replaces the secrets and internal certificates, and the next deploy applies them, restarting each service whose files changed. The edge CA changes only with `--rotate-edge`, after which it must be installed again. A PostgreSQL superuser password is fixed when the database volume is first created, so after rotating it, reset `univarse-stack_pgdata` (the stack's data is demo data).
 
 ## 5. Deployment process
 

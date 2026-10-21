@@ -14,6 +14,9 @@ const webImage = process.env.E2E_WEB_IMAGE;
 const images = Boolean(apiImage && webImage);
 // Inside a local release run, container names carry the run's ID, so only that run's containers are touched.
 const run = process.env.UV_RELEASE_RUN ? `-${process.env.UV_RELEASE_RUN}` : '';
+// Spec 0019 B4: `pnpm stack:e2e` runs the suite against the local production-like stack over HTTPS; nothing is started
+// here then: the stack's API, web and worker already run behind Caddy.
+const stack = process.env.E2E_STACK === '1';
 
 export default defineConfig({
   testDir: './e2e',
@@ -29,7 +32,7 @@ export default defineConfig({
     { name: 'desktop', use: { ...devices['Desktop Chrome'], ...channel } },
     { name: 'mobile', use: { ...devices['Pixel 7'], viewport: { width: 375, height: 812 }, ...channel } },
   ],
-  webServer: [
+  webServer: stack ? [] : [
     {
       command: images ? `node tools/images/run-container.mjs uv-e2e-api${run} ${apiImage} PORT=8099 TRUSTED_PROXIES=127.0.0.1` : 'node tools/dev-edge/start-api.mjs',
       cwd: repo,

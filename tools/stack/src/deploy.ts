@@ -20,8 +20,13 @@ export interface DeployDeps {
   registry(): () => void;
   lock(holder: string): { release(): void };
   verify(record: ReleaseRecord, opts: { commit: string }): Verification;
-  /** Renders the env files and configuration (with Vault's app token once it exists) and fills the volumes. */
-  prepare(withVault: boolean): void;
+  /**
+   * Renders the env files and configuration (with Vault's app token once it exists) and fills the volumes whose content
+   * changed. Returns the services reading a changed volume: they must restart to load it.
+   */
+  prepare(withVault: boolean): string[];
+  /** Records that the restarted services have loaded their volumes' content (prepare stops naming them). */
+  markApplied(): void;
   /** D8: scans the third-party images and returns report lines; never blocks. */
   scanThirdParty(): string[];
   compose(args: readonly string[], images: Readonly<Record<string, string>>): { status: number };
@@ -71,7 +76,7 @@ export async function deploy(record: ReleaseRecord, commit: string, deps: Deploy
     deps.log(`[stack:deploy] verified ${Object.keys(images).length} images for ${commit.slice(0, 7)}: ${Object.values(images).join(', ')}`);
 
     // ── Configuration, then Vault (it holds the KEK the migrate job and the API need).
-    deps.prepare(false);
+    const restart = new Set(deps.prepare(false));
     for (const line of deps.scanThirdParty()) deps.log(line);
     if (deps.compose(['up', '-d', '--wait', 'vault'], images).status !== 0) return { ok: false, problems: ['Vault did not start'] };
     const vault = deps.vaultState();
@@ -79,10 +84,16 @@ export async function deploy(record: ReleaseRecord, commit: string, deps: Deploy
     if (vault === 'absent') return { ok: false, problems: ['Vault is not reachable'] };
     if (vault === 'uninitialised') deps.log('[stack:deploy] first deploy: initialising Vault (its keys are saved owner-only in the stack directory)');
     deps.ensureVault();
-    deps.prepare(true);
+    for (const s of deps.prepare(true)) restart.add(s);
 
     // ── LS4: the database, then the migrate job, before the API, worker and web; a failed job starts nothing new.
     if (deps.compose(['up', '-d', '--wait', 'postgres'], images).status !== 0) return { ok: false, problems: ['PostgreSQL did not become healthy'] };
+    // A running PostgreSQL keeps its old certificate until restarted (a reissued stack CA would fail PgBouncer's check).
+    if (restart.has('postgres')) {
+      deps.log('[stack:deploy] restarting postgres: its certificate or configuration changed');
+      if (deps.compose(['restart', 'postgres'], images).status !== 0 || deps.compose(['up', '-d', '--wait', 'postgres'], images).status !== 0)
+        return { ok: false, problems: ['PostgreSQL did not restart healthy'] };
+    }
     if (deps.compose(['--profile', 'job', 'run', '--rm', 'migrate'], images).status !== 0)
       return { ok: false, problems: ['the migrate job failed: nothing new was started (its output is above)'] };
 
@@ -94,6 +105,14 @@ export async function deploy(record: ReleaseRecord, commit: string, deps: Deploy
     // ── The stack. Containers whose image changed are replaced; the rest stay.
     if (deps.compose(['up', '-d', '--wait', '--remove-orphans', ...SERVICES], images).status !== 0)
       return { ok: false, problems: ['the stack did not start (see `docker compose -p univarse-stack ps`)'] };
+    // Services reading a changed volume (a rotated password or certificate) load it only at start.
+    const others = [...restart].filter((s) => s !== 'postgres').sort();
+    if (others.length) {
+      deps.log(`[stack:deploy] restarting ${others.join(', ')}: their certificates or configuration changed`);
+      if (deps.compose(['restart', ...others], images).status !== 0 || deps.compose(['up', '-d', '--wait', ...SERVICES], images).status !== 0)
+        return { ok: false, problems: [`${others.join(', ')} did not restart healthy`] };
+    }
+    deps.markApplied();
 
     // ── LS6: the smoke check.
     const smoke = await deps.smoke();

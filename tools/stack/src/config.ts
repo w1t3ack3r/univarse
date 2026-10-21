@@ -27,6 +27,15 @@ export const THIRD_PARTY = Object.freeze({
   caddy: 'caddy:2.11.7@sha256:685ae3d7c34d9b5f8caeddc5d14051db7bbd88ff1f5a2fa0c16bd8ca328fb7af',
 });
 
+/**
+ * B4: the E2E tunnel's forwarder (resolved from alpine/socat:1.8.1.3 on 2026-10-21; 0 HIGH/CRITICAL then), scanned
+ * with the others (D8). 1.8.0.3 was refused: CVE-2026-56123, a CRITICAL heap overflow in socat itself, the process that
+ * listens. Not a compose service: it exists only while `stack:e2e` or `stack:isolation` holds the tunnel.
+ */
+export const TUNNEL_IMAGE = 'alpine/socat:1.8.1.3@sha256:22d77becaeeea8ef56b8c4bb2312323acafe85354be6a85714ff5050e3537842';
+/** B4: where the tunnel publishes PgBouncer, on 127.0.0.1 only, during a test run only. */
+export const TUNNEL_PORT = 16432;
+
 /** The compose variables the verified record fills, per release role (LS2: the compose file names no UniVarse image). */
 export const ROLE_VARS = Object.freeze({
   api: 'UNIVARSE_API_IMAGE',
