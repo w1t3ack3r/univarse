@@ -25,8 +25,11 @@ export interface DeployDeps {
    * changed. Returns the services reading a changed volume: they must restart to load it.
    */
   prepare(withVault: boolean): string[];
-  /** Records that the restarted services have loaded their volumes' content (prepare stops naming them). */
-  markApplied(): void;
+  /**
+   * Records that the restarted services have loaded their volumes' content (prepare stops naming them): all of them,
+   * or only the volumes read by `services` alone.
+   */
+  markApplied(services?: readonly string[]): void;
   /** D8: scans the third-party images and returns report lines; never blocks. */
   scanThirdParty(): string[];
   compose(args: readonly string[], images: Readonly<Record<string, string>>): { status: number };
@@ -79,6 +82,15 @@ export async function deploy(record: ReleaseRecord, commit: string, deps: Deploy
     const restart = new Set(deps.prepare(false));
     for (const line of deps.scanThirdParty()) deps.log(line);
     if (deps.compose(['up', '-d', '--wait', 'vault'], images).status !== 0) return { ok: false, problems: ['Vault did not start'] };
+    // A changed certificate (C2) loads only at start, and a restarted Vault is sealed: restart it now, record it at
+    // once (so the next deploy doesn't restart it again), and let the sealed state below ask for the owner's unseal.
+    if (restart.has('vault')) {
+      deps.log('[stack:deploy] restarting vault: its certificate changed (it comes back sealed)');
+      if (deps.compose(['restart', 'vault'], images).status !== 0 || deps.compose(['up', '-d', '--wait', 'vault'], images).status !== 0)
+        return { ok: false, problems: ['Vault did not restart'] };
+      deps.markApplied(['vault']);
+      restart.delete('vault');
+    }
     const vault = deps.vaultState();
     if (vault === 'sealed') return { ok: false, problems: ['Vault is sealed: run `pnpm stack:vault unseal`, then deploy again (spec 0019 D9)'] };
     if (vault === 'absent') return { ok: false, problems: ['Vault is not reachable'] };

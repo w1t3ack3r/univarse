@@ -3,6 +3,7 @@
 // verification), clears only the stack's rate-limit counters, then runs the suite with the tunnel open and settings
 // from STACK_DIR (never the root .env). The tunnel is removed afterwards, whatever happened, and checked gone.
 import { spawn } from 'node:child_process';
+import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { PROJECT, REPO } from './config.js';
 import { docker, type Runner } from './docker.js';
@@ -29,14 +30,19 @@ export function clearRateLimits(run: Runner = docker): void {
 /** The owner's Playwright arguments (a file, -g, --project), without a leading `--` a package script may pass on. */
 export const playwrightArgs = (argv: readonly string[]): string[] => (argv[0] === '--' ? argv.slice(1) : [...argv]);
 
-/** Runs a command to completion with these extra variables; resolves with its exit code. */
-export function runWith(cmd: string, args: readonly string[], env: Record<string, string>): Promise<number> {
+/**
+ * Runs a Node CLI (a script path) to completion in `cwd` with these extra variables; resolves with its exit code.
+ * Node itself runs it, never a shell, so the owner's arguments (a `-g` pattern with `|`, say) arrive exactly as given.
+ */
+export function runNode(script: string, args: readonly string[], cwd: string, env: Record<string, string>): Promise<number> {
   return new Promise((resolve, reject) => {
-    const child = spawn(cmd, args, { cwd: REPO, stdio: 'inherit', shell: process.platform === 'win32', env: { ...process.env, ...env } });
+    const child = spawn(process.execPath, [script, ...args], { cwd, stdio: 'inherit', env: { ...process.env, ...env } });
     child.once('error', reject);
     child.once('exit', (code) => resolve(code ?? 1));
   });
 }
+export const WEB = join(REPO, 'apps', 'web');
+export const PLAYWRIGHT = join(WEB, 'node_modules', '@playwright', 'test', 'cli.js');
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const problems = stackProblems();
@@ -49,7 +55,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   clearRateLimits();
   const env = testEnv(loadSecrets(), writeCaBundle());
   try {
-    const code = await withTunnel(() => runWith('pnpm', ['--filter', '@univarse/web', 'exec', 'playwright', 'test', ...playwrightArgs(process.argv.slice(2))], env));
+    const code = await withTunnel(() => runNode(PLAYWRIGHT, ['test', ...playwrightArgs(process.argv.slice(2))], WEB, env));
     console.log('[stack:e2e] the tunnel was removed and is gone (no container; 127.0.0.1 port closed)');
     process.exit(code);
   } catch (e) {

@@ -113,5 +113,11 @@ describe('[LS5] which volumes changed', () => {
     missing.add('univarse-stack-caddy-tls');
     expect(fillVolumes({ dir, run })).toEqual(['caddy']);
     expect(filled).toEqual(['univarse-stack-caddy-tls']);
+    markApplied({ dir });
+    // A reissued internal CA: Vault is recorded early on its own (a restart seals it); PgBouncer's stays pending.
+    writeFileSync(join(dir, 'certs/ca.crt'), 'a new stack CA');
+    expect(new Set(fillVolumes({ dir, run }))).toEqual(new Set(['pgbouncer', 'api', 'worker', 'vault']));
+    markApplied({ dir, services: ['vault'] });
+    expect(new Set(fillVolumes({ dir, run }))).toEqual(new Set(['pgbouncer', 'api', 'worker']));
   });
 });

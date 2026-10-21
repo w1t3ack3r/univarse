@@ -3,6 +3,7 @@
 //     API health, a tenant request answered for its tenant, the web app's /login;
 //   • HSTS exactly once, `max-age=63072000; includeSubDomains`, on a page and an API answer (B1); /login carries a
 //     nonce CSP; plain HTTP on 127.0.0.1:80 redirects (308) to the same URL over HTTPS;
+//   • C3: a Transit wrap and unwrap with the app's token are in Vault's audit log as HMACs, never in clear;
 //   • the worker started, and its relay published the smoke's own test invalidation (LS6);
 //   • the API's and worker's stdout is JSON lines only;
 //   • LS1, inspected on the running containers: only Caddy publishes ports (127.0.0.1), the API/worker/web have no
@@ -18,6 +19,7 @@ import { edgeDir } from './certs.js';
 import { PROJECT, STACK_DOMAIN } from './config.js';
 import { docker } from './docker.js';
 import { loadSecrets } from './secrets.js';
+import { AUDIT_LOG, loadVaultInit, VAULT_CONTAINER, vaultCli } from './vault.js';
 
 interface Res {
   status: number;
@@ -77,6 +79,57 @@ function testInvalidation(): void {
   const host = `smoke-${randomBytes(6).toString('hex')}.invalid`;
   const sql = `INSERT INTO tenant_domain (tenant_id, hostname, kind) SELECT id, '${host}', 'CUSTOM' FROM tenant WHERE slug = 'demo-uni'; DELETE FROM tenant_domain WHERE hostname = '${host}';`;
   docker(['exec', '-e', 'PGPASSWORD', container('postgres'), 'psql', '-U', 'postgres', '-d', 'univarse_platform', '-v', 'ON_ERROR_STOP=1', '-q', '-c', sql], { env: { PGPASSWORD: loadSecrets().postgresSuperuser } });
+}
+
+interface AuditEntry {
+  type?: string;
+  request?: { path?: string; data?: Record<string, unknown> };
+  response?: { data?: Record<string, unknown> };
+}
+export interface AuditProbe {
+  /** The raw test values (base64, as Transit takes them): they must never appear in the log. */
+  readonly plain: string;
+  readonly context: string;
+  /** Vault's own HMAC of each (`sys/audit-hash/file`): what the log must hold instead. */
+  readonly plainHmac: string;
+  readonly contextHmac: string;
+}
+
+/**
+ * C3: the audit log holds the probe's wrap (its plaintext and context as their HMACs) and its unwrap (the plaintext
+ * it returned, as its HMAC), and neither raw value anywhere.
+ */
+export function auditProblems(log: string, p: AuditProbe): string[] {
+  const problems: string[] = [];
+  if (log.includes(p.plain) || log.includes(p.context)) problems.push('the audit log holds a value in clear');
+  const entries = log.split('\n').flatMap((l): AuditEntry[] => {
+    try {
+      return l.trim() ? [JSON.parse(l) as AuditEntry] : [];
+    } catch {
+      return [];
+    }
+  });
+  const logged = (type: 'request' | 'response', op: 'encrypt' | 'decrypt', field: string, hmac: string) =>
+    entries.some((e) => e.type === type && e.request?.path === `transit/${op}/univarse-kek` && (type === 'request' ? e.request.data : e.response?.data)?.[field] === hmac);
+  if (!logged('request', 'encrypt', 'plaintext', p.plainHmac) || !logged('request', 'encrypt', 'context', p.contextHmac)) problems.push('the wrap is not in the audit log as HMACs');
+  if (!logged('response', 'decrypt', 'plaintext', p.plainHmac)) problems.push('the unwrap is not in the audit log as an HMAC');
+  return problems;
+}
+
+/** C3's live check: a Transit wrap and unwrap with the app's own token, of the app's shape, then the audit log. */
+function auditCheck(): string[] {
+  const { appToken, rootToken } = loadVaultInit();
+  const plain = randomBytes(32).toString('base64');
+  const context = Buffer.from(`univarse:smoke:${randomBytes(8).toString('hex')}:1`).toString('base64');
+  const app = { VAULT_TOKEN: appToken };
+  const enc = vaultCli(docker, ['write', '-format=json', 'transit/encrypt/univarse-kek', `plaintext=${plain}`, `context=${context}`], app);
+  if (enc.status !== 0) return ['the app token could not wrap through Transit'];
+  const ciphertext = (JSON.parse(enc.stdout) as { data: { ciphertext: string } }).data.ciphertext;
+  const dec = vaultCli(docker, ['write', '-format=json', 'transit/decrypt/univarse-kek', `ciphertext=${ciphertext}`, `context=${context}`], app);
+  if (dec.status !== 0 || (JSON.parse(dec.stdout) as { data: { plaintext: string } }).data.plaintext !== plain) return ['the app token could not unwrap through Transit'];
+  const hmac = (input: string) => (JSON.parse(vaultCli(docker, ['write', '-format=json', 'sys/audit-hash/file', `input=${input}`], { VAULT_TOKEN: rootToken }).stdout) as { data: { hash: string } }).data.hash;
+  const log = docker(['exec', VAULT_CONTAINER, 'tail', '-n', '500', AUDIT_LOG], { allowFail: true }).stdout;
+  return auditProblems(log, { plain, context, plainHmac: hmac(plain), contextHmac: hmac(context) });
 }
 
 /** Each non-empty stdout line parses as a JSON object. */
@@ -183,6 +236,8 @@ export async function smoke(): Promise<string[]> {
     problems = await probe(since);
   }
   for (const s of ['api', 'worker']) if (!jsonLinesOnly(logsOf(s).stdout)) problems.push(`${s}: stdout is not JSON lines only`);
+  // C3: Vault's audit device records a wrap and an unwrap, HMAC'd, never in clear.
+  problems.push(...auditCheck());
 
   const ids = docker(['ps', '-q', '--filter', `label=com.docker.compose.project=${PROJECT}`]).stdout.trim().split('\n').filter(Boolean);
   if (ids.length) problems.push(...inspectProblems(JSON.parse(docker(['inspect', ...ids]).stdout) as Inspect[]));
@@ -195,5 +250,5 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     for (const p of problems) console.error(`[stack:smoke] FAIL ${p}`);
     process.exit(1);
   }
-  console.log('[stack:smoke] PASS: HTTPS (verified), the redirect and HSTS, health, tenant, /login, worker and relay, JSON logs, and the hardened shape (LS1, LS6, LS7)');
+  console.log('[stack:smoke] PASS: HTTPS (verified), the redirect and HSTS, Vault audit (HMACs only), health, tenant, /login, worker and relay, JSON logs, and the hardened shape (LS1, LS6, LS7)');
 }

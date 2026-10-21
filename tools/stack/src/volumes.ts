@@ -35,6 +35,12 @@ export const VOLUMES: Readonly<Record<string, readonly VolumeFile[]>> = Object.f
   'univarse-stack-seaweedfs-conf': [{ from: 'rendered/s3.json', to: 's3.json', owner: '1000:1000', mode: '0600' }],
   // The CA certificate only (never its key): the API, worker and migrate job trust it (NODE_EXTRA_CA_CERTS).
   'univarse-stack-ca': [{ from: 'certs/ca.crt', to: 'ca.crt', owner: '0:0', mode: '0644' }],
+  // C2: Vault's certificate and key, and the stack CA for its own CLI and healthcheck.
+  'univarse-stack-vault-tls': [
+    { from: 'certs/vault.crt', to: 'vault.crt', owner: '100:1000', mode: '0644' },
+    { from: 'certs/vault.key', to: 'vault.key', owner: '100:1000', mode: '0600' },
+    { from: 'certs/ca.crt', to: 'ca.crt', owner: '100:1000', mode: '0644' },
+  ],
   // B2: Caddy's wildcard certificate and its key. The edge CA's key stays in STACK_DIR/edge.
   'univarse-stack-caddy-tls': [
     { from: 'edge/edge.crt', to: 'edge.crt', owner: '65532:65532', mode: '0644' },
@@ -64,6 +70,7 @@ export const VOLUME_SERVICES: Readonly<Record<string, readonly string[]>> = Obje
   'univarse-stack-seaweedfs-conf': ['seaweedfs'],
   'univarse-stack-ca': ['api', 'worker'],
   'univarse-stack-caddy-tls': ['caddy'],
+  'univarse-stack-vault-tls': ['vault'],
 });
 
 /** What a volume will hold: each file's place, owner, mode and content, digested (never stored or shown in clear). */
@@ -112,10 +119,16 @@ export function fillVolumes({ dir = STACK_DIR, run = docker }: { dir?: string; r
   return [...restart];
 }
 
-/** After the restarts: every service has loaded what its volumes now hold. */
-export function markApplied({ dir = STACK_DIR }: { dir?: string } = {}): void {
+/**
+ * After the restarts: the services have loaded what their volumes now hold. With `services`, only the volumes read
+ * by those services alone (Vault, restarted early because a restart seals it).
+ */
+export function markApplied({ dir = STACK_DIR, services }: { dir?: string; services?: readonly string[] | undefined } = {}): void {
   const state = loadState(dir);
-  saveState(dir, { filled: state.filled, applied: { ...state.filled } });
+  const applied = { ...state.applied };
+  for (const [volume, digest] of Object.entries(state.filled))
+    if (!services || (VOLUME_SERVICES[volume] ?? []).every((s) => services.includes(s))) applied[volume] = digest;
+  saveState(dir, { filled: state.filled, applied });
 }
 
 export const renderedDir = (dir = STACK_DIR) => join(dir, 'rendered');

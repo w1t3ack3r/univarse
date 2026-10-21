@@ -99,12 +99,16 @@ services:
     volumes:
       - vault-data:/vault/file
       - ./vault/stack.hcl:/vault/config/stack.hcl:ro
+      # C2: its certificate and key, and the stack CA (the CLI's trust), filled by the deploy.
+      - vault-tls:/vault/tls:ro
+      # C3: the file audit device, on its own volume (the image's /vault/logs, owned by the vault user).
+      - vault-audit:/vault/logs
     networks: [app]
     mem_limit: 256m
-    # Healthy once its listener answers, sealed or not (`vault status` exits 0 unsealed, 2 sealed, 1 unreachable), so
-    # the deploy's `up --wait vault` returns only when vaultState() can read it. PR C's TLS changes the address.
+    # Healthy once its listener answers over TLS, sealed or not (`vault status` exits 0 unsealed, 2 sealed, 1
+    # unreachable), so the deploy's `up --wait vault` returns only when vaultState() can read it.
     healthcheck:
-      test: ['CMD-SHELL', 'vault status -address=http://127.0.0.1:8200 >/dev/null 2>&1; [ $$? -ne 1 ]']
+      test: ['CMD-SHELL', 'vault status -address=https://127.0.0.1:8200 -ca-cert=/vault/tls/ca.crt -tls-server-name=vault >/dev/null 2>&1; [ $$? -ne 1 ]']
       interval: 2s
       timeout: 3s
       retries: 15
@@ -213,6 +217,7 @@ volumes:
   pgdata:
   seaweedfs-data:
   vault-data:
+  vault-audit:
   clamav-db:
   caddy-data:
   # Configuration and keys: created and filled by the deploy (tools/stack/src/volumes.ts) with each image's owner
@@ -223,3 +228,4 @@ volumes:
   seaweedfs-conf: { external: true, name: univarse-stack-seaweedfs-conf }
   stack-ca: { external: true, name: univarse-stack-ca }
   caddy-tls: { external: true, name: univarse-stack-caddy-tls }
+  vault-tls: { external: true, name: univarse-stack-vault-tls }
