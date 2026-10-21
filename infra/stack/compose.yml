@@ -114,9 +114,26 @@ services:
     <<: *hardening
     # D10: started for the scan check only, and stopped after.
     profiles: [scan]
-    read_only: false # freshclam writes its database in place
+    read_only: false # the entrypoint writes clamd.conf, and freshclam its database, in place
+    # The image's entrypoint runs as root: it owns its database and run directory to the clamav user, writes its
+    # configuration, and the daemons open their logs before dropping to clamav. These five capabilities, a subset of
+    # Docker's defaults (which dev runs with), and no others; compose.spec holds that. A third-party image, stated.
+    cap_add: [CHOWN, DAC_OVERRIDE, FOWNER, SETGID, SETUID]
+    # The UniVarse test signature (spec 0010), as in dev: one extra file beside the normal databases.
+    entrypoint: ['sh', '-c', 'cp /fixtures/univarse-test.ndb /var/lib/clamav/ && exec /init']
+    environment:
+      # Fail closed (spec 0010 FU3), as in dev: the image's defaults would report an encrypted or oversized file clean.
+      CLAMD_CONF_AlertExceedsMax: 'yes'
+      CLAMD_CONF_AlertEncrypted: 'yes'
+      CLAMD_CONF_AlertEncryptedArchive: 'yes'
+      CLAMD_CONF_AlertEncryptedDoc: 'yes'
+      CLAMD_CONF_StreamMaxLength: '25M'
+      CLAMD_CONF_MaxFileSize: '25M'
+      CLAMD_CONF_MaxScanSize: '100M'
+      CLAMD_CONF_MaxScanTime: '60000'
     volumes:
       - clamav-db:/var/lib/clamav
+      - ../compose/clamav/test-sigs:/fixtures:ro
     networks: [app]
     mem_limit: 3g
 

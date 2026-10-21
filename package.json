@@ -41,7 +41,7 @@
     "stack:smoke": "pnpm --filter @univarse/stack run smoke",
     "stack:trust": "pnpm --filter @univarse/stack run trust",
     "stack:pools": "pnpm --filter @univarse/stack run pools",
-    "stack:e2e": "pnpm --filter @univarse/stack run e2e --",
+    "stack:e2e": "pnpm --filter @univarse/stack run e2e",
     "stack:isolation": "pnpm --filter @univarse/stack run isolation"
   },
   "devDependencies": {

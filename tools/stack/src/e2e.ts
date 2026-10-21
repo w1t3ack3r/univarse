@@ -26,6 +26,9 @@ export function clearRateLimits(run: Runner = docker): void {
   run(['exec', '-e', 'REDISCLI_AUTH', `${PROJECT}-valkey-1`, 'sh', '-c', script], { env: { REDISCLI_AUTH: loadSecrets().valkeyPassword } });
 }
 
+/** The owner's Playwright arguments (a file, -g, --project), without a leading `--` a package script may pass on. */
+export const playwrightArgs = (argv: readonly string[]): string[] => (argv[0] === '--' ? argv.slice(1) : [...argv]);
+
 /** Runs a command to completion with these extra variables; resolves with its exit code. */
 export function runWith(cmd: string, args: readonly string[], env: Record<string, string>): Promise<number> {
   return new Promise((resolve, reject) => {
@@ -46,7 +49,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   clearRateLimits();
   const env = testEnv(loadSecrets(), writeCaBundle());
   try {
-    const code = await withTunnel(() => runWith('pnpm', ['--filter', '@univarse/web', 'exec', 'playwright', 'test', ...process.argv.slice(2)], env));
+    const code = await withTunnel(() => runWith('pnpm', ['--filter', '@univarse/web', 'exec', 'playwright', 'test', ...playwrightArgs(process.argv.slice(2))], env));
     console.log('[stack:e2e] the tunnel was removed and is gone (no container; 127.0.0.1 port closed)');
     process.exit(code);
   } catch (e) {

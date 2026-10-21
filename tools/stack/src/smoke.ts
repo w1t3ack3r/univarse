@@ -99,6 +99,9 @@ interface Inspect {
   NetworkSettings: { Networks: Record<string, unknown> };
 }
 
+/** The only capabilities a service may add (compose.spec holds the same): Caddy's file capability, ClamAV's entrypoint set. */
+const ADDED_CAPS: Readonly<Record<string, readonly string[]>> = { caddy: ['NET_BIND_SERVICE'], clamav: ['CHOWN', 'DAC_OVERRIDE', 'FOWNER', 'SETGID', 'SETUID'] };
+
 /** LS1 at run time, from `docker inspect` of the running stack. */
 export function inspectProblems(all: readonly Inspect[]): string[] {
   const problems: string[] = [];
@@ -110,7 +113,8 @@ export function inspectProblems(all: readonly Inspect[]): string[] {
     for (const p of ports) if (p.HostIp !== '127.0.0.1') problems.push(`${name} publishes on ${p.HostIp || '0.0.0.0'}`);
     if (!c.HostConfig.ReadonlyRootfs && name !== container('clamav')) problems.push(`${name}: root filesystem is writable`);
     if (!(c.HostConfig.CapDrop ?? []).includes('ALL')) problems.push(`${name}: capabilities not dropped`);
-    const added = (c.HostConfig.CapAdd ?? []).filter((cap) => !(name === container('caddy') && /^(CAP_)?NET_BIND_SERVICE$/.test(cap)));
+    const allowed = Object.entries(ADDED_CAPS).find(([s]) => name === container(s))?.[1] ?? [];
+    const added = (c.HostConfig.CapAdd ?? []).filter((cap) => !allowed.includes(cap.replace(/^CAP_/, '')));
     if (added.length) problems.push(`${name}: capabilities added (${added.join(', ')})`);
     if (!(c.HostConfig.SecurityOpt ?? []).some((o) => o.startsWith('no-new-privileges'))) problems.push(`${name}: no-new-privileges not set`);
     if (!c.HostConfig.Memory) problems.push(`${name}: no memory limit`);

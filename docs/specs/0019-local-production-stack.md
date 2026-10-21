@@ -234,6 +234,13 @@ Only Caddy is on `edge`. It reaches the API and web over `app`. The web app's se
 6. **Certificate lifetimes.** The edge CA lasts 825 days and Caddy's certificate 397 days (within what browsers accept). `--rotate` never touches the edge CA, which the owner trusts; `--rotate-edge` replaces it, and then it must be installed again.
 7. **`stack:init` upgrades in place.** A `secrets.json` from before PR B gains only PgBouncer's admin password; every other secret is kept, so no database reset is needed.
 8. **Before an E2E run, only the rate-limit counters (`rl:*`) in the stack's Valkey are cleared.** Caddy ignores the tests' `X-Forwarded-For`, as production would, so every test arrives from one address.
+9. **The stack's ClamAV is fixed and brought level with dev.** It had never run in the stack: PR A defined it but never started it. The E2E run found three gaps:
+   - **Capabilities.** Under `cap_drop: ALL` its root entrypoint couldn't take ownership of its database. It keeps `CHOWN`, `DAC_OVERRIDE`, `FOWNER`, `SETGID` and `SETUID`, a subset of Docker's defaults (dev runs with all of them), so `NET_RAW`, `MKNOD`, `SYS_CHROOT`, `KILL`, `SETPCAP` and the rest stay dropped. It is a third-party image, and `compose.spec` and the smoke's inspection allow exactly that set.
+   - **Fail-closed settings.** The stack lacked spec 0010 FU3's settings (`AlertEncrypted*`, `AlertExceedsMax` and the scan limits), so an encrypted or oversized file would have come back clean. They are now set as in dev.
+   - **The test signature.** It is copied in as in dev (one extra file beside the normal databases), so `[FU9]`'s detection is real.
+
+   **A stated limit:** freshclam can't update signatures from inside the stack (`app` is internal, with no route out), so ClamAV scans with the signatures shipped in its pinned image. ClamAV still starts only for scan runs (D10), and is stopped after.
+10. **`pnpm stack:e2e` passes Playwright's own arguments through** (a file, `-g`, `--project`), dropping a leading `--` that a package script adds.
 
 **Evidence (2026-10-21, local, release `0cf53d8`):**
 
@@ -257,7 +264,14 @@ Only Caddy is on `edge`. It reaches the API and web over `app`. The web app's se
   - a context-free query on a tenant's backend saw no context and no rows.
 
   The fixtures were removed exactly. With PB2's tenant check weakened, the self-check failed (live mutation).
-- **B4, the tunnel:** after each run (passing, and two failing ones) no tunnel container or network remained, and `127.0.0.1:16432` refused connections.
+- **LS7, the E2E suite against the stack over HTTPS:** `pnpm stack:e2e` passed **34 of 34** (desktop and mobile, 3.5 min), in the owner's browser trust, with the edge CA installed in their user's root store. That includes the stack-only `[LS7]` test: HSTS exactly once on a page and an API answer, and the session cookie `__Host-`, `Secure`, `HttpOnly`, `SameSite=Lax`, host-only. `[W8]` recorded no CSP violation.
+
+  How it got there:
+  - the first run passed 32 of 34; both failures were `[FU9]`, which needs ClamAV (finding 9);
+  - the second passed 33 of 34. The failure, `[W9]` on desktop, was a 5-second wait after the MFA code with ClamAV's 3 GB also running, the pattern spec 0012 records on this machine. It didn't recur in 6 repeats or in the final run.
+
+  Memory just after the run, without ClamAV: about 0.95 GiB in all. API 290 MiB, worker 149, Vault 142, SeaweedFS 125, web 110, PostgreSQL 77, the rest under 25 each. ClamAV alone: 950 MiB of its 3 GiB limit.
+- **B4, the tunnel:** after every run (the passing ones, and the failing isolation and E2E runs) no tunnel container or network remained, and `127.0.0.1:16432` refused connections.
 - **LS11 mutations, each killed by its test:**
   - the edge CA without its name constraint;
   - a second HSTS header, or `preload`, accepted;
@@ -266,7 +280,8 @@ Only Caddy is on `edge`. It reaches the API and web over `app`. The web app's se
   - stack mode falling back to `.env`, or starting with a setting missing;
   - a changed certificate not restarting PostgreSQL;
   - restarts recorded before they happen;
-  - a pending restart forgotten.
+  - a pending restart forgotten;
+  - an unstated capability on any service (exact sets on Caddy and ClamAV).
 - **Unit:** `@univarse/stack` has 70 tests; `@univarse/web`'s unit tests include `e2e/env.spec`.
 
 ## Affected docs (in the implementation PRs)

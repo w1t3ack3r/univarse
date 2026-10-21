@@ -42,7 +42,10 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     console.log('[stack:trust] Install it in your OS or browser trust store by its own procedure; check the SHA-256 first.');
   } else {
     console.log(`[stack:trust] installed for this user: ${installedOnWindows(ca) ? 'yes' : 'no'}`);
-    console.log('[stack:trust] Check the SHA-256 above against the file, then, in PowerShell (Windows asks you to confirm):');
+    // The certificate's SHA-256 (as above) is not the file's: -hashfile hashes the PEM text and never matches.
+    console.log('[stack:trust] In PowerShell, check the certificate (not the file) matches the SHA-256 above:');
+    console.log(`  check first: certutil -dump "${ca.file}" | Select-String "Cert Hash\\(sha256\\)"`);
+    console.log('[stack:trust] then install it (Windows shows a security warning naming it; answer Yes):');
     console.log(`  install: certutil -user -addstore Root "${ca.file}"`);
     console.log(`  check:   certutil -user -verifystore Root ${ca.thumbprint}`);
     console.log(`  remove:  certutil -user -delstore Root ${ca.thumbprint}`);
