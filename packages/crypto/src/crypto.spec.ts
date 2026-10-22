@@ -6,7 +6,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { encryptV1ForTests, encryptV2, legacyKeyringFromEnv, parseCipher, decryptWith } from './cipher.js';
 import { FieldCrypto } from './field-crypto.js';
 import { TenantKeyring } from './keyring.js';
-import { KeyUnavailableError, LocalKeyProvider, VaultTransitProvider, keyProviderFrom, wrapContext } from './providers.js';
+import { KeyUnavailableError, LocalKeyProvider, VaultTransitProvider, keyProviderFrom, vaultAddrProblem, wrapContext } from './providers.js';
 
 const A = '0190a000-0000-7000-8000-00000000000a';
 const B = '0190b000-0000-7000-8000-00000000000b';
@@ -75,6 +75,18 @@ describe('[E2][E3] key providers', () => {
     expect(() => keyProviderFrom({ KEY_PROVIDER: 'local', NODE_ENV: 'production', LOCAL_KEK: kek() })).toThrow(/not allowed in production/);
     expect(() => keyProviderFrom({ KEY_PROVIDER: 'vault' })).toThrow(/VAULT_ADDR and VAULT_TOKEN/);
     expect(keyProviderFrom({ KEY_PROVIDER: 'vault', VAULT_ADDR: 'http://127.0.0.1:8200', VAULT_TOKEN: 't' }).kekId).toBe('vault:transit/univarse-kek');
+  });
+
+  it('[LS8] spec 0019 C1: in production a plaintext VAULT_ADDR is refused at construction, loopback included; https is accepted', () => {
+    const prod = (VAULT_ADDR: string) => () => keyProviderFrom({ KEY_PROVIDER: 'vault', NODE_ENV: 'production', VAULT_ADDR, VAULT_TOKEN: 't' });
+    for (const addr of ['http://vault:8200', 'http://127.0.0.1:8200', 'http://localhost:8200', 'http://[::1]:8200', 'HTTP://vault:8200'])
+      expect(prod(addr), addr).toThrow(/VAULT_ADDR must be https:\/\/ in production/);
+    expect(prod('not a url')).toThrow(/VAULT_ADDR is not a URL/);
+    expect(prod('https://vault:8200')().kekId).toBe('vault:transit/univarse-kek');
+    expect(prod('https://127.0.0.1:8201')().kekId).toBe('vault:transit/univarse-kek');
+    // Outside production the rule doesn't apply (development's local Vault); nor to the local provider's own rule.
+    for (const NODE_ENV of ['development', 'test', undefined]) expect(vaultAddrProblem({ KEY_PROVIDER: 'vault', NODE_ENV, VAULT_ADDR: 'http://127.0.0.1:8200' })).toBeNull();
+    expect(vaultAddrProblem({ KEY_PROVIDER: 'local', NODE_ENV: 'production', VAULT_ADDR: 'http://x' })).toBeNull();
   });
 });
 

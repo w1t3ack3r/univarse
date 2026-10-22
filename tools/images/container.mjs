@@ -3,6 +3,9 @@
 // `-e NAME` only (the docker CLI reads the value from its own environment): no secret is ever on a command line.
 import { existsSync, readFileSync } from 'node:fs';
 import { parseEnv } from 'node:util';
+import { VAULT_CA, VAULT_TLS_ADDR } from './vault-tls.mjs';
+
+export { VAULT_CA, VAULT_TLS_ADDR };
 
 const rootEnv = new URL('../../.env', import.meta.url);
 if (existsSync(rootEnv)) process.loadEnvFile(rootEnv);
@@ -34,16 +37,26 @@ const APP_ENV = [
 ];
 
 /**
+ * Spec 0019 C1: the images run in production mode, where a plaintext VAULT_ADDR is refused, loopback included. So they
+ * reach the dev Vault on its TLS listener (vault-tls.mjs), trusting the throwaway dev CA mounted read-only;
+ * verification stays on. The dev Vault's plain listener (8200) is never handed to an image.
+ */
+const VAULT_CA_IN = '/etc/univarse/vault-ca.crt';
+
+/**
  * The `docker run` arguments and the environment to spawn it with. `extra` values override the inherited ones;
  * only names that have a value are passed.
  */
-export function dockerRun({ name, image, extra = {}, cmd = [], detach = false }) {
+export function dockerRun({ name, image, extra = {}, cmd = [], detach = false, caFile = VAULT_CA }) {
+  if (!existsSync(caFile)) throw new Error(`no dev Vault CA at ${caFile}: run pnpm dev:infra (it makes the TLS listener's certificate)`);
   const isWorker = cmd === WORKER_CMD;
   const { PLATFORM_RELAY_URL: _never, ...inherited } = process.env;
-  const env = { ...inherited, ...(isWorker ? workerOnly() : {}), ...extra };
+  const vaultTls = { VAULT_ADDR: VAULT_TLS_ADDR, NODE_EXTRA_CA_CERTS: VAULT_CA_IN };
+  const env = { ...inherited, ...(isWorker ? workerOnly() : {}), ...vaultTls, ...extra, MSYS_NO_PATHCONV: '1' };
   const names = [
     ...new Set([
       ...APP_ENV,
+      ...Object.keys(vaultTls),
       ...Object.keys(process.env).filter((k) => /^TENANT_POOL_\d+_DATABASE_URL$/.test(k)),
       ...(isWorker ? ['PLATFORM_RELAY_URL'] : []),
       ...Object.keys(extra),
@@ -52,7 +65,8 @@ export function dockerRun({ name, image, extra = {}, cmd = [], detach = false })
   const passed = names.filter((k) => env[k] !== undefined && env[k] !== '');
   // Inside a release run, every container is labelled with the run's ID so cleanup removes only what this run owns.
   const owner = process.env.UV_RELEASE_RUN ? ['--label', `univarse.release.run=${process.env.UV_RELEASE_RUN}`] : [];
-  const args = ['run', ...(detach ? ['-d'] : ['--rm']), '--name', name, ...owner, ...HARDENED, ...passed.flatMap((k) => ['-e', k]), image, ...cmd];
+  const ca = ['-v', `${caFile}:${VAULT_CA_IN}:ro`];
+  const args = ['run', ...(detach ? ['-d'] : ['--rm']), '--name', name, ...owner, ...HARDENED, ...ca, ...passed.flatMap((k) => ['-e', k]), image, ...cmd];
   return { args, env };
 }
 

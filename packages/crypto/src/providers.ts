@@ -220,7 +220,23 @@ export interface KeyProviderConfig {
   readonly LOCAL_KEK?: string | undefined;
 }
 
-/** One factory for the API, worker, seed and tests. `local` is refused in production. */
+/**
+ * Spec 0019 C1: in production the KEK is reached over TLS only. A `VAULT_ADDR` that isn't `https://` is refused,
+ * loopback included (the token and every wrapped key would cross the wire in clear). Development keeps its plain
+ * local Vault. Returns why the settings are refused, or null.
+ */
+export function vaultAddrProblem(c: Pick<KeyProviderConfig, 'KEY_PROVIDER' | 'NODE_ENV' | 'VAULT_ADDR'>): string | null {
+  if (c.KEY_PROVIDER !== 'vault' || c.NODE_ENV !== 'production') return null;
+  let protocol: string;
+  try {
+    protocol = new URL(c.VAULT_ADDR ?? '').protocol;
+  } catch {
+    return 'VAULT_ADDR is not a URL';
+  }
+  return protocol === 'https:' ? null : 'VAULT_ADDR must be https:// in production: a plaintext Vault is refused, loopback included (spec 0019 C1)';
+}
+
+/** One factory for the API, worker, seed and tests. `local` is refused in production, and so is a plaintext Vault. */
 export function keyProviderFrom(c: KeyProviderConfig): KeyProvider {
   if (c.KEY_PROVIDER === 'local') {
     if (c.NODE_ENV === 'production') throw new Error('KEY_PROVIDER=local is not allowed in production (spec 0006)');
@@ -228,6 +244,8 @@ export function keyProviderFrom(c: KeyProviderConfig): KeyProvider {
     return new LocalKeyProvider('test', c.LOCAL_KEK);
   }
   if (!c.VAULT_ADDR || !c.VAULT_TOKEN) throw new Error('VAULT_ADDR and VAULT_TOKEN are required for KEY_PROVIDER=vault');
+  const problem = vaultAddrProblem(c);
+  if (problem) throw new Error(problem);
   return new VaultTransitProvider({
     addr: c.VAULT_ADDR,
     token: c.VAULT_TOKEN,

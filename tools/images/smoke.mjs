@@ -74,6 +74,17 @@ try {
     const state = spawnSync('docker', ['inspect', '-f', '{{.State.Status}} {{.State.ExitCode}}', n], { encoding: 'utf8' }).stdout.trim();
     if (!state.startsWith('running')) problems.push(`${n} not running: ${state}`);
   }
+
+  // Spec 0019 C1 (LS8): the same images refuse a plaintext VAULT_ADDR at start, loopback included: given the dev
+  // Vault's plain listener, the API and the worker each exit, naming the rule, and serve nothing.
+  for (const [what, cmd] of [['API', []], ['worker', WORKER_CMD]]) {
+    const name = `uv-smoke-plain-${what.toLowerCase()}${runSuffix()}`;
+    const { args, env } = dockerRun({ name, image: API_IMAGE, extra: { PORT: '8091', HOST: '127.0.0.1', VAULT_ADDR: 'http://127.0.0.1:8200' }, cmd });
+    const r = spawnSync('docker', args, { env, encoding: 'utf8', timeout: 60_000 });
+    spawnSync('docker', ['rm', '-f', name]); // only if it outlived the timeout
+    if (r.status === 0 || r.status === null) problems.push(`${what} with a plaintext VAULT_ADDR did not refuse to start (exit ${String(r.status)})`);
+    else if (!`${r.stdout}${r.stderr}`.includes('VAULT_ADDR must be https://')) problems.push(`${what} with a plaintext VAULT_ADDR exited ${String(r.status)}, but not for the plaintext rule`);
+  }
 } catch (e) {
   problems.push(String(e));
 } finally {
@@ -85,7 +96,7 @@ if (problems.length > 0) {
   for (const p of problems) console.error(`[smoke] FAIL ${p}`);
   process.exit(1);
 }
-console.log('[smoke] PASS: API health + DB-backed tenant request, worker started, web /login, JSON-only API/worker stdout; all under read-only, UID 65532, no capabilities, no-new-privileges');
+console.log('[smoke] PASS: API health + DB-backed tenant request, worker started, web /login, JSON-only API/worker stdout, Vault over TLS only (a plaintext VAULT_ADDR refused at start); all under read-only, UID 65532, no capabilities, no-new-privileges');
 
 function isJson(l) {
   try {

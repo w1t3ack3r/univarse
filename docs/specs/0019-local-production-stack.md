@@ -327,6 +327,47 @@ Only Caddy is on `edge`. It reaches the API and web over `app`. The web app's se
 
 **Still to do, in C2:** C1's refusal of a plaintext `VAULT_ADDR` in production, the dev Vault's TLS listener for the production-image runs, and then a new release.
 
+## Implementation notes (PR C2)
+
+**What it does:**
+
+- **The rule (C1)** is `vaultAddrProblem` in `@univarse/crypto`. `keyProviderFrom` applies it, so the API and worker refuse at start, during Nest's module setup. The migrate job checks it among its environment problems, before any step, because its key step comes last. In production, `http://` is refused for every host, `127.0.0.1`, `localhost` and `[::1]` included; `https://` passes; development and tests are untouched.
+- **The dev Vault keeps its plain listener on `127.0.0.1:8200`** for `pnpm dev` and the integration tests, and gains a **TLS listener on `127.0.0.1:8201`**.
+  - Its certificate (`IP:127.0.0.1`, `DNS:localhost`) comes from a throwaway dev CA made once by `tools/vault-tls.mjs` (in `pnpm dev:infra`), with the stack's pinned OpenSSL image, offline, into the git-ignored `infra/compose/vault/tls/`.
+  - The CA's key is deleted once it has signed.
+  - Both listeners carry explicit cluster addresses, because Vault's default (port + 1) would have been the TLS listener's own port.
+- **Every production-image run** (the image smoke, the browser journeys, in CI and in `pnpm images:release`) gets `VAULT_ADDR=https://127.0.0.1:8201` and the dev CA, mounted read-only and trusted through `NODE_EXTRA_CA_CERTS`. That's `tools/images/container.mjs`; a run without the dev CA stops at once. The migrate-image smoke uses the local provider in `test` mode, so it's unaffected.
+- **The image smoke now also proves the refusal on the real image:** the API and the worker, given the dev Vault's plain listener, each must exit non-zero, naming the rule.
+- **CI's `build-test` runs Vault as dev does** (compose, server mode, both listeners; `tools/vault-dev.mjs` initialises and unseals it), not as a dev-mode service. A GitHub Actions service can't take the configuration and certificate files a TLS listener needs. `pgbouncer-isolation` runs no production image, and keeps its service.
+- **`pnpm images:release` checks the TLS listener first**, as it checks the signing key: if it doesn't answer and verify against the dev CA, the release stops before building anything, naming `pnpm dev:infra`.
+
+**Evidence (local, 2026-10-21):**
+
+- **The compiled API and worker in production mode, given `http://127.0.0.1:8200`:** each exited 1. The worker logged `VAULT_ADDR must be https:// in production: a plaintext Vault is refused, loopback included (spec 0019 C1)`, and so did the API. The API run had first been made with the worker's `.env.worker`, which the API rightly refuses on its own (spec 0016).
+- **The control:** in development mode both kept running until stopped, the rule not mentioned.
+- **A throwaway Vault with the new `dev.hcl` and certificate:**
+  - `https://127.0.0.1:<port>` verified with the dev CA (HTTP 501, uninitialised);
+  - without the CA, Node refused it (`UNABLE_TO_VERIFY_LEAF_SIGNATURE`);
+  - the plain listener still answered.
+- **The release precondition, on the owner's current dev Vault** (no TLS listener yet): "the dev Vault's TLS listener (https://127.0.0.1:8201) failed: ECONNREFUSED. Run pnpm dev:infra".
+- **LS11 mutations, each killed:**
+  - loopback exempted;
+  - the rule not applied by the factory;
+  - the rule applied outside production;
+  - the migrate job checking only at its last step;
+  - images handed the plain listener;
+  - the dev CA not mounted;
+  - a run without the dev CA allowed;
+  - the dev certificate without `127.0.0.1`;
+  - the dev CA's key kept.
+
+**Then:**
+
+1. After the merge, the owner runs `pnpm dev:infra`, which makes the dev CA and recreates the dev Vault with its TLS listener (it unseals it, as always).
+2. The owner runs `pnpm images:release`.
+3. The stack deploys that release, with no `--commit` override.
+4. A short docs change closes ADR-018 with that release's evidence.
+
 ## Affected docs (in the implementation PRs)
 
 - **[10](../10-infrastructure-and-deployment.md):** a "local production-like stack" section: networks, commands, memory, the trust-store step, unsealing.
