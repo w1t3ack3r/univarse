@@ -1,6 +1,6 @@
 # Spec 0020: Local backups with a rehearsed restore, and the shred ledger
 
-**Status:** **Draft, revision 2 (2026-10-22)**, for the owner's review. Nothing is built yet.
+**Status:** **Draft, revision 3 (2026-10-22)**, for the owner's approval. Nothing is built yet.
 - **Revision 1** was reviewed by the owner on 2026-10-22: D1–D5 and D9–D11 approved as written.
 - **D6** is to be made precise: the erasure boundary holds only with a real schedule and pruning.
 - **D7–D8** are **blocking**: an accepted destruction must survive the loss of the whole stack.
