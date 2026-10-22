@@ -7,6 +7,7 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import type { INestApplicationContext } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import {
+  DestructionConflictError,
   destroyRetiredKey,
   destroyTenantKeys,
   encryptV1ForTests,
@@ -24,7 +25,7 @@ import {
   wrapContext,
   type KeyProvider,
 } from '@univarse/crypto';
-import { createTenantShardClient, forTenant, withTenantTx, type PlatformClient, type TenantShardClient } from '@univarse/db';
+import { createTenantShardClient, forTenant, TENANT_TX_TIMEOUT_MS, withTenantTx, type PlatformClient, type TenantShardClient } from '@univarse/db';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { loadConfig, type AppConfig } from '../../config/config.js';
 import { mfaSecretAad } from '../../modules/identity/mfa.service.js';
@@ -118,6 +119,17 @@ async function expectAllReadable(s: Scratch): Promise<void> {
 const backdateRetired = (tenantId: string, version: number, ms: number) =>
   platform.tenantDataKey.update({ where: { tenantId_version: { tenantId, version } }, data: { retiredAt: new Date(Date.now() - ms) } });
 
+/** Stages the tenant's sweep record as completed, having started at `startedAt` (D15 staging, no real sweep). */
+const stageSweep = (tenantId: string, startedAt: Date, unreadableRemaining = 0) =>
+  platform.keyReencryption.update({
+    where: { tenantId },
+    data: { startedAt, completedAt: new Date(startedAt.getTime() + 1), leaseUntil: null, unreadableRemaining },
+  });
+
+const keyRow = (tenantId: string, version: number) =>
+  platform.tenantDataKey.findUniqueOrThrow({ where: { tenantId_version: { tenantId, version } } });
+const statusOf = async (tenantId: string, version: number) => (await keyRow(tenantId, version)).status;
+
 /** Runs claimed sweeps until this tenant's request is completed (other tests' requests may be ahead). */
 async function sweepUntilDone(tenantId: string): Promise<void> {
   for (let i = 0; i < 50; i++) {
@@ -207,28 +219,171 @@ describe('[E7] tenant DEK rotation', () => {
     await expectAllReadable(s);
   });
 
-  it('[E7] a retired version is destroyed only after the grace period and once no value uses it', async () => {
+  it('[E7][D15] a retired version is destroyed only after the grace period, a sweep that started after it, and once no value uses it', async () => {
     const s = await scratch('destroy');
     const count = async (v: number) => (await keys.usage(s.ref))[String(v)] ?? 0;
-    const destroy = (version: number) => destroyRetiredKey(platform, s.id, version, count, { actorId: null, reason: 'test' });
+    const destroy = (version: number, op = randomUUID()) => destroyRetiredKey(platform, s.id, version, count, { op, actorId: null, reason: 'test' });
+    const v = s.values[1]!;
+    const underV1 = await stored(s, v); // sealed under v1; put back after the sweep, as an unswept value would be
 
     await expect(destroy(1)).rejects.toMatchObject({ why: 'not_retired' }); // still ACTIVE
     await rotateTenantKey(platform, provider, s.id, null);
     await expect(destroy(1)).rejects.toMatchObject({ why: 'grace_period' });
     await backdateRetired(s.id, 1, HOUR + 1_000);
-    await expect(destroy(1)).rejects.toMatchObject({ why: 'values_remain', remaining: 3 });
-    expect(await platform.tenantDataKey.findUniqueOrThrow({ where: { tenantId_version: { tenantId: s.id, version: 1 } } })).toMatchObject({ status: 'RETIRED' });
+    await expect(destroy(1)).rejects.toMatchObject({ why: 'sweep_pending' }); // the rotation's sweep hasn't run
+    await sweepUntilDone(s.id); // started now, after retired_at + G
+    await forTenant(shard, s.id).outboxEvent.update({ where: { id: v.id }, data: { payloadEnc: underV1 } });
+    await expect(destroy(1)).rejects.toMatchObject({ why: 'values_remain', remaining: 1 });
+    expect(await statusOf(s.id, 1)).toBe('RETIRED');
 
-    await keys.sweepTenant(s.ref);
-    await destroy(1);
-    expect(await platform.tenantDataKey.findUniqueOrThrow({ where: { tenantId_version: { tenantId: s.id, version: 1 } } })).toMatchObject({
-      status: 'DESTROYED',
-      wrappedDek: null,
-    });
+    await requestReencryption(platform, s.id, 'ROTATION');
+    await sweepUntilDone(s.id);
+    const op = randomUUID();
+    expect(await destroy(1, op)).toBe(true);
+    expect(await keyRow(s.id, 1)).toMatchObject({ status: 'DESTROYED', wrappedDek: null });
     await expectAllReadable(s); // nothing needed v1 any more
     const audit = await platform.platformAuditEvent.findFirstOrThrow({ where: { tenantId: s.id, action: 'crypto.tenant_key.destroyed' } });
-    expect(audit.metadata).toMatchObject({ versions: [1] });
+    expect(audit.metadata).toMatchObject({ versions: [1], op });
+    expect(await platform.keyDestruction.findUniqueOrThrow({ where: { op } })).toMatchObject({ kind: 'RETIRED', versions: [1], auditSeq: audit.seq });
     await expect(destroy(2)).rejects.toBeInstanceOf(RetiredKeyInUseError); // the active key is never destroyable here
+  });
+});
+
+describe('[D14][D15] retired-key destruction under the host protocol', () => {
+  /** A tenant whose v1 is retired past the grace, with a qualifying completed sweep: eligible now. */
+  async function eligible(label: string) {
+    const s = await scratch(label, { outbox: 1 });
+    await rotateTenantKey(platform, provider, s.id, null);
+    await sweepUntilDone(s.id);
+    await backdateRetired(s.id, 1, HOUR + 60_000);
+    await stageSweep(s.id, new Date(Date.now() - 30_000)); // started after retired_at + G (≈ now - 60 s)
+    const count = async (n: number) => (await keys.usage(s.ref))[String(n)] ?? 0;
+    const destroy = (o: { op?: string; version?: number; graceMs?: number; afterPrecheck?: () => Promise<void> } = {}) =>
+      destroyRetiredKey(platform, s.id, o.version ?? 1, count, {
+        op: o.op ?? randomUUID(),
+        actorId: null,
+        reason: 'test',
+        ...(o.graceMs === undefined ? {} : { graceMs: o.graceMs }),
+        ...(o.afterPrecheck ? { afterPrecheck: o.afterPrecheck } : {}),
+      });
+    return { s, destroy };
+  }
+  const destroyedAudits = (tenantId: string) => platform.platformAuditEvent.count({ where: { tenantId, action: 'crypto.tenant_key.destroyed' } });
+
+  it('[D15] the sweep must have STARTED at or after retired_at + G; one that started earlier does not count', async () => {
+    const { s, destroy } = await eligible('d15start');
+    const eligibleFrom = (await keyRow(s.id, 1)).retiredAt!.getTime() + HOUR;
+    await stageSweep(s.id, new Date(eligibleFrom - 1));
+    await expect(destroy()).rejects.toMatchObject({ why: 'sweep_pending' });
+    await stageSweep(s.id, new Date(eligibleFrom)); // the boundary itself qualifies
+    expect(await destroy()).toBe(true);
+  });
+
+  it('[D15][E13] a completed sweep that left unreadable values does not count', async () => {
+    const { s, destroy } = await eligible('d15unread');
+    await stageSweep(s.id, new Date(Date.now() - 30_000), 1);
+    await expect(destroy()).rejects.toMatchObject({ why: 'sweep_pending' });
+    expect(await statusOf(s.id, 1)).toBe('RETIRED');
+  });
+
+  it('[D15] the grace period is never below the writer bound plus 60 s', async () => {
+    const { s, destroy } = await eligible('d15grace');
+    await expect(destroy({ graceMs: TENANT_TX_TIMEOUT_MS + 59_999 })).rejects.toThrow(/must be at least the writer bound/);
+    expect(await statusOf(s.id, 1)).toBe('RETIRED');
+  });
+
+  it('[D14] a repeat of the same op is a no-op, whatever the key state is now; another version or kind under it is a conflict', async () => {
+    const { s, destroy } = await eligible('d14rep');
+    const op = randomUUID();
+    expect(await destroy({ op })).toBe(true);
+    expect(await destroy({ op })).toBe(false); // the key is DESTROYED now: answered from the record, not refused
+    expect(await destroyedAudits(s.id)).toBe(1);
+    await expect(destroy({ op, version: 2 })).rejects.toBeInstanceOf(DestructionConflictError);
+    await expect(destroyTenantKeys(platform, s.id, null, 'test', { op })).rejects.toBeInstanceOf(DestructionConflictError);
+    expect(await statusOf(s.id, 2)).toBe('ACTIVE');
+  });
+
+  it('[D14][BK14] a precondition broken between the check and the transaction rolls it back: a late value under the version', async () => {
+    const { s, destroy } = await eligible('d14val');
+    const before = await keyRow(s.id, 1);
+    const v = s.values[1]!;
+    // Staged slow writer: a ciphertext under v1 commits after the read-only check passed.
+    const lateUnderV1 = (await fieldCrypto.reencrypt(s.id, await stored(s, v), v.aad, 1))!;
+    const op = randomUUID();
+    await expect(
+      destroy({
+        op,
+        afterPrecheck: async () => {
+          await forTenant(shard, s.id).outboxEvent.update({ where: { id: v.id }, data: { payloadEnc: lateUnderV1 } });
+        },
+      }),
+    ).rejects.toMatchObject({ why: 'values_remain', remaining: 1 });
+    expect(await keyRow(s.id, 1)).toMatchObject({ status: 'RETIRED', wrappedDek: before.wrappedDek });
+    expect(await platform.keyDestruction.findUnique({ where: { op } })).toBeNull();
+    expect(await destroyedAudits(s.id)).toBe(0);
+  });
+
+  it('[D14][BK14] a precondition broken between the check and the transaction rolls it back: a sweep re-requested', async () => {
+    const { s, destroy } = await eligible('d14req');
+    const op = randomUUID();
+    await expect(destroy({ op, afterPrecheck: () => requestReencryption(platform, s.id, 'ROTATION') })).rejects.toMatchObject({ why: 'sweep_pending' });
+    expect(await statusOf(s.id, 1)).toBe('RETIRED');
+    expect(await platform.keyDestruction.findUnique({ where: { op } })).toBeNull();
+  });
+
+  it('[D15][BK15] the window, staged: a slow writer commits under v1 after v1 was retired and a sweep ran; only a sweep started after retired_at + G clears it', async () => {
+    const s = await scratch('d15window', { outbox: 0 });
+    const count = async (n: number) => (await keys.usage(s.ref))[String(n)] ?? 0;
+    const destroy = () => destroyRetiredKey(platform, s.id, 1, count, { op: randomUUID(), actorId: null, reason: 'test' });
+    const id = randomUUID();
+    let readActive!: () => void;
+    const hasRead = new Promise<void>((r) => (readActive = r));
+    let release!: () => void;
+    const released = new Promise<void>((r) => (release = r));
+    // The slow writer: reads v1 as active, then holds its transaction open (well inside W) while v1 is retired.
+    const writer = withTenantTx(shard, s.id, async (tx) => {
+      const enc = await fieldCrypto.encrypt(s.id, Buffer.from('slow'), outboxAad(s.id, id));
+      readActive();
+      await released;
+      await tx.outboxEvent.create({ data: { id, tenantId: s.id, type: 'email', payloadEnc: enc } });
+    });
+    await hasRead;
+    await rotateTenantKey(platform, provider, s.id, null);
+    // This tenant's sweep (run directly, so the writer stays well inside W; its record is staged below) can't see
+    // the uncommitted value.
+    expect(await keys.sweepTenant(s.ref)).toMatchObject({ reencrypted: 1, unreadable: 0 }); // the TOTP secret only
+    release();
+    await writer;
+    expect(await count(1)).toBe(1); // the slow writer's value, under the retired version
+
+    await expect(destroy()).rejects.toMatchObject({ why: 'grace_period' }); // before retired_at + G
+    // Past the grace, the sweep that already ran started right after the retirement, before retired_at + G.
+    await backdateRetired(s.id, 1, HOUR + 60_000);
+    const retiredAt = (await keyRow(s.id, 1)).retiredAt!;
+    await stageSweep(s.id, new Date(retiredAt.getTime() + 2_000));
+    await expect(destroy()).rejects.toMatchObject({ why: 'sweep_pending' });
+
+    // A sweep started after retired_at + G re-encrypts the value; the count reaches 0, and only then is it allowed.
+    await requestReencryption(platform, s.id, 'ROTATION');
+    await sweepUntilDone(s.id);
+    expect(await count(1)).toBe(0);
+    expect(await destroy()).toBe(true);
+    const fresh = new FieldCrypto(new TenantKeyring(platform, provider));
+    const row = await forTenant(shard, s.id).outboxEvent.findUniqueOrThrow({ where: { id } });
+    expect((await fresh.decrypt(s.id, row.payloadEnc!, outboxAad(s.id, id))).toString()).toBe('slow');
+  });
+
+  it('[D15][BK15] the writer bound: a tenant transaction that outlives TENANT_TX_TIMEOUT_MS cannot commit its ciphertext', { timeout: TENANT_TX_TIMEOUT_MS + 20_000 }, async () => {
+    const s = await scratch('d15slow', { outbox: 0 });
+    const id = randomUUID();
+    await expect(
+      withTenantTx(shard, s.id, async (tx) => {
+        const enc = await fieldCrypto.encrypt(s.id, Buffer.from('slow'), outboxAad(s.id, id)); // reads the active version
+        await new Promise((r) => setTimeout(r, TENANT_TX_TIMEOUT_MS + 1_000)); // a writer stalled past the bound
+        await tx.outboxEvent.create({ data: { id, tenantId: s.id, type: 'email', payloadEnc: enc } });
+      }),
+    ).rejects.toThrow();
+    expect(await forTenant(shard, s.id).outboxEvent.findUnique({ where: { id } })).toBeNull();
   });
 });
 
@@ -274,7 +429,7 @@ describe('[E8] KEK re-wrap', () => {
     const audits = await platform.platformAuditEvent.findMany({ where: { action: 'crypto.kek.rewrapped' }, orderBy: { seq: 'desc' }, take: 2 });
     expect(audits[1]!.metadata).toMatchObject({ keyVersion: latest, count: r.rewrapped, failed: r.failed.length, aborted: false });
     expect(JSON.stringify(audits.map((a) => a.metadata))).not.toMatch(/vault:v\d/);
-    await destroyTenantKeys(platform, bad.id, null, 'test cleanup');
+    await destroyTenantKeys(platform, bad.id, null, 'test cleanup', { op: randomUUID() });
   });
 
   it('[E8] the app token can neither rewrap nor rotate the KEK', async () => {
@@ -336,8 +491,9 @@ describe('[E9] v1 → v2 migration', () => {
 
     await backdateRetired(s.id, 1, HOUR + 1_000);
     const count = async (v: number) => (await keys.usage(s.ref))[String(v)] ?? 0;
-    const destroy = () => destroyRetiredKey(platform, s.id, 1, count, { actorId: null, reason: 'test' });
-    await expect(destroy()).rejects.toMatchObject({ why: 'values_remain', remaining: 1 });
+    const destroy = () => destroyRetiredKey(platform, s.id, 1, count, { op: randomUUID(), actorId: null, reason: 'test' });
+    // Refused: the sweep left one unreadable value (D15; that value also still carries v1).
+    await expect(destroy()).rejects.toMatchObject({ why: 'sweep_pending' });
 
     // Resolved by the operator, then re-requested: the sweep is done and v1 can go.
     await forTenant(shard, s.id).outboxEvent.update({ where: { id: bad.id }, data: { payloadEnc: null, status: 'DEAD' } });

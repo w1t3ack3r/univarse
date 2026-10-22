@@ -112,11 +112,11 @@ It never runs by itself and is never implied by any other command.
 - `infra/stack/restore.compose.yml`: the isolated rehearsal stack.
 - `infra/backup/backup.pub`: the owner's backup public key, committed after `keygen`.
 - `docs/ops/drills/`: the drill records.
-- A platform migration: `key_destruction(op, tenant_id, versions, destroyed_at, audit_event_id)`, written by the destruction's transaction (expand only).
+- A platform migration: `key_destruction(op, tenant_id, kind, versions, reason, destroyed_at, audit_seq)`, written by the destruction's transaction (expand only; built in A1, see below).
 
 **Locks.** Two host-side locks, always taken in this order when both are needed: the registry lock (deploy, release, prune, backup), then the ledger lock (destroy, recovery, the backup's ledger snapshot). Nothing takes them in the reverse order.
 
-**Where the database step runs.** The host-side command runs step 2 through a one-shot job from the deployed API image, as the migrate job runs. It runs on the stack's networks, with the platform app role, and with `op` passed in. In production configuration, the in-container `keys destroy-retired` and `destroyTenantKeys` refuse unless the job's `op` is set, and so does any in-app path. Phase 1's console will request a destruction; a host-side executor will carry it out with this same protocol.
+**Where the database step runs.** The host-side command runs step 2 through a one-shot job from the deployed API image, as the migrate job runs. It runs on the stack's networks, with the platform app role, and with `op` passed in. In production configuration, the in-container `keys destroy` and `destroyTenantKeys` refuse unless the job's `op` is set, and so does any in-app path. Phase 1's console will request a destruction; a host-side executor will carry it out with this same protocol.
 
 **The order of a backup.** Take the lock (the same registry lock a deploy and a prune use, so a backup never races a deploy) → write the manifest's header → `pg_basebackup` → the Vault Raft snapshot → the clean bucket's objects → the stack directory's parts → the durable ledger's copy, under the ledger lock (D14), and the audit checkpoint → seal each artifact as it is written → write the manifest last, sealed → prune → release the lock. A set without its manifest is incomplete and ignored.
 
@@ -130,6 +130,56 @@ It never runs by itself and is never implied by any other command.
 6. Run the migrate job's checks (`rls:check`).
 7. **Run D8's recovery,** with every ledger copy it can read.
 8. Only then, for a real restore, deploy the release named in the set's manifest.
+
+## Implementation notes (PR A1: the database and crypto core)
+
+PR A was split, with the owner's approval, into **A1** (this part: the database's evidence, the in-transaction re-checks, D15), **A2** (the host-side ledger, its lock, `stack:keys destroy`, recovery, the deploy step and the destination commands) and **A3** (the waiver). A1 changes nothing on the host and adds no operator step.
+
+- **`key_destruction`** (platform migration `20261022120000_key_destruction`, expand only): `op` (the primary key), `tenant_id`, `kind` (`TENANT` | `RETIRED`), `versions`, `reason`, `destroyed_at`, and `audit_seq`, a unique foreign key to the destruction's own `platform_audit_event` (its chain position, the platform audit's stable key). It's written in the destruction's transaction, after its audit event. The app role can't update, delete or truncate it.
+- **Both destroy functions take the op** (`destroyTenantKeys(…, { op })`, `destroyRetiredKey(…, { op, … })`):
+  - **Inside one platform transaction:** the op's record is checked first. The same op with the same tenant, kind and versions is a no-op: 0 destroyed, or `false`, with nothing audited. A record that disagrees throws `DestructionConflictError`.
+  - **Under `FOR UPDATE`, the key rows are read again.** For a retired version, the sweep record is read too, under `FOR SHARE`, so a concurrent re-request waits.
+  - **The decision is made on what is locked, then the evidence is recorded:** the destruction, its audit event (with the op in its metadata), and the `key_destruction` row.
+  - **The retired path does more:** it runs the read-only check first, and counts the values again inside the transaction. Any precondition that no longer holds rolls everything back. `afterPrecheck` is the test seam for the window between the check and the transaction (BK14).
+  - **A repeat is answered from the record** before any check, so it succeeds whatever the key's state is now.
+- **D15**, as `retiredKeyProblem` (pure, unit-tested). A version may be destroyed only when all of these hold:
+  - it is `RETIRED`;
+  - `now ≥ retired_at + G`;
+  - the tenant's sweep record has `started_at ≥ retired_at + G`, `completed_at ≥ started_at`, and `unreadable_remaining = 0`.
+
+  Otherwise the destruction is refused with `not_retired`, `grace_period`, `sweep_pending` or `values_remain`.
+  - **The grace period `G`:** `RETIRED_KEY_GRACE_MS`, default 1 h. Both `loadConfig` and the function refuse a `G` below `TENANT_TX_TIMEOUT_MS` (10 s, now a named export of `@univarse/db`) plus 60 s.
+  - **A sweep after `retired_at + G` is requested explicitly:** the new `keys resweep <slug>`. The worker then runs it as usual.
+- **The writer bound `W` (BK15)** is a static guard over the API's production source, with full type information (`testing/writer-bound-guard.ts`, `writer-bound.spec.ts`). Every call to `FieldCrypto.encrypt`, `reencrypt` or `activeVersion` must be awaited, and must be either:
+  - (A) directly inside the callback given to `ShardRegistry.tx` or `withTenantTx`; or
+  - (B) an argument of a call on a tenant transaction.
+
+  Aliasing, destructuring or element access is refused. A tenant transaction with its own timeout must be a reviewed long transaction that never encrypts. Today that's one: the outbox delivery's.
+
+  **A real gap was found and fixed here:** the key sweep read the active version *before* opening the transaction that writes under it. The read now happens inside that transaction. Putting the old code back fails the guard.
+- **The production guard:** `KeyDestruction` (`key-forget.ts`) is the only production importer of either destroy function. Its `shredTenantKeys` and `destroyRetired` both refuse (`DestructionRefusedError`), before reading anything, in two cases:
+  - the op is not a UUID;
+  - in production, the op is not the one the destruction job was started with (`UNIVARSE_DESTRUCTION_OP`).
+- **The CLI:** `destroy-retired` is replaced by:
+  - `keys destroy <slug> --op <uuid> [--version <n>]`: without a version, the whole tenant; with one, a retired version. It prints one JSON line (`op`, `kind`, `destroyed`, `committed`, and the forget report), for A2's job to read;
+  - `keys destroy-check <slug> --version <n>`: the read-only precheck, as JSON, exit 1 when not eligible;
+  - `keys resweep <slug>`.
+- **Tests:**
+  - **Unit:** the D15 rule's every branch and its boundary; the grace floor; the job guard; the config.
+  - **Integration (real platform DB, shard and Vault):**
+    - op idempotency and conflicts, for both kinds;
+    - the record is append-only;
+    - the BK14 cases of a precondition broken between the check and the transaction: a late value under the version, and a re-requested sweep;
+    - BK15's staged window: a slow writer commits under `n` after the retirement and after a sweep. The destruction is refused before `G`, then on the strength of that earlier sweep, and is allowed only after a sweep started past `retired_at + G` moves the value;
+    - a writer that outlives `W` is ended by its timeout and writes nothing;
+    - the CLI's `destroy`, run as a built process with Valkey down.
+- **Mutations caught:**
+  - the sweep's start compared with an off-by-one boundary;
+  - unreadable values ignored;
+  - a completion older than its start accepted;
+  - no grace period;
+  - the grace floor without its margin;
+  - the active version read outside the sweep's transaction (the guard).
 
 ## Affected docs (in the implementation PRs)
 

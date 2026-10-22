@@ -5,14 +5,20 @@
 //   pnpm --filter @univarse/api keys rotate <slug>
 //   pnpm --filter @univarse/api keys sweep                      run pending sweeps now (the worker also does)
 //   pnpm --filter @univarse/api keys migrate-v1                 request the v1 → v2 sweep for every tenant
-//   pnpm --filter @univarse/api keys destroy-retired <slug> <version>
+//   pnpm --filter @univarse/api keys resweep <slug>              request a sweep now (D15 needs one after the grace)
+//   pnpm --filter @univarse/api keys destroy-check <slug> --version <n>
+//   pnpm --filter @univarse/api keys destroy <slug> --op <uuid> [--version <n>]
+//     Spec 0020 D14: the destruction job's step. Without --version, every key of the tenant (offboarding); with it,
+//     one retired version (D15). Prints one JSON line. In production it runs only as the job for its op
+//     (UNIVARSE_DESTRUCTION_OP); operators use `pnpm stack:keys destroy`, never this directly.
 //   pnpm --filter @univarse/api keys rewrap-kek                 needs VAULT_ADMIN_TOKEN (operator only)
 import 'reflect-metadata';
 import { existsSync } from 'node:fs';
 import { NestFactory } from '@nestjs/core';
 import {
-  destroyRetiredKey,
+  checkRetiredKey,
   keyProviderFrom,
+  RetiredKeyInUseError,
   requestReencryption,
   rewrapAllDeks,
   rotateTenantKey,
@@ -29,7 +35,7 @@ const rootEnv = new URL('../../../../.env', import.meta.url);
 if (process.env.NODE_ENV !== 'production' && existsSync(rootEnv)) process.loadEnvFile(rootEnv);
 
 const USAGE =
-  'usage: keys <status | rotate <slug> | sweep | migrate-v1 | destroy-retired <slug> <version> | rewrap-kek>';
+  'usage: keys <status | rotate <slug> | sweep | migrate-v1 | resweep <slug> | destroy-check <slug> --version <n> | destroy <slug> --op <uuid> [--version <n>] | rewrap-kek>';
 const [command, ...args] = process.argv.slice(2);
 const config = loadConfig();
 // Spec 0015: the CLI publishes key-forget notices but never subscribes to the bus.
@@ -40,6 +46,24 @@ const ctx = await NestFactory.createApplicationContext(
 const platform = ctx.get<PlatformClient>(PLATFORM_DB);
 const keys = ctx.get(KeyMaintenance);
 const destruction = ctx.get(KeyDestruction);
+
+/** `--name value` from the arguments after the slug; refuses unknown or repeated flags. */
+function flags(rest: string[], allowed: readonly string[]): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (let i = 0; i < rest.length; i += 2) {
+    const name = rest[i]?.replace(/^--/, '') ?? '';
+    const value = rest[i + 1];
+    if (!rest[i]?.startsWith('--') || !allowed.includes(name) || name in out || value === undefined) throw new Error(USAGE);
+    out[name] = value;
+  }
+  return out;
+}
+
+function versionOf(raw: string | undefined): number {
+  const version = Number(raw);
+  if (!Number.isInteger(version) || version < 1) throw new Error(USAGE);
+  return version;
+}
 
 async function tenantBySlug(slug: string | undefined) {
   if (!slug) throw new Error(USAGE);
@@ -114,24 +138,52 @@ try {
       console.log(`v1 → v2 sweep requested for ${String(tenants.length)} tenants`);
       break;
     }
-    case 'destroy-retired': {
+    case 'resweep': {
       const t = await tenantBySlug(args[0]);
-      const version = Number(args[1]);
-      if (!Number.isInteger(version) || version < 1) throw new Error(USAGE);
-      await destroyRetiredKey(
-        platform,
-        t.id,
-        version,
-        async (v) => (await keys.usage(t))[String(v)] ?? 0,
-        {
-          actorId: null,
-          reason: 'retired key destroyed by operator',
-        },
+      await requestReencryption(platform, t.id, 'ROTATION');
+      console.log(`${t.slug}: sweep requested`);
+      break;
+    }
+    case 'destroy-check': {
+      // The protocol's read-only precheck. Prints one JSON line; exits 1 when not eligible now.
+      const t = await tenantBySlug(args[0]);
+      const version = versionOf(flags(args.slice(1), ['version']).version);
+      const count = async (v: number) => (await keys.usage(t))[String(v)] ?? 0;
+      try {
+        await checkRetiredKey(platform, t.id, version, count, { graceMs: config.RETIRED_KEY_GRACE_MS });
+        console.log(JSON.stringify({ tenant: t.slug, version, eligible: true }));
+      } catch (err) {
+        if (!(err instanceof RetiredKeyInUseError)) throw err;
+        console.log(JSON.stringify({ tenant: t.slug, version, eligible: false, why: err.why, remaining: err.remaining }));
+        process.exitCode = 1;
+      }
+      break;
+    }
+    case 'destroy': {
+      const t = await tenantBySlug(args[0]);
+      const f = flags(args.slice(1), ['op', 'version']);
+      if (!f.op) throw new Error(USAGE);
+      // Spec 0015 CI5/CI6/CI9: KeyDestruction notifies only after the destruction committed.
+      const r =
+        f.version === undefined
+          ? await destruction.shredTenantKeys(t.id, null, 'tenant keys destroyed by the destruction job', { op: f.op })
+          : await destruction.destroyRetired(t.id, versionOf(f.version), async (v) => (await keys.usage(t))[String(v)] ?? 0, {
+              op: f.op,
+              actorId: null,
+              reason: 'retired key destroyed by the destruction job',
+            });
+      const destroyed = typeof r.destroyed === 'number' ? r.destroyed > 0 : r.destroyed;
+      // `destroyed: false` is a repeat of a committed op, or a tenant with nothing left; the record answers which.
+      console.log(
+        JSON.stringify({
+          op: f.op,
+          tenant: t.slug,
+          kind: f.version === undefined ? 'TENANT' : 'RETIRED',
+          destroyed,
+          committed: (await platform.keyDestruction.findUnique({ where: { op: f.op }, select: { op: true } })) !== null,
+          forget: r.report?.lines ?? [],
+        }),
       );
-      console.log(`${t.slug}: v${String(version)} destroyed`);
-      // Spec 0015 CI5/CI6/CI9: only after the destruction committed (a refusal or rollback threw above).
-      for (const line of (await destruction.notifyKeysDestroyed(t.id)).lines)
-        console.log(`  ${line}`);
       break;
     }
     case 'rewrap-kek': {

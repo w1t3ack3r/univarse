@@ -139,7 +139,7 @@ Measured against that, `destroyTenantKeys` is the **first step** of erasure, not
   - `status` prints numbers only, per tenant: values per version, and values still `v1`.
   - When a tenant's sweep completes with no `v1` left, it writes the audit event `crypto.legacy_v1.migrated`.
   - **Contract-release condition:** `status` reports zero `v1` values for every tenant.
-- **Operator entry point:** `pnpm --filter @univarse/api keys <status | rotate <slug> | migrate-v1 | destroy-retired <slug> <version> | rewrap-kek>`. It's a Nest application context like the worker, so shard access goes through `ShardRegistry` (invariant 1). The console replaces it in Phase 1.
+- **Operator entry point:** `pnpm --filter @univarse/api keys <status | rotate <slug> | sweep | migrate-v1 | resweep <slug> | destroy-check <slug> --version <n> | destroy <slug> --op <uuid> [--version <n>] | rewrap-kek>`. Since spec 0020 (PR A1) every destruction carries the host protocol's op, is recorded in `key_destruction`, and in production runs only as the destruction job; a retired version also needs D15 (a grace period and a sweep that started after it). It's a Nest application context like the worker, so shard access goes through `ShardRegistry` (invariant 1). The console replaces it in Phase 1.
 
 ## Implementation notes (PR A: E1–E6, E10–E12)
 - **Package:** `@univarse/crypto` (`packages/crypto`). It holds the cipher, the providers, the keyring, `FieldCrypto`, key provisioning/destruction and the platform audit chain. The API registers one `FieldCrypto` provider (`apps/api/src/shared/crypto/envelope.ts`) for the HTTP app and the worker. `MfaService`, `Outbox` and `OutboxWorker` call only `FieldCrypto`.

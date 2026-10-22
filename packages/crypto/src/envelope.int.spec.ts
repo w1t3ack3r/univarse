@@ -2,13 +2,13 @@
  * Spec 0006 PR A against the real platform DB and Vault Transit (ADR-023).
  * Prereqs: `pnpm db:migrate && pnpm db:seed` (provisions keys), Vault configured (`pnpm dev:vault`).
  */
-import { randomBytes } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { createPlatformClient, createTenantShardClient, type PlatformClient } from '@univarse/db';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { FieldCrypto } from './field-crypto.js';
 import { TenantKeyring } from './keyring.js';
-import { destroyTenantKeys, provisionTenantKey } from './keys.js';
+import { DestructionConflictError, destroyTenantKeys, provisionTenantKey } from './keys.js';
 import { verifyPlatformAuditChain } from './platform-audit.js';
 import { KeyUnavailableError, VaultTransitProvider, keyProviderFrom, wrapContext, type KeyProvider } from './providers.js';
 
@@ -68,7 +68,7 @@ describe('[E1][E11] per-tenant data keys, provisioned', () => {
     expect(first).toEqual({ version: 1, created: true });
     expect(again).toEqual({ version: 1, created: false });
     expect(await platform.tenantDataKey.count({ where: { tenantId: id } })).toBe(1);
-    await destroyTenantKeys(platform, id, null, 'test cleanup');
+    await destroyTenantKeys(platform, id, null, 'test cleanup', { op: randomUUID() });
   });
 
   it('[E1] two tenants never share key material', async () => {
@@ -77,8 +77,8 @@ describe('[E1][E11] per-tenant data keys, provisioned', () => {
     await provisionTenantKey(platform, provider, b);
     const ring = new TenantKeyring(platform, provider);
     expect((await ring.key(a, 1)).equals(await ring.key(b, 1))).toBe(false);
-    await destroyTenantKeys(platform, a, null, 'test cleanup');
-    await destroyTenantKeys(platform, b, null, 'test cleanup');
+    await destroyTenantKeys(platform, a, null, 'test cleanup', { op: randomUUID() });
+    await destroyTenantKeys(platform, b, null, 'test cleanup', { op: randomUUID() });
   });
 });
 
@@ -91,8 +91,8 @@ describe('[E2][E3] wrapped at rest, apart from the data, behind Vault', () => {
     await expect(provider.unwrap(row.wrappedDek!, wrapContext(a, 2))).rejects.toBeInstanceOf(KeyUnavailableError);
     const dek = await provider.unwrap(row.wrappedDek!, wrapContext(a, 1));
     expect(row.wrappedDek).not.toContain(dek.toString('base64'));
-    await destroyTenantKeys(platform, a, null, 'test cleanup');
-    await destroyTenantKeys(platform, b, null, 'test cleanup');
+    await destroyTenantKeys(platform, a, null, 'test cleanup', { op: randomUUID() });
+    await destroyTenantKeys(platform, b, null, 'test cleanup', { op: randomUUID() });
   });
 
   it('[E2] the tenant shard holds no keys: tenant_data_key exists only in the platform DB', async () => {
@@ -131,7 +131,7 @@ describe('[E10][E12] crypto-shredding, audited', () => {
     const secretA = await fc.encrypt(a, Buffer.from('A-secret'), `${a}:u:totp`);
     const secretB = await fc.encrypt(b, Buffer.from('B-secret'), `${b}:u:totp`);
 
-    expect(await destroyTenantKeys(platform, a, null, 'offboarding test')).toBe(1);
+    expect(await destroyTenantKeys(platform, a, null, 'offboarding test', { op: randomUUID() })).toBe(1);
 
     // A fresh keyring (nothing cached) can no longer read A, and still reads B.
     const fresh = new FieldCrypto(new TenantKeyring(platform, provider));
@@ -140,23 +140,62 @@ describe('[E10][E12] crypto-shredding, audited', () => {
     const row = await platform.tenantDataKey.findFirstOrThrow({ where: { tenantId: a } });
     expect(row).toMatchObject({ status: 'DESTROYED', wrappedDek: null });
     expect(row.destroyedAt).toBeInstanceOf(Date);
-    await destroyTenantKeys(platform, b, null, 'test cleanup');
+    await destroyTenantKeys(platform, b, null, 'test cleanup', { op: randomUUID() });
   });
 
   it('[E10] key rows cannot be deleted by the app role (shredding is erase-in-place, audited)', async () => {
     const a = await scratchTenant('a4');
     await provisionTenantKey(platform, provider, a);
     await expect(platform.tenantDataKey.deleteMany({ where: { tenantId: a } })).rejects.toThrow(/permission denied/);
-    await destroyTenantKeys(platform, a, null, 'test cleanup');
+    await destroyTenantKeys(platform, a, null, 'test cleanup', { op: randomUUID() });
   });
 
   it('[E12] key lifecycle events land in the platform chain, which verifies, with no key material', async () => {
     const a = await scratchTenant('a5');
     await provisionTenantKey(platform, provider, a);
-    await destroyTenantKeys(platform, a, null, 'audit test');
+    await destroyTenantKeys(platform, a, null, 'audit test', { op: randomUUID() });
     const events = await platform.platformAuditEvent.findMany({ where: { tenantId: a }, orderBy: { seq: 'asc' } });
     expect(events.map((e) => e.action)).toEqual(['crypto.tenant_key.created', 'crypto.tenant_key.destroyed']);
     expect(JSON.stringify(events.map((e) => e.metadata))).not.toMatch(/vault:v\d|wrapped|"dek"/i);
     expect(await verifyPlatformAuditChain(platform)).toMatchObject({ ok: true });
+  });
+});
+
+describe('[D14] full-tenant destruction is recorded under its op', () => {
+  it('[D14] the op, its versions and its audit event are recorded in the same transaction; a repeat is a no-op', async () => {
+    const a = await scratchTenant('d14a');
+    await provisionTenantKey(platform, provider, a);
+    const op = randomUUID();
+    expect(await destroyTenantKeys(platform, a, null, 'd14 test', { op })).toBe(1);
+    const rec = await platform.keyDestruction.findUniqueOrThrow({ where: { op } });
+    expect(rec).toMatchObject({ tenantId: a, kind: 'TENANT', versions: [1], reason: 'd14 test' });
+    const audit = await platform.platformAuditEvent.findUniqueOrThrow({ where: { seq: rec.auditSeq } });
+    expect(audit).toMatchObject({ action: 'crypto.tenant_key.destroyed', tenantId: a });
+    expect(audit.metadata).toMatchObject({ versions: [1], op });
+    // A repeat (e.g. the host protocol's recovery re-running the step) changes nothing and audits nothing.
+    expect(await destroyTenantKeys(platform, a, null, 'd14 test', { op })).toBe(0);
+    expect(await platform.platformAuditEvent.count({ where: { tenantId: a, action: 'crypto.tenant_key.destroyed' } })).toBe(1);
+    expect(await platform.keyDestruction.count({ where: { tenantId: a } })).toBe(1);
+  });
+
+  it('[D14] an op recorded for another tenant is a conflict, and that tenant keeps its keys', async () => {
+    const [a, b] = [await scratchTenant('d14b'), await scratchTenant('d14c')];
+    await provisionTenantKey(platform, provider, a);
+    await provisionTenantKey(platform, provider, b);
+    const op = randomUUID();
+    await destroyTenantKeys(platform, a, null, 'd14 test', { op });
+    await expect(destroyTenantKeys(platform, b, null, 'd14 test', { op })).rejects.toBeInstanceOf(DestructionConflictError);
+    expect(await platform.tenantDataKey.findFirstOrThrow({ where: { tenantId: b } })).toMatchObject({ status: 'ACTIVE' });
+    await destroyTenantKeys(platform, b, null, 'test cleanup', { op: randomUUID() });
+  });
+
+  it('[D14] the app role can neither change nor remove a destruction record', async () => {
+    const a = await scratchTenant('d14d');
+    await provisionTenantKey(platform, provider, a);
+    const op = randomUUID();
+    await destroyTenantKeys(platform, a, null, 'd14 test', { op });
+    await expect(platform.keyDestruction.update({ where: { op }, data: { reason: 'x' } })).rejects.toThrow(/permission denied/);
+    await expect(platform.keyDestruction.delete({ where: { op } })).rejects.toThrow(/permission denied/);
+    await expect(platform.$executeRaw`TRUNCATE key_destruction`).rejects.toThrow(/permission denied/);
   });
 });

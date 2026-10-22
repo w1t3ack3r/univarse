@@ -73,8 +73,10 @@ export class KeyMaintenance {
     col: EncryptedColumn,
     afterId: string,
   ): Promise<{ updated: number; unreadable: number; lastId: string | null }> {
-    const active = await this.fieldCrypto.activeVersion(tenant.id);
     return this.shards.tx(tenant.shardId, tenant.id, async (tx) => {
+      // Spec 0020 D15: the active version is read inside the transaction that writes under it, so the sweep, like
+      // every other writer, can't commit under a version retired more than the transaction's timeout ago.
+      const active = await this.fieldCrypto.activeVersion(tenant.id);
       const rows = await col.lockStale(tx, tenant.id, `v2:${String(active)}:%`, afterId, BATCH);
       let updated = 0;
       let unreadable = 0;

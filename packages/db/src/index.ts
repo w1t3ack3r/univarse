@@ -1,4 +1,4 @@
-export { createTenantShardClient, forTenant, withTenantTx } from './tenant.js';
+export { createTenantShardClient, forTenant, TENANT_TX_TIMEOUT_MS, withTenantTx } from './tenant.js';
 export type { TenantShardClient, TenantTx } from './tenant.js';
 export { createPlatformClient } from './platform.js';
 export type { PlatformClient } from './platform.js';

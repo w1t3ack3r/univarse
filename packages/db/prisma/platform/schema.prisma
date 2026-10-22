@@ -83,6 +83,7 @@ model Tenant {
   products TenantProduct[]
   keyReencryption KeyReencryption?
   dataKeys TenantDataKey[]
+  keyDestructions KeyDestruction[]
 
   @@map("tenant")
 }
@@ -164,6 +165,8 @@ model PlatformAuditEvent {
   ip         String?
   prevHash   Bytes    @map("prev_hash")
   hash       Bytes
+
+  keyDestruction KeyDestruction?
 
   @@index([tenantId, occurredAt])
   @@map("platform_audit_event")
@@ -256,4 +259,27 @@ model CacheInvalidationEvent {
   lastError       String?   @map("last_error")
 
   @@map("cache_invalidation_event")
+}
+
+enum KeyDestructionKind {
+  TENANT
+  RETIRED
+}
+
+/// Spec 0020 D7/D8/D14: one row per accepted key destruction, in the destruction's own transaction, keyed by the
+/// host protocol's operation id. The database's evidence that a destruction committed. Append-only for the app role.
+model KeyDestruction {
+  op          String             @id @db.Uuid
+  tenantId    String             @map("tenant_id") @db.Uuid
+  kind        KeyDestructionKind
+  versions    Int[]
+  reason      String
+  destroyedAt DateTime           @default(now()) @map("destroyed_at") @db.Timestamptz(3)
+  auditSeq    BigInt             @unique @map("audit_seq")
+
+  tenant     Tenant             @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  auditEvent PlatformAuditEvent @relation(fields: [auditSeq], references: [seq], onDelete: Restrict, onUpdate: Restrict)
+
+  @@index([tenantId])
+  @@map("key_destruction")
 }
