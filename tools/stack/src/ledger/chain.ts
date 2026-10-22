@@ -13,8 +13,25 @@ export interface Destination {
 
 export type DestructionKind = 'TENANT' | 'RETIRED';
 
+/**
+ * The owner's review of A2: what genesis says about destructions made before the ledger existed. They are adopted from
+ * the database's own evidence at that moment, each with its own op; the statement says what that can't establish.
+ */
+export interface History {
+  readonly capturedAt: string;
+  readonly statement: string;
+  readonly adopted: readonly { readonly op: string; readonly tenant: { readonly id: string; readonly slug: string }; readonly kind: DestructionKind; readonly versions: readonly number[]; readonly auditSeqs: readonly string[] }[];
+}
+
+export const HISTORY_STATEMENT =
+  "Destructions made before this ledger existed are recorded from this database's own evidence at this time. Any that a restore had already undone before then cannot be known, and are not represented.";
+
+/** The owner's review of A2: what an abandoned op's record says. Never that nothing was destroyed. */
+export const ABANDON_STATEMENT =
+  'The outcome of this destruction was not established: it may have committed before an older database was restored. If it did, its keys may be usable again. The no-resurrection guarantee does not cover it.';
+
 export type EntryBody =
-  | { readonly type: 'genesis'; readonly ledgerId: string; readonly generation: number; readonly destinations: readonly Destination[] }
+  | { readonly type: 'genesis'; readonly ledgerId: string; readonly generation: number; readonly destinations: readonly Destination[]; readonly history?: History }
   | {
       readonly type: 'config';
       readonly change: 'add' | 'remove' | 'rebuild';
@@ -32,6 +49,8 @@ export type EntryBody =
       readonly requestedAt: string;
       /** What the read-only check saw (D7): statuses and times only. */
       readonly preconditions: Readonly<Record<string, unknown>>;
+      /** A destruction from before the ledger, adopted at init: its keys were already destroyed (History). */
+      readonly adoption?: true;
     }
   | {
       readonly type: 'committed';
@@ -41,9 +60,11 @@ export type EntryBody =
       /** The destruction's platform audit event (its chain position): a checkpoint of the platform chain (D12). */
       readonly auditSeq: string;
       /** `destroy` when the command saw its transaction commit; `recovery` when the database's evidence showed it (D8). */
-      readonly by: 'destroy' | 'recovery';
+      readonly by: 'destroy' | 'recovery' | 'adoption';
     }
   | { readonly type: 'aborted'; readonly op: string; readonly reason: string }
+  /** The owner's explicit waiver for one pending op whose outcome can't be established (ABANDON_STATEMENT). */
+  | { readonly type: 'abandoned'; readonly op: string; readonly reason: string; readonly statement: string }
   | {
       readonly type: 'reapplied';
       readonly op: string;
@@ -126,22 +147,28 @@ export const opOf = (e: Entry): string | null => ('op' in e ? e.op : null);
 export interface OpState {
   readonly pending: Extract<Entry, { type: 'pending' }>;
   readonly outcome: Extract<Entry, { type: 'committed' | 'aborted' }> | null;
+  /** Set while the outcome is unknown and waived; a later `committed` (the row found after all) supersedes it. */
+  readonly abandoned: Extract<Entry, { type: 'abandoned' }> | null;
   readonly reapplied: readonly Extract<Entry, { type: 'reapplied' }>[];
 }
 
 /** Every op's records, in ledger order. A record without its `pending`, or a second outcome, is a problem. */
 export function opStates(entries: readonly Entry[]): { ops: Map<string, OpState>; problems: string[] } {
-  const ops = new Map<string, { pending: OpState['pending']; outcome: OpState['outcome']; reapplied: OpState['reapplied'][number][] }>();
+  const ops = new Map<string, { pending: OpState['pending']; outcome: OpState['outcome']; abandoned: OpState['abandoned']; reapplied: OpState['reapplied'][number][] }>();
   const problems: string[] = [];
   for (const e of entries) {
     if (e.type === 'pending') {
       if (ops.has(e.op)) problems.push(`op ${e.op}: a second pending record (seq ${String(e.seq)})`);
-      else ops.set(e.op, { pending: e, outcome: null, reapplied: [] });
+      else ops.set(e.op, { pending: e, outcome: null, abandoned: null, reapplied: [] });
       continue;
     }
-    if (e.type !== 'committed' && e.type !== 'aborted' && e.type !== 'reapplied') continue;
+    if (e.type !== 'committed' && e.type !== 'aborted' && e.type !== 'reapplied' && e.type !== 'abandoned') continue;
     const s = ops.get(e.op);
     if (!s) problems.push(`op ${e.op}: a ${e.type} record with no pending record (seq ${String(e.seq)})`);
+    else if (e.type === 'abandoned') {
+      if (s.outcome || s.abandoned) problems.push(`op ${e.op}: abandoned after an outcome (seq ${String(e.seq)})`);
+      else s.abandoned = e;
+    } else if (e.type === 'aborted' && s.abandoned) problems.push(`op ${e.op}: aborted after being abandoned (seq ${String(e.seq)})`);
     else if (e.type === 'reapplied') {
       if (s.outcome?.type !== 'committed') problems.push(`op ${e.op}: reapplied without being committed (seq ${String(e.seq)})`);
       else s.reapplied.push(e);

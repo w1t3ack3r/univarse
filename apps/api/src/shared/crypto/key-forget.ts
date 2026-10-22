@@ -7,7 +7,7 @@
 //     `destroyRetiredKey`); they notify only after the destruction committed and destroyed something (CI9).
 //   • Spec 0020 D14: every destruction carries the host protocol's op, and in production runs only as that op's job.
 import { Inject, Injectable, type OnModuleInit } from '@nestjs/common';
-import { destroyRetiredKey, destroyTenantKeys, KEYRING_MAX_TTL_MS, reapplyDestruction, TenantKeyring } from '@univarse/crypto';
+import { adoptDestruction, destroyRetiredKey, destroyTenantKeys, KEYRING_MAX_TTL_MS, reapplyDestruction, TenantKeyring } from '@univarse/crypto';
 import type { PlatformClient } from '@univarse/db';
 import { APP_CONFIG, type AppConfig } from '../../config/config.js';
 import { PLATFORM_DB } from '../db/db.module.js';
@@ -132,6 +132,12 @@ export class KeyDestruction {
     this.refuseOutsideJob(d.op);
     const r = await reapplyDestruction(this.platform, d);
     return { ...r, report: r.destroyed.length ? await this.notifyKeysDestroyed(d.tenantId) : null };
+  }
+
+  /** Spec 0020 (owner's review of A2): records a pre-ledger destruction at init; destroys nothing. Job-guarded. */
+  async adopt(d: { op: string; tenantId: string; kind: 'TENANT' | 'RETIRED'; versions: readonly number[]; actorId: string | null; reason: string }): Promise<{ recorded: boolean }> {
+    this.refuseOutsideJob(d.op);
+    return adoptDestruction(this.platform, d);
   }
 
   private refuseOutsideJob(op: string): void {

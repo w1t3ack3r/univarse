@@ -510,6 +510,7 @@ describe('[CI9] one path to key destruction', { timeout: 60_000 }, () => {
     ['destroyTenantKeys', /\bdestroyTenantKeys\b/],
     ['destroyRetiredKey', /\bdestroyRetiredKey\b/],
     ['reapplyDestruction', /\breapplyDestruction\b/],
+    ['adoptDestruction', /\badoptDestruction\b/],
   ])('[CI9][CI11][D14] only shared/crypto/key-forget.ts uses %s', (_fn, uses) => {
     const users = productionFiles(program)
       .filter((sf) => uses.test(sf.text))

@@ -168,6 +168,39 @@ export async function reapplyDestruction(
   });
 }
 
+/**
+ * Spec 0020 (the owner's review of A2): records a destruction made before the ledger existed, from the database's own
+ * evidence, so the ledger and the database agree from the ledger's first entry. Every listed version must already be
+ * DESTROYED with its wrap erased: nothing is destroyed here, and a version that isn't is a conflict (the history isn't
+ * what the caller thinks). Audited as `crypto.tenant_key.adopted`; a repeat of the same op is a no-op.
+ */
+export async function adoptDestruction(
+  platform: PlatformClient,
+  d: DestructionOp & { tenantId: string; kind: 'TENANT' | 'RETIRED'; versions: readonly number[]; actorId: string | null; reason: string },
+): Promise<{ recorded: boolean }> {
+  if (d.versions.length === 0) throw new Error('a destruction names at least one version');
+  return platform.$transaction(async (tx) => {
+    if (await recordedAlready(tx, d.op, { tenantId: d.tenantId, kind: d.kind, versions: d.versions })) return { recorded: false };
+    const rows = await tx.$queryRaw<{ version: number; status: string; erased: boolean; destroyed_at: Date | null }[]>`
+      SELECT version, status::text AS status, wrapped_dek IS NULL AS erased, destroyed_at FROM tenant_data_key WHERE tenant_id = ${d.tenantId}::uuid FOR UPDATE`;
+    for (const v of d.versions) {
+      const k = rows.find((r) => r.version === v);
+      if (k?.status !== 'DESTROYED' || !k.erased) throw new DestructionConflictError(d.op, `version ${String(v)} is not destroyed with its wrap erased`);
+    }
+    const times = rows.flatMap((r) => (d.versions.includes(r.version) && r.destroyed_at ? [r.destroyed_at.getTime()] : []));
+    const auditSeq = await writePlatformAudit(tx, {
+      actorId: d.actorId,
+      action: 'crypto.tenant_key.adopted',
+      tenantId: d.tenantId,
+      metadata: { op: d.op, versions: [...d.versions], reason: d.reason },
+    });
+    await tx.keyDestruction.create({
+      data: { op: d.op, tenantId: d.tenantId, kind: d.kind, versions: [...d.versions], reason: d.reason, destroyedAt: new Date(times.length ? Math.max(...times) : Date.now()), auditSeq },
+    });
+    return { recorded: true };
+  });
+}
+
 /** Asks the worker to bring every encrypted value of the tenant onto its active version (E7, E9). */
 export async function requestReencryption(
   tx: Pick<PlatformClient, 'keyReencryption'>,

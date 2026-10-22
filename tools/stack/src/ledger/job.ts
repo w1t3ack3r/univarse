@@ -10,7 +10,7 @@ import { join } from 'node:path';
 import { COMPOSE_FILE, PROJECT, RELEASES, STACK_DIR } from '../config.js';
 import { docker } from '../docker.js';
 import { canonical, type DestructionKind, type Entry } from './chain.js';
-import type { CheckResult, DestroyOutcome, Evidence, KeysDb, ReapplyOutcome } from './protocol.js';
+import type { AdoptOutcome, CheckResult, DestroyOutcome, Evidence, KeysDb, ReapplyOutcome } from './protocol.js';
 import { GENERATION_DIR } from './store.js';
 
 const JOB_TIMEOUT_MS = 5 * 60_000;
@@ -104,8 +104,16 @@ export function keysDbFrom(run: Runner): KeysDb {
         } satisfies DestroyOutcome);
       return Promise.resolve({ outcome: 'unknown', detail: detail(r) });
     },
-    evidence(tenantIds) {
-      return Promise.resolve(definite(run(['evidence', ...tenantIds.flatMap((id) => ['--tenant-id', id])]), 'evidence') as unknown as Evidence);
+    evidence(tenantIds, opts = {}) {
+      return Promise.resolve(definite(run(['evidence', ...(opts.legacy ? ['--legacy'] : []), ...tenantIds.flatMap((id) => ['--tenant-id', id])]), 'evidence') as unknown as Evidence);
+    },
+    adopt(op, tenantId, kind, versions) {
+      const r = run(['adopt', '--op', op, '--tenant-id', tenantId, '--kind', kind, '--versions', versions.join(',')], { op });
+      const out = lastJson(r);
+      if (r.status === 3 && out?.outcome === 'refused') return Promise.resolve({ outcome: 'refused', why: String(out.why) });
+      if (r.status === 0 && out?.outcome === 'adopted')
+        return Promise.resolve({ outcome: 'adopted', recorded: out.recorded === true, versions: out.versions as number[], destroyedAt: String(out.destroyedAt), auditSeq: String(out.auditSeq) } satisfies AdoptOutcome);
+      return Promise.resolve({ outcome: 'unknown', detail: detail(r) });
     },
     reapply(op, tenantId, kind, versions) {
       const r = run(['reapply', '--op', op, '--tenant-id', tenantId, '--kind', kind, '--versions', versions.join(',')], { op });

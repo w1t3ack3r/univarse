@@ -8,7 +8,7 @@ import { createPlatformClient, createTenantShardClient, type PlatformClient } fr
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { FieldCrypto } from './field-crypto.js';
 import { TenantKeyring } from './keyring.js';
-import { DestructionConflictError, destroyTenantKeys, provisionTenantKey, reapplyDestruction } from './keys.js';
+import { adoptDestruction, DestructionConflictError, destroyTenantKeys, provisionTenantKey, reapplyDestruction } from './keys.js';
 import { verifyPlatformAuditChain } from './platform-audit.js';
 import { KeyUnavailableError, VaultTransitProvider, keyProviderFrom, wrapContext, type KeyProvider } from './providers.js';
 
@@ -242,5 +242,30 @@ describe('[D8] re-applying an accepted destruction (spec 0020 A2)', () => {
     const r = await reapplyDestruction(platform, { op: randomUUID(), tenantId: a, kind: 'RETIRED', versions: [1, 7], actorId: null, reason: 'x' });
     expect(r).toEqual({ destroyed: [1], recorded: true, activeDestroyed: true });
     await expect(reapplyDestruction(platform, { op: randomUUID(), tenantId: a, kind: 'RETIRED', versions: [], actorId: null, reason: 'x' })).rejects.toThrow(/at least one version/);
+  });
+});
+
+describe('[A2-3] adopting a destruction from before the ledger (spec 0020, owner review of A2)', () => {
+  it('[A2-3] records the row for versions already destroyed, audited as adopted; destroys nothing; a repeat is a no-op', async () => {
+    const a = await scratchTenant('adopt-a');
+    await provisionTenantKey(platform, provider, a);
+    await destroyTenantKeys(platform, a, null, 'an older destruction', { op: randomUUID() });
+    const op = randomUUID();
+    expect(await adoptDestruction(platform, { op, tenantId: a, kind: 'TENANT', versions: [1], actorId: null, reason: 'adopted' })).toEqual({ recorded: true });
+    const row = await platform.keyDestruction.findUniqueOrThrow({ where: { op } });
+    expect(await platform.platformAuditEvent.findUniqueOrThrow({ where: { seq: row.auditSeq } })).toMatchObject({ action: 'crypto.tenant_key.adopted', tenantId: a });
+    const before = await platform.platformAuditEvent.count({ where: { tenantId: a } });
+    expect(await adoptDestruction(platform, { op, tenantId: a, kind: 'TENANT', versions: [1], actorId: null, reason: 'again' })).toEqual({ recorded: false });
+    expect(await platform.platformAuditEvent.count({ where: { tenantId: a } })).toBe(before);
+  });
+
+  it('[A2-3] refuses a version that is not destroyed (the history is not what was claimed), and changes nothing', async () => {
+    const a = await scratchTenant('adopt-b');
+    await provisionTenantKey(platform, provider, a);
+    const op = randomUUID();
+    await expect(adoptDestruction(platform, { op, tenantId: a, kind: 'TENANT', versions: [1], actorId: null, reason: 'x' })).rejects.toThrow(/version 1 is not destroyed/);
+    expect(await platform.keyDestruction.findUnique({ where: { op } })).toBeNull();
+    expect(await platform.tenantDataKey.findFirstOrThrow({ where: { tenantId: a } })).toMatchObject({ status: 'ACTIVE' });
+    await destroyTenantKeys(platform, a, null, 'test cleanup', { op: randomUUID() });
   });
 });

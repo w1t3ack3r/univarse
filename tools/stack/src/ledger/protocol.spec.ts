@@ -9,7 +9,7 @@ import { destinationsOf, opStates, type Destination } from './chain.js';
 import { init } from './commands.js';
 import { FakeKeysDb } from './fake-keys-db.js';
 import { establishAuthority } from './ledger.js';
-import { abandon, destroy, recover, type ProtocolDeps } from './protocol.js';
+import { abandon, ABANDON_CONFIRMATION, destroy, recover, type ProtocolDeps } from './protocol.js';
 import { copyDir, entriesOf, readCopy, realFs, type LedgerFs } from './store.js';
 
 const T1 = '10000000-0000-4000-8000-000000000001'; // offboarded: every key destroyed
@@ -285,7 +285,7 @@ describe('[BK12] failing closed, naming the op or the destination', () => {
     expect(r.lines.join('\n')).toMatch(why);
   });
 
-  it("[BK12] a pending op whose preconditions no longer hold stops recovery, naming it and the owner's choice; abandon records it aborted", async () => {
+  it("[BK12] a pending op whose preconditions no longer hold stops recovery, naming it and the owner's choice", async () => {
     await ready();
     await expect(destroy(crashAt('db:before'), { slug: 't2', version: 1 })).rejects.toBeInstanceOf(Crash);
     const op = [...opStates(entries()).ops.values()].find((s) => !s.outcome)?.pending.op ?? '';
@@ -293,11 +293,87 @@ describe('[BK12] failing closed, naming the op or the destination', () => {
     const r = await recover(deps());
     expect(r.ok).toBe(false);
     expect(r.lines.join('\n')).toMatch(new RegExp(`pending op ${op} \\(t2\\): its preconditions no longer hold \\(sweep_pending\\).*ledger abandon ${op}`));
-    expect((await abandon(deps(), op, 'short')).ok).toBe(false); // a reason is required
-    expect((await abandon(deps(), op, 'the retired version is still in use')).ok).toBe(true);
-    expect(outcomeOf(op)).toBe('aborted');
-    expect(db.audited).toContain('op_abandoned');
-    expect((await recover(deps())).ok).toBe(true);
+  });
+
+  describe('[D8] abandon: an explicit waiver for one op, never a claim that nothing was destroyed (owner review of A2)', () => {
+    async function stuck(): Promise<string> {
+      await ready();
+      await expect(destroy(crashAt('db:before'), { slug: 't2', version: 1 })).rejects.toBeInstanceOf(Crash);
+      db.setKey(T2, 1, { eligible: false });
+      return [...opStates(entries()).ops.values()].find((s) => !s.outcome)?.pending.op ?? '';
+    }
+
+    it('[D8] needs a reason and the exact confirmation; records abandoned (never aborted) with the statement, audited', async () => {
+      const op = await stuck();
+      expect((await abandon(deps(), op, 'short', ABANDON_CONFIRMATION)).lines.join()).toMatch(/a reason is required/);
+      expect((await abandon(deps(), op, 'the retired version is still in use', 'yes')).lines.join()).toMatch(/--confirm "its outcome is not established"/);
+      const r = await abandon(deps(), op, 'the retired version is still in use', ABANDON_CONFIRMATION);
+      expect(r.ok).toBe(true);
+      expect(r.lines.join()).not.toMatch(/nothing (was )?destroyed/i);
+      expect(r.lines.join()).toMatch(/its outcome not established.*may have committed before an older database was restored/);
+      const e = entries().at(-1);
+      expect(e).toMatchObject({ type: 'abandoned', op, statement: expect.stringMatching(/does not cover it/) });
+      expect(outcomeOf(op)).toBe('pending'); // no outcome is claimed
+      expect(db.audited).toContain('op_abandoned');
+    });
+
+    it('[D8] every later recovery reports it, and is not blocked by it; a destroy is no longer blocked either', async () => {
+      const op = await stuck();
+      await abandon(deps(), op, 'the retired version is still in use', ABANDON_CONFIRMATION);
+      for (let i = 0; i < 2; i++) {
+        const r = await recover(deps());
+        expect(r.ok).toBe(true);
+        expect(r.lines.join('\n')).toMatch(new RegExp(`op ${op} \\(t2\\): abandoned .*its outcome not established; the no-resurrection guarantee does not cover it`));
+      }
+      expect((await destroy(deps(), { slug: 't1' })).ok).toBe(true);
+    });
+
+    it('[D8] the case the review named: the op committed, then an older database was restored; abandoned, and the row found later is recorded as committed', async () => {
+      await ready();
+      const older = db.snapshot();
+      await expect(destroy(crashAt('db:after'), { slug: 't1' })).rejects.toBeInstanceOf(Crash); // committed, not recorded
+      const op = [...opStates(entries()).ops.values()].find((s) => !s.outcome)?.pending.op ?? '';
+      const committedState = db.snapshot();
+      db.restore(older); // no row now: indistinguishable from "never committed"
+      db.setKey(T1, 1, { eligible: false });
+      // The owner abandons it: the record says the outcome isn't established, not that nothing was destroyed.
+      const out = await abandon(deps(), op, 'roll-forward refused after a restore', ABANDON_CONFIRMATION);
+      expect(out.ok).toBe(true);
+      expect(entries().at(-1)).toMatchObject({ type: 'abandoned', statement: expect.stringMatching(/keys may be usable again/) });
+      // Later the newer database comes back, with the row: recovery records it as committed, guarantee restored.
+      db.restore(committedState);
+      const r = await recover(deps());
+      expect(r.ok).toBe(true);
+      expect(outcomeOf(op)).toBe('committed');
+      expect(r.lines.join('\n')).toMatch(/abandoned, but the database shows it committed: recorded as committed/);
+    });
+
+    it('[D8] refused for an op with an outcome, and a second time', async () => {
+      const op = await stuck();
+      const accepted = [...opStates(entries()).ops.values()].find((s) => s.outcome?.type === 'committed')?.pending.op ?? '';
+      expect((await abandon(deps(), accepted, 'it should not be possible', ABANDON_CONFIRMATION)).lines.join()).toMatch(/already committed: nothing to abandon/);
+      expect((await abandon(deps(), op, 'the retired version is still in use', ABANDON_CONFIRMATION)).ok).toBe(true);
+      expect((await abandon(deps(), op, 'the retired version is still in use', ABANDON_CONFIRMATION)).lines.join()).toMatch(/already abandoned/);
+      expect(entries().filter((e) => e.type === 'abandoned')).toHaveLength(1);
+    });
+
+    it('[D8] never for an adoption (a destruction from before the ledger): recovery completes those', async () => {
+      const fresh = mkdtempSync(join(tmpdir(), 'uv-adopt-'));
+      try {
+        const p: Destination = { id: 'primary', path: join(fresh, 'primary') };
+        const d2 = new FakeKeysDb();
+        d2.addTenant(T1, 't1', { 1: 'RETIRED', 2: 'ACTIVE' });
+        d2.destroyedBeforeLedger(T1, [1]);
+        let n = 0;
+        const dd: ProtocolDeps = { ...deps({ primary: p }), db: Object.assign(Object.create(d2) as FakeKeysDb, { adopt: (...a: Parameters<FakeKeysDb['adopt']>) => (n++ === 0 ? Promise.resolve({ outcome: 'unknown' as const, detail: 'x' }) : d2.adopt(...a)) }) };
+        expect((await init(dd)).ok).toBe(false); // stopped with the adoption pending
+        const a = establishAuthority(p);
+        const op = a.ok ? ([...opStates(a.entries).ops.values()].find((s) => !s.outcome)?.pending.op ?? '') : '';
+        expect((await abandon(dd, op, 'trying to skip it', ABANDON_CONFIRMATION)).lines.join()).toMatch(/completed by recovery, never abandoned/);
+      } finally {
+        rmSync(fresh, { recursive: true, force: true });
+      }
+    });
   });
 
   it('[BK12] an op recorded as aborted while the database holds its row stops recovery', async () => {
@@ -328,7 +404,7 @@ describe('[BK12] failing closed, naming the op or the destination', () => {
     await ready();
     await expect(destroy(crashAt('db:after'), { slug: 't1' })).rejects.toBeInstanceOf(Crash);
     const op = [...opStates(entries()).ops.values()].find((s) => !s.outcome)?.pending.op ?? '';
-    expect((await abandon(deps(), op, 'trying to undo it')).lines.join()).toMatch(/committed in the database/);
+    expect((await abandon(deps(), op, 'trying to undo it', ABANDON_CONFIRMATION)).lines.join()).toMatch(/committed in the database/);
     expect(outcomeOf(op)).toBe('pending');
   });
 

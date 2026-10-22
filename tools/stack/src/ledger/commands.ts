@@ -8,9 +8,9 @@
 //   status
 import { randomUUID } from 'node:crypto';
 import { resolve } from 'node:path';
-import { destinationsOf, nextEntry, opStates, type Destination, type Entry } from './chain.js';
+import { destinationsOf, HISTORY_STATEMENT, nextEntry, opStates, type Destination, type Entry, type History } from './chain.js';
 import { establishAuthority, Ledger, LedgerWriteError } from './ledger.js';
-import type { ProtocolDeps, Result } from './protocol.js';
+import type { LegacyEvidence, ProtocolDeps, Result } from './protocol.js';
 import { createCopy, readCopy, readCopyAt, realFs, type Copy, type LedgerFs } from './store.js';
 
 const samePath = (a: string, b: string) => resolve(a).toLowerCase() === resolve(b).toLowerCase();
@@ -31,6 +31,55 @@ const writeFailure = (e: unknown): Result => {
   throw e;
 };
 
+/**
+ * The owner's review of A2: what the database shows was destroyed before the ledger existed, reconciled into the plan
+ * genesis records, or the reasons it can't be. Trustworthy only when it is consistent: every destroyed key has its wrap
+ * erased and an audit event recording its destruction, and every destruction audit event's keys are destroyed now. An
+ * event whose keys are live again is exactly what a restore before the ledger would leave: init refuses, because a
+ * genesis must not imply that history is captured when it isn't.
+ */
+export function reconcileHistory(legacy: LegacyEvidence): { ok: true; adopted: History['adopted'] } | { ok: false; problems: string[] } {
+  const problems: string[] = [];
+  const name = (id: string | null) => legacy.tenants.find((t) => t.id === id)?.slug ?? id ?? 'no tenant';
+  const covered = new Map<string, string[]>(); // "<tenant>:<version>" → the audit seqs recording it
+  for (const a of legacy.audits) {
+    if (!a.tenantId || a.versions.length === 0) {
+      problems.push(`audit event seq ${a.seq} records a destruction without naming its tenant and versions`);
+      continue;
+    }
+    if (a.op) problems.push(`audit event seq ${a.seq} names op ${a.op}, but the database holds no key_destruction row for it`);
+    const keys = legacy.tenants.find((t) => t.id === a.tenantId)?.keys ?? [];
+    for (const v of a.versions) {
+      const k = keys.find((x) => x.version === v);
+      if (k?.status !== 'DESTROYED' || !k.wrapErased)
+        problems.push(`audit event seq ${a.seq} records the destruction of ${name(a.tenantId)} v${String(v)}, but that key is ${k ? k.status : 'missing'} now (a restore may have undone it before the ledger existed)`);
+      covered.set(`${a.tenantId}:${String(v)}`, [...(covered.get(`${a.tenantId}:${String(v)}`) ?? []), a.seq]);
+    }
+  }
+  const adopted: History['adopted'][number][] = [];
+  for (const t of legacy.tenants) {
+    const destroyed = t.keys.filter((k) => k.status === 'DESTROYED');
+    if (!destroyed.length) continue;
+    for (const k of destroyed) {
+      if (!k.wrapErased) problems.push(`${t.slug ?? t.id} v${String(k.version)} is DESTROYED but its wrap is not erased`);
+      if (!covered.has(`${t.id}:${String(k.version)}`)) problems.push(`${t.slug ?? t.id} v${String(k.version)} is destroyed, but no audit event records its destruction`);
+    }
+    if (!t.slug) {
+      problems.push(`destroyed keys of a tenant that no longer exists (${t.id})`);
+      continue;
+    }
+    const versions = destroyed.map((k) => k.version);
+    adopted.push({
+      op: randomUUID(),
+      tenant: { id: t.id, slug: t.slug },
+      kind: t.keys.every((k) => k.status === 'DESTROYED') ? 'TENANT' : 'RETIRED',
+      versions,
+      auditSeqs: [...new Set(versions.flatMap((v) => covered.get(`${t.id}:${String(v)}`) ?? []))],
+    });
+  }
+  return problems.length ? { ok: false, problems } : { ok: true, adopted };
+}
+
 export async function init(deps: ProtocolDeps, extra: readonly string[] = []): Promise<Result> {
   const fs = fsOf(deps);
   const lock = await deps.lock('ledger init');
@@ -43,6 +92,19 @@ export async function init(deps: ProtocolDeps, extra: readonly string[] = []): P
         ok: false,
         lines: [`the database already records ${String(ev.rows.length)} destruction(s): this stack had a ledger. Rebuild it from a destination that still holds it (\`ledger rebuild-destination\`); never start a new one over it.`],
       };
+    // What came before the ledger: reconciled into genesis, or init refuses (the owner's review of A2).
+    const legacy = (await deps.db.evidence([], { legacy: true })).legacy;
+    if (!legacy) return { ok: false, lines: ["the database's evidence came without its history (an older keys job?): nothing initialised"] };
+    const history = reconcileHistory(legacy);
+    if (!history.ok)
+      return {
+        ok: false,
+        lines: [
+          "the database's history of destructions from before the ledger can't be established, so no ledger was started (a genesis would imply it was captured):",
+          ...history.problems.map((p) => `  ${p}`),
+          'Investigate and settle each one (re-destroy a key whose destruction a restore undid, or restore the database that holds it); init accepts only a consistent history.',
+        ],
+      };
     const others: Destination[] = extra.map((path) => ({ id: newId(), path: resolve(path) }));
     for (const d of others) {
       const c = readCopy(d, fs);
@@ -50,7 +112,13 @@ export async function init(deps: ProtocolDeps, extra: readonly string[] = []): P
     }
     const ledgerId = randomUUID();
     const destinations = [deps.primary, ...others];
-    const genesis = nextEntry(null, { type: 'genesis', ledgerId, generation: 1, destinations });
+    const genesis = nextEntry(null, {
+      type: 'genesis',
+      ledgerId,
+      generation: 1,
+      destinations,
+      history: { capturedAt: new Date().toISOString(), statement: HISTORY_STATEMENT, adopted: history.adopted },
+    });
     // The other destinations first, the primary last: a failure leaves no primary, so nothing half-made is authoritative.
     const made: Destination[] = [];
     for (const d of [...others, deps.primary]) {
@@ -61,8 +129,25 @@ export async function init(deps: ProtocolDeps, extra: readonly string[] = []): P
       }
       made.push(d);
     }
-    await deps.db.audit('initialised', { ledgerId, destinations: destinations.map((d) => d.id) });
-    return { ok: true, lines: [`ledger ${ledgerId} initialised on ${destinations.map((d) => d.path).join(', ')}`] };
+    // The adoptions genesis planned, each pending, recorded in the database (nothing destroyed), then committed. A stop
+    // here leaves them for recovery, which completes the plan.
+    const opened = Ledger.open(deps.primary, { fs, ...crashOf(deps) });
+    if ('problems' in opened) return { ok: false, lines: ['initialised, but not authoritative', ...opened.problems] };
+    deps.crash?.('init:genesis'); // D13: genesis durable everywhere, no adoption recorded yet
+    for (const a of history.adopted) {
+      opened.ledger.append({ type: 'pending', op: a.op, tenant: a.tenant, kind: a.kind, versions: a.versions, requestedAt: new Date().toISOString(), preconditions: { auditSeqs: a.auditSeqs }, adoption: true }, `pending:${a.op}`);
+      const r = await deps.db.adopt(a.op, a.tenant.id, a.kind, a.versions);
+      if (r.outcome !== 'adopted') return { ok: false, lines: [`initialised, but adopting ${a.tenant.slug}'s earlier destruction failed (${r.outcome === 'refused' ? r.why : r.detail}): run \`pnpm stack:keys recover\``] };
+      opened.ledger.append({ type: 'committed', op: a.op, versions: r.versions, destroyedAt: r.destroyedAt, auditSeq: r.auditSeq, by: 'adoption' }, `committed:${a.op}`);
+    }
+    await deps.db.audit('initialised', { ledgerId, destinations: destinations.map((d) => d.id), adopted: history.adopted.length });
+    return {
+      ok: true,
+      lines: [
+        `ledger ${ledgerId} initialised on ${destinations.map((d) => d.path).join(', ')}`,
+        `history before it: ${String(history.adopted.length)} destruction(s) adopted from the database's evidence. ${HISTORY_STATEMENT}`,
+      ],
+    };
   } finally {
     lock.release();
   }
@@ -198,7 +283,9 @@ export function status(deps: ProtocolDeps): Result {
         const c = a.copies.find((x) => x.dest.id === d.id);
         return `  ${d.id} ${d.path}: ${String(c?.entries.length ?? 0)} entries${c && c.entries.length < a.entries.length ? ' (behind: levelled by the next recovery)' : ''}`;
       }),
-      `destructions: ${String(count('committed'))} committed, ${String(count('aborted'))} aborted, ${String(count('pending'))} pending`,
+      `destructions: ${String(count('committed'))} committed, ${String(count('aborted'))} aborted, ${String([...ops.values()].filter((s) => !s.outcome && !s.abandoned).length)} pending`,
+      ...[...ops.values()].filter((s) => s.abandoned && !s.outcome).map((s) => `ABANDONED op ${s.pending.op} (${s.pending.tenant.slug}) since ${s.abandoned?.at ?? ''}: its outcome not established; the no-resurrection guarantee does not cover it`),
+      ...(a.entries[0]?.type === 'genesis' && a.entries[0].history ? [`history before this ledger (${a.entries[0].history.capturedAt}): ${String(a.entries[0].history.adopted.length)} adopted. ${a.entries[0].history.statement}`] : []),
     ],
   };
 }

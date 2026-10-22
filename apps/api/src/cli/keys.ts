@@ -13,8 +13,11 @@
 //     (UNIVARSE_DESTRUCTION_OP); operators use `pnpm stack:keys destroy`, never this directly.
 //     A definite refusal (a precondition, a conflict, the job guard; nothing changed) prints {outcome: "refused"}
 //     and exits 3; any other failure exits 1 and its outcome is unknown (the host protocol then asks the evidence).
-//   pnpm --filter @univarse/api keys evidence [--tenant-id <uuid>]…
+//   pnpm --filter @univarse/api keys evidence [--legacy] [--tenant-id <uuid>]…
 //     Spec 0020 D8: read-only JSON of every key_destruction row, its audit event and its keys, for the host's recovery.
+//     --legacy adds every destroyed key and every destruction audit event, for the ledger's init to reconcile.
+//   pnpm --filter @univarse/api keys adopt --op <uuid> --tenant-id <uuid> --kind TENANT|RETIRED --versions <n,…>
+//     Spec 0020: records a destruction from before the ledger, at its init (destroys nothing; the job only).
 //   pnpm --filter @univarse/api keys reapply --op <uuid> --tenant-id <uuid> --kind TENANT|RETIRED --versions <n,…>
 //     Spec 0020 D8: re-applies an accepted destruction after a restore (the destruction job only, in production).
 //   pnpm --filter @univarse/api keys ledger-audit --action <name> --detail <json>
@@ -48,7 +51,7 @@ const rootEnv = new URL('../../../../.env', import.meta.url);
 if (process.env.NODE_ENV !== 'production' && existsSync(rootEnv)) process.loadEnvFile(rootEnv);
 
 const USAGE =
-  'usage: keys <status | rotate <slug> | sweep | migrate-v1 | resweep <slug> | destroy-check <slug> [--version <n>] | destroy <slug> --op <uuid> [--version <n>] | evidence [--tenant-id <uuid>]… | reapply --op <uuid> --tenant-id <uuid> --kind TENANT|RETIRED --versions <n,…> | ledger-audit --action <name> --detail <json> | ledger-copy --ledger <uuid> --generation gen-NNNN | rewrap-kek>';
+  'usage: keys <status | rotate <slug> | sweep | migrate-v1 | resweep <slug> | destroy-check <slug> [--version <n>] | destroy <slug> --op <uuid> [--version <n>] | evidence [--legacy] [--tenant-id <uuid>]… | adopt --op <uuid> --tenant-id <uuid> --kind TENANT|RETIRED --versions <n,…> | reapply --op <uuid> --tenant-id <uuid> --kind TENANT|RETIRED --versions <n,…> | ledger-audit --action <name> --detail <json> | ledger-copy --ledger <uuid> --generation gen-NNNN | rewrap-kek>';
 const [command, ...args] = process.argv.slice(2);
 const config = loadConfig();
 // Spec 0015: the CLI publishes key-forget notices but never subscribes to the bus.
@@ -71,6 +74,34 @@ function tenantIds(rest: string[]): string[] {
     out.push(value);
   }
   return out;
+}
+
+/**
+ * The ledger's init reconciles what came before it (the owner's review of A2): every destroyed key (with its tenant's
+ * other versions, for the kind) and every destruction audit event, whatever its era. Statuses and ids only.
+ */
+async function legacyEvidence() {
+  const destroyed = await platform.tenantDataKey.findMany({ where: { status: 'DESTROYED' }, select: { tenantId: true } });
+  const tenantIdsWithDestroyed = [...new Set(destroyed.map((k) => k.tenantId))];
+  const audits = await platform.platformAuditEvent.findMany({
+    where: { action: 'crypto.tenant_key.destroyed' },
+    select: { seq: true, tenantId: true, metadata: true },
+    orderBy: { seq: 'asc' },
+  });
+  const ids = [...new Set([...tenantIdsWithDestroyed, ...audits.map((a) => a.tenantId).filter((t): t is string => t !== null)])];
+  const keys = await platform.tenantDataKey.findMany({ where: { tenantId: { in: ids } }, select: { tenantId: true, version: true, status: true, wrappedDek: true }, orderBy: [{ tenantId: 'asc' }, { version: 'asc' }] });
+  const slugs = await platform.tenant.findMany({ where: { id: { in: ids } }, select: { id: true, slug: true } });
+  return {
+    tenants: ids.map((id) => ({
+      id,
+      slug: slugs.find((s) => s.id === id)?.slug ?? null,
+      keys: keys.filter((k) => k.tenantId === id).map((k) => ({ version: k.version, status: k.status, wrapErased: k.wrappedDek === null })),
+    })),
+    audits: audits.map((a) => {
+      const m = (a.metadata ?? {}) as { versions?: unknown; op?: unknown };
+      return { seq: String(a.seq), tenantId: a.tenantId, versions: Array.isArray(m.versions) ? (m.versions as unknown[]).filter((v): v is number => typeof v === 'number') : [], op: typeof m.op === 'string' ? m.op : null };
+    }),
+  };
 }
 
 /** A definite refusal: nothing changed. The host protocol records it as `aborted` (exit 3). */
@@ -268,8 +299,9 @@ try {
     }
     case 'evidence': {
       // D8: the database's own evidence. Never key material: statuses, and whether each wrap is erased.
+      const legacy = args.includes('--legacy');
       const rows = await platform.keyDestruction.findMany({ orderBy: { destroyedAt: 'asc' } });
-      const ids = [...new Set([...rows.map((r) => r.tenantId), ...tenantIds(args)])];
+      const ids = [...new Set([...rows.map((r) => r.tenantId), ...tenantIds(args.filter((a) => a !== '--legacy'))])];
       const keysOf = await platform.tenantDataKey.findMany({
         where: { tenantId: { in: ids } },
         select: { tenantId: true, version: true, status: true, wrappedDek: true },
@@ -302,8 +334,28 @@ try {
             };
           }),
           tenants,
+          ...(legacy ? { legacy: await legacyEvidence() } : {}),
         }),
       );
+      break;
+    }
+    case 'adopt': {
+      const f = flags(args, ['op', 'tenant-id', 'kind', 'versions']);
+      const kind = f.kind;
+      const versions = (f.versions ?? '').split(',').map(versionOf);
+      if (!f.op || !f['tenant-id'] || !UUID.test(f['tenant-id']) || (kind !== 'TENANT' && kind !== 'RETIRED')) throw new Error(USAGE);
+      const op = f.op;
+      let r: { recorded: boolean };
+      try {
+        r = await destruction.adopt({ op, tenantId: f['tenant-id'], kind, versions, actorId: null, reason: 'destroyed before the shred ledger existed; adopted at its init' });
+      } catch (err) {
+        if (err instanceof DestructionConflictError) refused(op, err.message);
+        else if (err instanceof DestructionRefusedError) refused(op, 'not_the_job');
+        else throw err;
+        break;
+      }
+      const row = await platform.keyDestruction.findUniqueOrThrow({ where: { op } });
+      console.log(JSON.stringify({ op, outcome: 'adopted', recorded: r.recorded, versions: row.versions, destroyedAt: row.destroyedAt.toISOString(), auditSeq: String(row.auditSeq) }));
       break;
     }
     case 'reapply': {

@@ -5,8 +5,10 @@
 // would hold it: the scratch tenants' key rows, the destruction rows, and the platform audit chain after the snapshot
 // point (the chain stays valid: it is cut back to an earlier head, exactly as a restore would). PR B's shred drill
 // restores a whole database.
-// It runs on CI's disposable database only (CI=true): it clears the key_destruction rows other suites left, so one
-// ledger can account for every row, and its cases share that ledger, in order.
+// It runs on CI only (CI=true), on its OWN copy of the platform database (CREATE DATABASE … TEMPLATE), dropped
+// afterwards. In the copy it settles what other suites left (their destruction rows, destroyed keys and destruction
+// audit events), so its one ledger starts from a known history; then it stages one destruction from before the
+// ledger, which init must adopt. Its cases share that ledger, in order.
 import { spawnSync } from 'node:child_process';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { existsSync, mkdtempSync, rmSync } from 'node:fs';
@@ -27,20 +29,26 @@ const rootEnv = join(REPO, '.env');
 if (existsSync(rootEnv)) process.loadEnvFile(rootEnv);
 const run = randomBytes(3).toString('hex');
 
-/** The keys CLI run directly with Node, as the job runs it in the image (the root .env gives it the databases). */
+/** The copy's URL: the platform app role, on the copy (set in beforeAll; the keys CLI gets it ahead of the root .env). */
+let copyUrl = '';
+
+/** The keys CLI run directly with Node, as the job runs it in the image (the root .env gives it the rest). */
 const nodeRunner: Runner = (args, opts = {}) => {
   const r = spawnSync(process.execPath, ['--enable-source-maps', CLI, ...args], {
     cwd: join(REPO, 'apps', 'api'),
     encoding: 'utf8',
     timeout: 120_000,
     ...(opts.input === undefined ? {} : { input: opts.input }),
-    env: { ...process.env, NODE_ENV: 'test', ...(opts.op ? { UNIVARSE_DESTRUCTION_OP: opts.op } : {}) },
+    env: { ...process.env, NODE_ENV: 'test', PLATFORM_DATABASE_URL: copyUrl, ...(opts.op ? { UNIVARSE_DESTRUCTION_OP: opts.op } : {}) },
   });
   return { status: r.error ? null : r.status, stdout: r.stdout, stderr: r.stderr };
 };
 
 let app: pg.Client | undefined; // the platform app role
-let su: pg.Client | undefined; // the superuser: only to stage an older database
+let su: pg.Client | undefined; // the superuser, on the copy: only to stage an older database and the history
+let admin: pg.Client | undefined; // the superuser on the maintenance database: creates and drops the copy
+const COPY = `univarse_platform_ledger_${run}`;
+let legacy = { id: '', slug: '' }; // a tenant destroyed before the ledger existed
 let shardId = '';
 let dir = '';
 let primary: Destination = { id: 'primary', path: '' };
@@ -72,12 +80,33 @@ const pendingOp = () => [...opStates(entries()).ops.values()].find((s) => !s.out
 beforeAll(async () => {
   if (process.env.CI !== 'true') throw new Error("the ledger integration test runs on CI's disposable database only (CI=true)");
   if (!existsSync(CLI)) throw new Error(`${CLI} is missing: build the API first`);
-  app = new pg.Client({ connectionString: process.env.PLATFORM_DATABASE_URL });
-  await app.connect();
-  su = new pg.Client({ host: process.env.PGHOST ?? '127.0.0.1', port: Number(process.env.PGPORT ?? 5432), user: 'postgres', password: process.env.PGSUPERPASSWORD, database: 'univarse_platform' });
+  const superuser = (database: string) =>
+    new pg.Client({ host: process.env.PGHOST ?? '127.0.0.1', port: Number(process.env.PGPORT ?? 5432), user: 'postgres', password: process.env.PGSUPERPASSWORD, database });
+  admin = superuser('postgres');
+  await admin.connect();
+  await admin.query(`CREATE DATABASE ${COPY} TEMPLATE univarse_platform OWNER univarse_migrator`);
+  await admin.query(`GRANT CONNECT ON DATABASE ${COPY} TO univarse_app_platform`);
+  const url = new URL(process.env.PLATFORM_DATABASE_URL ?? '');
+  url.pathname = `/${COPY}`;
+  copyUrl = url.toString();
+  su = superuser(COPY);
   await su.connect();
+  // What other suites left, settled in the copy: this ledger's init then sees only what this test stages.
+  await su.query('DELETE FROM key_destruction');
+  await su.query("DELETE FROM platform_audit_event WHERE action IN ('crypto.tenant_key.destroyed', 'crypto.tenant_key.reapplied', 'crypto.tenant_key.adopted')");
+  await su.query("DELETE FROM tenant_data_key WHERE status = 'DESTROYED'");
+  app = new pg.Client({ connectionString: copyUrl });
+  await app.connect();
   shardId = (await app.query<{ id: string }>('SELECT id::text FROM shard WHERE is_active LIMIT 1')).rows[0]?.id ?? '';
-  await su.query('DELETE FROM key_destruction'); // other suites' rows (CI only, above): this ledger must account for every row
+  // A destruction from before the ledger, as an older release left it: v1 DESTROYED with its wrap erased, and an audit
+  // event that names no op (the chain isn't verified in this copy, so the row's hashes are placeholders).
+  legacy = await scratch('legacy');
+  await su.query("UPDATE tenant_data_key SET status = 'DESTROYED', wrapped_dek = NULL, destroyed_at = now() WHERE tenant_id = $1 AND version = 1", [legacy.id]);
+  await su.query(
+    `INSERT INTO platform_audit_event (seq, action, tenant_id, metadata, prev_hash, hash)
+     SELECT coalesce(max(seq), 0) + 1, 'crypto.tenant_key.destroyed', $1::uuid, '{"versions":[1],"reason":"before the ledger"}'::jsonb, '\\x00'::bytea, '\\x00'::bytea FROM platform_audit_event`,
+    [legacy.id],
+  );
   dir = mkdtempSync(join(tmpdir(), 'uv-ledger-int-'));
   primary = { id: 'primary', path: join(dir, 'primary') };
   const r = await init(deps(), [join(dir, 'external')]);
@@ -86,6 +115,8 @@ beforeAll(async () => {
 afterAll(async () => {
   await app?.end();
   await su?.end();
+  await admin?.query(`DROP DATABASE IF EXISTS ${COPY} WITH (FORCE)`);
+  await admin?.end();
   if (dir) rmSync(dir, { recursive: true, force: true });
 });
 
@@ -143,6 +174,21 @@ async function restore(s: Snapshot): Promise<void> {
 }
 
 describe('[BK1][BK2][BK11] the protocol with the real keys CLI and database', { timeout: 600_000 }, () => {
+  it("[A2-3] init adopted the destruction from before the ledger: its row recorded (nothing destroyed), genesis says what it can't know", async () => {
+    const e = entries();
+    const g = e[0];
+    const history = g?.type === 'genesis' ? g.history : undefined;
+    expect(history?.adopted).toMatchObject([{ tenant: { id: legacy.id }, kind: 'RETIRED', versions: [1] }]);
+    expect(history?.statement).toMatch(/cannot be known/);
+    const committed = e.find((x) => x.type === 'committed');
+    expect(committed).toMatchObject({ by: 'adoption', versions: [1] });
+    const row = (await A().query<{ kind: string; versions: number[] }>('SELECT kind::text AS kind, versions FROM key_destruction WHERE tenant_id = $1', [legacy.id])).rows;
+    expect(row).toEqual([{ kind: 'RETIRED', versions: [1] }]);
+    const audit = (await A().query<{ action: string }>('SELECT action FROM platform_audit_event WHERE tenant_id = $1 ORDER BY seq', [legacy.id])).rows.map((a) => a.action);
+    expect(audit).toEqual(['crypto.tenant_key.destroyed', 'crypto.tenant_key.adopted']);
+    expect(await keyStates(legacy.id)).toEqual({ 1: 'DESTROYED/erased', 2: 'ACTIVE' });
+  });
+
   it('[BK1] a whole-tenant destruction: accepted only once committed, recorded with its row and audit event', async () => {
     const t = await scratch('tenant');
     const r = await destroy(deps(), { slug: t.slug });

@@ -53,6 +53,87 @@ describe('[A2-3] init', () => {
   });
 });
 
+describe('[A2-3] init reconciles the history from before the ledger, or refuses (owner review of A2)', () => {
+  it('[A2-3] a consistent history: each earlier destruction adopted (recorded, nothing destroyed), and genesis says what it cannot know', async () => {
+    db.destroyedBeforeLedger(T1, [1]); // t1 offboarded under an older release: every key destroyed, audited
+    const r = await init(deps(), [ext]);
+    expect(r.ok, r.lines.join()).toBe(true);
+    expect(r.lines.join('\n')).toMatch(/1 destruction\(s\) adopted from the database's evidence\. Destructions made before this ledger existed .*cannot be known/);
+    const a = authority();
+    if (!a.ok) throw new Error('not authoritative');
+    const g = a.entries[0];
+    expect(g?.type === 'genesis' && g.history).toMatchObject({ statement: expect.stringMatching(/not represented/), adopted: [{ tenant: { id: T1 }, kind: 'TENANT', versions: [1] }] });
+    expect(a.entries.slice(1).map((e) => e.type)).toEqual(['pending', 'committed']);
+    expect(a.entries[2]).toMatchObject({ by: 'adoption' });
+    expect(db.keysOf(T1)).toEqual({ 1: 'DESTROYED' });
+    // It is an accepted destruction from now on: a restore that brings the key back is undone by recovery.
+    const older = new FakeKeysDb();
+    older.addTenant(T1, 't1', { 1: 'ACTIVE' });
+    older.addTenant(T2, 't2', { 1: 'ACTIVE' });
+    db.restore(older.snapshot());
+    expect((await recover(deps())).ok).toBe(true);
+    expect(db.keysOf(T1)).toEqual({ 1: 'DESTROYED' });
+  });
+
+  it('[A2-3] no earlier destruction: genesis still says the history before it is what the database showed', async () => {
+    expect((await init(deps())).ok).toBe(true);
+    const a = authority();
+    const g = a.ok ? a.entries[0] : undefined;
+    expect(g?.type === 'genesis' && g.history).toMatchObject({ adopted: [], statement: expect.stringMatching(/cannot be known/) });
+  });
+
+  it.each<[string, () => void, RegExp]>([
+    ['an audit event whose keys are live again (a restore undid it before the ledger)', () => db.legacyAudit({ tenantId: T1, versions: [1] }), /records the destruction of t1 v1, but that key is ACTIVE now/],
+    ['a destroyed key no audit event records', () => db.destroyedBeforeLedger(T1, [1], { audited: false }), /t1 v1 is destroyed, but no audit event records its destruction/],
+    ['a destroyed key whose wrap is not erased', () => db.destroyedBeforeLedger(T1, [1], { erased: false }), /DESTROYED but its wrap is not erased/],
+    ['an audit event naming an op with no row', () => { db.destroyedBeforeLedger(T1, [1], { audited: false }); db.legacyAudit({ tenantId: T1, versions: [1], op: '30000000-0000-4000-8000-000000000000' }); }, /names op 30000000-0000-4000-8000-000000000000, but the database holds no key_destruction row/],
+    ['an audit event without its tenant or versions', () => db.legacyAudit({ tenantId: null, versions: [] }), /without naming its tenant and versions/],
+  ])('[A2-3] an inconsistent history refuses init, and nothing is created: %s', async (_name, make, why) => {
+    make();
+    const r = await init(deps(), [ext]);
+    expect(r.ok).toBe(false);
+    expect(r.lines.join('\n')).toMatch(/can't be established, so no ledger was started/);
+    expect(r.lines.join('\n')).toMatch(why);
+    expect(readCopy(primary).state).toBe('missing');
+    expect(db.calls.filter((c) => c.startsWith('adopt:'))).toHaveLength(0);
+  });
+
+  it('[A2-3][D13] init stopped right after genesis (no adoption pending yet): recovery completes genesis’s plan', async () => {
+    db.destroyedBeforeLedger(T1, [1]);
+    await expect(
+      init(
+        {
+          ...deps(),
+          crash: (p) => {
+            if (p === 'init:genesis') throw new Error('crash');
+          },
+        },
+        [ext],
+      ),
+    ).rejects.toThrow('crash');
+    const before = authority();
+    expect(before.ok && before.entries.map((e) => e.type)).toEqual(['genesis']);
+    const rec = await recover(deps());
+    expect(rec.ok, rec.lines.join('\n')).toBe(true);
+    const after = authority();
+    expect(after.ok && after.entries.map((e) => e.type)).toEqual(['genesis', 'pending', 'committed']);
+    expect(after.ok && after.entries[2]).toMatchObject({ by: 'adoption' });
+  });
+
+  it('[A2-3] init stopped after genesis, before an adoption: recovery completes the plan, so none is left out', async () => {
+    db.destroyedBeforeLedger(T1, [1]);
+    let n = 0;
+    const failingOnce: ProtocolDeps = { ...deps(), db: Object.assign(Object.create(db) as FakeKeysDb, { adopt: (...a: Parameters<FakeKeysDb['adopt']>) => (n++ === 0 ? Promise.resolve({ outcome: 'unknown' as const, detail: 'the job died' }) : db.adopt(...a)) }) };
+    const r = await init(failingOnce, [ext]);
+    expect(r.ok).toBe(false);
+    expect(r.lines.join()).toMatch(/run `pnpm stack:keys recover`/);
+    const rec = await recover(deps());
+    expect(rec.ok, rec.lines.join('\n')).toBe(true);
+    const a = authority();
+    expect(a.ok && a.entries.at(-1)).toMatchObject({ type: 'committed', by: 'adoption' });
+  });
+});
+
 describe('[BK16] the guarantee-preserving commands', () => {
   beforeEach(async () => {
     expect((await init(deps(), [ext])).ok).toBe(true);

@@ -5,7 +5,8 @@
 //   pnpm stack:keys ledger add-destination <path>
 //   pnpm stack:keys ledger rebuild-destination <path> [--from <path>]
 //   pnpm stack:keys ledger remove-destination <path> --reason "…"
-//   pnpm stack:keys ledger abandon <op> --reason "…"       a pending op whose preconditions no longer hold
+//   pnpm stack:keys ledger abandon <op> --reason "…" --confirm "its outcome is not established"
+//                                                          a pending op recovery can't complete: a recorded waiver
 //   pnpm stack:keys ledger status
 // The database step runs as the `keys` job from the deployed API image (ledger/job.ts). Exit 0 only on success.
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
@@ -46,7 +47,7 @@ export function realProtocolDeps(images: Readonly<Record<string, string>>, opts:
 const USAGE = [
   'usage: pnpm stack:keys destroy <tenant> [--version <n>]',
   '       pnpm stack:keys recover',
-  '       pnpm stack:keys ledger <init [--destination <path>]… | add-destination <path> | rebuild-destination <path> [--from <path>] | remove-destination <path> --reason "…" | abandon <op> --reason "…" | status>',
+  '       pnpm stack:keys ledger <init [--destination <path>]… | add-destination <path> | rebuild-destination <path> [--from <path>] | remove-destination <path> --reason "…" | abandon <op> --reason "…" --confirm "its outcome is not established" | status>',
 ].join('\n');
 
 /** `--name value` pairs; `repeat` names the one flag that may be given more than once. */
@@ -103,9 +104,9 @@ export async function main(argv: readonly string[]): Promise<Result> {
         }
         case 'abandon': {
           const [op, ...flags] = more;
-          const { values } = parse(flags, ['reason']);
+          const { values } = parse(flags, ['reason', 'confirm']);
           if (!op || !values.reason) throw new Error(USAGE);
-          return abandon(deps(), op, values.reason);
+          return abandon(deps(), op, values.reason, values.confirm ?? '');
         }
         case 'status':
           return status({ ...realProtocolDeps({}), primary: PRIMARY });

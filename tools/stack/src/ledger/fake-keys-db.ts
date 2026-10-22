@@ -3,7 +3,7 @@
 // its row, a mismatch refused as a conflict), preconditions re-checked in the "transaction", the row, its audit event
 // and the keys' states. The integration test runs the same protocol against the real CLI and database.
 import type { DestructionKind, Entry } from './chain.js';
-import type { CheckResult, DestroyOutcome, Evidence, EvidenceRow, KeysDb, KeyState, ReapplyOutcome } from './protocol.js';
+import type { AdoptOutcome, CheckResult, DestroyOutcome, Evidence, EvidenceRow, KeysDb, KeyState, LegacyEvidence, ReapplyOutcome } from './protocol.js';
 
 interface Key {
   status: 'ACTIVE' | 'RETIRED' | 'DESTROYED';
@@ -20,6 +20,8 @@ interface State {
   tenants: Map<string, Tenant>;
   rows: Map<string, EvidenceRow>;
   audits: Map<string, NonNullable<EvidenceRow['audit']>>;
+  /** Destruction audit events from before key_destruction (no op), as an older release wrote them. */
+  legacyAudits: { seq: string; tenantId: string | null; versions: number[]; op: string | null }[];
   seq: number;
 }
 
@@ -27,13 +29,14 @@ const clone = (s: State): State => ({
   tenants: new Map([...s.tenants].map(([id, t]) => [id, { ...t, keys: new Map([...t.keys].map(([v, k]) => [v, { ...k }])) }])),
   rows: new Map(s.rows),
   audits: new Map(s.audits),
+  legacyAudits: s.legacyAudits.map((a) => ({ ...a })),
   seq: s.seq,
 });
 
 export type Fault = 'lost-before-commit' | 'commit-then-lost' | 'evidence-fails';
 
 export class FakeKeysDb implements KeysDb {
-  private s: State = { tenants: new Map(), rows: new Map(), audits: new Map(), seq: 0 };
+  private s: State = { tenants: new Map(), rows: new Map(), audits: new Map(), legacyAudits: [], seq: 0 };
   readonly calls: string[] = [];
   readonly audited: string[] = [];
   readonly bucket: Entry[] = [];
@@ -42,6 +45,15 @@ export class FakeKeysDb implements KeysDb {
 
   addTenant(id: string, slug: string, keys: Record<number, 'ACTIVE' | 'RETIRED' | 'DESTROYED'>, eligible: readonly number[] = []): void {
     this.s.tenants.set(id, { id, slug, keys: new Map(Object.entries(keys).map(([v, status]) => [Number(v), { status, wrapErased: status === 'DESTROYED', eligible: eligible.includes(Number(v)) }])) });
+  }
+  /** A destruction an older release made (before key_destruction): keys DESTROYED, an audit event with no op. */
+  destroyedBeforeLedger(tenantId: string, versions: number[], opts: { audited?: boolean; erased?: boolean } = {}): void {
+    for (const v of versions) this.setKey(tenantId, v, { status: 'DESTROYED', wrapErased: opts.erased ?? true });
+    if (opts.audited ?? true) this.s.legacyAudits.push({ seq: String(++this.s.seq), tenantId, versions, op: null });
+  }
+  /** An old audit event, as written; its keys as they are now. */
+  legacyAudit(a: { tenantId: string | null; versions: number[]; op?: string | null }): void {
+    this.s.legacyAudits.push({ seq: String(++this.s.seq), tenantId: a.tenantId, versions: a.versions, op: a.op ?? null });
   }
   /** The state as a backup would hold it. */
   snapshot(): State {
@@ -124,7 +136,7 @@ export class FakeKeysDb implements KeysDb {
     return Promise.resolve(committed(row, t.id));
   }
 
-  evidence(tenantIds: readonly string[]): Promise<Evidence> {
+  evidence(tenantIds: readonly string[], opts: { legacy?: boolean } = {}): Promise<Evidence> {
     this.calls.push('evidence');
     if (this.fault === 'evidence-fails') {
       this.fault = null;
@@ -134,7 +146,30 @@ export class FakeKeysDb implements KeysDb {
     const tenants: Record<string, KeyState[]> = {};
     for (const id of ids) tenants[id] = [...(this.s.tenants.get(id)?.keys ?? new Map<number, Key>())].map(([version, k]) => ({ version, status: k.status, wrapErased: k.wrapErased }));
     const rows = [...this.s.rows.values()].map((r) => ({ ...r, audit: this.s.audits.get(r.auditSeq) ?? null }));
-    return Promise.resolve({ rows, tenants });
+    const legacy: LegacyEvidence = {
+      tenants: [...this.s.tenants.values()]
+        .filter((t) => [...t.keys.values()].some((k) => k.status === 'DESTROYED') || this.s.legacyAudits.some((a) => a.tenantId === t.id))
+        .map((t) => ({ id: t.id, slug: t.slug, keys: [...t.keys].map(([version, k]) => ({ version, status: k.status, wrapErased: k.wrapErased })) })),
+      audits: [
+        ...this.s.legacyAudits,
+        ...[...this.s.audits].filter(([, a]) => a.action === 'crypto.tenant_key.destroyed').map(([seq, a]) => ({ seq, tenantId: a.tenantId, versions: [...(a.versions as number[])], op: a.op as string })),
+      ],
+    };
+    return Promise.resolve({ rows, tenants, ...(opts.legacy ? { legacy } : {}) });
+  }
+
+  adopt(op: string, tenantId: string, kind: DestructionKind, versions: readonly number[]): Promise<AdoptOutcome> {
+    this.calls.push(`adopt:${op}`);
+    const t = this.s.tenants.get(tenantId);
+    if (!t) return Promise.resolve({ outcome: 'refused', why: 'no_tenant' });
+    const prior = this.s.rows.get(op);
+    if (prior) return Promise.resolve({ outcome: 'adopted', recorded: false, versions: prior.versions, destroyedAt: prior.destroyedAt, auditSeq: prior.auditSeq });
+    for (const v of versions) {
+      const k = t.keys.get(v);
+      if (k?.status !== 'DESTROYED' || !k.wrapErased) return Promise.resolve({ outcome: 'refused', why: `version ${String(v)} is not destroyed` });
+    }
+    const row = this.record(op, t, kind, [...versions], 'crypto.tenant_key.adopted');
+    return Promise.resolve({ outcome: 'adopted', recorded: true, versions: row.versions, destroyedAt: row.destroyedAt, auditSeq: row.auditSeq });
   }
 
   reapply(op: string, tenantId: string, kind: DestructionKind, versions: readonly number[]): Promise<ReapplyOutcome> {

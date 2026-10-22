@@ -6,7 +6,7 @@
 //            refusal writes `aborted`; an unknown outcome leaves `pending` for recovery (A2-8).
 //   recover: lock → an authoritative ledger, levelled → the database's evidence → each op made to hold, or a stop.
 import { randomUUID } from 'node:crypto';
-import { opStates, type Destination, type DestructionKind, type Entry, type OpState } from './chain.js';
+import { ABANDON_STATEMENT, opStates, type Destination, type DestructionKind, type Entry, type OpState } from './chain.js';
 import { Ledger, LedgerWriteError, noCrash, type Crash } from './ledger.js';
 import type { LedgerFs } from './store.js';
 
@@ -26,9 +26,16 @@ export interface EvidenceRow {
   readonly audit: { readonly action: string; readonly tenantId: string | null; readonly op: unknown; readonly versions: unknown } | null;
 }
 
+/** What the database holds from before the ledger (`evidence --legacy`), for its init to reconcile. */
+export interface LegacyEvidence {
+  readonly tenants: readonly { readonly id: string; readonly slug: string | null; readonly keys: readonly KeyState[] }[];
+  readonly audits: readonly { readonly seq: string; readonly tenantId: string | null; readonly versions: readonly number[]; readonly op: string | null }[];
+}
+
 export interface Evidence {
   readonly rows: readonly EvidenceRow[];
   readonly tenants: Readonly<Record<string, readonly KeyState[]>>;
+  readonly legacy?: LegacyEvidence;
 }
 
 export type CheckResult =
@@ -45,11 +52,18 @@ export type ReapplyOutcome =
   | { readonly outcome: 'refused'; readonly why: string }
   | { readonly outcome: 'unknown'; readonly detail: string };
 
+export type AdoptOutcome =
+  | { readonly outcome: 'adopted'; readonly recorded: boolean; readonly versions: readonly number[]; readonly destroyedAt: string; readonly auditSeq: string }
+  | { readonly outcome: 'refused'; readonly why: string }
+  | { readonly outcome: 'unknown'; readonly detail: string };
+
 /** The database step, as the `keys` job runs it from the deployed API image (A2-6). */
 export interface KeysDb {
   check(slug: string, version?: number): Promise<CheckResult>;
   destroy(op: string, slug: string, version?: number): Promise<DestroyOutcome>;
-  evidence(tenantIds: readonly string[]): Promise<Evidence>;
+  evidence(tenantIds: readonly string[], opts?: { legacy?: boolean }): Promise<Evidence>;
+  /** Records a destruction from before the ledger (its keys already destroyed); destroys nothing. */
+  adopt(op: string, tenantId: string, kind: DestructionKind, versions: readonly number[]): Promise<AdoptOutcome>;
   reapply(op: string, tenantId: string, kind: DestructionKind, versions: readonly number[]): Promise<ReapplyOutcome>;
   /** The platform audit event for a ledger command (BK16). Throws on failure. */
   audit(action: string, detail: Readonly<Record<string, unknown>>): Promise<void>;
@@ -75,7 +89,23 @@ export interface Result {
 }
 
 const same = (a: readonly number[], b: readonly number[]) => a.length === b.length && [...a].sort((x, y) => x - y).every((v, i) => v === [...b].sort((x, y) => x - y)[i]);
-const unresolved = (ops: Map<string, OpState>) => [...ops.values()].filter((s) => !s.outcome).map((s) => s.pending.op);
+const unresolved = (ops: Map<string, OpState>) => [...ops.values()].filter((s) => !s.outcome && !s.abandoned).map((s) => s.pending.op);
+
+/**
+ * The adoptions genesis planned (History) that have no pending record yet (init stopped before writing it): appended
+ * now, so recovery completes them like any other pending op, and none is ever silently left out.
+ */
+function completePlan(ledger: Ledger): void {
+  const g = ledger.entries[0];
+  if (g?.type !== 'genesis' || !g.history) return;
+  const { ops } = opStates(ledger.entries);
+  for (const a of g.history.adopted)
+    if (!ops.has(a.op))
+      ledger.append(
+        { type: 'pending', op: a.op, tenant: a.tenant, kind: a.kind, versions: a.versions, requestedAt: g.history.capturedAt, preconditions: { auditSeqs: a.auditSeqs }, adoption: true },
+        `pending:${a.op}`,
+      );
+}
 
 function openLedger(deps: ProtocolDeps): { ledger: Ledger } | { problems: readonly string[] } {
   return Ledger.open(deps.primary, { ...(deps.fs ? { fs: deps.fs } : {}), crash: deps.crash ?? noCrash });
@@ -175,7 +205,7 @@ function rowProblem(row: EvidenceRow, pending: OpState['pending'], versions: rea
   if (row.kind !== pending.kind) return `its row is a ${row.kind} destruction`;
   if (!same(row.versions, versions)) return `its row names versions ${row.versions.join(',')}, the ledger ${versions.join(',')}`;
   if (!row.audit) return 'the audit event its row names is missing';
-  if (row.audit.op !== row.op || row.audit.tenantId !== row.tenantId || !['crypto.tenant_key.destroyed', 'crypto.tenant_key.reapplied'].includes(row.audit.action))
+  if (row.audit.op !== row.op || row.audit.tenantId !== row.tenantId || !['crypto.tenant_key.destroyed', 'crypto.tenant_key.reapplied', 'crypto.tenant_key.adopted'].includes(row.audit.action))
     return 'the audit event its row names does not record this destruction';
   return null;
 }
@@ -198,6 +228,7 @@ export async function recover(deps: ProtocolDeps, holder = 'recover'): Promise<R
     const { ledger } = opened;
     const levelled = ledger.level();
     if (levelled.length) return { ok: false, lines: ['STOP: the ledger copies could not be brought level', ...levelled] };
+    completePlan(ledger);
     const { ops, problems } = opStates(ledger.entries);
     if (problems.length) return { ok: false, lines: ['STOP: the ledger is inconsistent', ...problems] };
 
@@ -239,13 +270,32 @@ export async function recover(deps: ProtocolDeps, holder = 'recover'): Promise<R
         if (r.activeDestroyed) lines.push(`  WARNING: ${s.pending.tenant.slug}'s ACTIVE key was among them (the restore predates its retirement): the tenant has no active key until one is provisioned`);
         continue;
       }
+      // Abandoned: the owner waived it, its outcome unknown. Found committed after all: recorded so (the safe side).
+      if (s.abandoned && !row) {
+        lines.push(`op ${op} (${s.pending.tenant.slug}): abandoned ${s.abandoned.at}, its outcome not established; the no-resurrection guarantee does not cover it`);
+        continue;
+      }
+      // An adoption (a destruction from before the ledger) whose row init didn't get to: recorded now, nothing destroyed.
+      if (s.pending.adoption && !row) {
+        const a = await deps.db.adopt(op, s.pending.tenant.id, s.pending.kind, s.pending.versions);
+        crash(`adopt:${op}`);
+        if (a.outcome !== 'adopted') return stop(`adoption ${op} (${s.pending.tenant.slug}): not recorded (${a.outcome === 'refused' ? a.why : a.detail}): the database's history no longer matches what init found`);
+        ledger.append({ type: 'committed', op, versions: a.versions, destroyedAt: a.destroyedAt, auditSeq: a.auditSeq, by: 'adoption' }, `committed:${op}`);
+        completed++;
+        lines.push(`op ${op} (${s.pending.tenant.slug}): a destruction from before the ledger, recorded`);
+        continue;
+      }
       // pending with no outcome: the database's own evidence decides (D8).
       if (row) {
         const p = rowProblem(row, s.pending, s.pending.versions) ?? (notDestroyed(row.versions, keys).length ? 'its keys are not all destroyed' : null);
         if (p) return stop(`pending op ${op}: conflicting evidence: ${p}`);
-        ledger.append({ type: 'committed', op, versions: row.versions, destroyedAt: row.destroyedAt, auditSeq: row.auditSeq, by: 'recovery' }, `committed:${op}`);
+        ledger.append({ type: 'committed', op, versions: row.versions, destroyedAt: row.destroyedAt, auditSeq: row.auditSeq, by: s.pending.adoption ? 'adoption' : 'recovery' }, `committed:${op}`);
         completed++;
-        lines.push(`op ${op} (${s.pending.tenant.slug}): its transaction had committed; recorded as committed from the database's evidence`);
+        lines.push(
+          s.abandoned
+            ? `op ${op} (${s.pending.tenant.slug}): abandoned, but the database shows it committed: recorded as committed, and its guarantee holds again`
+            : `op ${op} (${s.pending.tenant.slug}): its transaction had committed; recorded as committed from the database's evidence`,
+        );
         continue;
       }
       // No row: the transaction never committed, or a restore took it back. Roll forward, re-checked in its transaction.
@@ -259,6 +309,9 @@ export async function recover(deps: ProtocolDeps, holder = 'recover'): Promise<R
       lines.push(`op ${op} (${s.pending.tenant.slug}): rolled forward and committed`);
     }
     await copyBacklog(deps, ledger, lines);
+    const g = ledger.entries[0];
+    if (g?.type === 'genesis' && g.history)
+      lines.push(`history before this ledger (${g.history.capturedAt}): ${String(g.history.adopted.length)} destruction(s) adopted from the database's evidence. ${g.history.statement}`);
     lines.unshift(`ledger ${ledger.ledgerId}: authoritative on ${String(ledger.destinations.length)} destination(s); ${String(ops.size)} destruction(s) recorded, ${String(completed)} completed now, ${String(reapplied)} re-applied`);
     return { ok: true, lines };
   } catch (e) {
@@ -269,12 +322,20 @@ export async function recover(deps: ProtocolDeps, holder = 'recover'): Promise<R
   }
 }
 
+/** The phrase `ledger abandon` requires, word for word. */
+export const ABANDON_CONFIRMATION = 'its outcome is not established';
+
 /**
- * The owner's way out of D8's stop on a pending op whose preconditions no longer hold: records it as aborted, only
- * when the database holds no row for it (it never committed) and with the owner's reason. Never for a committed op.
+ * The owner's explicit waiver for one pending op that recovery can't complete (D8 stops on it: its preconditions no
+ * longer hold). The owner's review of A2: a missing row does NOT show that the transaction never committed (an older
+ * database may have been restored since), so this never records the op as aborted, and never says nothing was
+ * destroyed. It records `abandoned` with ABANDON_STATEMENT and the reason, audited; every recovery and status reports
+ * it from then on; and if the row turns up after all, recovery records the op as committed. Refused when the database
+ * already holds the row (recovery records that), for an op with an outcome, and for an adoption.
  */
-export async function abandon(deps: ProtocolDeps, op: string, reason: string): Promise<Result> {
+export async function abandon(deps: ProtocolDeps, op: string, reason: string, confirm: string): Promise<Result> {
   if (reason.trim().length < 8) return { ok: false, lines: ['a reason is required (--reason "…")'] };
+  if (confirm !== ABANDON_CONFIRMATION) return { ok: false, lines: [`abandoning waives the guarantee for this op: confirm with --confirm "${ABANDON_CONFIRMATION}"`] };
   const lock = await deps.lock('abandon');
   try {
     const opened = openLedger(deps);
@@ -285,11 +346,13 @@ export async function abandon(deps: ProtocolDeps, op: string, reason: string): P
     const s = opStates(ledger.entries).ops.get(op);
     if (!s) return { ok: false, lines: [`no op ${op} in the ledger`] };
     if (s.outcome) return { ok: false, lines: [`op ${op} is already ${s.outcome.type}: nothing to abandon`] };
+    if (s.abandoned) return { ok: false, lines: [`op ${op} is already abandoned`] };
+    if (s.pending.adoption) return { ok: false, lines: [`op ${op} records a destruction from before the ledger: it is completed by recovery, never abandoned`] };
     const ev = await deps.db.evidence([s.pending.tenant.id]);
     if (ev.rows.some((r) => r.op === op)) return { ok: false, lines: [`op ${op} committed in the database: run \`pnpm stack:keys recover\`, which records it`] };
-    ledger.append({ type: 'aborted', op, reason: `abandoned by the owner: ${reason.trim()}` }, 'aborted');
-    await deps.db.audit('op_abandoned', { op, tenantId: s.pending.tenant.id, reason: reason.trim() });
-    return { ok: true, op, lines: [`op ${op} recorded as aborted (abandoned); nothing was destroyed`] };
+    ledger.append({ type: 'abandoned', op, reason: reason.trim(), statement: ABANDON_STATEMENT }, 'abandoned');
+    await deps.db.audit('op_abandoned', { op, tenantId: s.pending.tenant.id, reason: reason.trim(), statement: ABANDON_STATEMENT });
+    return { ok: true, op, lines: [`op ${op} recorded as abandoned, its outcome not established. ${ABANDON_STATEMENT}`] };
   } finally {
     lock.release();
   }
