@@ -1,6 +1,6 @@
 # Spec 0019: The local production-like stack — verified digests, PgBouncer, HTTPS edge, Vault with TLS
 
-**Status:** **Accepted (2026-10-18)** by the owner: revision 1, D1–D10 as written. **PR A merged** (#77, #82, #83). **Revision 2 (2026-10-21), for PR B:** the owner approved B1–B6 below, which change D5 (the edge CA) and extend LS1, LS5, LS7, LS9 and LS11 with the owner's safeguards. **PR B merged** (#84). **Revision 3 (2026-10-21), for PR C:** the owner chose C1 (no plaintext exception) and C4 (a throwaway Vault for the fail-closed check); PR C splits in two (C5).
+**Status:** **Accepted (2026-10-18)** by the owner: revision 1, D1–D10 as written. **PR A merged** (#77, #82, #83). **Revision 2 (2026-10-21), for PR B:** the owner approved B1–B6 below, which change D5 (the edge CA) and extend LS1, LS5, LS7, LS9 and LS11 with the owner's safeguards. **PR B merged** (#84). **Revision 3 (2026-10-21), for PR C:** the owner chose C1 (no plaintext exception) and C4 (a throwaway Vault for the fail-closed check); PR C splits in two (C5). **PR C merged** (#85, #86). **The release `f6abefa` runs on the stack (2026-10-22): items 7.1–7.4 are met, and ADR-018 is closed.**
 **Phase:** 0. Roadmap items **7.1–7.4** under [ADR-030](../19-decision-log.md): PgBouncer in the deployed path, a local HTTPS edge with a local certificate authority, Vault with TLS and its audit device, and a local deploy of verified digests (carrying spec 0013 LR9's deploy integration as a blocking criterion). Item 7.5 (backups with a rehearsed restore, and the shred ledger) is a separate spec.
 **Builds on:**
 
@@ -367,6 +367,18 @@ Only Caddy is on `edge`. It reaches the API and web over `app`. The web app's se
 2. The owner runs `pnpm images:release`.
 3. The stack deploys that release, with no `--commit` override.
 4. A short docs change closes ADR-018 with that release's evidence.
+
+**Done (2026-10-22):**
+
+- **The release** of `main` at `f6abefa` passed every gate. Its smoke now includes the refusal: the API and worker images, given the dev Vault's plain listener, each refused to start. Its journeys passed 31 of 32, plus 1 flaky: the first desktop test after the containers started, which passed on its retry.
+- **`pnpm images:verify`** verified all four images, signature, SBOM and provenance, against `infra/signing/cosign.pub`.
+- **The deploy:** `pnpm stack:deploy releases/2026-10-22-f6abefa.json` passed after one unseal, with no `--commit` override.
+- **On the stack,** the deployed API and worker images were started on the `app` network with their own env files and only `VAULT_ADDR=http://vault:8200` changed. Each exited 1, logging the rule. The running services, on `https://vault:8200`, served.
+
+**Found by the release:**
+
+- **A sealed dev Vault passed C2's precondition**, and failed the release at its journeys, an hour in. The precondition now also refuses a sealed or uninitialised dev Vault, naming `pnpm dev:vault` or `pnpm dev:infra`.
+- **On this 8 GB machine,** a release beside the running stack and the dev ClamAV starved Docker: the web build stalled, and the engine stopped answering. Before a release, stop the stack (`pnpm stack:down`) and the dev ClamAV; the release starts ClamAV itself for the journeys.
 
 ## Affected docs (in the implementation PRs)
 
