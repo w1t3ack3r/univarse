@@ -6,7 +6,7 @@
  * created per test. Key tests use scratch tenants (OFFBOARDING); product tests toggle demo's `helpdesk`.
  */
 import { spawnSync } from 'node:child_process';
-import { randomBytes } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import type { INestApplication, INestApplicationContext } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
@@ -343,7 +343,7 @@ describe('[CI5][CI6] key forget on the bus', () => {
     const cli = await cliContext();
     const { destroyed, report } = await cli
       .get(KeyDestruction)
-      .shredTenantKeys(t, null, 'cache isolation test');
+      .shredTenantKeys(t, null, 'cache isolation test', { op: randomUUID() });
     expect(destroyed).toBe(1);
     expect(report!.receivers).toBeGreaterThanOrEqual(2);
     expect(await waitFor(() => zeroed(apiKey) && zeroed(workerKey), 2_000)).toBeLessThan(2_000);
@@ -361,7 +361,7 @@ describe('[CI5][CI6] key forget on the bus', () => {
     const key = await cachedKey(app2, t);
     app2.get(InvalidationBus).stopListening();
     const cli = await cliContext();
-    await cli.get(KeyDestruction).shredTenantKeys(t, null, 'cache isolation test');
+    await cli.get(KeyDestruction).shredTenantKeys(t, null, 'cache isolation test', { op: randomUUID() });
     expect(zeroed(key)).toBe(false); // the message never arrived
     expect(await waitFor(() => zeroed(key), 3_000)).toBeLessThan(3_000);
   });
@@ -375,7 +375,7 @@ describe('[CI5][CI6] key forget on the bus', () => {
     const before = Date.now();
     const { report } = await sender
       .get(KeyDestruction)
-      .shredTenantKeys(t, null, 'cache isolation test');
+      .shredTenantKeys(t, null, 'cache isolation test', { op: randomUUID() });
     const deadline = report!.fallbackDeadline.getTime();
     expect(deadline - before).toBeGreaterThanOrEqual(60 * 60_000 - 5_000); // destruction time + 1 h, not + 1 s
     expect(deadline - before).toBeLessThanOrEqual(60 * 60_000 + 5_000);
@@ -391,7 +391,7 @@ describe('[CI5][CI6] key forget on the bus', () => {
     const started = Date.now();
     const { destroyed, report } = await cli
       .get(KeyDestruction)
-      .shredTenantKeys(t, null, 'cache isolation test');
+      .shredTenantKeys(t, null, 'cache isolation test', { op: randomUUID() });
     expect(Date.now() - started).toBeLessThan(6_000);
     expect(destroyed).toBe(1);
     expect(report!.receivers).toBeNull();
@@ -404,14 +404,21 @@ describe('[CI5][CI6] key forget on the bus', () => {
     expect(text).not.toMatch(/forgot\b(?! )|subscribers forgot/);
   });
 
-  it('[CI6][CI9][CI11] the real `keys destroy-retired` CLI, with Valkey down, exits 0 within the bound and says delivery is unconfirmed', async () => {
+  it('[CI6][CI9][CI11][D14] the real `keys destroy` CLI, with Valkey down, exits 0 within the bound, records its op and says delivery is unconfirmed', async () => {
     const t = await scratchTenant('cli');
     await rotateTenantKey(h.platform, provider(), t, null);
+    // D15 staged: retired past the grace, and a sweep that started after retired_at + G has completed.
+    const now = new Date();
     await h.platform.tenantDataKey.update({
       where: { tenantId_version: { tenantId: t, version: 1 } },
-      data: { retiredAt: new Date(Date.now() - 2 * 60 * 60_000) },
+      data: { retiredAt: new Date(now.getTime() - 2 * 60 * 60_000) },
+    });
+    await h.platform.keyReencryption.update({
+      where: { tenantId: t },
+      data: { startedAt: now, completedAt: now, leaseUntil: null, unreadableRemaining: 0 },
     });
     const slug = (await h.platform.tenant.findUniqueOrThrow({ where: { id: t } })).slug;
+    const op = randomUUID();
     const apiDir = fileURLToPath(new URL('../../../', import.meta.url));
     const started = Date.now();
     const r = spawnSync(
@@ -419,8 +426,11 @@ describe('[CI5][CI6] key forget on the bus', () => {
       [
         '--enable-source-maps',
         'dist/cli/keys.js',
-        'destroy-retired',
+        'destroy',
         slug,
+        '--op',
+        op,
+        '--version',
         '1',
       ] /* exactly what `pnpm keys` runs (CI builds first) */,
       {
@@ -432,10 +442,12 @@ describe('[CI5][CI6] key forget on the bus', () => {
     );
     expect(r.status, `${r.stdout}\n${r.stderr}`).toBe(0);
     expect(Date.now() - started).toBeLessThan(60_000);
-    expect(r.stdout).toMatch(/v1 destroyed/);
-    expect(r.stdout).toMatch(/delivery unconfirmed/);
-    expect(r.stdout).toMatch(/fallback deadline/);
-    expect(r.stdout).toMatch(/restart the API and the worker/);
+    const out = JSON.parse(r.stdout.trim().split('\n').at(-1)!) as { op: string; kind: string; destroyed: boolean; committed: boolean; forget: string[] };
+    expect(out).toMatchObject({ op, kind: 'RETIRED', destroyed: true, committed: true });
+    const forget = out.forget.join('\n');
+    expect(forget).toMatch(/delivery unconfirmed/);
+    expect(forget).toMatch(/fallback deadline/);
+    expect(forget).toMatch(/restart the API and the worker/);
     expect(
       (
         await h.platform.tenantDataKey.findUniqueOrThrow({
@@ -443,6 +455,7 @@ describe('[CI5][CI6] key forget on the bus', () => {
         })
       ).status,
     ).toBe('DESTROYED');
+    expect(await h.platform.keyDestruction.findUniqueOrThrow({ where: { op } })).toMatchObject({ tenantId: t, kind: 'RETIRED', versions: [1] });
   });
 });
 
@@ -464,7 +477,7 @@ describe('[CI8] the messages themselves are isolated', () => {
       k: bus2.received.get(CHANNELS.keysForget) ?? 0,
     };
     await h.app.get(ProductService).invalidate(a);
-    await (await cliContext()).get(KeyDestruction).shredTenantKeys(a, null, 'cache isolation test');
+    await (await cliContext()).get(KeyDestruction).shredTenantKeys(a, null, 'cache isolation test', { op: randomUUID() });
     // Both messages must actually have arrived, or "B untouched" below would prove nothing.
     expect(
       await waitFor(
@@ -509,11 +522,11 @@ describe('[CI9] destruction notifies after commit only', () => {
     try {
       const cli = await cliContext();
       const destruction = cli.get(KeyDestruction);
-      // Refused: destroy-retired on an ACTIVE key throws before anything is destroyed (the CLI then never notifies).
+      // Refused: destroying an ACTIVE key as retired throws before anything is destroyed, so nothing is notified.
       const refused = await scratchTenant('refused');
-      const { destroyRetiredKey } = await import('@univarse/crypto');
       await expect(
-        destroyRetiredKey(h.platform, refused, 1, () => Promise.resolve(0), {
+        destruction.destroyRetired(refused, 1, () => Promise.resolve(0), {
+          op: randomUUID(),
           actorId: null,
           reason: 'test',
         }),
@@ -532,7 +545,7 @@ describe('[CI9] destruction notifies after commit only', () => {
             : Reflect.get(target, prop),
       });
       (destruction as unknown as { platform: unknown }).platform = failing;
-      await expect(destruction.shredTenantKeys(rolled, null, 'test')).rejects.toThrow(
+      await expect(destruction.shredTenantKeys(rolled, null, 'test', { op: randomUUID() })).rejects.toThrow(
         /injected failure/,
       );
       (destruction as unknown as { platform: unknown }).platform = realPlatform;
@@ -545,11 +558,14 @@ describe('[CI9] destruction notifies after commit only', () => {
       ).toBe('ACTIVE');
       // No-op: nothing left to destroy.
       const noop = await scratchTenant('noop');
-      await destruction.shredTenantKeys(noop, null, 'first');
+      const firstOp = randomUUID();
+      await destruction.shredTenantKeys(noop, null, 'first', { op: firstOp });
       // Wait for that real destruction's message to arrive before counting, so a late delivery isn't misread.
       expect(await waitFor(() => listener.seen.length === 1, 2_000)).toBeLessThan(2_000);
       const seenAfterFirst = listener.seen.length;
-      expect((await destruction.shredTenantKeys(noop, null, 'again')).report).toBeNull();
+      expect((await destruction.shredTenantKeys(noop, null, 'again', { op: randomUUID() })).report).toBeNull();
+      // [D14] a repeat of the committed op is a no-op too.
+      expect(await destruction.shredTenantKeys(noop, null, 'first', { op: firstOp })).toEqual({ destroyed: 0, report: null });
       await new Promise((r) => setTimeout(r, 300));
       expect(listener.seen.length).toBe(seenAfterFirst);
       // The only message seen is the one real destruction (noop's first shred).

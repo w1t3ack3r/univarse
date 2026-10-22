@@ -40,6 +40,13 @@ export function forTenant(shard: TenantShardClient, tenantId: string) {
 
 export type TenantTx = Parameters<Parameters<TenantShardClient['$transaction']>[0]>[0];
 
+/**
+ * The longest a tenant transaction may run unless a caller asks for less. Spec 0020 D15 relies on it: every writer of
+ * an encrypted column encrypts inside its writing transaction, so none can commit later than this after reading the
+ * active key version.
+ */
+export const TENANT_TX_TIMEOUT_MS = 10_000;
+
 /** Interactive transaction bound to a tenant — use for multi-statement use cases. */
 export async function withTenantTx<T>(
   shard: TenantShardClient,
@@ -53,6 +60,6 @@ export async function withTenantTx<T>(
       await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenantId}, true)`;
       return fn(tx);
     },
-    { timeout: options?.timeoutMs ?? 10_000 },
+    { timeout: options?.timeoutMs ?? TENANT_TX_TIMEOUT_MS },
   );
 }

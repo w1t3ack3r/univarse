@@ -3,7 +3,8 @@
 //     Writes to tenant / tenant_domain / tenant_product are accepted only in the recognised form, inside a function
 //     BOUND to that table and channel, whose publishing function really calls publish(CHANNELS.<channel>, …) on an
 //     InvalidationBus, with a named runtime proof test. Every bypass the owner found is a regression fixture below.
-//   • CI9: full-tenant key destruction is reachable only through KeyDestruction.shredTenantKeys.
+//   • CI9: key destruction is reachable only through KeyDestruction (shredTenantKeys, destroyRetired), which also
+//     carries spec 0020's production guard (the destruction job's op).
 import { readFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import type * as TS from 'typescript';
@@ -504,10 +505,13 @@ describe(
   },
 );
 
-describe('[CI9] one path to full-tenant destruction', { timeout: 60_000 }, () => {
-  it('[CI9][CI11] only shared/crypto/key-forget.ts uses destroyTenantKeys', () => {
+describe('[CI9] one path to key destruction', { timeout: 60_000 }, () => {
+  it.each([
+    ['destroyTenantKeys', /\bdestroyTenantKeys\b/],
+    ['destroyRetiredKey', /\bdestroyRetiredKey\b/],
+  ])('[CI9][CI11][D14] only shared/crypto/key-forget.ts uses %s', (_fn, uses) => {
     const users = productionFiles(program)
-      .filter((sf) => /\bdestroyTenantKeys\b/.test(sf.text))
+      .filter((sf) => uses.test(sf.text))
       .map((sf) => relative(SRC, sf.fileName).replace(/\\/g, '/'));
     expect(users).toEqual(['shared/crypto/key-forget.ts']);
   });

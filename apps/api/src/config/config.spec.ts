@@ -59,3 +59,15 @@ describe('[IO17] only the worker may hold PLATFORM_RELAY_URL', () => {
     );
   });
 });
+
+describe('[D15] the retired-key grace period', () => {
+  it('[D15] defaults to one hour; below the writer bound plus 60 s the process refuses to start', () => {
+    expect(loadConfig(BASE).RETIRED_KEY_GRACE_MS).toBe(60 * 60_000);
+    expect(loadConfig({ ...BASE, RETIRED_KEY_GRACE_MS: '70000' }).RETIRED_KEY_GRACE_MS).toBe(70_000);
+    expect(() => loadConfig({ ...BASE, RETIRED_KEY_GRACE_MS: '69999' })).toThrow(/RETIRED_KEY_GRACE_MS/);
+  });
+
+  it('[D14] the destruction op, when set, must be a UUID', () => {
+    expect(() => loadConfig({ ...BASE, UNIVARSE_DESTRUCTION_OP: 'not-a-uuid' })).toThrow(/UNIVARSE_DESTRUCTION_OP/);
+  });
+});
