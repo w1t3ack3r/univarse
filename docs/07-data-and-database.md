@@ -183,7 +183,7 @@ CREATE TABLE audit_event (
   - **Storage:** wrapped DEKs live in the **platform** DB (`tenant_data_key`), never in a tenant shard.
   - **Cache:** unwrapped DEKs are cached in memory for ≤ 1 h and zeroed on eviction.
   - **Fields:** AES-256-GCM with a random 96-bit IV; AAD always bound.
-  - **Format:** `v2:{keyVersion}:{iv}:{ciphertext}:{tag}`. Legacy `v1:{keyId}:…` (one platform key, ADR-018) is decrypt-only until the v1 → v2 migration.
+  - **Format:** `v2:{keyVersion}:{iv}:{ciphertext}:{tag}`. Legacy `v1:{keyId}:…` (one platform key, ADR-018, closed 2026-10-22) is decrypt-only until the v1 → v2 migration.
   - **One entry point:** all field encryption goes through `FieldCrypto` (`@univarse/crypto`); nothing else touches keys.
   - **Crypto-shredding** (offboarding) destroys a tenant's wrapped DEKs, which makes all its encrypted fields unreadable.
 - Encrypted fields: NIN, TOTP secrets, outbox payloads (email bodies carry codes; AAD = tenant + event id, wiped after delivery), gateway secret keys, webhook secrets, bank details for refunds, medical notes.
