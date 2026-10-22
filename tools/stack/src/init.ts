@@ -11,7 +11,7 @@ import { ensureStackDir, generateSecrets, saveSecrets } from './secrets.js';
 const SECRETS = {
   written: 'secrets generated (secrets.json, owner-only)',
   kept: 'secrets kept (secrets.json exists; --rotate replaces them)',
-  upgraded: "secrets kept, and PgBouncer's admin password added (secrets.json, owner-only)",
+  upgraded: 'secrets kept, and the secrets added since generated (secrets.json, owner-only)',
 } as const;
 
 export function init({ rotate = false, rotateEdge = false } = {}): string[] {

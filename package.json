@@ -42,7 +42,8 @@
     "stack:trust": "pnpm --filter @univarse/stack run trust",
     "stack:pools": "pnpm --filter @univarse/stack run pools",
     "stack:e2e": "pnpm --filter @univarse/stack run e2e",
-    "stack:isolation": "pnpm --filter @univarse/stack run isolation"
+    "stack:isolation": "pnpm --filter @univarse/stack run isolation",
+    "stack:keys": "pnpm --filter @univarse/stack run keys"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

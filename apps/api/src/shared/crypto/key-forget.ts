@@ -7,7 +7,7 @@
 //     `destroyRetiredKey`); they notify only after the destruction committed and destroyed something (CI9).
 //   • Spec 0020 D14: every destruction carries the host protocol's op, and in production runs only as that op's job.
 import { Inject, Injectable, type OnModuleInit } from '@nestjs/common';
-import { destroyRetiredKey, destroyTenantKeys, KEYRING_MAX_TTL_MS, TenantKeyring } from '@univarse/crypto';
+import { destroyRetiredKey, destroyTenantKeys, KEYRING_MAX_TTL_MS, reapplyDestruction, TenantKeyring } from '@univarse/crypto';
 import type { PlatformClient } from '@univarse/db';
 import { APP_CONFIG, type AppConfig } from '../../config/config.js';
 import { PLATFORM_DB } from '../db/db.module.js';
@@ -115,6 +115,23 @@ export class KeyDestruction {
     });
     if (!destroyed) return { destroyed, report: null };
     return { destroyed, report: await this.notifyKeysDestroyed(tenantId) };
+  }
+
+  /**
+   * Spec 0020 D8: re-applies an ACCEPTED destruction after a restore brought its keys back (no precondition: it was
+   * already accepted). Notifies only when it destroyed something; production-guarded by the op like the others.
+   */
+  async reapply(d: {
+    op: string;
+    tenantId: string;
+    kind: 'TENANT' | 'RETIRED';
+    versions: readonly number[];
+    actorId: string | null;
+    reason: string;
+  }): Promise<{ destroyed: number[]; recorded: boolean; activeDestroyed: boolean; report: ForgetReport | null }> {
+    this.refuseOutsideJob(d.op);
+    const r = await reapplyDestruction(this.platform, d);
+    return { ...r, report: r.destroyed.length ? await this.notifyKeysDestroyed(d.tenantId) : null };
   }
 
   private refuseOutsideJob(op: string): void {

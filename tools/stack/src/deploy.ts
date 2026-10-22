@@ -4,7 +4,8 @@
 //   2. verifyRelease on the record: every role in ROLES, their Dockerfiles from trusted code, the commit from the
 //      deployment target (--commit, else the checkout's HEAD; never the record's), never a rehearsal. A rejected
 //      record stops here: nothing has been created, written or started;
-//   3. only then: secrets rendered, volumes filled, Vault, the migrate job, the buckets, the stack, the smoke check.
+//   3. only then: secrets rendered, volumes filled, Vault, the migrate job, the buckets, the shred ledger's recovery
+//      (spec 0020 D8: before the API and worker start), the stack, the smoke check.
 // Every side effect is a step in `DeployDeps`, so the tests show that nothing runs before verification passes.
 import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
@@ -38,6 +39,11 @@ export interface DeployDeps {
   ensureVault(): void;
   /** The storage buckets, created if missing (idempotent); returns problems. SeaweedFS must be running. */
   buckets(): string[];
+  /**
+   * Spec 0020 D8 (A2-11): the ledger's recovery, under the ledger lock (taken after the registry lock), with the keys
+   * job from the images being deployed. With `initLedger`, the owner's one-time init runs first (A2-3).
+   */
+  recover(images: Readonly<Record<string, string>>, opts: { initLedger: boolean }): Promise<{ ok: boolean; lines: readonly string[] }>;
   smoke(): Promise<string[]>;
   logs(): string;
   saveState(images: Readonly<Record<string, string>>): void;
@@ -65,7 +71,7 @@ export function imagesFrom(v: Verification): { images: Record<string, string>; p
   return { images, problems };
 }
 
-export async function deploy(record: ReleaseRecord, commit: string, deps: DeployDeps): Promise<{ ok: boolean; problems: string[] }> {
+export async function deploy(record: ReleaseRecord, commit: string, deps: DeployDeps, opts: { initLedger?: boolean } = {}): Promise<{ ok: boolean; problems: string[] }> {
   const lock = deps.lock('deploy');
   let stopRegistry = () => undefined as unknown;
   try {
@@ -114,6 +120,22 @@ export async function deploy(record: ReleaseRecord, commit: string, deps: Deploy
     const storage = deps.buckets();
     if (storage.length) return { ok: false, problems: storage };
 
+    // ── Spec 0020 D8: the keys job reaches the databases through PgBouncer, so it (and Valkey, for the forget notice)
+    // runs first, on its current configuration; then recovery. A destroyed tenant's keys are destroyed again, or the
+    // deploy stops, before anything that could decrypt starts.
+    if (deps.compose(['up', '-d', '--wait', 'pgbouncer', 'valkey'], images).status !== 0) return { ok: false, problems: ['PgBouncer or Valkey did not start'] };
+    const early = ['pgbouncer', 'valkey'].filter((s) => restart.has(s));
+    if (early.length) {
+      deps.log(`[stack:deploy] restarting ${early.join(', ')} before the ledger's recovery: their configuration changed`);
+      if (deps.compose(['restart', ...early], images).status !== 0 || deps.compose(['up', '-d', '--wait', ...early], images).status !== 0)
+        return { ok: false, problems: [`${early.join(', ')} did not restart healthy`] };
+      deps.markApplied(early);
+      for (const s of early) restart.delete(s);
+    }
+    const recovered = await deps.recover(images, { initLedger: opts.initLedger ?? false });
+    for (const line of recovered.lines) deps.log(`[stack:deploy] ledger: ${line}`);
+    if (!recovered.ok) return { ok: false, problems: ["the shred ledger's recovery stopped the deploy before the API and worker started (spec 0020 D8); see the ledger lines above"] };
+
     // ── The stack. Containers whose image changed are replaced; the rest stay.
     if (deps.compose(['up', '-d', '--wait', '--remove-orphans', ...SERVICES], images).status !== 0)
       return { ok: false, problems: ['the stack did not start (see `docker compose -p univarse-stack ps`)'] };
@@ -149,14 +171,15 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   const file = arg0 ? resolve(process.env.INIT_CWD ?? process.cwd(), arg0) : undefined;
   const arg = (n: string) => (rest.includes(`--${n}`) ? rest[rest.indexOf(`--${n}`) + 1] : undefined);
   if (!file || !existsSync(file)) {
-    console.error('usage: pnpm stack:deploy <releases/record.json> [--commit <sha>]');
+    console.error('usage: pnpm stack:deploy <releases/record.json> [--commit <sha>] [--init-ledger]');
     process.exit(2);
   }
   const commit = arg('commit') ?? spawnSync('git', ['rev-parse', 'HEAD'], { cwd: REPO, encoding: 'utf8' }).stdout.trim();
   const record = JSON.parse(readFileSync(file, 'utf8')) as ReleaseRecord;
   let result: { ok: boolean; problems: string[] };
   try {
-    result = await deploy(record, commit, realDeps());
+    // --init-ledger: once, for a stack that has never had a shred ledger (spec 0020 A2-3); never implied.
+    result = await deploy(record, commit, realDeps(), { initLedger: rest.includes('--init-ledger') });
   } catch (e) {
     result = { ok: false, problems: [(e as Error).message] };
   }

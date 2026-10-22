@@ -74,6 +74,9 @@ const schema = z.object({
    * job sets it; in production a key destruction for any other op is refused.
    */
   UNIVARSE_DESTRUCTION_OP: z.uuid().optional(),
+  /** Spec 0020 A2-10: the shred-ledger bucket's own identity (the keys job only); never the app's S3 identity. */
+  LEDGER_S3_ACCESS_KEY: z.string().min(8).optional(),
+  LEDGER_S3_SECRET_KEY: z.string().min(16).optional(),
   // Files (spec 0010). S3-compatible storage (SeaweedFS locally, ADR-025) and clamd.
   S3_ENDPOINT: z.url().default('http://127.0.0.1:8333'),
   /** The origin browsers upload to (presigned POST, D1). Same as S3_ENDPOINT locally. */
