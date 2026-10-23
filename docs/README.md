@@ -5,6 +5,8 @@ Every design decision, rule and standard the codebase must follow lives here. If
 
 > **Status:** v1.0 draft (2026-09-30). These are living documents. Update them in the same PR as the change they describe.
 
+> **Finishing Phase 0?** Start with [HANDOFF.md](HANDOFF.md): where things stand, what's left in order, and how to work.
+
 ---
 
 ## What UniVarse is (one paragraph)
