@@ -197,7 +197,8 @@ describe('[BK1][BK2][BK11] the protocol with the real keys CLI and database', { 
     expect(outcomeOf(r.op ?? '')).toBe('committed');
     const row = (await A().query<{ kind: string; versions: number[]; audit_seq: string }>('SELECT kind::text AS kind, versions, audit_seq::text AS audit_seq FROM key_destruction WHERE op = $1', [r.op])).rows[0];
     expect(row).toMatchObject({ kind: 'TENANT', versions: [1, 2] });
-    expect(entries().find((e) => e.type === 'committed')).toMatchObject({ auditSeq: row?.audit_seq, by: 'destroy' });
+    // This op's own record: the ledger also holds the adoption init made before it.
+    expect(entries().find((e) => e.type === 'committed' && e.op === r.op)).toMatchObject({ auditSeq: row?.audit_seq, by: 'destroy' });
   });
 
   it('[BK1] refused by the read-only check: nothing is written', async () => {
@@ -277,7 +278,7 @@ describe('[BK1][BK2][BK11] the protocol with the real keys CLI and database', { 
     expect(await keyStates(t.id)).toEqual({ 1: 'DESTROYED/erased', 2: 'DESTROYED/erased' });
     const audit = (await A().query<{ action: string }>("SELECT action FROM platform_audit_event WHERE metadata->>'op' = $1 ORDER BY seq", [done.op])).rows;
     expect(audit.map((a) => a.action)).toEqual(['crypto.tenant_key.reapplied']);
-    expect(entries().filter((e) => e.type === 'reapplied')).toHaveLength(1);
+    expect(entries().filter((e) => e.type === 'reapplied' && e.op === done.op)).toHaveLength(1);
     // A second recovery finds everything in force and changes nothing.
     const n = entries().length;
     expect((await recover(deps())).ok).toBe(true);
