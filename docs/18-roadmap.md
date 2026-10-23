@@ -101,7 +101,7 @@ Each roadmap line checked against the repository, CI and the decision log.
 - PgBouncer in the deployed path (ADR-015).
 
 **Tracked gaps that stay open:**
-- **Retiring CI10's bindings** ([spec 0016](specs/0016-platform-invalidation-outbox.md) D3): the database capture now covers every writer, so spec 0015's static guard can be narrowed in a later PR.
+- ~~**Retiring CI10's bindings**~~ **Done (2026-10-23, [spec 0022](specs/0022-retire-ci10.md)):** the static guard is retired. The database capture of [spec 0016](specs/0016-platform-invalidation-outbox.md) covers every writer, and `rls:check` fails if a trigger is disabled or dropped.
 - **Crypto-shredding and restore safety:** the shred ledger (spec 0006). It makes sure a restored backup can't bring back a shredded key's data. It isn't itself a cross-tenant cache-isolation check, and it's built with backups.
 - `GET /users` pagination.
 
@@ -132,10 +132,10 @@ Each roadmap line checked against the repository, CI and the decision log.
       - starts nothing from a rejected record, shown by a test with an edited record;
    5. local backups with a rehearsed restore, and the shred ledger.
 
-**Deferred requirements: not met, and not counted as done:**
-- **BullMQ** (ADR-019), with its revisit trigger recorded.
-- **Storybook** (ADR-027), to be revisited before Phase 2's UI expands.
-- **Resource-scope enforcement** (ADR-028), with each scope's first consuming module.
+**Deferred requirements: not met, and not counted as done in Phase 0.** By the owner's decision (2026-10-23), **Phase 0 closes with these three formally deferred.** Each is built when the first feature that needs it is built, and it's listed in that phase's build list below, so it starts as work there, not as a footnote:
+- **BullMQ** ([ADR-019](19-decision-log.md)): **Phase 1**, with the provisioning job (the first job needing resumable steps, priorities or rate limits); results day (Phase 5) needs it regardless.
+- **Storybook** ([ADR-027](19-decision-log.md)): **Phase 1**, with the console, the second app built on `packages/ui`. That's earlier than ADR-027's "before Phase 2", because the console is where a shared component catalogue starts paying off.
+- **Resource-scope enforcement** ([ADR-028](19-decision-log.md)): with each scope's first consuming module. `ORG_UNIT` and `PROGRAMME` in **Phase 2**, `COURSE_OFFERING` and `COHORT` in **Phase 4**, `HOSTEL` in **Phase 7**. Until then, a grant with these scopes stays inert (the safe failure), with its negative tests in place (spec 0018).
 
 **Separate follow-up, not an exit requirement:** a clean local E2E run. **Closed 2026-10-13 with containerised evidence:** the local release rehearsal of `12524dd` (spec 0013) ran the full browser suite locally against the containerised API, worker and web: **32 passed, no flakes**. The owner accepted that run as closing this follow-up. It is containerised evidence, not a run of `pnpm test:e2e` against the dev servers.
 
@@ -146,6 +146,7 @@ Each roadmap line checked against the repository, CI and the decision log.
 - Lifecycle: suspend/resume/offboard with warning emails, tenant export, purge (two-person rule)
 - Feature flags, platform announcements, migrations runner (per shard), platform audit
 - Basic plans/subscriptions (manual invoicing is acceptable)
+- **From Phase 0, deferred until needed (owner decision 2026-10-23):** BullMQ with the provisioning job ([ADR-019](19-decision-log.md)); Storybook for `packages/ui`, with stories for every component and accessibility checks in CI, before the console's first screen ([ADR-027](19-decision-log.md))
 
 **Exit:** J1 E2E green. A tenant can be created → provisioned → admin activated in < 10 min. Suspended tenant is blocked (423).
 
@@ -155,6 +156,7 @@ Each roadmap line checked against the repository, CI and the decision log.
 - Programmes, courses, curriculum versions (items, electives, prerequisites), approval
 - Academic sessions/semesters, calendar windows, **session rollover wizard** (dry run)
 - Settings UI for all `[CONFIG]` keys (grading scheme, approval stages, registration limits, matric template…), branding, integrations screen (gateway keys, write-only)
+- **From Phase 0 (ADR-028):** `ORG_UNIT` and `PROGRAMME` scope enforcement, checked against the loaded resource, with positive and negative tests
 - Generic import framework (upload → validate → preview → commit) used by all modules
 
 **Exit:** J2 E2E green. A pilot institution's structure, programmes and curricula are imported from its real spreadsheets (anonymised) without code changes.
@@ -178,6 +180,7 @@ Each roadmap line checked against the repository, CI and the decision log.
 - **Legacy student + legacy results import** (critical for pilot go-live with returning students)
 - Course offerings from curricula, lecturer allocation, class lists
 - Student course registration with all [04 §5](04-business-rules.md) rules, fee gate, adviser approval, add/drop, late registration, printable course form
+- **From Phase 0 (ADR-028):** `COURSE_OFFERING` and `COHORT` scope enforcement, checked against the loaded resource, with positive and negative tests
 
 **Exit:** J4 E2E green. The registration-opening load test passes. The pilot's legacy data imports with reconciliation reports (counts, CGPA re-computation match ≥ 99.9%, and every mismatch explained).
 
@@ -238,6 +241,7 @@ Private university, returning students first (fees → registration → results 
 ## Phase 7 — Hostel, Communications, Helpdesk, Reporting (~6 wks)
 
 - Hostel setup, allocation rounds, applications, holds/expiry, check-in/out, damages → clearance
+- **From Phase 0 (ADR-028):** `HOSTEL` scope enforcement, checked against the loaded resource, with positive and negative tests
 - Announcements with targeting, preferences, SMS cost tracking and caps
 - Tenant helpdesk + escalation to platform support
 - Dashboards per role, standard reports, NUC-style returns export, read replica for reporting

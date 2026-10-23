@@ -159,7 +159,7 @@ Alternatives considered: option — why not.
 **Consequences:** One platform-wide key until KMS exists: a leaked key exposes **all tenants'** TOTP secrets, there is no per-tenant crypto-shredding on offboarding, and rotation means re-encrypting every value. Mitigations: the key lives only in the secret manager, never in the DB; AAD binding; rotation path ready. **Exit criteria (before staging):** per-tenant DEKs, wrapped by a KMS key (KEK), unwrapped in memory with a TTL cache. New format `v2:<kekId>:<wrappedDekRef>:…`, a background re-encryption of `v1` values, and a test proving a tenant's values become undecryptable when its DEK is destroyed. The `v1` format keeps the key ID, so existing values remain decryptable during migration.
 
 ## ADR-019 — Phase 0 outbox worker without BullMQ
-**Status:** Accepted (2026-10-04). Defers part of ADR-008.
+**Status:** Accepted (2026-10-04). Defers part of ADR-008. **Owner decision (2026-10-23):** stays deferred; Phase 0 closes without it. Built in **Phase 1** with the provisioning job, the first job its revisit trigger names ([18](18-roadmap.md)).
 **Context:** ADR-008 plans outbox rows relayed to BullMQ. Phase 0 has one side effect (email) and must make it durable now (spec 0001 R15a). BullMQ adds a second persistence layer (Valkey) and relay code before there's any fan-out need.
 **Decision:** A worker entrypoint claims due `outbox_event` rows directly with `SELECT … FOR UPDATE SKIP LOCKED` under each tenant's RLS context, with exponential backoff and a dead state after 8 attempts (spec 0002 Part B). Payloads are field-encrypted and wiped after delivery.
 **Consequences:** Postgres is the only system of record for side effects, and claiming is transactional. Polling adds latency (seconds) and load proportional to the poll interval times the number of tenants. **Revisit trigger:** more than one job type that needs priorities, fan-out or rate-limited queues, or polling load that becomes visible in DB metrics.
@@ -317,7 +317,7 @@ Alternatives considered: option — why not.
 - The local figures come from a CPU-starved laptop. Repeat the load test on staging hardware before pilot, and revisit `max` and `maxWait` only with such a measurement and an update to this ADR.
 
 ## ADR-027 — Defer Storybook until before Phase 2's UI expands
-**Status:** Accepted (2026-10-11, owner decision). Defers one Phase 0 build line ([18](18-roadmap.md)); it does **not** satisfy it.
+**Status:** Accepted (2026-10-11, owner decision). Defers one Phase 0 build line ([18](18-roadmap.md)); it does **not** satisfy it. **Owner decision (2026-10-23):** stays deferred; Phase 0 closes without it. Built at the start of **Phase 1**, before the console's first screen: the console is the second app on `packages/ui`, earlier than this ADR's "before Phase 2".
 
 **Context:** Phase 0 lists "design system in `packages/ui` with brand tokens, Storybook". `packages/ui` exists (tokens, components, icons), and the screens built so far are covered by E2E on desktop and mobile. Storybook adds dependencies and a build of its own, and pays off once there are many components and screens to review in isolation.
 
@@ -328,7 +328,7 @@ Alternatives considered: option — why not.
 **Alternatives considered:** add it now, which costs dependencies and maintenance before there's enough UI to justify it; drop it, which loses component review just as the UI grows.
 
 ## ADR-028 — Authorization: institution-scope enforcement and a central `PolicyService` now; resource scopes with their first consuming modules
-**Status:** Accepted (2026-10-11, owner decision). Splits one Phase 0 build line ("roles/permissions/scoped assignments, `PolicyService`").
+**Status:** Accepted (2026-10-11, owner decision). Splits one Phase 0 build line ("roles/permissions/scoped assignments, `PolicyService`"). **Owner decision (2026-10-23):** the resource scopes stay deferred; Phase 0 closes without them. Each is built with its first consuming module: `ORG_UNIT` and `PROGRAMME` in Phase 2, `COURSE_OFFERING` and `COHORT` in Phase 4, `HOSTEL` in Phase 7 ([18](18-roadmap.md)).
 
 **Context:**
 - The schema has six assignment scopes: `INSTITUTION`, `ORG_UNIT`, `PROGRAMME`, `COHORT`, `COURSE_OFFERING` and `HOSTEL`.

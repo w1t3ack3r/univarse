@@ -3,7 +3,7 @@
 import { join } from 'node:path';
 import type * as TS from 'typescript';
 import { beforeAll, describe, expect, it } from 'vitest';
-import { API_DIR, apiProgram, productionFiles } from '../../testing/cache-writer-guard.js';
+import { API_DIR, apiProgram, productionFiles } from '../../testing/program.js';
 import { writerBoundReport, type LongTransactions } from '../../testing/writer-bound-guard.js';
 
 const SRC = join(API_DIR, 'src');
@@ -14,10 +14,10 @@ export const LONG_TRANSACTIONS: LongTransactions = {
     'delivers claimed emails (SMTP inside the claim); only decrypts and updates delivery state, never writes an encrypted value',
 };
 
-const FIX = join(SRC, '__cache_guard_fixtures__', 'writer-bound');
+const FIX = join(SRC, '__writer_bound_fixtures__');
 const HEAD = `import { FieldCrypto } from '@univarse/crypto';
 import { withTenantTx, type TenantShardClient, type TenantTx } from '@univarse/db';
-import { ShardRegistry } from '../../shared/db/db.module.js';
+import { ShardRegistry } from '../shared/db/db.module.js';
 void withTenantTx; void ShardRegistry;
 `;
 const pt = `Buffer.from('x')`;
@@ -47,7 +47,7 @@ beforeAll(() => {
   program = apiProgram(Object.fromEntries(Object.entries(FIXTURES).map(([k, v]) => [join(FIX, `${k}.ts`), v])));
 }, 120_000);
 
-const fixture = (name: string) => program.getSourceFiles().filter((sf) => sf.fileName.replace(/\\/g, '/').endsWith(`/writer-bound/${name}.ts`));
+const fixture = (name: string) => program.getSourceFiles().filter((sf) => sf.fileName.replace(/\\/g, '/').endsWith(`/__writer_bound_fixtures__/${name}.ts`));
 
 describe('[D15][BK15] the writer bound', { timeout: 60_000 }, () => {
   it('[BK15] every encryption in production code runs inside its writing tenant transaction, and no long transaction encrypts', () => {
@@ -88,7 +88,7 @@ describe('[D15][BK15] the writer bound', { timeout: 60_000 }, () => {
     const report = writerBoundReport(program, [...files, ...fixture('longTx')], {
       ...LONG_TRANSACTIONS,
       'shared/outbox/outbox.ts Outbox.enqueueEmail': 'x',
-      '__cache_guard_fixtures__/writer-bound/longTx.ts f': 'x',
+      '__writer_bound_fixtures__/longTx.ts f': 'x',
     });
     expect(report.violations.join('\n')).toMatch(/reviewed long transaction's file encrypts: shared\/outbox\/outbox\.ts/);
   });
