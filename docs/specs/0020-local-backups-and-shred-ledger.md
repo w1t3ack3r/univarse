@@ -439,10 +439,15 @@ None survived.
 | Where | How | Value |
 | --- | --- | --- |
 | Native, while this was built | RSS | 178 MiB |
-| CI, the stack's image under its limit | `docker stats`, and the cgroup's `memory.peak` (`[bucket.int]` line) | _to record from this PR's CI run_ |
-| The owner's stack, after the redeploy | `docker stats --no-stream univarse-stack-seaweedfs-1` | _to record_ |
+| CI, the stack's image under its limit | `docker stats`, and the cgroup's `memory.peak` (`[bucket.int]` line) | 136.8 MiB, peak 164 MiB (#99's run on `100aaa8`) |
+| The owner's stack, after the redeploy | `docker stats --no-stream univarse-stack-seaweedfs-1` | 122.3 MiB, 47.8% of the limit (`d07d54e`, 2026-10-23) |
 
-**The owner's steps after merging:** the release, the deploy, `pnpm stack:keys recover` with no "bucket copy … failed" line, `pnpm stack:bucket-check`, and the `docker stats` line above (the PR lists them in order).
+**Done on the owner's stack (2026-10-23).** The owner released `d07d54e` (`releases/2026-10-23-d07d54e.json`) and deployed it:
+- the deploy restarted SeaweedFS before the buckets and the ledger's recovery ("its identities changed");
+- neither its recovery nor a later `pnpm stack:keys recover` reported a failed bucket copy;
+- `pnpm stack:bucket-check` printed 11 PASS lines and exited 0. The ledger's chain is in the bucket from its genesis, seq 1 to 1, with no gap. Every entry is retained in COMPLIANCE mode for 10 years. The ledger identity can't list or read its own bucket, or list or write the others. The app identity can list and read it.
+
+That is also the post-deploy check owed since A2: the first real write, COMPLIANCE retention of 10 years, and the identities' permissions. `--try-delete` was not run.
 
 ## Affected docs (in the implementation PRs)
 

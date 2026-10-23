@@ -4,26 +4,16 @@ Read this before doing anything. It covers where Phase 0 stands, what is left in
 
 ## Where things stand
 
-- **`main` at `011afed`.** Spec 0020 PR A (the shred ledger) is complete: A1 (#90), A2 (#91) and A3, the waiver (#96). fastify 5.12.7 is in (#95), and `fix(build)` (#98).
-- **Release `releases/2026-10-23-33ae2d9.json`.** Built from `33ae2d9`, with the gates passing and no active exceptions. The owner deployed it with `--init-ledger` on 2026-10-23.
-- **The ledger is live.** It is `1b879644-1e96-4d46-acb0-08eaa0e6a786`, authoritative on 1 destination (the primary). It has 0 destructions, so nothing was adopted. Recovery passes.
-- **A3's decisions 1–7,** approved by the owner on 2026-10-23, are recorded in spec 0020 (by the bucket fix).
-
-## The ledger's bucket copy: fixed, awaiting the owner's redeploy
-
-Every recovery reported `bucket copy (evidence only, not relied on) failed: exit 1: Access Denied.` The ledger was unaffected (the copy on disk is the authority; the bucket is evidence only). The fix (branch `claude/eloquent-euler-kb83sp`) covers the three causes, each reproduced against SeaweedFS 4.48 and recorded in spec 0020, "Implementation notes (fix: the bucket copy)":
-1. the identity lacked `PutObjectRetention`, so a COMPLIANCE put was refused (403);
-2. the 16 volumes were spent 7/7/2 by the filer's log, `uv-quarantine` and `uv-clean`, leaving the ledger's bucket none. SeaweedFS now grows one volume a collection, up to 24;
-3. the deploy restarted SeaweedFS only after recovery, so a changed `s3.json` wasn't loaded. It now restarts SeaweedFS before the buckets and the recovery.
-
-`pnpm stack:bucket-check [--try-delete]` is committed. It is also the check still owed from A2: the first real write, COMPLIANCE retention of 10 years, and the identities' permissions.
-
-**After merging (the owner):** stop the stack and the dev ClamAV, and check the dev Vault is unsealed; release; deploy; `pnpm stack:keys recover` (no "bucket copy … failed" line); `pnpm stack:bucket-check`; `docker stats --no-stream univarse-stack-seaweedfs-1`, recorded in spec 0020 beside CI's number. The PR lists the exact commands.
+- **`main` at `d07d54e`.** Spec 0020 PR A (the shred ledger) is complete: A1 (#90), A2 (#91) and A3, the waiver (#96). fastify 5.12.7 is in (#95), `fix(build)` (#98), and the bucket copy's fix (#99).
+- **Release `releases/2026-10-23-d07d54e.json`,** deployed by the owner on 2026-10-23. The ledger was created by the deploy of `33ae2d9` with `--init-ledger`, earlier that day.
+- **The ledger is live, and its bucket copy works.** It is `1b879644-1e96-4d46-acb0-08eaa0e6a786`, authoritative on 1 destination (the primary). It has 0 destructions, so nothing was adopted. Recovery passes with no failed copy, and `pnpm stack:bucket-check` passes every line (spec 0020, "Implementation notes (fix: the bucket copy)", with the measured memory).
+- **A3's decisions 1–7,** approved by the owner on 2026-10-23, are recorded in spec 0020.
+- **Recommended, not yet done:** add an external drive as a second ledger destination (`pnpm stack:keys ledger add-destination <path>`). Only it survives losing this disk.
 
 ## What is left for Phase 0, in order
 
 1. **`fix(build)`: the undeclared workspace dependencies.** Done (#98).
-2. **The bucket fix** (above): in review; then a release and the owner's redeploy and bucket check.
+2. **The bucket fix.** Done (#99), released and deployed. The bucket check passes on the owner's stack.
 3. **Spec 0020 PR B: backups, the rehearsed restore and the shred drill.** It is the last unmet exit criterion. First write the plan for the owner's approval. The proposed split, which the owner has yet to approve:
    - **B1:**
      - Vault moved to Raft storage (D4);
@@ -45,7 +35,13 @@ Every recovery reported `bucket copy (evidence only, not relied on) failed: exit
 
 **Formally deferred, not Phase 0 work (the owner's decision, 2026-10-23):** BullMQ and Storybook (Phase 1), and resource scopes (Phases 2, 4 and 7).
 
-**Open, not blocking:** Dependabot alerts #42 and #43 (`@vitest/mocker`, moderate). They are still open, though the lockfile resolves only the patched 4.1.12. Recheck them. Dismissing them is the owner's call, never ours.
+**Open, not blocking:**
+- **Dependabot alerts #42 and #43** (`@vitest/mocker`, moderate) are still open, though the lockfile resolves only the patched 4.1.12. Recheck them. Dismissing them is the owner's call, never ours.
+- **Dependabot's `zod` 4.6.6 bump** (branch `dependabot/npm_and_yarn/zod-4.6.6`). zod is in the API contracts, so it needs a real review and the contract checks, not a blind merge.
+- **The migrate job's five PostgreSQL URLs say `sslmode=require`** (`tools/stack/src/render.ts`, `migrate.env`), while every other URL in the stack says `verify-full`. Nothing there says why. Every deploy prints the `pg` driver's warning: today it treats `require` as `verify-full`, but its next major version gives it the weaker libpq meaning, which doesn't verify the certificate.
+  - **Investigate first.** The likely reason is Prisma's migrate engine: it doesn't read `NODE_EXTRA_CA_CERTS`, and it needs `sslrootcert` for `verify-full`. If so, the migrations may already connect without verifying PostgreSQL's certificate.
+  - **Then fix it:** each connection verifies the certificate (`verify-full`, with `sslrootcert=/ca/ca.crt` where Prisma needs it). Add a test that every rendered URL verifies, and a comment saying why.
+- **Third-party image findings at deploy** (D8, reported, not blocking): CRITICAL 2 in postgres and 3 in mailpit, from scans of 2026-10-20. Review them, and refresh the scans, as part of Phase 0's closure.
 
 ## What only the owner does (the cloud session gives exact commands)
 
