@@ -35,6 +35,8 @@ Read this before doing anything. It covers where Phase 0 stands, what is left in
 
 **Formally deferred, not Phase 0 work (the owner's decision, 2026-10-23):** BullMQ and Storybook (Phase 1), and resource scopes (Phases 2, 4 and 7).
 
+**Urgent, before PR B: the stack's Vault app token is never renewed.** It expires about 2026-11-21, and the API and worker then lose Transit. The plan is [spec 0023](specs/0023-vault-app-token-renewal.md), awaiting the owner's approval, with the read-only command that confirms the expiry on the stack.
+
 **Open, not blocking:**
 - **Dependabot alerts #42 and #43** (`@vitest/mocker`, moderate) are still open, though the lockfile resolves only the patched 4.1.12. Recheck them. Dismissing them is the owner's call, never ours.
 - **Dependabot's `zod` 4.6.6 bump** (branch `dependabot/npm_and_yarn/zod-4.6.6`). zod is in the API contracts, so it needs a real review and the contract checks, not a blind merge.
