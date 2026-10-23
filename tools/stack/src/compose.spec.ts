@@ -34,7 +34,7 @@ let config: Config;
 let stackDir: string;
 beforeAll(() => {
   stackDir = mkdtempSync(join(tmpdir(), 'uv-stack-compose-'));
-  for (const f of ['postgres.env', 'migrate.env', 'api.env', 'worker.env', 'web.env']) writeFileSync(join(stackDir, f), '');
+  for (const f of ['postgres.env', 'migrate.env', 'api.env', 'worker.env', 'web.env', 'keys.env']) writeFileSync(join(stackDir, f), '');
   const r = spawnSync('docker', ['compose', '-p', PROJECT, '-f', COMPOSE_FILE, '--profile', 'scan', '--profile', 'job', 'config', '--format', 'json'], {
     encoding: 'utf8',
     env: { ...process.env, UNIVARSE_STACK_DIR: stackDir, ...STAND_IN },
@@ -171,7 +171,7 @@ describe('[LS3] env files reach the containers exactly as written', () => {
     try {
       // Not a real verifier: the same characters, in the same places.
       const value = 'SCRAM-SHA-256$4096:c2FsdA==$c3RvcmVkS2V5$c2VydmVyS2V5$$x${y}$';
-      for (const f of ['postgres.env', 'api.env', 'worker.env', 'web.env']) writeFileSync(join(dir, f), '');
+      for (const f of ['postgres.env', 'api.env', 'worker.env', 'web.env', 'keys.env']) writeFileSync(join(dir, f), '');
       writeFileSync(join(dir, 'migrate.env'), envText({ ROLE_VERIFIER_PROBE: value }));
       const r = spawnSync('docker', ['compose', '-p', PROJECT, '-f', COMPOSE_FILE, '--profile', 'job', 'config', '--format', 'json', 'migrate'], {
         encoding: 'utf8',

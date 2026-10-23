@@ -442,8 +442,10 @@ describe('[CI5][CI6] key forget on the bus', () => {
     );
     expect(r.status, `${r.stdout}\n${r.stderr}`).toBe(0);
     expect(Date.now() - started).toBeLessThan(60_000);
-    const out = JSON.parse(r.stdout.trim().split('\n').at(-1)!) as { op: string; kind: string; destroyed: boolean; committed: boolean; forget: string[] };
-    expect(out).toMatchObject({ op, kind: 'RETIRED', destroyed: true, committed: true });
+    // Spec 0020 A2: the job's answer to the host protocol (the committed destruction, from its row).
+    const out = JSON.parse(r.stdout.trim().split('\n').at(-1)!) as { op: string; outcome: string; kind: string; versions: number[]; auditSeq: string; forget: string[] };
+    expect(out).toMatchObject({ op, outcome: 'committed', kind: 'RETIRED', versions: [1], tenantId: t });
+    expect(out.auditSeq).toMatch(/^\d+$/);
     const forget = out.forget.join('\n');
     expect(forget).toMatch(/delivery unconfirmed/);
     expect(forget).toMatch(/fallback deadline/);

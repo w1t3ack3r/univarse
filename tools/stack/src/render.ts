@@ -16,6 +16,9 @@ export interface StackSecrets {
   readonly valkeyPassword: string;
   readonly s3AccessKey: string;
   readonly s3SecretKey: string;
+  /** Spec 0020 A2-10: the shred-ledger bucket's own identity (writes to that bucket only), for the keys job only. */
+  readonly ledgerS3AccessKey: string;
+  readonly ledgerS3SecretKey: string;
 }
 
 export interface VaultTokens {
@@ -73,6 +76,12 @@ export function renderEnvFiles(s: StackSecrets, v: VaultTokens): Readonly<Record
       HOST: '0.0.0.0',
       PORT: '8080',
       TRUSTED_PROXIES: `${CADDY_IP},${WEB_IP}`,
+    },
+    // Spec 0020 A2-6: the keys job, the API's settings and the shred-ledger bucket's identity (no one else has it).
+    'keys.env': {
+      ...common,
+      LEDGER_S3_ACCESS_KEY: s.ledgerS3AccessKey,
+      LEDGER_S3_SECRET_KEY: s.ledgerS3SecretKey,
     },
     // Only the worker holds the relay role (spec 0016 IO17), through its own PgBouncer pool.
     'worker.env': {
@@ -161,6 +170,13 @@ export function renderS3Config(s: StackSecrets): string {
           name: 'univarse-app',
           credentials: [{ accessKey: s.s3AccessKey, secretKey: s.s3SecretKey }],
           actions: ['Read', 'Write', 'List', 'Tagging', 'Admin'],
+        },
+        // Spec 0020 A2-10: writes the shred ledger's evidence copy, to that bucket only; it can't read or list it.
+        // Object lock (COMPLIANCE) is what keeps a written entry from being deleted or overwritten.
+        {
+          name: 'univarse-shred-ledger',
+          credentials: [{ accessKey: s.ledgerS3AccessKey, secretKey: s.ledgerS3SecretKey }],
+          actions: ['Write:uv-shred-ledger'],
         },
       ],
     },

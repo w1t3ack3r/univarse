@@ -153,6 +153,21 @@ services:
     networks: [db, app]
     mem_limit: 512m
 
+  # Spec 0020 A2-6: the destruction protocol's database step (`pnpm stack:keys`, and every deploy's recovery), one run
+  # per step from the deployed API image, through PgBouncer like the API. Its own env file: the API's settings plus
+  # the shred-ledger bucket's identity, which no other process holds.
+  keys:
+    image: ${UNIVARSE_API_IMAGE:?pnpm stack:deploy sets the verified image}
+    <<: *hardening
+    profiles: [job]
+    restart: 'no'
+    command: ['--enable-source-maps', 'dist/cli/keys.js', 'status']
+    env_file: ['${UNIVARSE_STACK_DIR:?run pnpm stack:init}/keys.env']
+    volumes:
+      - stack-ca:/ca:ro
+    networks: [app]
+    mem_limit: 512m
+
   api:
     image: ${UNIVARSE_API_IMAGE:?pnpm stack:deploy sets the verified image}
     <<: *hardening

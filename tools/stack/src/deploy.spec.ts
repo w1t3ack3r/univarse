@@ -52,6 +52,7 @@ function deps(over: Partial<DeployDeps> = {}, signed = SIGNED, vault: VaultState
     vaultState: () => (calls.push('vaultState'), vault),
     ensureVault: () => void calls.push('ensureVault'),
     buckets: () => (calls.push('buckets'), []),
+    recover: (_images, { initLedger }) => (calls.push(`recover${initLedger ? ':init' : ''}`), Promise.resolve({ ok: true, lines: [] })),
     smoke: () => (calls.push('smoke'), Promise.resolve([])),
     logs: () => '',
     saveState: () => void calls.push('saveState'),
@@ -137,6 +138,8 @@ describe('[LS3][LS4] a verified record: the order of the deploy', () => {
       'compose:--profile job run --rm migrate',
       'compose:up -d --wait seaweedfs',
       'buckets',
+      'compose:up -d --wait pgbouncer valkey',
+      'recover',
       `compose:up -d --wait --remove-orphans ${SERVICES.join(' ')}`,
       'markApplied',
       'smoke',
@@ -152,11 +155,36 @@ describe('[LS3][LS4] a verified record: the order of the deploy', () => {
     const at = (c: string) => e.indexOf(c);
     expect(at('compose:restart postgres')).toBe(at('compose:up -d --wait postgres') + 1);
     expect(at('compose:restart postgres')).toBeLessThan(at('compose:--profile job run --rm migrate'));
+    // Spec 0020 A2-11: PgBouncer carries the keys job's connections, so it restarts before the ledger's recovery.
+    expect(e.slice(at('compose:up -d --wait pgbouncer valkey'), at('recover') + 1)).toEqual([
+      'compose:up -d --wait pgbouncer valkey',
+      'compose:restart pgbouncer',
+      'compose:up -d --wait pgbouncer',
+      'markApplied:pgbouncer',
+      'recover',
+    ]);
     const up = at(`compose:up -d --wait --remove-orphans ${SERVICES.join(' ')}`);
-    expect(e.slice(up + 1, up + 3)).toEqual(['compose:restart caddy pgbouncer', `compose:up -d --wait ${SERVICES.join(' ')}`]);
-    expect(at('compose:restart caddy pgbouncer')).toBeLessThan(at('smoke'));
+    expect(e.slice(up + 1, up + 3)).toEqual(['compose:restart caddy', `compose:up -d --wait ${SERVICES.join(' ')}`]);
+    expect(at('compose:restart caddy')).toBeLessThan(at('smoke'));
     // Recorded as loaded only after the restarts succeeded.
     expect(at('markApplied')).toBe(up + 3);
+  });
+
+  it('[D8][BK2] a recovery that stops fails the deploy before the API, worker and web start, and saves no state', async () => {
+    const r = await deploy(record(), COMMIT, deps({ recover: () => (calls.push('recover'), Promise.resolve({ ok: false, lines: ['STOP: x'] })) }));
+    expect(r.ok).toBe(false);
+    expect(r.problems.join()).toMatch(/recovery stopped the deploy before the API and worker started/);
+    expect(calls.some((c) => c.includes('--remove-orphans'))).toBe(false);
+    expect(calls).not.toContain('saveState');
+    expect(calls.indexOf('recover')).toBeGreaterThan(calls.indexOf('compose:--profile job run --rm migrate'));
+  });
+
+  it('[A2-3] the ledger is initialised only when the owner asks (--init-ledger), never by itself', async () => {
+    await deploy(record(), COMMIT, deps());
+    expect(calls).toContain('recover');
+    calls = [];
+    await deploy(record(), COMMIT, deps(), { initLedger: true });
+    expect(calls).toContain('recover:init');
   });
 
   it('[LS8] a changed Vault certificate restarts Vault at once, records it, and stops for the owner to unseal', async () => {

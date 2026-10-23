@@ -181,6 +181,107 @@ PR A was split, with the owner's approval, into **A1** (this part: the database'
   - the grace floor without its margin;
   - the active version read outside the sweep's transaction (the guard).
 
+## Implementation notes (PR A2: the host-side ledger, the protocol, recovery, the deploy step)
+
+Built as approved: decisions A2-1 to A2-13, with a 10-year retention for the bucket copy. A2 changes the API image (the `keys` CLI gains `evidence`, `reapply`, `ledger-audit`, `ledger-copy`, and `destroy-check` for a whole tenant), so a release follows it.
+
+**What runs where.**
+
+- **The host** (`tools/stack/src/ledger/`):
+  - the chain (`chain.ts`);
+  - one destination's copy and its durability (`store.ts`);
+  - the authoritative ledger (`ledger.ts`);
+  - the lock (`lock.ts`);
+  - the protocol and recovery (`protocol.ts`);
+  - the configuration commands (`commands.ts`);
+  - the database step's runner (`job.ts`);
+  - and `pnpm stack:keys` (`src/keys.ts`).
+- **The database step** is the `keys` compose job: the deployed API image, its own `keys.env` (the API's settings plus the bucket identity's credentials, which no other process holds), and the `app` network, through PgBouncer.
+
+**The ledger on disk.**
+
+- **Layout:** each destination holds `<dest>/<ledgerId>/gen-0001/`, with two files:
+  - `ledger.jsonl`: canonical JSON, one entry per line, identical bytes on every destination;
+  - `destination.json`: the copy's identity.
+- **The primary** is `~/.univarse/ledger/` (override: `UNIVARSE_LEDGER_DIR`), id `primary`. Other destinations get `dest-<8 hex>`.
+- **Entry types:** `genesis`, `config` (add, remove, rebuild), `pending`, `committed`, `aborted`, `reapplied` (a committed destruction made again after a restore).
+- **What is never in an entry:** key material or wrapped keys. An entry holds ids, slugs, versions, statuses, times, audit sequence numbers and reasons.
+
+**What a crash can leave, and what agreement accepts.**
+- **Exactly two shapes.** A copy may be behind the others by:
+  - one record (any record is written to every destination before the next one starts); or
+  - a `pending` that couldn't reach a destination, followed by its `aborted` where it did.
+- **Anything else is refused,** even if every entry belongs to one op. An example is `pending` and `committed` missing together: `committed` is written only once `pending` is durable everywhere, so only a swapped older copy can look like that.
+
+The unit tests found this. The first version accepted "entries of one op", and a destination swapped for its older self passed.
+
+**Decisions made while building (for approval).**
+
+1. **`pnpm stack:keys ledger abandon <op> --reason … --confirm "its outcome is not established"` is an explicit, recorded waiver for one op, never an `aborted`.** D8 stops on a `pending` op whose preconditions no longer hold, and names "the owner's choice". This is that choice.
+
+   **Revised after the owner's review of A2.** The first version wrote `aborted` when the database held no row. But a missing row doesn't show the transaction never committed: an older database may have been restored since, and then its keys may be usable again. So now:
+   - **What it writes:** an `abandoned` entry with the owner's reason and a fixed statement, audited as `crypto.ledger.op_abandoned`. The statement says the outcome was not established, that the op may have committed before an older database was restored, and that the guarantee does not cover it. It never says nothing was destroyed.
+   - **Afterwards:** every recovery and every `status` reports the op as abandoned. A later destroy isn't blocked by it. If the op's row turns up after all (a newer database back), recovery records the op as committed, and its guarantee holds again.
+   - **What it is refused for:** an op whose row the database holds (recovery records it), an op with an outcome, a second time, and an adoption (below).
+2. **The ledger's history before it existed (revised after the owner's review of A2): reconciled from the database's evidence, or `init` refuses.** `init` reads every destroyed key and every destruction audit event (`keys evidence --legacy`). The history is trustworthy only when it is consistent:
+   - every destroyed key has its wrap erased and an audit event recording its destruction;
+   - every destruction audit event's keys are destroyed now;
+   - no such event names an op that has no row.
+
+   **When it is consistent,** genesis records it: the adopted destructions, each with its own op, and a statement. The statement says they are recorded from this database's evidence at that time, and that any a restore had already undone before then cannot be known. Each adoption is then written like a destruction: `pending`, then `keys adopt` (the row and a `crypto.tenant_key.adopted` audit event, nothing destroyed, refused unless every version is already destroyed), then `committed` (`by: adoption`). From then on it is an accepted destruction like any other: a later restore that brings its keys back is undone by recovery. If `init` stops part-way, recovery completes genesis's plan, so no adoption is left out. Every recovery and `status` repeats the statement.
+
+   **When it isn't,** `init` refuses and lists each problem. An event whose keys are live again is exactly what a restore before the ledger would leave, and a genesis must not imply that history was captured when it wasn't.
+3. **The first deploy with A2: `pnpm stack:deploy <record> --init-ledger`.** `init` needs the database's evidence, and the evidence needs the new image. So the owner's one-time init runs inside that deploy, right after the migrate job, then recovery. Without the flag, a deploy with no ledger stops, and its message names the flag. `pnpm stack:keys ledger init` is the same command, standalone.
+4. **Deploys wait up to 10 minutes for the ledger lock.** A destroy holds it for a minute or two, and a deploy shouldn't fail because one was running. Commands run on their own wait 30 s.
+5. **PgBouncer and Valkey start, and restart if their configuration changed, before recovery.** The keys job connects through PgBouncer.
+6. **Secrets added since a stack was initialised are generated by the deploy itself** (`upgradeSecrets`), names printed, values never. That is how the bucket identity's credentials arrive without `stack:init --rotate`.
+7. **The bucket copy is written by the keys job under its own SeaweedFS identity.** The identity has `Write` on `uv-shred-ledger` only, cannot read or list it, and owns the bucket. The bucket is created with object lock, entries are retained in COMPLIANCE mode for 10 years, and the host remembers how far it copied (`.bucket-copied.json` beside the primary). A failed copy is reported and retried by the next destroy or recovery, and never blocks.
+8. **A committed destruction whose tenant has no keys in this database is in force, and is reported, not re-applied.** After `stack:init --rotate` resets the demo database, the tenant doesn't exist, so there is nothing to decrypt with. Re-applying would fail on the foreign key and stop every deploy.
+9. **When recovery re-applies a `RETIRED` destruction whose version a restore made ACTIVE again, the version is destroyed.** The tenant then has no active key until one is provisioned. Recovery says so in a WARNING line. The accepted destruction outranks the tenant's ability to write.
+10. **The ledger lock reads a process's start time explicitly.** On Windows the answer is `GONE`, `UNREADABLE` or the time. A process whose start time can't be read (another user's), or an OS other than Windows and Linux (no `/proc`), is never taken for a gone holder: the lock is left alone and the command fails. The first version took PowerShell's exit code for "gone", and the tests caught it.
+11. **Takeovers are serialized by their own atomic directory, with the owner re-read inside it.** Otherwise a slower taker could move aside a lock that a faster one had just taken over.
+
+**Tests.**
+
+- **Unit, in `tools/stack`:**
+  - the chain (edits, deletions, reordering, re-hashing, a second genesis, torn or non-canonical lines);
+  - durability on the real file system: every write fsynced, counted through the injected Node functions; a destination that accepts a write and returns other bytes; a write that fails; a copy changed underneath;
+  - authority: BK16's blocked cases, agreement, levelling.
+- **The protocol, against the in-memory database model** (`fake-keys-db.ts`):
+  - every crash point (each destination write of `pending` and `committed`, both sides of the transaction, the report), each with and without total stack loss, checking that the accepted destruction holds and the stopped one ends committed;
+  - BK11's two named cases and the conflicting-evidence variants;
+  - BK2's re-apply, roll-forward, aborted and nothing-to-do cases;
+  - BK12's fail-closed cases;
+  - BK13's destination failures, before and after the database step.
+- **The lock, between real processes:** a live holder never broken; a second taker waits, then takes the lock once it is released; a killed holder taken over and logged; a reused PID; release never removes another run's lock. Then the protocol under the real lock: overlapping destroys of one tenant and of two; recovery racing a destruction.
+- **The configuration commands:** BK16's permitted and rejected cases, and that each is chained and audited.
+- **Integration, a new CI step after the API's suites** (`pnpm --filter @univarse/stack test:ledger`, CI's disposable database only):
+  - the protocol with the real built `keys` CLI and the real platform database;
+  - BK11's two named cases;
+  - a precondition broken between the check and the transaction (BK14);
+  - a re-apply after a staged restore.
+
+**Mutations caught (38 of 38, each run against its own test file; after the owner's review of A2, 14 more for the two revisions):**
+- **agreement:** any suffix accepted; a diverging copy accepted;
+- **the store:** a swapped destination id accepted; no read-back; the chain's hash not checked;
+- **destroy:** `pending` written after the database; an unknown outcome written as `aborted`; no `aborted` after a stopped `pending`; success reported before `committed` was durable;
+- **recovery:** a row the ledger lacks ignored; a pending row accepted without checking it; versions not compared; committed ops never re-applied; a refused roll-forward taken as done; an aborted op with a row accepted; a missing tenant re-applied (decision 7 undone);
+- **abandon:** allowed for a committed op;
+- **the lock:** never taken over; a live holder broken;
+- **the commands:** init over existing destructions; rebuild without the evidence check; rebuild from any copy; remove without the rest being authoritative;
+- **the API:** `KeyDestruction.reapply` without the job guard; `KeyDestruction.adopt` without it;
+- **the waiver:** written as `aborted`; no confirmation; an abandoned op not reported; its row ignored; a destroy blocked by it; abandoning an adoption;
+- **the history:** live keys accepted; an unaudited destruction accepted; an unerased wrap accepted; an op without a row accepted; an inconsistent history accepted by init; genesis's plan not completed by recovery; adoptions not recorded.
+
+Three survived the first run, each a test that wasn't isolating its case or a case no test covered. Each now has one:
+- versions not compared;
+- an aborted op with a row;
+- removal with the rest not authoritative.
+
+**Not in A2:**
+- the waiver (A3, BK17);
+- the backup's ledger snapshot under the lock (BK14's fourth case), which comes with the backup itself in PR B.
+
 ## Affected docs (in the implementation PRs)
 
 - **[10 §7](../10-infrastructure-and-deployment.md):** the local backup section: what, where, the schedule, the measured boundary, the owner's private key, the same-disk limit, the commands, the drill.

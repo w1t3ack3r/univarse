@@ -42,9 +42,10 @@ const FIXTURES: Record<string, string> = {
 };
 
 let program: TS.Program;
+// Building the type-checked program takes ~15 s, longer under a parallel run: the same allowance as cache-writers.spec.
 beforeAll(() => {
   program = apiProgram(Object.fromEntries(Object.entries(FIXTURES).map(([k, v]) => [join(FIX, `${k}.ts`), v])));
-});
+}, 120_000);
 
 const fixture = (name: string) => program.getSourceFiles().filter((sf) => sf.fileName.replace(/\\/g, '/').endsWith(`/writer-bound/${name}.ts`));
 

@@ -30,6 +30,8 @@ describe('[D14] KeyDestruction refuses outside the job before touching the datab
   it.each([
     ['shredTenantKeys', (d: KeyDestruction) => d.shredTenantKeys(OP, null, 'test', { op: OP })],
     ['destroyRetired', (d: KeyDestruction) => d.destroyRetired(OP, 1, () => Promise.resolve(0), { op: OP, actorId: null, reason: 'test' })],
+    ['reapply (spec 0020 A2)', (d: KeyDestruction) => d.reapply({ op: OP, tenantId: OP, kind: 'TENANT', versions: [1], actorId: null, reason: 'test' })],
+    ['adopt (spec 0020 A2)', (d: KeyDestruction) => d.adopt({ op: OP, tenantId: OP, kind: 'TENANT', versions: [1], actorId: null, reason: 'test' })],
   ])('[D14] %s', async (_name, call) => {
     const transaction = vi.fn();
     const platform = { $transaction: transaction, keyDestruction: { findUnique: transaction }, tenantDataKey: { findUnique: transaction } };

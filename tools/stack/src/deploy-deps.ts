@@ -10,9 +10,12 @@ import { nextState } from './state.js';
 import { docker } from './docker.js';
 import { acquireRegistryLock, verifyRelease } from './release.js';
 import { envText, renderEnvFiles, renderPgBouncerIni, renderPgHba, renderS3Config, renderUserlist, renderValkeyConf } from './render.js';
-import { ensureStackDir, loadSecrets } from './secrets.js';
+import { ensureStackDir, loadSecrets, upgradeSecrets } from './secrets.js';
 import { smoke } from './smoke.js';
 import { ensureVault, loadVaultInit, tokensOf, vaultState } from './vault.js';
+import { realProtocolDeps } from './keys.js';
+import { init as initLedger } from './ledger/commands.js';
+import { recover as recoverLedger } from './ledger/protocol.js';
 import { fillVolumes, markApplied, renderedDir } from './volumes.js';
 
 const TRIVY_IMAGE = 'aquasec/trivy:0.75.0@sha256:af6acf9a6b85dfe389a1941505c0ce9efef52a4719635e1a962f022a3d855daa';
@@ -27,6 +30,7 @@ export function compose(args: readonly string[], images: Readonly<Record<string,
 
 function prepare(withVault: boolean): string[] {
   ensureStackDir();
+  for (const added of upgradeSecrets()) console.log(`[stack:deploy] secret added since this stack was initialised: ${added} (secrets.json, owner-only)`);
   const secrets = loadSecrets();
   const tokens = withVault ? tokensOf(loadVaultInit()) : { appToken: '' };
   for (const [name, file] of Object.entries(renderEnvFiles(secrets, tokens))) writeOwnerOnly(join(STACK_DIR, name), envText(file));
@@ -78,18 +82,25 @@ function scanThirdParty(): string[] {
  * publishes no port, and its S3 identity is the app's. Idempotent. `weed shell` exits 0 even when a command fails,
  * and its master connection is flaky just after start (storage-dev.mjs, 2026-10-06), so the listing decides,
  * retried for up to a minute.
+ * Spec 0020 A2-10: the shred ledger's evidence bucket is created with object lock (WORM and versioned; it can never be
+ * turned off), owned by its own identity, the only one that writes it (a non-admin identity reaches only the buckets
+ * it owns).
  */
-const BUCKETS = ['uv-quarantine', 'uv-clean'];
+const BUCKETS: Readonly<Record<string, string>> = {
+  'uv-quarantine': '',
+  'uv-clean': '',
+  'uv-shred-ledger': ' -withLock -owner univarse-shred-ledger',
+};
 function buckets(): string[] {
   const shell = (commands: string) =>
     docker(['exec', '-i', '-e', 'HOME=/tmp', `${PROJECT}-seaweedfs-1`, '/usr/bin/weed', 'shell', '-master=127.0.0.1:9333', '-filer=127.0.0.1:8888'], { input: `${commands}\n`, allowFail: true });
   const listed = () => new Set([...shell('s3.bucket.list').stdout.matchAll(/^\s*([a-z0-9-]{3,63})\s/gm)].map((m) => m[1]));
-  let missing = BUCKETS;
+  let missing = Object.keys(BUCKETS);
   for (let i = 0; i < 20; i++) {
     const have = listed();
-    missing = BUCKETS.filter((b) => !have.has(b));
+    missing = Object.keys(BUCKETS).filter((b) => !have.has(b));
     if (!missing.length) return [];
-    shell(missing.map((b) => `s3.bucket.create -name ${b}`).join('\n'));
+    shell(missing.map((b) => `s3.bucket.create -name ${b}${BUCKETS[b] ?? ''}`).join('\n'));
     Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 3000);
   }
   return missing.map((b) => `bucket ${b} was not created (SeaweedFS)`);
@@ -106,7 +117,23 @@ function logs(): string {
 function saveState(images: Readonly<Record<string, string>>): void {
   const file = join(RELEASES, 'deploy-state.json');
   const prev: unknown = existsSync(file) ? JSON.parse(readFileSync(file, 'utf8')) : undefined;
-  writeFileSync(file, `${JSON.stringify(nextState(prev, images), null, 2)}\n`);
+  // `images`: the compose variables of what runs now, for `pnpm stack:keys` (spec 0020: the keys job runs the
+  // deployed API image). images:prune reads only `current` and `rollback`.
+  writeFileSync(file, `${JSON.stringify({ ...nextState(prev, images), images }, null, 2)}\n`);
+}
+
+/** Spec 0020 D8: a destruction in progress holds the ledger lock for a minute or two; the deploy waits for it. */
+const DEPLOY_LEDGER_WAIT_MS = 10 * 60_000;
+async function recover(images: Readonly<Record<string, string>>, { initLedger: init }: { initLedger: boolean }) {
+  const deps = realProtocolDeps(images, { lockWaitMs: DEPLOY_LEDGER_WAIT_MS });
+  const lines: string[] = [];
+  if (init) {
+    const r = await initLedger(deps);
+    lines.push(...r.lines);
+    if (!r.ok) return { ok: false, lines };
+  }
+  const r = await recoverLedger(deps, 'deploy');
+  return { ok: r.ok, lines: [...lines, ...r.lines] };
 }
 
 /**
@@ -143,6 +170,7 @@ export function realDeps(): DeployDeps {
     vaultState: () => vaultState(),
     ensureVault: () => void ensureVault(),
     buckets,
+    recover,
     smoke,
     logs,
     saveState,

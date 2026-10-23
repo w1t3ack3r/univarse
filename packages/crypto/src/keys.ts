@@ -123,6 +123,84 @@ export async function destroyTenantKeys(
   });
 }
 
+/**
+ * Spec 0020 D8: makes an ACCEPTED destruction (its `committed` record is in the durable ledger) hold again, after a
+ * restore brought its keys back. No precondition applies: the destruction was already accepted, and values a restore
+ * returned under its versions are meant to be unreadable. `TENANT`: every live version of the tenant; `RETIRED`: the
+ * listed versions, even one a restore made ACTIVE again (`activeDestroyed` says so; the tenant then has no active key
+ * until one is provisioned). The destroyed versions are audited as `crypto.tenant_key.reapplied`; the
+ * `key_destruction` row is recorded if the restore removed it, and checked against the request if it is there.
+ */
+export async function reapplyDestruction(
+  platform: PlatformClient,
+  d: DestructionOp & { tenantId: string; kind: 'TENANT' | 'RETIRED'; versions: readonly number[]; actorId: string | null; reason: string },
+): Promise<{ destroyed: number[]; recorded: boolean; activeDestroyed: boolean }> {
+  if (d.versions.length === 0) throw new Error('a destruction names at least one version');
+  return platform.$transaction(async (tx) => {
+    const prior = await tx.keyDestruction.findUnique({ where: { op: d.op } });
+    if (prior) await recordedAlready(tx, d.op, { tenantId: d.tenantId, kind: d.kind, versions: d.versions });
+    const rows = await tx.$queryRaw<{ version: number; status: string }[]>`
+      SELECT version, status::text AS status FROM tenant_data_key WHERE tenant_id = ${d.tenantId}::uuid FOR UPDATE`;
+    const targets = rows
+      .filter((r) => r.status !== 'DESTROYED' && (d.kind === 'TENANT' || d.versions.includes(r.version)))
+      .sort((a, b) => a.version - b.version);
+    const destroyed = targets.map((r) => r.version);
+    if (destroyed.length === 0 && prior) return { destroyed, recorded: false, activeDestroyed: false };
+    const destroyedAt = new Date();
+    if (destroyed.length) {
+      await tx.tenantDataKey.updateMany({
+        where: { tenantId: d.tenantId, version: { in: destroyed } },
+        data: { status: 'DESTROYED', wrappedDek: null, destroyedAt },
+      });
+    }
+    const auditSeq = await writePlatformAudit(tx, {
+      actorId: d.actorId,
+      action: 'crypto.tenant_key.reapplied',
+      tenantId: d.tenantId,
+      metadata: { op: d.op, versions: [...d.versions], destroyedNow: destroyed, reason: d.reason },
+    });
+    if (!prior) {
+      await tx.keyDestruction.create({
+        data: { op: d.op, tenantId: d.tenantId, kind: d.kind, versions: [...d.versions], reason: d.reason, destroyedAt, auditSeq },
+      });
+    }
+    return { destroyed, recorded: !prior, activeDestroyed: targets.some((r) => r.status === 'ACTIVE') };
+  });
+}
+
+/**
+ * Spec 0020 (the owner's review of A2): records a destruction made before the ledger existed, from the database's own
+ * evidence, so the ledger and the database agree from the ledger's first entry. Every listed version must already be
+ * DESTROYED with its wrap erased: nothing is destroyed here, and a version that isn't is a conflict (the history isn't
+ * what the caller thinks). Audited as `crypto.tenant_key.adopted`; a repeat of the same op is a no-op.
+ */
+export async function adoptDestruction(
+  platform: PlatformClient,
+  d: DestructionOp & { tenantId: string; kind: 'TENANT' | 'RETIRED'; versions: readonly number[]; actorId: string | null; reason: string },
+): Promise<{ recorded: boolean }> {
+  if (d.versions.length === 0) throw new Error('a destruction names at least one version');
+  return platform.$transaction(async (tx) => {
+    if (await recordedAlready(tx, d.op, { tenantId: d.tenantId, kind: d.kind, versions: d.versions })) return { recorded: false };
+    const rows = await tx.$queryRaw<{ version: number; status: string; erased: boolean; destroyed_at: Date | null }[]>`
+      SELECT version, status::text AS status, wrapped_dek IS NULL AS erased, destroyed_at FROM tenant_data_key WHERE tenant_id = ${d.tenantId}::uuid FOR UPDATE`;
+    for (const v of d.versions) {
+      const k = rows.find((r) => r.version === v);
+      if (k?.status !== 'DESTROYED' || !k.erased) throw new DestructionConflictError(d.op, `version ${String(v)} is not destroyed with its wrap erased`);
+    }
+    const times = rows.flatMap((r) => (d.versions.includes(r.version) && r.destroyed_at ? [r.destroyed_at.getTime()] : []));
+    const auditSeq = await writePlatformAudit(tx, {
+      actorId: d.actorId,
+      action: 'crypto.tenant_key.adopted',
+      tenantId: d.tenantId,
+      metadata: { op: d.op, versions: [...d.versions], reason: d.reason },
+    });
+    await tx.keyDestruction.create({
+      data: { op: d.op, tenantId: d.tenantId, kind: d.kind, versions: [...d.versions], reason: d.reason, destroyedAt: new Date(times.length ? Math.max(...times) : Date.now()), auditSeq },
+    });
+    return { recorded: true };
+  });
+}
+
 /** Asks the worker to bring every encrypted value of the tenant onto its active version (E7, E9). */
 export async function requestReencryption(
   tx: Pick<PlatformClient, 'keyReencryption'>,

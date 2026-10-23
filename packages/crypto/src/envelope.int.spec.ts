@@ -8,7 +8,7 @@ import { createPlatformClient, createTenantShardClient, type PlatformClient } fr
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { FieldCrypto } from './field-crypto.js';
 import { TenantKeyring } from './keyring.js';
-import { DestructionConflictError, destroyTenantKeys, provisionTenantKey } from './keys.js';
+import { adoptDestruction, DestructionConflictError, destroyTenantKeys, provisionTenantKey, reapplyDestruction } from './keys.js';
 import { verifyPlatformAuditChain } from './platform-audit.js';
 import { KeyUnavailableError, VaultTransitProvider, keyProviderFrom, wrapContext, type KeyProvider } from './providers.js';
 
@@ -197,5 +197,75 @@ describe('[D14] full-tenant destruction is recorded under its op', () => {
     await expect(platform.keyDestruction.update({ where: { op }, data: { reason: 'x' } })).rejects.toThrow(/permission denied/);
     await expect(platform.keyDestruction.delete({ where: { op } })).rejects.toThrow(/permission denied/);
     await expect(platform.$executeRaw`TRUNCATE key_destruction`).rejects.toThrow(/permission denied/);
+  });
+});
+
+describe('[D8] re-applying an accepted destruction (spec 0020 A2)', () => {
+  it('[D8] an op the database no longer records (a restore took it back): its keys destroyed again, the row recorded, audited as re-applied', async () => {
+    const a = await scratchTenant('d8a');
+    await provisionTenantKey(platform, provider, a);
+    const op = randomUUID();
+    const r = await reapplyDestruction(platform, { op, tenantId: a, kind: 'TENANT', versions: [1], actorId: null, reason: 'reapply test' });
+    expect(r).toEqual({ destroyed: [1], recorded: true, activeDestroyed: true });
+    expect(await platform.tenantDataKey.findFirstOrThrow({ where: { tenantId: a } })).toMatchObject({ status: 'DESTROYED', wrappedDek: null });
+    const row = await platform.keyDestruction.findUniqueOrThrow({ where: { op } });
+    const audit = await platform.platformAuditEvent.findUniqueOrThrow({ where: { seq: row.auditSeq } });
+    expect(audit).toMatchObject({ action: 'crypto.tenant_key.reapplied', tenantId: a });
+    expect(audit.metadata).toMatchObject({ op, versions: [1], destroyedNow: [1] });
+  });
+
+  it('[D8] already in force (the row there, the keys destroyed): a no-op, nothing audited', async () => {
+    const a = await scratchTenant('d8b');
+    await provisionTenantKey(platform, provider, a);
+    const op = randomUUID();
+    await destroyTenantKeys(platform, a, null, 'first', { op });
+    const before = await platform.platformAuditEvent.count({ where: { tenantId: a } });
+    expect(await reapplyDestruction(platform, { op, tenantId: a, kind: 'TENANT', versions: [1], actorId: null, reason: 'again' })).toEqual({ destroyed: [], recorded: false, activeDestroyed: false });
+    expect(await platform.platformAuditEvent.count({ where: { tenantId: a } })).toBe(before);
+  });
+
+  it('[D8] a row that disagrees (another tenant, kind or versions) is a conflict, and nothing changes', async () => {
+    const [a, b] = [await scratchTenant('d8c'), await scratchTenant('d8d')];
+    await provisionTenantKey(platform, provider, a);
+    await provisionTenantKey(platform, provider, b);
+    const op = randomUUID();
+    await destroyTenantKeys(platform, a, null, 'first', { op });
+    await expect(reapplyDestruction(platform, { op, tenantId: b, kind: 'TENANT', versions: [1], actorId: null, reason: 'x' })).rejects.toBeInstanceOf(DestructionConflictError);
+    await expect(reapplyDestruction(platform, { op, tenantId: a, kind: 'RETIRED', versions: [1], actorId: null, reason: 'x' })).rejects.toBeInstanceOf(DestructionConflictError);
+    expect(await platform.tenantDataKey.findFirstOrThrow({ where: { tenantId: b } })).toMatchObject({ status: 'ACTIVE' });
+    await destroyTenantKeys(platform, b, null, 'test cleanup', { op: randomUUID() });
+  });
+
+  it('[D8] RETIRED: only the listed versions; a version the restore made ACTIVE is destroyed too, and said so', async () => {
+    const a = await scratchTenant('d8e');
+    await provisionTenantKey(platform, provider, a);
+    const r = await reapplyDestruction(platform, { op: randomUUID(), tenantId: a, kind: 'RETIRED', versions: [1, 7], actorId: null, reason: 'x' });
+    expect(r).toEqual({ destroyed: [1], recorded: true, activeDestroyed: true });
+    await expect(reapplyDestruction(platform, { op: randomUUID(), tenantId: a, kind: 'RETIRED', versions: [], actorId: null, reason: 'x' })).rejects.toThrow(/at least one version/);
+  });
+});
+
+describe('[A2-3] adopting a destruction from before the ledger (spec 0020, owner review of A2)', () => {
+  it('[A2-3] records the row for versions already destroyed, audited as adopted; destroys nothing; a repeat is a no-op', async () => {
+    const a = await scratchTenant('adopt-a');
+    await provisionTenantKey(platform, provider, a);
+    await destroyTenantKeys(platform, a, null, 'an older destruction', { op: randomUUID() });
+    const op = randomUUID();
+    expect(await adoptDestruction(platform, { op, tenantId: a, kind: 'TENANT', versions: [1], actorId: null, reason: 'adopted' })).toEqual({ recorded: true });
+    const row = await platform.keyDestruction.findUniqueOrThrow({ where: { op } });
+    expect(await platform.platformAuditEvent.findUniqueOrThrow({ where: { seq: row.auditSeq } })).toMatchObject({ action: 'crypto.tenant_key.adopted', tenantId: a });
+    const before = await platform.platformAuditEvent.count({ where: { tenantId: a } });
+    expect(await adoptDestruction(platform, { op, tenantId: a, kind: 'TENANT', versions: [1], actorId: null, reason: 'again' })).toEqual({ recorded: false });
+    expect(await platform.platformAuditEvent.count({ where: { tenantId: a } })).toBe(before);
+  });
+
+  it('[A2-3] refuses a version that is not destroyed (the history is not what was claimed), and changes nothing', async () => {
+    const a = await scratchTenant('adopt-b');
+    await provisionTenantKey(platform, provider, a);
+    const op = randomUUID();
+    await expect(adoptDestruction(platform, { op, tenantId: a, kind: 'TENANT', versions: [1], actorId: null, reason: 'x' })).rejects.toThrow(/version 1 is not destroyed/);
+    expect(await platform.keyDestruction.findUnique({ where: { op } })).toBeNull();
+    expect(await platform.tenantDataKey.findFirstOrThrow({ where: { tenantId: a } })).toMatchObject({ status: 'ACTIVE' });
+    await destroyTenantKeys(platform, a, null, 'test cleanup', { op: randomUUID() });
   });
 });

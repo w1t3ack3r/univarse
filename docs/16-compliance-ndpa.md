@@ -78,6 +78,8 @@ All DSAR actions are logged (`dsar_request` table with status and deadlines).
 
 Retention jobs are idempotent, log counts (not contents), and run in the `maintenance` queue.
 
+**Crypto-shredding, and keeping it done** ([spec 0006](specs/0006-envelope-encryption.md) E10, [spec 0020](specs/0020-local-backups-and-shred-ledger.md) D7, D8). An offboarded tenant's purge starts by destroying its keys. In the local stack that runs only through `pnpm stack:keys destroy`, which records each destruction in a durable ledger outside the stack before it reports it done. Every deploy and every restore re-applies the recorded destructions before the app starts, so a backup taken before a destruction can't bring the tenant's data back into use. It is safety in operation, not erasure: the backups taken before the destruction still hold the wrapped keys until they expire.
+
 ## 6. DPIA (required before pilot)
 
 Scope: large-scale processing of students' personal data including sensitive categories, profiling-like merit ranking, and cross-border hosting if applicable. Deliverable: `docs/compliance/dpia-v1.md` covering data flows, risks (use [08 §2](08-security.md) threats), mitigations, residual risk and DPO sign-off. Revisit on major changes (new sensitive data, new sub-processor, new region).
