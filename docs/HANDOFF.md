@@ -7,7 +7,7 @@ Read this before doing anything. It covers where Phase 0 stands, what is left in
 - **`main` at `011afed`.** Spec 0020 PR A (the shred ledger) is complete: A1 (#90), A2 (#91) and A3, the waiver (#96). fastify 5.12.7 is in (#95), and `fix(build)` (#98).
 - **Release `releases/2026-10-23-33ae2d9.json`.** Built from `33ae2d9`, with the gates passing and no active exceptions. The owner deployed it with `--init-ledger` on 2026-10-23.
 - **The ledger is live.** It is `1b879644-1e96-4d46-acb0-08eaa0e6a786`, authoritative on 1 destination (the primary). It has 0 destructions, so nothing was adopted. Recovery passes.
-- **A3's decisions 1–6,** approved by the owner on 2026-10-23, are recorded in spec 0020 (by the bucket fix).
+- **A3's decisions 1–7,** approved by the owner on 2026-10-23, are recorded in spec 0020 (by the bucket fix).
 
 ## The ledger's bucket copy: fixed, awaiting the owner's redeploy
 

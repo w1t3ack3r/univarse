@@ -305,7 +305,7 @@ Built as approved: decisions A3-1 to A3-12. A3 changes the API image: the `keys`
 
 A later generation's `genesis` also carries its `attempt` and the `transition` record (the reason, the time, the copies read and their heads, the statement).
 
-**Decisions made while building.** The owner approved 1–6 on 2026-10-23. Decision 7 (`stack:smoke` printing the waiver line) is not recorded as approved.
+**Decisions made while building.** The owner approved all seven on 2026-10-23.
 
 1. **Every attempt is classified one way: established, undetermined or inert.**
    - **Established:** `established` is on every destination it still configures, and each reads.
@@ -383,11 +383,13 @@ Three survived the first run. Each was a case no test isolated: W2 failing (only
   - the ledger identity can't list or read its bucket, or list or write `uv-quarantine` or `uv-clean`;
   - with `--try-delete` only: the genesis's locked version survives a versioned delete by each identity.
 
-**Decisions made while building (for approval).**
+**Decisions made while building.** The owner approved 1–13 on 2026-10-23, with decision 3 changed as written below.
 
 1. **The growth count is set by environment variable,** not a mounted `master.toml`: SeaweedFS reads its TOML keys from `WEED_`-prefixed variables, verified on 4.48 (one volume per collection with it, seven without). There is nothing to render and no extra file in the conf volume.
 2. **The maximum is 24.** An empty volume costs no measurable memory (natively: 119 MB with 7 volumes, 120 MB with 16), so the maximum bounds disk, not memory. 24 leaves the owner's stack 7 volumes of headroom after the ledger's, at 3 GB at most.
-3. **`compose.spec`'s secret-literal scan now requires a lower-case letter in its base64 branch.** `WEED_MASTER_VOLUME_GROWTH_COPY_1` is 32 characters with a digit, so the scan took it for a secret. Generated secrets are lower-case hex, or base64url from 30 or more random bytes, which have lower case. A base64-shaped literal is still caught (checked with one added to the file).
+3. **`compose.spec`'s secret-literal scan skips an explicit list of known setting names,** and its detector is unchanged. `WEED_MASTER_VOLUME_GROWTH_COPY_1` is 32 characters with a digit, so the scan took it for a secret. The list (`KNOWN_SETTING_NAMES`) holds that name only, and each name is skipped only as a whole token. Two tests keep it honest:
+   - a planted secret (generated hex, generated base64url, and one that contains a skipped name) is still caught;
+   - a name no longer in the compose file fails the test, so stale entries are removed.
 4. **The integration test (`bucket.int.ts`) runs its own container, not the stack.** It resolves the `seaweedfs` service with `docker compose config` and runs that image, user, entrypoint, environment, command and memory limit, with `cap_drop: ALL` and `no-new-privileges`, on a data volume of its own and throwaway keys. It is not the stack's network, read-only root or Caddy; those are not what the bugs depended on.
 5. **The test carries its own control.** The owner's pre-fix settings are derived from this commit's (16 volumes, no growth variable, no `PutObjectRetention`), and the test asserts they differ in exactly those three settings, so a later change can't quietly make the control the fix.
 6. **`SEAWEEDFS_BIN`:** on a machine with the Docker CLI but no daemon, the test runs a weed binary of the image's version (checked) instead. That is how it ran while this was built. CI runs the container.
@@ -423,10 +425,11 @@ Three survived the first run. Each was a case no test isolated: W2 failing (only
 - no `secrets.json`: exit 1, naming the file;
 - no key value anywhere in the output.
 
-**Mutations caught (21 of 21):**
+**Mutations caught (24 of 24):**
 - **the deploy:** the restart moved back to the end; always restarted; not recorded (`markApplied`); not removed from the set;
 - **the identity, in `render.spec`:** `PutObjectRetention` dropped; `Read` added;
 - **against SeaweedFS:** `PutObjectRetention` dropped; the growth variable removed; the growth variable misspelled, so ignored (caught by the one-volume assertion with the maximum still at 24); the maximum back to 16;
+- **the compose scan:** the name removed from `KNOWN_SETTING_NAMES` (the scan fails on the compose file); a name skipped as a substring, not a whole token; the base64 branch dropped;
 - **the check:** the retention mode ignored; any error taken for a refusal; the probe left behind; no clock tolerance; the content not compared; gaps not computed; `--try-delete` always on; the version's survival not verified; the lock not checked; an error message printed; the checks continuing after the app identity can't list.
 
 None survived.
