@@ -23,8 +23,8 @@
     "decimal.js": "^10.6.0"
   },
   "devDependencies": {
-    "@vitest/coverage-v8": "^4.1.11",
+    "@vitest/coverage-v8": "^4.1.12",
     "fast-check": "^4.3.0",
-    "vitest": "^4.1.11"
+    "vitest": "^4.1.12"
   }
 }
