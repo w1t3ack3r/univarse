@@ -156,6 +156,17 @@ export function buildOpenApi(controllers: readonly Ctor[], settings: Readonly<Re
           };
         });
       }
+      // Spec 0021: each property of the query object is a documented query parameter (the handler parses the whole
+      // object, strictly, so anything else is a 400).
+      if (op.query) {
+        const shape = op.query.shape as Record<string, z.ZodType>;
+        ((operation.parameters ??= []) as Json[]).push(
+          ...Object.entries(shape).map(([name, field]) => {
+            const { description, ...schema } = toJsonSchema(field, 'input', `${where} query parameter ${name}`);
+            return { name, in: 'query', required: !field.safeParse(undefined).success, ...(description ? { description } : {}), schema };
+          }),
+        );
+      }
       if (op.body) {
         let body = toJsonSchema(op.body, 'input', `${where} request body`);
         if (op.valueBySettingKey) body = settingValueBody(body, settings, schemas, where);
@@ -379,7 +390,7 @@ function errorResponses(op: ApiOperation, c: ErrorContext): Record<string, Respo
     if (privileged(p)) add(403, 'auth.mfa_required');
   }
   if (c.stepUp || Object.values(c.settings ?? {}).some((d) => requiresStepUp(d.manage))) add(428, 'auth.step_up_required');
-  if (op.body) add(400, 'request.invalid');
+  if (op.body || op.query) add(400, 'request.invalid');
   if (c.unsafe) add(403, 'request.csrf_rejected');
   if (op.rateLimit) add(429, 'request.rate_limited');
   for (const p of Object.values(c.params)) add(p.invalid.status, p.invalid.code);

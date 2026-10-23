@@ -34,6 +34,7 @@ export const ERROR_MESSAGES = {
   'precondition.required': 'Reload the page and try again.',
   'precondition.failed': 'Someone else changed this while you were editing. Here are the latest values.',
   'request.invalid': 'Some details are missing or not valid.',
+  'request.invalid_cursor': 'This list has changed since you opened that page. Start again from the first page.',
   'request.rate_limited': 'Too many attempts. Wait a little and try again.',
   'request.csrf_rejected': "That request didn't come from this page. Reload it and try again.",
   'request.method_not_allowed': "That action isn't allowed here.",

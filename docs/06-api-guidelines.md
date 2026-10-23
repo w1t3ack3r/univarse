@@ -34,7 +34,7 @@ Applies to every HTTP endpoint in `apps/api`. Contracts live in `packages/contra
   "meta": { "total": 1234 }        // only when cheap/needed
 }
 ```
-- **Pagination:** cursor-based by default (`?cursor=&limit=`, max 200). Offset pagination is allowed only for small admin tables with a known size.
+- **Pagination:** cursor-based by default (`?cursor=&limit=`, max 200). Offset pagination is allowed only for small admin tables with a known size. **The cursor is opaque and holds a row id, never a value from the row** (a username is a matric or staff number, and cursors travel in page URLs); the server looks the row up again under the tenant's RLS. A cursor that doesn't resolve is `400 request.invalid_cursor`, the same answer whatever the reason. Query parameters are declared in the operation's strict `query` object and parsed by the handler, like a body ([spec 0021](specs/0021-users-pagination.md)).
 - **Filtering/sorting:** `?status=SUBMITTED&level=300&sort=-createdAt&q=adeyemi`. Only allow-listed fields.
 - **Response DTOs** are explicit mappers. Never serialize ORM objects, because hidden fields (password hashes, encrypted secrets) must be impossible to leak by accident.
 - `201 Created` + `Location` header for creates. `202 Accepted` + a job resource for async work. `204` for deletes.
