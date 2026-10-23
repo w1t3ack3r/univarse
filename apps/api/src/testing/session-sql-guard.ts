@@ -21,7 +21,8 @@
 import { createRequire } from 'node:module';
 import { join, relative } from 'node:path';
 import type * as TS from 'typescript';
-import { API_DIR, boundParameterOf, lexSql, type SqlToken } from './cache-writer-guard.js';
+import { API_DIR } from './program.js';
+import { boundParameterOf, lexSql, type SqlToken } from './sql-lexer.js';
 
 const require = createRequire(import.meta.url);
 const ts = require('typescript') as typeof TS;
