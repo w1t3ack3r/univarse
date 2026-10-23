@@ -252,6 +252,11 @@ interface Decl {
   prepare?: () => Prepared | Promise<Prepared>;
   /** The route parses a strict JSON body: an unknown `tenantId` field is the documented 400. */
   strictBody?: boolean;
+  /**
+   * Spec 0021: the route parses a strict query: an unknown `tenantId` parameter is the documented 400 (refused, not
+   * ignored). Must match the contract: set exactly where the OpenAPI document has query parameters (checked below).
+   */
+  strictQuery?: boolean;
 }
 
 const expectStatus = (res: InjectResult, status: number) => {
@@ -517,6 +522,7 @@ const DECLS: Record<RouteKey, Decl> = {
   'GET /api/v1/users': {
     auth: 'session',
     classes: ['collection'],
+    strictQuery: true,
     skeleton: (cookie) => ({ method: 'GET', host: A, url: '/api/v1/users', ...(cookie ? { cookie } : {}) }),
     prepare: () => ({
       req: { method: 'GET', host: A, url: '/api/v1/users', cookie: adminA.session },
@@ -828,6 +834,13 @@ describe('[RS1] route table from structured registrations', () => {
     expect(findings).toEqual([]);
     for (const [, d] of real) expect(d.prepare, 'every real route has an RS0 fixture').toBeDefined();
   });
+
+  it('[RS3][spec 0021] strictQuery is declared exactly where the contract documents query parameters', () => {
+    for (const [route, d] of real) {
+      const documented = (docOps.get(route)?.parameters ?? []).some((p) => p.in === 'query');
+      expect(d.strictQuery === true, route).toBe(documented);
+    }
+  });
 });
 
 // Spec 0011 OA2: the committed OpenAPI document against the routes this app actually serves.
@@ -924,7 +937,8 @@ describe('[RS0][RS3] legitimate operation first, then tenant hints change nothin
     for (const [name, apply] of hints) {
       const p = await d.prepare!();
       const hinted = await send(apply(p.req));
-      if (name === 'body' && d.strictBody) {
+      if ((name === 'body' && d.strictBody) || (name === 'query' && d.strictQuery)) {
+        // A strict parser refuses the hint outright: it never reaches the use case, so it can't select tenant B.
         expect(hinted.statusCode, `${route} ${name}`).toBe(400);
         expect(json(hinted).code).toBe('request.invalid');
       } else {
