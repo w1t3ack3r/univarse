@@ -1,4 +1,4 @@
-// Spec 0020 BK1, BK2, BK11, BK14 (A2-13): the destruction protocol against the REAL keys CLI (apps/api's build) and the
+// Spec 0020 BK1, BK2, BK11, BK14 (A2-13), BK17 (A3): the destruction protocol against the REAL keys CLI (apps/api's build) and the
 // real platform database, as CI sets them up (db:setup, db:migrate, Vault). Run by `pnpm --filter @univarse/stack
 // test:ledger`, never by the unit run. Scratch tenants only (OFFBOARDING), with no encrypted values.
 // "Total stack loss" is staged as A2-12 states: the superuser puts back what the protocol reads, as an older backup
@@ -17,11 +17,12 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { opStates, type Destination } from './chain.js';
+import { opStates, planStates, type Destination } from './chain.js';
 import { init } from './commands.js';
 import { keysDbFrom, type Runner } from './job.js';
 import { establishAuthority } from './ledger.js';
 import { destroy, recover, type ProtocolDeps } from './protocol.js';
+import { waive, WAIVER_CONFIRMATION } from './waiver.js';
 
 const REPO = fileURLToPath(new URL('../../../../', import.meta.url));
 const CLI = join(REPO, 'apps', 'api', 'dist', 'cli', 'keys.js');
@@ -283,5 +284,33 @@ describe('[BK1][BK2][BK11] the protocol with the real keys CLI and database', { 
     const n = entries().length;
     expect((await recover(deps())).ok).toBe(true);
     expect(entries()).toHaveLength(n);
+  });
+
+  // Last: it ends generation 1 for this ledger.
+  it('[BK17][A3-6] the waiver with the real CLI: generation 2, its audit event written once though it stopped right after it, every accepted destruction re-applied', async () => {
+    rmSync(primary.path, { recursive: true, force: true });
+    rmSync(join(dir, 'external'), { recursive: true, force: true });
+    expect((await recover(deps())).ok).toBe(false);
+    const opts = { reason: 'total loss, staged on CI', confirm: WAIVER_CONFIRMATION, destinations: [primary.path, join(dir, 'second')], from: [] };
+    // W3's event written, then stopped before `audited` reached the ledger: recovery resumes it, and finds that event.
+    await expect(waive(crashAt('waive:audit'), opts)).rejects.toBeInstanceOf(Crash);
+    const r = await recover(deps());
+    expect(r.ok, r.lines.join('\n')).toBe(true);
+    expect(r.lines.join('\n')).toMatch(/no-resurrection guarantee waived since .* \(generation 2\)/);
+    const rows = (await A().query<{ attempt: string; seq: string }>('SELECT attempt_id::text AS attempt, audit_seq::text AS seq FROM ledger_waiver')).rows;
+    expect(rows).toHaveLength(1);
+    const g = entries()[0];
+    expect(g?.type === 'genesis' && [g.generation, g.attempt]).toEqual([2, rows[0]?.attempt]);
+    const events = (await A().query<{ seq: string; attempt: string }>("SELECT seq::text AS seq, metadata->>'attempt' AS attempt FROM platform_audit_event WHERE action = 'crypto.ledger.waived'")).rows;
+    expect(events).toEqual([{ seq: rows[0]?.seq, attempt: rows[0]?.attempt }]);
+    expect(entries().filter((e) => e.type === 'audited')).toMatchObject([{ auditSeq: rows[0]?.seq }]);
+    // Every destruction the database accepted is in the plan, and each has its result.
+    const ops = (await A().query<{ op: string }>('SELECT op::text AS op FROM key_destruction')).rows.map((x) => x.op).sort();
+    const plan = [...planStates(entries()).plan.values()];
+    expect(plan.filter((p) => p.item.mode === 'reapply').map((p) => p.item.op).sort()).toEqual(ops);
+    expect(plan.every((p) => p.result)).toBe(true);
+    // The record of a waiver is never rewritten by the app role.
+    await expect(A().query('DELETE FROM ledger_waiver')).rejects.toThrow(/permission denied/);
+    await expect(A().query('UPDATE ledger_waiver SET created_at = now()')).rejects.toThrow(/permission denied/);
   });
 });

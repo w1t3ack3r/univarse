@@ -167,6 +167,7 @@ model PlatformAuditEvent {
   hash       Bytes
 
   keyDestruction KeyDestruction?
+  ledgerWaiver   LedgerWaiver?
 
   @@index([tenantId, occurredAt])
   @@map("platform_audit_event")
@@ -282,4 +283,16 @@ model KeyDestruction {
 
   @@index([tenantId])
   @@map("key_destruction")
+}
+
+/// Spec 0020 D8's waiver (A3-6): one row per waiver attempt audited, keyed by the host's attempt id, so the waiver's
+/// platform audit event is written once. Append-only for the app role.
+model LedgerWaiver {
+  attemptId String   @id @map("attempt_id") @db.Uuid
+  auditSeq  BigInt   @unique @map("audit_seq")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  auditEvent PlatformAuditEvent @relation(fields: [auditSeq], references: [seq], onDelete: Restrict, onUpdate: Restrict)
+
+  @@map("ledger_waiver")
 }

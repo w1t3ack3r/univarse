@@ -6,9 +6,10 @@
 //            refusal writes `aborted`; an unknown outcome leaves `pending` for recovery (A2-8).
 //   recover: lock → an authoritative ledger, levelled → the database's evidence → each op made to hold, or a stop.
 import { randomUUID } from 'node:crypto';
-import { ABANDON_STATEMENT, opStates, type Destination, type DestructionKind, type Entry, type OpState } from './chain.js';
+import { ABANDON_STATEMENT, opStates, planStates, type Destination, type DestructionKind, type Entry, type OpState } from './chain.js';
 import { Ledger, LedgerWriteError, noCrash, type Crash } from './ledger.js';
-import type { LedgerFs } from './store.js';
+import { bucketDir, locationOf, type LedgerFs } from './store.js';
+import { completeWaiver, waivedSince } from './waiver.js';
 
 export interface KeyState {
   readonly version: number;
@@ -68,7 +69,11 @@ export interface KeysDb {
   /** The platform audit event for a ledger command (BK16). Throws on failure. */
   audit(action: string, detail: Readonly<Record<string, unknown>>): Promise<void>;
   /** The bucket copy (evidence only): returns a problem, never throws. */
-  copyToBucket(ledgerId: string, entries: readonly Entry[]): Promise<string | null>;
+  copyToBucket(ledgerId: string, dir: string, entries: readonly Entry[]): Promise<string | null>;
+  /** A3-5: every entry in the bucket (evidence only, for the waiver's union), read with the app's identity. */
+  readBucket(): Promise<{ ok: true; lines: readonly string[] } | { ok: false; problem: string }>;
+  /** A3-6: the waiver's platform audit event, written once per attempt (a repeat returns the first one's seq). */
+  waiverAudit(attempt: string, detail: Readonly<Record<string, unknown>>): Promise<{ auditSeq: string }>;
 }
 
 export interface ProtocolDeps {
@@ -114,12 +119,16 @@ function openLedger(deps: ProtocolDeps): { ledger: Ledger } | { problems: readon
 /** Best effort (D7: never relied on): copies to the bucket what it hasn't copied yet, and reports a failure. */
 async function copyBacklog(deps: ProtocolDeps, ledger: Ledger, lines: string[]): Promise<void> {
   try {
-    const from = deps.bucket?.copied(ledger.ledgerId) ?? 0;
+    // Each generation's seq starts again at 1: progress is kept per location (generation 1 under the bare ledger id).
+    const at = locationOf(ledger.entries);
+    const dir = bucketDir(at);
+    const progress = at.generation === 1 ? ledger.ledgerId : `${ledger.ledgerId}/${dir}`;
+    const from = deps.bucket?.copied(progress) ?? 0;
     const todo = ledger.entries.filter((e) => e.seq > from);
     if (!todo.length) return;
-    const problem = await deps.db.copyToBucket(ledger.ledgerId, todo);
+    const problem = await deps.db.copyToBucket(ledger.ledgerId, dir, todo);
     if (problem) lines.push(`bucket copy (evidence only, not relied on) failed: ${problem}; it is retried by the next destroy or recovery`);
-    else deps.bucket?.mark(ledger.ledgerId, todo[todo.length - 1]?.seq ?? from);
+    else deps.bucket?.mark(progress, todo[todo.length - 1]?.seq ?? from);
   } catch (e) {
     lines.push(`bucket copy (evidence only, not relied on) failed: ${(e as Error).message}`);
   }
@@ -140,6 +149,10 @@ export async function destroy(deps: ProtocolDeps, req: { readonly slug: string; 
     if (problems.length) return { ok: false, lines: ['the ledger is inconsistent: run `pnpm stack:keys recover`', ...problems] };
     const open = unresolved(ops);
     if (open.length) return { ok: false, lines: [`an earlier destruction is unresolved (${open.join(', ')}): run \`pnpm stack:keys recover\` first`] };
+    // A3: a waiver's re-applications must be complete before anything new is destroyed.
+    const outstanding = [...planStates(ledger.entries).plan.values()].filter((s) => !s.result).map((s) => s.item.op);
+    if (outstanding.length || (ledger.entries[0]?.type === 'genesis' && ledger.entries[0].generation > 1 && !ledger.entries.some((e) => e.type === 'audited')))
+      return { ok: false, lines: [`the waiver's re-applications are unfinished (${outstanding.join(', ') || 'its audit event'}): run \`pnpm stack:keys recover\` first`] };
 
     // The read-only check (E7's for a retired version). Refused: nothing is written anywhere.
     const check = await deps.db.check(req.slug, req.version);
@@ -229,12 +242,29 @@ export async function recover(deps: ProtocolDeps, holder = 'recover'): Promise<R
     const levelled = ledger.level();
     if (levelled.length) return { ok: false, lines: ['STOP: the ledger copies could not be brought level', ...levelled] };
     completePlan(ledger);
+    // A3: a waiver stopped after W2 is completed first (its audit event, then its re-applications), in this ledger.
+    const waived = await completeWaiver(deps, lines, ledger);
+    if (!waived.ok) return { ok: false, lines: waived.lines };
     const { ops, problems } = opStates(ledger.entries);
     if (problems.length) return { ok: false, lines: ['STOP: the ledger is inconsistent', ...problems] };
+    const planned = planStates(ledger.entries).plan;
 
-    const ev = await deps.db.evidence([...new Set([...ops.values()].map((s) => s.pending.tenant.id))]);
+    const ev = await deps.db.evidence([...new Set([...[...ops.values()].map((s) => s.pending.tenant.id), ...[...planned.values()].map((s) => s.item.tenant.id)])]);
     const rows = new Map(ev.rows.map((r) => [r.op, r]));
-    for (const r of ev.rows) if (!ops.has(r.op)) return stop(`the database holds a key_destruction row for op ${r.op}, which the ledger lacks`);
+    for (const r of ev.rows) if (!ops.has(r.op) && !planned.has(r.op)) return stop(`the database holds a key_destruction row for op ${r.op}, which the ledger lacks`);
+    // A3: a re-applied planned op is an accepted destruction of this generation: a restore that undid it is undone.
+    for (const s of planned.values()) {
+      if (s.result?.type !== 'reapplied') continue;
+      const keys = ev.tenants[s.item.tenant.id] ?? [];
+      const row = rows.get(s.item.op);
+      if (row && notDestroyed(s.item.versions, keys).length === 0) continue;
+      if (!row && !keys.some((k) => s.item.versions.includes(k.version))) continue; // nothing of it in this database (decision 7)
+      const r = await deps.db.reapply(s.item.op, s.item.tenant.id, s.item.kind, s.item.versions);
+      crash(`reapply:${s.item.op}`);
+      if (r.outcome !== 'reapplied') return stop(`planned op ${s.item.op}: its keys could not be destroyed again (${r.outcome === 'refused' ? r.why : r.detail})`);
+      ledger.append({ type: 'reapplied', op: s.item.op, destroyedNow: r.destroyed, recorded: r.recorded, activeDestroyed: r.activeDestroyed }, `reapplied:${s.item.op}`);
+      lines.push(`planned op ${s.item.op} (${s.item.tenant.slug}): re-applied after a restore`);
+    }
 
     let reapplied = 0;
     let completed = 0;
@@ -312,6 +342,8 @@ export async function recover(deps: ProtocolDeps, holder = 'recover'): Promise<R
     const g = ledger.entries[0];
     if (g?.type === 'genesis' && g.history)
       lines.push(`history before this ledger (${g.history.capturedAt}): ${String(g.history.adopted.length)} destruction(s) adopted from the database's evidence. ${g.history.statement}`);
+    const since = waivedSince(ledger.entries);
+    if (since) lines.push(since);
     lines.unshift(`ledger ${ledger.ledgerId}: authoritative on ${String(ledger.destinations.length)} destination(s); ${String(ops.size)} destruction(s) recorded, ${String(completed)} completed now, ${String(reapplied)} re-applied`);
     return { ok: true, lines };
   } catch (e) {

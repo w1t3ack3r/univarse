@@ -11,7 +11,6 @@ import { COMPOSE_FILE, PROJECT, RELEASES, STACK_DIR } from '../config.js';
 import { docker } from '../docker.js';
 import { canonical, type DestructionKind, type Entry } from './chain.js';
 import type { AdoptOutcome, CheckResult, DestroyOutcome, Evidence, KeysDb, ReapplyOutcome } from './protocol.js';
-import { GENERATION_DIR } from './store.js';
 
 const JOB_TIMEOUT_MS = 5 * 60_000;
 
@@ -133,8 +132,18 @@ export function keysDbFrom(run: Runner): KeysDb {
       definite(run(['ledger-audit', '--action', action, '--detail', JSON.stringify(d)]), 'audit');
       return Promise.resolve();
     },
-    copyToBucket(ledgerId, entries: readonly Entry[]) {
-      const r = run(['ledger-copy', '--ledger', ledgerId, '--generation', GENERATION_DIR], { input: entries.map((e) => canonical(e)).join('\n') });
+    readBucket() {
+      const r = run(['ledger-bucket-read']);
+      const out = lastJson(r);
+      if (r.status === 0 && out?.outcome === 'read' && Array.isArray(out.lines)) return Promise.resolve({ ok: true as const, lines: out.lines as string[] });
+      return Promise.resolve({ ok: false as const, problem: detail(r) });
+    },
+    waiverAudit(attempt, d) {
+      const out = definite(run(['ledger-waiver-audit', '--attempt', attempt, '--detail', JSON.stringify(d)]), 'waiver audit');
+      return Promise.resolve({ auditSeq: String(out.auditSeq) });
+    },
+    copyToBucket(ledgerId, dir, entries: readonly Entry[]) {
+      const r = run(['ledger-copy', '--ledger', ledgerId, '--generation', dir], { input: entries.map((e) => canonical(e)).join('\n') });
       return Promise.resolve(r.status === 0 && lastJson(r)?.outcome === 'copied' ? null : detail(r));
     },
   };

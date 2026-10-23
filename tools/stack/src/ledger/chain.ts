@@ -26,12 +26,52 @@ export interface History {
 export const HISTORY_STATEMENT =
   "Destructions made before this ledger existed are recorded from this database's own evidence at this time. Any that a restore had already undone before then cannot be known, and are not represented.";
 
+/**
+ * A3 (D8's waiver): what a new generation's genesis records about the one before it. It never claims the old history
+ * is complete: only what any copy showed of it, and that its completeness could not be established.
+ */
+export interface Transition {
+  readonly reason: string;
+  readonly at: string;
+  /** The old generations' last heads as each copy read showed them (none, when no copy could be read). */
+  readonly oldHeads: readonly { readonly source: string; readonly generation: number; readonly seq: number; readonly hash: string }[];
+  readonly statement: string;
+}
+
+export const WAIVER_STATEMENT = "The previous generation's completeness could not be established. The no-resurrection guarantee is waived for every destruction before this generation.";
+
+/** A3-4/A3-7: one destruction the waiver re-applies, from the union of every copy read and the database's rows. */
+export interface PlanItem {
+  readonly op: string;
+  readonly tenant: { readonly id: string; readonly slug: string };
+  readonly kind: DestructionKind;
+  readonly versions: readonly number[];
+  /** `reapply`: an accepted destruction (a committed record, or a database row). `rollforward`: a pending one never accepted, re-run with its preconditions. */
+  readonly mode: 'reapply' | 'rollforward';
+  readonly source: string;
+}
+
 /** The owner's review of A2: what an abandoned op's record says. Never that nothing was destroyed. */
 export const ABANDON_STATEMENT =
   'The outcome of this destruction was not established: it may have committed before an older database was restored. If it did, its keys may be usable again. The no-resurrection guarantee does not cover it.';
 
 export type EntryBody =
-  | { readonly type: 'genesis'; readonly ledgerId: string; readonly generation: number; readonly destinations: readonly Destination[]; readonly history?: History }
+  | {
+      readonly type: 'genesis';
+      readonly ledgerId: string;
+      readonly generation: number;
+      readonly destinations: readonly Destination[];
+      readonly history?: History;
+      /** From generation 2 (A3): the waiver attempt this candidate belongs to, and what it records of the generation before. */
+      readonly attempt?: string;
+      readonly transition?: Transition;
+    }
+  /** A3-3 (W2): the generation is authoritative once this is durable on every one of its destinations; it carries the plan. */
+  | { readonly type: 'established'; readonly attempt: string; readonly plan: readonly PlanItem[] }
+  /** A3-6 (W3): the waiver's platform audit event is written (once, keyed by the attempt). */
+  | { readonly type: 'audited'; readonly attempt: string; readonly auditSeq: string }
+  /** A3-7: a planned roll-forward the database refused (its preconditions no longer hold). Nothing was destroyed for it. */
+  | { readonly type: 'not_applied'; readonly op: string; readonly reason: string }
   | {
       readonly type: 'config';
       readonly change: 'add' | 'remove' | 'rebuild';
@@ -152,8 +192,35 @@ export interface OpState {
   readonly reapplied: readonly Extract<Entry, { type: 'reapplied' }>[];
 }
 
+/** A3: the plan a generation's `established` record carries (empty in generation 1). */
+export function planOf(entries: readonly Entry[]): readonly PlanItem[] {
+  for (const e of entries) if (e.type === 'established') return e.plan;
+  return [];
+}
+
+export interface PlanState {
+  readonly item: PlanItem;
+  /** Its result in this generation: re-applied (in force), or not applied (refused), or none yet (W4 outstanding). */
+  readonly result: Extract<Entry, { type: 'reapplied' | 'not_applied' }> | null;
+}
+
+/** A3-7: each planned op's result. A planned op recorded twice is a problem. */
+export function planStates(entries: readonly Entry[]): { plan: Map<string, PlanState>; problems: string[] } {
+  const plan = new Map<string, { item: PlanItem; result: PlanState['result'] }>(planOf(entries).map((item) => [item.op, { item, result: null }]));
+  const problems: string[] = [];
+  for (const e of entries) {
+    if (e.type !== 'reapplied' && e.type !== 'not_applied') continue;
+    const s = plan.get(e.op);
+    if (!s) continue; // a re-application of this generation's own committed op (opStates)
+    if (s.result && (e.type === 'not_applied' || s.result.type === 'not_applied')) problems.push(`planned op ${e.op}: a second result (seq ${String(e.seq)})`);
+    else if (!s.result) s.result = e;
+  }
+  return { plan, problems };
+}
+
 /** Every op's records, in ledger order. A record without its `pending`, or a second outcome, is a problem. */
 export function opStates(entries: readonly Entry[]): { ops: Map<string, OpState>; problems: string[] } {
+  const planned = new Set(planOf(entries).map((i) => i.op));
   const ops = new Map<string, { pending: OpState['pending']; outcome: OpState['outcome']; abandoned: OpState['abandoned']; reapplied: OpState['reapplied'][number][] }>();
   const problems: string[] = [];
   for (const e of entries) {
@@ -163,6 +230,7 @@ export function opStates(entries: readonly Entry[]): { ops: Map<string, OpState>
       continue;
     }
     if (e.type !== 'committed' && e.type !== 'aborted' && e.type !== 'reapplied' && e.type !== 'abandoned') continue;
+    if (e.type === 'reapplied' && planned.has(e.op) && !ops.has(e.op)) continue; // a planned op's result (planStates)
     const s = ops.get(e.op);
     if (!s) problems.push(`op ${e.op}: a ${e.type} record with no pending record (seq ${String(e.seq)})`);
     else if (e.type === 'abandoned') {

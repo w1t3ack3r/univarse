@@ -190,8 +190,30 @@ export class FakeKeysDb implements KeysDb {
     return Promise.resolve();
   }
 
-  copyToBucket(_ledgerId: string, entries: readonly Entry[]): Promise<string | null> {
+  /** The bucket as the app's identity reads it: one line per copied entry (A3-5). Null: unreadable. */
+  bucketReadable = true;
+  readBucket(): Promise<{ ok: true; lines: readonly string[] } | { ok: false; problem: string }> {
+    this.calls.push('readBucket');
+    return Promise.resolve(this.bucketReadable ? { ok: true, lines: this.bucket.map((e) => JSON.stringify(e)) } : { ok: false, problem: 'the bucket is unreachable' });
+  }
+
+  /** The waiver's audit events, keyed by attempt: a repeat returns the first one's seq (A3-6). */
+  readonly waivers = new Map<string, string>();
+  waiverAudit(attempt: string): Promise<{ auditSeq: string }> {
+    this.calls.push(`waiverAudit:${attempt}`);
+    const prior = this.waivers.get(attempt);
+    if (prior) return Promise.resolve({ auditSeq: prior });
+    const seq = String(++this.s.seq);
+    this.waivers.set(attempt, seq);
+    this.audited.push('waiver');
+    return Promise.resolve({ auditSeq: seq });
+  }
+
+  /** Where each copied entry was filed under its ledger (`gen-0001`, or `gen-NNNN/<attempt>`). */
+  readonly bucketDirs: string[] = [];
+  copyToBucket(_ledgerId: string, dir: string, entries: readonly Entry[]): Promise<string | null> {
     this.bucket.push(...entries);
+    this.bucketDirs.push(...entries.map(() => dir));
     return Promise.resolve(null);
   }
 }

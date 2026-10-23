@@ -18,6 +18,10 @@ import { pathToFileURL } from 'node:url';
 import { edgeDir } from './certs.js';
 import { PROJECT, STACK_DOMAIN } from './config.js';
 import { docker } from './docker.js';
+import { PRIMARY } from './keys.js';
+import type { Entry } from './ledger/chain.js';
+import { establishAuthority } from './ledger/ledger.js';
+import { waivedSince } from './ledger/waiver.js';
 import { loadSecrets } from './secrets.js';
 import { AUDIT_LOG, loadVaultInit, VAULT_CONTAINER, vaultCli } from './vault.js';
 
@@ -223,6 +227,15 @@ async function probe(since: string): Promise<string[]> {
   return problems;
 }
 
+/**
+ * BK17: once the no-resurrection guarantee is waived, every smoke run says so, for as long as that generation is the
+ * ledger of record. Nothing when the ledger is in generation 1, or can't be read here (recovery is what reports that).
+ */
+export function waiverNotice(read: () => { ok: true; entries: readonly Entry[] } | { ok: false } = () => establishAuthority(PRIMARY)): string | null {
+  const a = read();
+  return a.ok ? waivedSince(a.entries) : null;
+}
+
 const SETTLE_MS = 90_000;
 
 export async function smoke(): Promise<string[]> {
@@ -246,6 +259,8 @@ export async function smoke(): Promise<string[]> {
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const problems = await smoke();
+  const waived = waiverNotice();
+  if (waived) console.log(`[stack:smoke] ${waived}`);
   if (problems.length) {
     for (const p of problems) console.error(`[stack:smoke] FAIL ${p}`);
     process.exit(1);

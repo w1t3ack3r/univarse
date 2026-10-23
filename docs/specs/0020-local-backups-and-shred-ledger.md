@@ -279,8 +279,87 @@ Three survived the first run, each a test that wasn't isolating its case or a ca
 - removal with the rest not authoritative.
 
 **Not in A2:**
-- the waiver (A3, BK17);
+- the waiver (A3, BK17: built, see below);
 - the backup's ledger snapshot under the lock (BK14's fourth case), which comes with the backup itself in PR B.
+
+## Implementation notes (PR A3: the waiver)
+
+Built as approved: decisions A3-1 to A3-12. A3 changes the API image: the `keys` CLI gains `ledger-bucket-read` and `ledger-waiver-audit`, `ledger-copy` accepts a later generation's path, and a platform migration adds `ledger_waiver`. So a release follows it.
+
+**What runs where.**
+
+- **The host** (`tools/stack/src/ledger/`):
+  - `waiver.ts`: the command, the plan, W1 to W4, and `completeWaiver` (W3 and W4, which recovery resumes);
+  - `store.ts`: a copy's location (`gen-0001`, or `gen-NNNN/<attempt>`), its salvage (the longest prefix that verifies), and the `current.json` marker;
+  - `ledger.ts`: `classifyAttempts` and `generationOfRecord`;
+  - `protocol.ts`: destroy refuses while the waiver is unfinished, and recovery resumes it, re-applies a planned op a restore undid, and reports the waiver.
+- **The database step:**
+  - `keys ledger-waiver-audit --attempt <uuid> --detail <json>` writes `crypto.ledger.waived` and the attempt's `ledger_waiver` row in one transaction. If the row exists, it returns the first event's seq and writes nothing.
+  - `keys ledger-bucket-read` lists and reads the bucket with the app's S3 identity, capped at 100,000 objects.
+- **`ledger_waiver(attempt_id PK, audit_seq UNIQUE → platform_audit_event.seq)`:** expand only. The app role can't update, delete or truncate it.
+
+**New entry types:**
+- `established` (the attempt and its plan);
+- `audited` (the attempt and the audit seq);
+- `not_applied` (a planned roll-forward the database refused, with its reason).
+
+A later generation's `genesis` also carries its `attempt` and the `transition` record (the reason, the time, the copies read and their heads, the statement).
+
+**Decisions made while building (for approval).**
+
+1. **Every attempt is classified one way: established, undetermined or inert.**
+   - **Established:** `established` is on every destination it still configures, and each reads.
+   - **Inert:** no readable destination shows `established`, or a readable one lacks it (W1 or W2 stopped). It is never read, never completed and never evidence.
+   - **Undetermined:** some destinations show `established`, every readable one has it, and the rest can't be read. It is never treated as inert, because it may be established on the others. It fails closed, like an established generation with a destination missing (A3-8).
+
+   One classifier serves the generation of record, the waiver's numbering, its evidence and its refusal. The unit tests found why: with separate rules, a retry after an inert attempt became generation 3, and an inert attempt's copy counted as "readable", refusing the retry.
+2. **A new generation's number is the highest non-inert generation found, plus one.** A retry after an inert attempt reuses the number, in a new attempt directory.
+3. **The waiver finds destinations through the bucket too.** The bucket's chains name the old generation's destinations. With the primary lost, that is how the external drive is found. If that drive still reads, the waiver is refused in favour of `rebuild-destination` (BK16). A full, verifying copy given with `--from` is a copy of record in the same way, so it is refused too: rebuild from it instead. A damaged copy given with `--from` is evidence (its valid prefix), never a copy of record.
+4. **Only this ledger's chains in the bucket count.** The bucket keeps every ledger it was ever sent, for 10 years, so it may hold an earlier one (after a re-init, say).
+   - With a copy on disk, the bucket's other ledgers are reported, and left out of the plan.
+   - With no copy on disk and more than one ledger in the bucket, the waiver is refused. Name a copy with `--from`.
+   - Copies on disk from two ledgers are refused, as before.
+5. **A fix to A2's bucket copy.**
+   - **The problem:** it filed every entry under `gen-0001` and kept its progress per ledger id. A waived generation starts again at seq 1, so its entries would never have been copied.
+   - **The fix:** entries now go under `gen-NNNN/<attempt>`, and progress is kept per location. Generation 1 keeps its bare ledger-id key in `.bucket-copied.json`, so nothing already recorded changes.
+6. **The audit event records:** the ledger id, the generation, the reason, the statement, the copies read, the number of planned ops, and the attempt. It records ids and counts, never key material.
+7. **`stack:smoke` prints the waiver line whether it passes or fails.** It prints nothing when the ledger is in generation 1, or can't be read from the smoke check (recovery reports that).
+
+**What the marker does and doesn't detect.** `current.json` stops a deleted generation directory from letting an older generation step in. It can't detect every destination being replaced by a copy from before the waiver, with its marker. That is A2's existing limit (every destination swapped for its older self), unchanged.
+
+**Tests.**
+
+- **Unit, against the in-memory database model** (`waiver.spec.ts`, 29 cases):
+  - every BK17 refusal. That includes a destination of record found through the bucket alone, and more than one ledger with no copy on disk;
+  - the bootstrap, including W1 and W2 failing on one destination;
+  - a row that is in no copy;
+  - a pending op rolled forward, and refused and recorded as not applied;
+  - A3-8's fail-closed cases;
+  - the marker;
+  - a planned op undone by a restore;
+  - two established attempts;
+  - a destruction after the waiver guaranteed again;
+  - crash injection at each phase: W1 on one destination, W2 on some, before the audit, between ops, and between an op's transaction and its record;
+  - conflicting evidence during resumption;
+  - the bucket copy's location and progress, and the bucket's other ledgers.
+- **Unit, `smoke.spec.ts`:** the notice, and no notice in generation 1 or with no ledger.
+- **Integration (CI's disposable database, `test:ledger`):** after staged total loss, the waiver with the real `keys` CLI is stopped right after its audit event, then resumed by recovery. The test checks:
+  - generation 2, with one `ledger_waiver` row and one `crypto.ledger.waived` event;
+  - every `key_destruction` row is planned and has a result;
+  - the app role is refused `DELETE` and `UPDATE` on `ledger_waiver`.
+
+**Mutations caught (28 of 28):**
+- **the refusals:** the phrase, the reason, the primary, a readable copy of record;
+- **the bootstrap:** W1 or W2 failure ignored; inert attempts read; inert attempts kept as evidence; inert attempts counted as copies of record;
+- **the audit:** written more than once;
+- **the plan:** database rows ignored; a pending op forced; a refused roll-forward recorded as applied;
+- **resumption:** not run by recovery; a recorded op run again; the waiver not reported by recovery or `stack:smoke`; destroy not blocked while the waiver is unfinished; a planned op undone by a restore left undone;
+- **the generation of record:** an undetermined attempt accepted; a W2-stopped attempt accepted; markers not checked; two established attempts accepted;
+- **the bucket:** discovery not using it; other ledgers mixed in; the copy's directory and progress not per location.
+
+Three survived the first run. Each was a case no test isolated: W2 failing (only a crash was tested), a planned op undone by a restore, and two established attempts. Each now has its own test.
+
+**Not in A3:** D7's "and the external drive when the backup destination is one" (PR B, with the backup destination); `stack:backup status`'s waiver line (PR B).
 
 ## Affected docs (in the implementation PRs)
 
