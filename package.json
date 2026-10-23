@@ -58,7 +58,7 @@
   },
   "pnpm": {
     "overrides": {
-      "fastify": "5.12.5",
+      "fastify": "5.12.7",
       "mysql2": ">=3.23.1 <4",
       "deepmerge-ts": ">=8.0.0 <9",
       "source-map-js": ">=1.2.2 <2",

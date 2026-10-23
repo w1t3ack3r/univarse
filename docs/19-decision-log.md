@@ -143,6 +143,7 @@ Alternatives considered: option — why not.
 **Consequences:** Overrides must be revisited on every framework upgrade and removed once the framework catches up. The NestJS 12 upgrade (ADR-013) will retire the fastify override. The audit gate can block unrelated PRs when a new advisory lands. That's intended: fix or explicitly document an exception with an expiry.
 
 **Override log:**
+- `fastify 5.12.7` (2026-10-23, owner decision): was 5.12.5. GHSA low, a header-validation bypass through case-sensitive `propertyNames` (5.12.2–5.12.5, fixed in 5.12.6). Not reachable in our code (requests are validated by zod in the handlers, never by Fastify route schemas), but 5.12.7 is what NestJS 12 (12.2.0) ships, which is this ADR's rule. `@nestjs/platform-fastify` 11.2.7 still pins 5.11.3, so the override stays until the NestJS 12 upgrade (ADR-013) retires it. `pnpm audit` is clean at every level after it.
 - `source-map-js >=1.2.2 <2` (2026-10-06): GHSA-68fv-2mgg-jv7q, high; a crafted source map ties up the event loop. It reaches us only through build and test tooling (`unplugin-swc → vite → postcss`), never the API runtime. It blocked the route-sweep PR (#25), which is the gate working as intended. Pinned after the full suite passed (build, lint, unit, integration, E2E 30). **Remove** once `postcss` depends on `source-map-js` 1.2.2 or later.
 
 ## ADR-018 — Direct field encryption with one server key (temporary deviation from envelope encryption)
