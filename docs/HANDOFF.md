@@ -14,7 +14,7 @@ Read this before doing anything. It covers where Phase 0 stands, what is left in
 
 1. **`fix(build)`: the undeclared workspace dependencies.** Done (#98).
 2. **The bucket fix.** Done (#99), released and deployed. The bucket check passes on the owner's stack.
-3. **Spec 0020 PR B: backups, the rehearsed restore and the shred drill.** It is the last unmet exit criterion. First write the plan for the owner's approval. The proposed split, which the owner has yet to approve:
+3. **Spec 0020 PR B: backups, the rehearsed restore and the shred drill.** It is the last unmet exit criterion. **The plan is written** (spec 0020, "Plan for PR B": three PRs, B-0 to B-14), awaiting the owner's approval; it also flags the Vault app token's renewal as urgent. The split first proposed here, which the plan amends:
    - **B1:**
      - Vault moved to Raft storage (D4);
      - continuous WAL archiving for PITR (D3);
