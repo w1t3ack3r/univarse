@@ -7,6 +7,8 @@
 //   pnpm stack:keys ledger remove-destination <path> --reason "…"
 //   pnpm stack:keys ledger abandon <op> --reason "…" --confirm "its outcome is not established"
 //                                                          a pending op recovery can't complete: a recorded waiver
+//   pnpm stack:keys ledger waive --reason "…" --confirm "destroyed tenants may return" --destination <path>… [--from <path>]…
+//                                                          D8's waiver (A3): only when no configured destination can be read
 //   pnpm stack:keys ledger status
 // The database step runs as the `keys` job from the deployed API image (ledger/job.ts). Exit 0 only on success.
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
@@ -18,6 +20,7 @@ import { addDestination, init, rebuildDestination, removeDestination, status } f
 import { deployedImages, keysJob } from './ledger/job.js';
 import { acquireLedgerLock } from './ledger/lock.js';
 import { abandon, destroy, recover, type ProtocolDeps, type Result } from './ledger/protocol.js';
+import { waive } from './ledger/waiver.js';
 
 /** D7: the primary destination, outside the stack failure domain. */
 export const LEDGER_DIR = process.env.UNIVARSE_LEDGER_DIR ?? join(homedir(), '.univarse', 'ledger');
@@ -47,22 +50,23 @@ export function realProtocolDeps(images: Readonly<Record<string, string>>, opts:
 const USAGE = [
   'usage: pnpm stack:keys destroy <tenant> [--version <n>]',
   '       pnpm stack:keys recover',
-  '       pnpm stack:keys ledger <init [--destination <path>]… | add-destination <path> | rebuild-destination <path> [--from <path>] | remove-destination <path> --reason "…" | abandon <op> --reason "…" --confirm "its outcome is not established" | status>',
+  '       pnpm stack:keys ledger <init [--destination <path>]… | add-destination <path> | rebuild-destination <path> [--from <path>] | remove-destination <path> --reason "…" | abandon <op> --reason "…" --confirm "its outcome is not established" | waive --reason "…" --confirm "destroyed tenants may return" --destination <path>… [--from <path>]… | status>',
 ].join('\n');
 
 /** `--name value` pairs; `repeat` names the one flag that may be given more than once. */
-function parse(rest: readonly string[], allowed: readonly string[], repeat?: string): { values: Record<string, string>; repeated: string[] } {
+function parse(rest: readonly string[], allowed: readonly string[], repeat?: string | readonly string[]): { values: Record<string, string>; repeated: string[]; lists: Record<string, string[]> } {
+  const repeats = repeat === undefined ? [] : typeof repeat === 'string' ? [repeat] : repeat;
   const values: Record<string, string> = {};
-  const repeated: string[] = [];
+  const lists: Record<string, string[]> = Object.fromEntries(repeats.map((r) => [r, []]));
   for (let i = 0; i < rest.length; i += 2) {
     const name = rest[i]?.replace(/^--/, '') ?? '';
     const value = rest[i + 1];
     if (!rest[i]?.startsWith('--') || !allowed.includes(name) || value === undefined) throw new Error(USAGE);
-    if (name === repeat) repeated.push(value);
+    if (repeats.includes(name)) lists[name]?.push(value);
     else if (name in values) throw new Error(USAGE);
     else values[name] = value;
   }
-  return { values, repeated };
+  return { values, repeated: lists[repeats[0] ?? ''] ?? [], lists };
 }
 
 const here = (p: string) => resolve(process.env.INIT_CWD ?? process.cwd(), p);
@@ -107,6 +111,10 @@ export async function main(argv: readonly string[]): Promise<Result> {
           const { values } = parse(flags, ['reason', 'confirm']);
           if (!op || !values.reason) throw new Error(USAGE);
           return abandon(deps(), op, values.reason, values.confirm ?? '');
+        }
+        case 'waive': {
+          const { values, lists } = parse(more, ['reason', 'confirm', 'destination', 'from'], ['destination', 'from']);
+          return waive(deps(), { reason: values.reason ?? '', confirm: values.confirm ?? '', destinations: (lists.destination ?? []).map(here), from: (lists.from ?? []).map(here) });
         }
         case 'status':
           return status({ ...realProtocolDeps({}), primary: PRIMARY });

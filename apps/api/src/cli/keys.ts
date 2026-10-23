@@ -22,8 +22,12 @@
 //     Spec 0020 D8: re-applies an accepted destruction after a restore (the destruction job only, in production).
 //   pnpm --filter @univarse/api keys ledger-audit --action <name> --detail <json>
 //     Spec 0020 BK16: the platform audit event for a ledger command (init, a destination added, rebuilt or removed).
-//   pnpm --filter @univarse/api keys ledger-copy --ledger <uuid> --generation gen-NNNN   (entries on stdin)
+//   pnpm --filter @univarse/api keys ledger-copy --ledger <uuid> --generation gen-NNNN[/<attempt>]   (entries on stdin)
 //     Spec 0020 A2-10: the ledger's extra copy in the object-locked bucket (evidence only).
+//   pnpm --filter @univarse/api keys ledger-bucket-read
+//     Spec 0020 A3: every entry in that bucket, for the waiver's plan (the app's S3 identity; evidence only).
+//   pnpm --filter @univarse/api keys ledger-waiver-audit --attempt <uuid> --detail <json>
+//     Spec 0020 D8's waiver (A3-6): its platform audit event, once per attempt (a repeat returns the first one's seq).
 //   pnpm --filter @univarse/api keys rewrap-kek                 needs VAULT_ADMIN_TOKEN (operator only)
 import 'reflect-metadata';
 import { existsSync, readFileSync } from 'node:fs';
@@ -45,13 +49,13 @@ import { DestructionRefusedError, KeyDestruction } from '../shared/crypto/key-fo
 import { KeyMaintenance } from '../shared/crypto/key-maintenance.js';
 import { PLATFORM_DB } from '../shared/db/db.module.js';
 import { WorkerModule } from '../worker.module.js';
-import { copyToBucket } from './ledger-copy.js';
+import { copyToBucket, readBucket } from './ledger-copy.js';
 
 const rootEnv = new URL('../../../../.env', import.meta.url);
 if (process.env.NODE_ENV !== 'production' && existsSync(rootEnv)) process.loadEnvFile(rootEnv);
 
 const USAGE =
-  'usage: keys <status | rotate <slug> | sweep | migrate-v1 | resweep <slug> | destroy-check <slug> [--version <n>] | destroy <slug> --op <uuid> [--version <n>] | evidence [--legacy] [--tenant-id <uuid>]… | adopt --op <uuid> --tenant-id <uuid> --kind TENANT|RETIRED --versions <n,…> | reapply --op <uuid> --tenant-id <uuid> --kind TENANT|RETIRED --versions <n,…> | ledger-audit --action <name> --detail <json> | ledger-copy --ledger <uuid> --generation gen-NNNN | rewrap-kek>';
+  'usage: keys <status | rotate <slug> | sweep | migrate-v1 | resweep <slug> | destroy-check <slug> [--version <n>] | destroy <slug> --op <uuid> [--version <n>] | evidence [--legacy] [--tenant-id <uuid>]… | adopt --op <uuid> --tenant-id <uuid> --kind TENANT|RETIRED --versions <n,…> | reapply --op <uuid> --tenant-id <uuid> --kind TENANT|RETIRED --versions <n,…> | ledger-audit --action <name> --detail <json> | ledger-copy --ledger <uuid> --generation gen-NNNN[/<attempt>] | ledger-bucket-read | ledger-waiver-audit --attempt <uuid> --detail <json> | rewrap-kek>';
 const [command, ...args] = process.argv.slice(2);
 const config = loadConfig();
 // Spec 0015: the CLI publishes key-forget notices but never subscribes to the bus.
@@ -407,6 +411,34 @@ try {
         lines,
       );
       console.log(JSON.stringify({ outcome: 'copied', written }));
+      break;
+    }
+    case 'ledger-bucket-read': {
+      if (!config.S3_ACCESS_KEY || !config.S3_SECRET_KEY) throw new Error('ledger-bucket-read needs S3_ACCESS_KEY and S3_SECRET_KEY');
+      const lines = await readBucket({ endpoint: config.S3_ENDPOINT, region: config.S3_REGION, accessKeyId: config.S3_ACCESS_KEY, secretAccessKey: config.S3_SECRET_KEY });
+      console.log(JSON.stringify({ outcome: 'read', lines }));
+      break;
+    }
+    case 'ledger-waiver-audit': {
+      // A3-6: the waiver's audit event, keyed by its attempt in ledger_waiver, in one transaction: written once.
+      const f = flags(args, ['attempt', 'detail']);
+      if (!f.attempt || !UUID.test(f.attempt) || !f.detail || f.detail.length > 8_000) throw new Error(USAGE);
+      const detail = JSON.parse(f.detail) as unknown;
+      if (typeof detail !== 'object' || detail === null || Array.isArray(detail)) throw new Error(USAGE);
+      const attemptId = f.attempt;
+      const seq = await platform.$transaction(async (tx) => {
+        const prior = await tx.ledgerWaiver.findUnique({ where: { attemptId } });
+        if (prior) return prior.auditSeq;
+        const auditSeq = await writePlatformAudit(tx, {
+          actorId: null,
+          action: 'crypto.ledger.waived',
+          tenantId: null,
+          metadata: { ...(detail as Record<string, unknown>), attempt: attemptId },
+        });
+        await tx.ledgerWaiver.create({ data: { attemptId, auditSeq } });
+        return auditSeq;
+      });
+      console.log(JSON.stringify({ outcome: 'audited', auditSeq: String(seq) }));
       break;
     }
     case 'rewrap-kek': {

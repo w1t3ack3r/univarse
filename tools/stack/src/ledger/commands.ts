@@ -11,7 +11,8 @@ import { resolve } from 'node:path';
 import { destinationsOf, HISTORY_STATEMENT, nextEntry, opStates, type Destination, type Entry, type History } from './chain.js';
 import { establishAuthority, Ledger, LedgerWriteError } from './ledger.js';
 import type { LegacyEvidence, ProtocolDeps, Result } from './protocol.js';
-import { createCopy, readCopy, readCopyAt, realFs, type Copy, type LedgerFs } from './store.js';
+import { createCopy, latestEstablished, locationOf, readCopy, readCopyAt, realFs, writeCurrentMarker, type Copy, type LedgerFs } from './store.js';
+import { waivedSince } from './waiver.js';
 
 const samePath = (a: string, b: string) => resolve(a).toLowerCase() === resolve(b).toLowerCase();
 const fsOf = (deps: ProtocolDeps): LedgerFs => deps.fs ?? realFs;
@@ -171,6 +172,11 @@ export async function addDestination(deps: ProtocolDeps, path: string): Promise<
     if (problem) return { ok: false, lines: [problem] };
     ledger.adopt(dest, ledger.entries);
     ledger.append({ type: 'config', change: 'add', destination: dest, destinations: [...ledger.destinations, dest] }, 'config');
+    const at = locationOf(ledger.entries);
+    if (at.generation > 1) {
+      const marked = writeCurrentMarker(dest.path, ledger.ledgerId, at, fs);
+      if (marked) return { ok: false, lines: [`${dest.path} added, but ${marked}`] };
+    }
     await deps.db.audit('destination_added', { ledgerId: ledger.ledgerId, destination: dest.id });
     return { ok: true, lines: [`${dest.path} added as destination ${dest.id}: every later record must be durable on it too`] };
   } catch (e) {
@@ -192,7 +198,8 @@ export async function rebuildDestination(deps: ProtocolDeps, target: string, fro
   try {
     const isPrimary = samePath(target, deps.primary.path);
     if (isPrimary && !from) return { ok: false, lines: ['the primary is rebuilt from another configured destination: --from <path>'] };
-    const source: Copy = isPrimary && from ? readCopyAt(resolve(from), fs) : readCopy(deps.primary, fs);
+    // A3-8: the source's own newest established generation; a guarantee-preserving command stays within it.
+    const source: Copy = isPrimary && from ? readCopyAt(resolve(from), fs, latestEstablished(resolve(from), fs)) : readCopy(deps.primary, fs, latestEstablished(deps.primary.path, fs));
     if (source.state !== 'ok') return { ok: false, lines: [`the source is not usable: ${source.state === 'invalid' ? source.problem : source.state}; nothing rebuilt`] };
     const config = destinationsOf(source.entries);
     const self = config.find((d) => d.id === source.identity.destinationId && samePath(d.path, source.dest.path));
@@ -203,7 +210,7 @@ export async function rebuildDestination(deps: ProtocolDeps, target: string, fro
     let best: Extract<Copy, { state: 'ok' }> = source;
     for (const d of config) {
       if (d.id === dest.id || d.id === self.id) continue;
-      const c = readCopy(d, fs);
+      const c = readCopy(d, fs, source.at);
       if (c.state !== 'ok') continue;
       if (c.identity.ledgerId !== source.identity.ledgerId) return { ok: false, lines: [`${d.path} holds another ledger: nothing rebuilt`] };
       const [short, long] = c.entries.length < best.entries.length ? [c, best] : [best, c];
@@ -213,7 +220,7 @@ export async function rebuildDestination(deps: ProtocolDeps, target: string, fro
     const problem = await evidenceProblem(deps, best.entries);
     if (problem) return { ok: false, lines: [`${problem}: rebuilding from it would lose an accepted destruction; nothing rebuilt`] };
 
-    const existing = readCopy(dest, fs);
+    const existing = readCopy(dest, fs, source.at);
     if (existing.state === 'ok' && existing.entries.length === best.entries.length && existing.entries.at(-1)?.hash === best.entries.at(-1)?.hash)
       return { ok: false, lines: [`${dest.path} is intact and current: nothing to rebuild`] };
     if (existing.state !== 'missing' && existing.state !== 'empty') {
@@ -224,6 +231,10 @@ export async function rebuildDestination(deps: ProtocolDeps, target: string, fro
     }
     const made = createCopy(dest, best.entries, fs);
     if (made) return { ok: false, lines: [`${made}; nothing rebuilt`] };
+    if (source.at.generation > 1) {
+      const marked = writeCurrentMarker(dest.path, best.identity.ledgerId, source.at, fs);
+      if (marked) return { ok: false, lines: [`${dest.path} rebuilt, but ${marked}`] };
+    }
     // Every configured destination may be readable again now: record the rebuild through the authoritative ledger.
     const opened = Ledger.open(isPrimary ? dest : deps.primary, { fs, ...crashOf(deps) });
     if ('problems' in opened) return { ok: false, lines: [`${dest.path} rebuilt, but the ledger is still not authoritative`, ...opened.problems] };
@@ -246,7 +257,7 @@ export async function removeDestination(deps: ProtocolDeps, path: string, reason
   try {
     if (samePath(path, deps.primary.path)) return { ok: false, lines: ['the primary is never removed: rebuild it instead'] };
     if (reason.trim().length < 8) return { ok: false, lines: ['a reason is required (--reason "…")'] };
-    const p = readCopy(deps.primary, fs);
+    const p = readCopy(deps.primary, fs, latestEstablished(deps.primary.path, fs));
     if (p.state !== 'ok') return { ok: false, lines: [`the primary is not usable (${p.state === 'invalid' ? p.problem : p.state}): rebuild it first`] };
     const gone = destinationsOf(p.entries).find((d) => samePath(d.path, path));
     if (!gone) return { ok: false, lines: [`${path} is not a configured destination`] };
@@ -285,6 +296,7 @@ export function status(deps: ProtocolDeps): Result {
       }),
       `destructions: ${String(count('committed'))} committed, ${String(count('aborted'))} aborted, ${String([...ops.values()].filter((s) => !s.outcome && !s.abandoned).length)} pending`,
       ...[...ops.values()].filter((s) => s.abandoned && !s.outcome).map((s) => `ABANDONED op ${s.pending.op} (${s.pending.tenant.slug}) since ${s.abandoned?.at ?? ''}: its outcome not established; the no-resurrection guarantee does not cover it`),
+      ...(waivedSince(a.entries) ? [String(waivedSince(a.entries))] : []),
       ...(a.entries[0]?.type === 'genesis' && a.entries[0].history ? [`history before this ledger (${a.entries[0].history.capturedAt}): ${String(a.entries[0].history.adopted.length)} adopted. ${a.entries[0].history.statement}`] : []),
     ],
   };

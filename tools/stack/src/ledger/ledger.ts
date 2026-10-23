@@ -3,7 +3,7 @@
 // others: equal, or one ahead by the single operation being written when a crash came (A2-5). A backup set's copy or
 // the bucket's is never read here. Writes go to every configured destination, durable on each before the next step.
 import { canonical, destinationsOf, ledgerIdOf, nextEntry, opOf, type Destination, type Entry, type EntryBody } from './chain.js';
-import { appendToCopy, readCopy, realFs, type Copy, type LedgerFs } from './store.js';
+import { appendToCopy, GEN1, listLocations, readCopy, readCopyAt, readCurrentMarker, realFs, sameLocation, type Copy, type LedgerFs, type Location } from './store.js';
 
 /** Stops a test (or a crash) at a named point: `<step>:<destination id>` after each destination write (D13). */
 export type Crash = (point: string) => void;
@@ -22,7 +22,15 @@ export class LedgerWriteError extends Error {
 }
 
 export type Authority =
-  | { readonly ok: true; readonly ledgerId: string; readonly entries: readonly Entry[]; readonly destinations: readonly Destination[]; readonly copies: readonly Extract<Copy, { state: 'ok' }>[] }
+  | {
+      readonly ok: true;
+      readonly ledgerId: string;
+      /** The generation of record (A3): generation 1, or a waiver's established attempt. */
+      readonly at: Location;
+      readonly entries: readonly Entry[];
+      readonly destinations: readonly Destination[];
+      readonly copies: readonly Extract<Copy, { state: 'ok' }>[];
+    }
   | { readonly ok: false; readonly problems: readonly string[] };
 
 const samePath = (a: string, b: string) => a.replace(/[\\/]+$/, '').toLowerCase() === b.replace(/[\\/]+$/, '').toLowerCase();
@@ -32,13 +40,116 @@ const GUIDANCE = [
   'or, with another configured destination readable: `pnpm stack:keys ledger rebuild-destination <path>` (a lost or emptied one), `pnpm stack:keys ledger remove-destination <path>` (one gone for good).',
 ].join(' ');
 
+export type Genesis = Extract<Entry, { type: 'genesis' }>;
+
+/**
+ * A3-3: one waiver attempt and what its destinations show:
+ * - `established`: `established` is on every destination of it still configured, each readable;
+ * - `undetermined`: `established` is on some, and every readable one of them has it, but some can't be read (it may be
+ *   established there too, or not): never inert, never authority, so it fails closed;
+ * - `inert`: no readable destination shows `established`, or a readable one lacks it (W1 or W2 stopped). Never read.
+ */
+export interface Attempt {
+  readonly at: Location;
+  readonly genesis: Genesis;
+  readonly status: 'established' | 'undetermined' | 'inert';
+  readonly unreadable: readonly Destination[];
+  /** The longest verifying copy of it (for the waiver's union, when not inert). */
+  readonly entries: readonly Entry[];
+}
+
+/**
+ * Every later-generation attempt reachable from `start` (and every destination any copy found names, to the fixed
+ * point), classified, with every generation marker found.
+ */
+export function classifyAttempts(start: readonly string[], fs: LedgerFs = realFs): { attempts: Attempt[]; markers: { path: string; at: Location }[]; paths: string[] } {
+  const paths = new Set<string>(start);
+  const found = new Map<string, { at: Location; genesis: Genesis }>();
+  const markers: { path: string; at: Location }[] = [];
+  const seen = new Set<string>();
+  for (let round = 0; round < 6; round++) {
+    let grew = false;
+    for (const path of [...paths]) {
+      if (seen.has(path)) continue;
+      seen.add(path);
+      const marker = readCurrentMarker(path, fs);
+      if (marker) markers.push({ path, at: marker.at });
+      for (const at of listLocations(path, fs).locations) {
+        const c = readCopyAt(path, fs, at);
+        if (c.state !== 'ok' || c.entries[0]?.type !== 'genesis') continue;
+        const g = c.entries[0];
+        if (at.generation > 1) found.set(`${String(at.generation)}/${at.attempt ?? ''}`, { at, genesis: g });
+        for (const d of [...g.destinations, ...destinationsOf(c.entries)])
+          if (![...paths].some((p) => samePath(p, d.path))) {
+            paths.add(d.path);
+            grew = true;
+          }
+      }
+    }
+    if (!grew) break;
+  }
+  const attempts: Attempt[] = [];
+  for (const { at, genesis } of found.values()) {
+    const copies = genesis.destinations.map((d) => ({ d, c: readCopy(d, fs, at) }));
+    const ok = copies.filter((x): x is { d: Destination; c: Extract<Copy, { state: 'ok' }> } => x.c.state === 'ok');
+    const longest = ok.reduce<Extract<Copy, { state: 'ok' }> | null>((a, x) => (!a || x.c.entries.length > a.entries.length ? x.c : a), null);
+    const has = (c: Extract<Copy, { state: 'ok' }>) => c.entries.some((e) => e.type === 'established');
+    // The destinations still configured in this attempt (a later config entry may have removed one).
+    const configured = new Set(destinationsOf(longest?.entries ?? [genesis as Entry]).map((d) => d.id));
+    const required = copies.filter((x) => configured.has(x.d.id));
+    const unreadable = required.filter((x) => x.c.state !== 'ok').map((x) => x.d);
+    let status: Attempt['status'];
+    if (!ok.some((x) => has(x.c)) || required.some((x) => x.c.state === 'ok' && !has(x.c))) status = 'inert';
+    else status = unreadable.length ? 'undetermined' : 'established';
+    attempts.push({ at, genesis, status, unreadable, entries: longest?.entries ?? [genesis] });
+  }
+  return { attempts: attempts.sort((a, b) => b.at.generation - a.at.generation), markers, paths: [...paths] };
+}
+
+/**
+ * A3 (D8's waiver): which generation is of record. A later generation counts only through an attempt whose
+ * `established` record is on every destination its genesis names that is still configured (A3-3). Then it is the
+ * ONLY authority (A3-8): a destination of it that can't be read fails closed; the older generations are never read
+ * as authority again. An inert attempt is never read. A destination whose marker names a generation that can't be
+ * found fails closed too.
+ */
+export function generationOfRecord(primary: Destination, fs: LedgerFs = realFs): { ok: true; at: Location } | { ok: false; problems: string[] } {
+  const { attempts, markers } = classifyAttempts([primary.path], fs);
+  let record: Location | null = null;
+  for (const a of attempts) {
+    if (record && record.generation > a.at.generation) break;
+    if (a.status === 'inert') continue;
+    if (a.status === 'undetermined')
+      return {
+        ok: false,
+        problems: [
+          `generation ${String(a.at.generation)} is established, and it is the only authority (the older generations are never read as one again), but these of its destinations can't be read: ${a.unreadable.map((d) => `${d.id} (${d.path})`).join(', ')}`,
+          GUIDANCE,
+        ],
+      };
+    if (record && record.generation === a.at.generation)
+      return { ok: false, problems: [`two attempts are established for generation ${String(a.at.generation)} (${record.attempt ?? ''}, ${a.at.attempt ?? ''}): this can't happen under the ledger lock; nothing is decided`] };
+    record = a.at;
+  }
+  for (const m of markers)
+    if (!record || m.at.generation > record.generation || (m.at.generation === record.generation && !sameLocation(m.at, record)))
+      return {
+        ok: false,
+        problems: [`${m.path} records generation ${String(m.at.generation)} (attempt ${m.at.attempt ?? ''}) as current, but no established copy of it can be read: its directory is missing or damaged`, GUIDANCE],
+      };
+  return { ok: true, at: record ?? GEN1 };
+}
+
 /**
  * D8 step 1. `primary` is where the ledger starts; its latest configuration names the others. A configuration entry
  * still being written can name a destination the primary doesn't know yet, so the set is re-read from the copy that
- * is furthest ahead until it stops changing.
+ * is furthest ahead until it stops changing. All of it at the generation of record (A3).
  */
 export function establishAuthority(primary: Destination, fs: LedgerFs = realFs, opts: { exclude?: string } = {}): Authority {
-  const p = readCopy(primary, fs);
+  const record = generationOfRecord(primary, fs);
+  if (!record.ok) return { ok: false, problems: record.problems };
+  const at = record.at;
+  const p = readCopy(primary, fs, at);
   if (p.state === 'missing' || p.state === 'empty')
     return {
       ok: false,
@@ -54,7 +165,7 @@ export function establishAuthority(primary: Destination, fs: LedgerFs = realFs, 
   let config = configured(p.entries);
   const read = new Map<string, Copy>();
   for (let round = 0; round < 4; round++) {
-    for (const d of config) if (!read.has(d.id)) read.set(d.id, samePath(d.path, primary.path) ? { ...p, dest: d } : readCopy(d, fs));
+    for (const d of config) if (!read.has(d.id)) read.set(d.id, samePath(d.path, primary.path) ? { ...p, dest: d } : readCopy(d, fs, at));
     const longest = [...read.values()]
       .filter((c): c is Extract<Copy, { state: 'ok' }> => c.state === 'ok' && c.identity.ledgerId === ledgerId)
       .reduce((a, c) => (c.entries.length > a.entries.length ? c : a), p);
@@ -80,7 +191,7 @@ export function establishAuthority(primary: Destination, fs: LedgerFs = realFs, 
   if (agreement) return { ok: false, problems: [agreement, GUIDANCE] };
   const longest = copies.reduce((a, c) => (c.entries.length > a.entries.length ? c : a));
   if (ledgerIdOf(longest.entries) !== ledgerId) return { ok: false, problems: ['the copies disagree on the ledger id'] };
-  return { ok: true, ledgerId, entries: longest.entries, destinations: config, copies };
+  return { ok: true, ledgerId, at, entries: longest.entries, destinations: config, copies };
 }
 
 /** A2-5: null when the copies agree (equal, or a prefix of the longest short only by one operation), else why not. */

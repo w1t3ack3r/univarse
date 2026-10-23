@@ -130,7 +130,7 @@ Each roadmap line checked against the repository, CI and the decision log.
       - verifies the exact digests with `verifyRelease` before starting any container, against roles and Dockerfiles from trusted code and the commit from the deployment target;
       - runs only those digests;
       - starts nothing from a rejected record, shown by a test with an edited record;
-   5. local backups with a rehearsed restore, and the shred ledger.
+   5. local backups with a rehearsed restore, and the shred ledger. **The shred ledger is built** (spec 0020 PR A1, A2 and A3: the destruction protocol, recovery, and the waiver); **still to do:** PR B, the backups, the rehearsed restore and the shred drill.
 
 **Deferred requirements: not met, and not counted as done in Phase 0.** By the owner's decision (2026-10-23), **Phase 0 closes with these three formally deferred.** Each is built when the first feature that needs it is built, and it's listed in that phase's build list below, so it starts as work there, not as a footnote:
 - **BullMQ** ([ADR-019](19-decision-log.md)): **Phase 1**, with the provisioning job (the first job needing resumable steps, priorities or rate limits); results day (Phase 5) needs it regardless.

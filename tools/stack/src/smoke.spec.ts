@@ -1,7 +1,8 @@
 // Spec 0019 B1/LS7: the smoke's HSTS check accepts exactly one header with exactly the stack's value. The live check
 // runs after every deploy (smoke.ts); this pins what it refuses.
 import { describe, expect, it } from 'vitest';
-import { auditProblems, HSTS, hstsProblems } from './smoke.js';
+import { nextEntry, WAIVER_STATEMENT } from './ledger/chain.js';
+import { auditProblems, HSTS, hstsProblems, waiverNotice } from './smoke.js';
 
 describe('[LS7] HSTS at the edge (B1)', () => {
   it('[LS7] one header with the stack value passes', () => {
@@ -41,5 +42,25 @@ describe('[LS8] the audit check (C3)', () => {
     expect(auditProblems(unwrap, p)).toEqual(['the wrap is not in the audit log as HMACs']);
     expect(auditProblems(wrap, p)).toEqual(['the unwrap is not in the audit log as an HMAC']);
     expect(auditProblems('', p)).toHaveLength(2);
+  });
+});
+
+describe('[BK17] the waiver, reported by every smoke run', () => {
+  const genesis = (generation: number) =>
+    nextEntry(null, {
+      type: 'genesis',
+      ledgerId: '20000000-0000-4000-8000-000000000001',
+      generation,
+      ...(generation > 1 ? { attempt: '20000000-0000-4000-8000-000000000002', transition: { reason: 'lost', at: '2026-10-23T10:00:00.000Z', oldHeads: [], statement: WAIVER_STATEMENT } } : {}),
+      destinations: [{ id: 'primary', path: '/ledger' }],
+    });
+  const at = { generation: 1, attempt: null };
+
+  it('[BK17] a waived generation of record: the notice, with its time', () => {
+    expect(waiverNotice(() => ({ ok: true, entries: [genesis(2)], destinations: [], at }))).toBe('no-resurrection guarantee waived since 2026-10-23T10:00:00.000Z (generation 2)');
+  });
+  it("[BK17] generation 1, or a ledger that can't be read: no notice", () => {
+    expect(waiverNotice(() => ({ ok: true, entries: [genesis(1)], destinations: [], at }))).toBeNull();
+    expect(waiverNotice(() => ({ ok: false, problems: ['missing'] }))).toBeNull();
   });
 });
