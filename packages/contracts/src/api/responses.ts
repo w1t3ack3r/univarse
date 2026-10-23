@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { PERMISSIONS } from '../permissions.js';
 import { PRODUCTS } from '../products.js';
 import { SETTING_KEYS, SETTINGS, type SettingKey } from '../settings.js';
+import { paged } from './pagination.js';
 
 const Uuid = z.string().meta({ format: 'uuid' });
 const Instant = z.string().meta({ format: 'date-time' });
@@ -43,7 +44,8 @@ export const UserRow = z
     lastLoginAt: Instant.nullable(),
   })
   .strict();
-export const UserList = z.object({ data: z.array(UserRow) }).strict();
+/** Spec 0021: paged by username (then id). */
+export const UserList = paged(UserRow);
 
 export const ActiveProducts = z.object({ data: z.array(z.enum(PRODUCTS)) }).strict();
 export const ProductStateResponse = z.object({ product: z.enum(PRODUCTS), entitled: z.boolean(), enabled: z.boolean(), active: z.boolean() }).strict();

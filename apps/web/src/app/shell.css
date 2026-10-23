@@ -546,6 +546,18 @@
   overflow-x: auto;
 }
 
+/* Spec 0021: a list's pages (back to the first, and the next). Wraps on narrow screens; each link a 44px target. */
+.pager {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: var(--uv-space-3);
+  margin: 0;
+}
+.pager__next {
+  margin-left: auto; /* on the right, whether or not "back" is there */
+}
+
 /* Disclosure with a drawn chevron (no native marker) */
 .disclosure > summary {
   display: inline-flex;

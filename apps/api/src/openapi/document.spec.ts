@@ -1,6 +1,6 @@
 // Spec 0011 step 2: the generator and the committed document. No services needed.
 import 'reflect-metadata';
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { Body, Controller, Get, Param, Post } from '@nestjs/common';
 import { AuthOps, ERROR_MESSAGES, MfaOps, SETTING_KEYS, SETTINGS, type ApiOperation } from '@univarse/contracts';
 import { describe, expect, it } from 'vitest';
@@ -22,6 +22,11 @@ const ops = Object.entries(doc.paths).flatMap(([path, methods]) => Object.entrie
 const byId = (id: string) => ops.find((o) => o.op.operationId === id)!.op;
 const ids = (pred: (o: Op, method: string) => boolean) => ops.filter((o) => pred(o.op, o.method)).map((o) => o.op.operationId).sort();
 const OK = z.object({ ok: z.literal(true) }).strict();
+/** Every controller's source under src/modules. */
+const controllerSources = () =>
+  (readdirSync(new URL('../modules/', import.meta.url), { recursive: true }) as string[])
+    .filter((f) => f.endsWith('.controller.ts'))
+    .map((f) => readFileSync(new URL(`../modules/${f.replace(/\\/g, '/')}`, import.meta.url), 'utf8'));
 const refuses = (fn: () => unknown): string[] => {
   try {
     fn();
@@ -108,14 +113,42 @@ describe('[OA3] request schemas are the validators, and nothing converts to {}',
     }
   });
 
-  it('[OA3] every controller parses its body with its own @Contract operation (one object, not a copy)', () => {
-    for (const file of ['files/files', 'identity/auth', 'identity/mfa', 'products/products', 'settings/settings']) {
+  it('[OA3] every controller parses its body and query with its own @Contract operation (one object, not a copy)', () => {
+    for (const file of ['files/files', 'identity/auth', 'identity/mfa', 'identity/users', 'products/products', 'settings/settings']) {
       const src = readFileSync(new URL(`../modules/${file}.controller.ts`, import.meta.url), 'utf8');
       const blocks = src.split(/(?=@Contract\()/).slice(1);
       for (const block of blocks) {
         const contract = /^@Contract\((\w+Ops\.\w+)\)/.exec(block)![1];
-        for (const m of block.matchAll(/parse\(([^,]+),/g)) expect(m[1], `${file}: ${contract!}`).toBe(`${contract!}.body`);
+        for (const m of block.matchAll(/parse\(([^,]+),/g)) expect([`${contract!}.body`, `${contract!}.query`], `${file}: ${contract!}`).toContain(m[1]);
       }
+    }
+  });
+
+  it('[OA3][spec 0021] each documented query parameter is its operation’s own field, converted for input; a declared query is parsed', () => {
+    for (const r of apiRoutes(API_CONTROLLERS)) {
+      const op = Reflect.getMetadata('univarse:contract', r.handler) as ApiOperation;
+      const documented = (byId(op.operationId).parameters ?? []).filter((p) => p.in === 'query');
+      if (!op.query) {
+        expect(documented, op.operationId).toEqual([]);
+        continue;
+      }
+      const shape = op.query.shape as Record<string, z.ZodType>;
+      expect(documented.map((p) => p.name), op.operationId).toEqual(Object.keys(shape));
+      for (const p of documented) {
+        const name = String(p.name);
+        const field = shape[name];
+        if (!field) throw new Error(`${op.operationId}: no field ${name}`);
+        const { description: _d, ...schema } = toJsonSchema(field, 'input', op.operationId);
+        expect(p.schema, `${op.operationId} ${name}`).toEqual(schema);
+        expect(p.required, `${op.operationId} ${name}`).toBe(!field.safeParse(undefined).success);
+      }
+      // The handler validates it: the controller's @Contract block for this operation parses `<Ops>.<op>.query`.
+      const blocks = controllerSources().flatMap((src) => src.split(/(?=@Contract\()/).slice(1));
+      const block = blocks.find((b) => new RegExp(`^@Contract\\(\\w+Ops\\.${op.operationId}\\)`).test(b));
+      expect(block, op.operationId).toMatch(new RegExp(`parse\\(\\w+Ops\\.${op.operationId}\\.query,`));
+      // A query is strict: an unknown parameter is refused, not ignored, and documented as a 400.
+      expect(op.query.safeParse({ unknown: '1' }).success, op.operationId).toBe(false);
+      expect(codesOf(responses(byId(op.operationId))['400']), op.operationId).toContain('request.invalid');
     }
   });
 

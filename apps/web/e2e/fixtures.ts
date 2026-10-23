@@ -89,6 +89,24 @@ export async function makeUser(
 }
 
 /**
+ * Spec 0021: `n` accounts that only fill a list (not activated: no password, no role), cleaned up with the rest. Their
+ * usernames share one prefix, so a list paged by username shows them together.
+ */
+export async function makeListFiller(slug: Slug, n: number): Promise<string[]> {
+  const tid = await tenantId(slug);
+  const db = forTenant(shard, tid);
+  const prefix = `E2E-LIST-${randomBytes(3).toString('hex').toUpperCase()}`;
+  const usernames: string[] = [];
+  for (let i = 0; i < n; i++) {
+    const username = `${prefix}-${String(i).padStart(3, '0')}`;
+    const user = await db.userAccount.create({ data: { tenantId: tid, username, displayName: `List Filler ${String(i)}`, status: 'PENDING_ACTIVATION' } });
+    created.push({ tenantId: tid, userId: user.id });
+    usernames.push(username);
+  }
+  return usernames;
+}
+
+/**
  * Spec 0019 B4 (stack only): TOTP enrolled through the app's own enrolment requests, as its screens make them, through
  * the edge. The server encrypts the secret with its tenant key through its own Vault, so the run never needs the stack's
  * Vault. Returns the key and the recovery codes the app shows once.

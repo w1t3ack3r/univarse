@@ -24,6 +24,11 @@ export interface ApiOperation {
   /** The exact schema the handler passes to `parse` (OA3). */
   readonly body?: z.ZodType;
   /**
+   * Spec 0021: the query string, as one strict object the handler passes to `parse` (OA3). Each property is a
+   * documented query parameter; anything else is a 400.
+   */
+  readonly query?: z.ZodObject;
+  /**
    * Settings only: the body's `value` is checked against the chosen key's registry schema by the use
    * case (422 settings.invalid_value), so the document derives one value shape per key.
    */

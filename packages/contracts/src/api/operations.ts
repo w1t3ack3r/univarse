@@ -14,6 +14,7 @@ import {
 } from './identity.js';
 import { defineOperations, type PathParam } from './operation.js';
 import { FileUploadRequestBody, ProductSetEnabledBody, SettingWriteBody } from './resources.js';
+import { PageQuery } from './pagination.js';
 import * as R from './responses.js';
 
 const fileId: PathParam = {
@@ -158,10 +159,12 @@ export const MfaOps = defineOperations({
 export const UsersOps = defineOperations({
   listUsers: {
     operationId: 'listUsers',
-    summary: 'People in this institution',
+    summary: 'People in this institution, by username, a page at a time (spec 0021)',
     tag: 'users',
+    query: PageQuery,
     success: 200,
     response: R.UserList,
+    errors: { 400: ['request.invalid_cursor'] },
   },
 });
 

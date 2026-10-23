@@ -422,7 +422,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** People in this institution */
+        /** People in this institution, by username, a page at a time (spec 0021) */
         get: operations["listUsers"];
         put?: never;
         post?: never;
@@ -4286,7 +4286,12 @@ export interface operations {
     };
     listUsers: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Opaque: the `nextCursor` of the previous page. */
+                cursor?: string;
+                /** @description Rows per page, 1–200. Default 50. */
+                limit?: string;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -4309,7 +4314,26 @@ export interface operations {
                             status: "PENDING_ACTIVATION" | "ACTIVE" | "LOCKED" | "DISABLED";
                             lastLoginAt: string | null;
                         }[];
+                        page: {
+                            nextCursor: string | null;
+                            limit: number;
+                            hasMore: boolean;
+                        };
                     };
+                };
+            };
+            /** @description request.invalid, request.invalid_cursor */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 400;
+                        /** @enum {unknown} */
+                        code?: "request.invalid" | "request.invalid_cursor";
+                    } & components["schemas"]["Problem"];
                 };
             };
             /** @description auth.unauthenticated */
