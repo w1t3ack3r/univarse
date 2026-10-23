@@ -2,7 +2,7 @@
 // secret only where it's needed), spec 0016 IO17 (the relay role in the worker's env only).
 import { describe, expect, it } from 'vitest';
 import { CADDY_IP, STACK_DOMAIN, WEB_IP } from './config.js';
-import { envText, renderEnvFiles, renderPgBouncerIni, renderPgHba, renderUserlist, renderValkeyConf } from './render.js';
+import { envText, renderEnvFiles, renderPgBouncerIni, renderPgHba, renderS3Config, renderUserlist, renderValkeyConf } from './render.js';
 import { generateSecrets, secretValues } from './secrets.js';
 
 const s = generateSecrets();
@@ -67,6 +67,19 @@ describe('[LS9] each secret only where it is needed', () => {
 
   it('[LS9] an env value with a newline is refused rather than written', () => {
     expect(() => envText({ A: 'x\ny' })).toThrow(/would break the env file/);
+  });
+});
+
+describe('[A2-10] the object store\'s identities', () => {
+  const identities = (JSON.parse(renderS3Config(s)) as { identities: { name: string; actions: string[] }[] }).identities;
+
+  it('[A2-10] the shred ledger identity can put to its bucket, with the COMPLIANCE lock headers, and nothing else: no read, list, delete, legal hold or bypass', () => {
+    // Exact: an added action fails this. Its puts working with the lock headers is bucket.int.ts's subject (real SeaweedFS).
+    expect(identities.find((i) => i.name === 'univarse-shred-ledger')?.actions).toEqual(['Write:uv-shred-ledger', 'PutObjectRetention:uv-shred-ledger']);
+  });
+
+  it('[A2-10] exactly two identities: the app\'s and the ledger\'s', () => {
+    expect(identities.map((i) => i.name)).toEqual(['univarse-app', 'univarse-shred-ledger']);
   });
 });
 

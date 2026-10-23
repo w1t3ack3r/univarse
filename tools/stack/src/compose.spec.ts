@@ -160,8 +160,9 @@ describe('[LS9] no secret in the compose file', () => {
       expect([name, Object.keys(s.environment ?? {}).filter((k) => secretName.test(k))]).toEqual([name, []]);
     // Image digests are the only long hex in the file; nothing base64-shaped at all.
     const text = readFileSync(COMPOSE_FILE, 'utf8').replace(/@sha256:[0-9a-f]{64}/g, '');
-    // Generated secrets are hex, or base64url with digits; a long setting name (CLAMD_CONF_AlertEncryptedArchive) is neither.
-    expect(text.match(/[0-9a-f]{24,}|(?=[A-Za-z0-9+/_-]*\d)[A-Za-z0-9+/_-]{32,}={0,2}/g) ?? []).toEqual([]);
+    // Generated secrets are hex, or base64url (30+ random bytes: digits and lower case); a long setting name is neither,
+    // with no digit (CLAMD_CONF_AlertEncryptedArchive) or no lower case (WEED_MASTER_VOLUME_GROWTH_COPY_1).
+    expect(text.match(/[0-9a-f]{24,}|(?=[A-Za-z0-9+/_-]*\d)(?=[A-Za-z0-9+/_-]*[a-z])[A-Za-z0-9+/_-]{32,}={0,2}/g) ?? []).toEqual([]);
   });
 });
 

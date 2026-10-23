@@ -357,6 +357,9 @@ importers:
 
   tools/stack:
     devDependencies:
+      '@aws-sdk/client-s3':
+        specifier: ^3.1146.0
+        version: 3.1146.0
       '@types/pg':
         specifier: ^8.15.0
         version: 8.23.1

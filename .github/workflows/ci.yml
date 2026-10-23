@@ -167,6 +167,11 @@ jobs:
       # rows, so its one ledger accounts for every row, and it refuses to run outside CI.
       - name: Shred ledger protocol against the real keys CLI and database (spec 0020)
         run: pnpm --filter @univarse/stack test:ledger
+      # Spec 0020 (the bucket copy's fix): the ledger's bucket copy against the stack's own SeaweedFS (its pinned image,
+      # flags, environment and memory limit from infra/stack/compose.yml), in a container of its own with throwaway keys:
+      # the owner's pre-fix state reproduced, then the upgrade, its volume growth, retention, limits and stack:bucket-check.
+      - name: Shred ledger bucket copy against the stack's SeaweedFS (spec 0020)
+        run: pnpm --filter @univarse/stack test:bucket
       # Spec 0012 OB12: the compiled API and worker as two separate processes, each initialized by its own
       # `--import ./dist/otel.js`, exporting to the same collector service as dev (pinned image, file output).
       # Asserts trace structure (parent chain across the outbox, scan link, pg/Valkey spans, service.name)

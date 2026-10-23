@@ -305,7 +305,7 @@ Built as approved: decisions A3-1 to A3-12. A3 changes the API image: the `keys`
 
 A later generation's `genesis` also carries its `attempt` and the `transition` record (the reason, the time, the copies read and their heads, the statement).
 
-**Decisions made while building (for approval).**
+**Decisions made while building.** The owner approved 1–6 on 2026-10-23. Decision 7 (`stack:smoke` printing the waiver line) is not recorded as approved.
 
 1. **Every attempt is classified one way: established, undetermined or inert.**
    - **Established:** `established` is on every destination it still configures, and each reads.
@@ -360,6 +360,86 @@ A later generation's `genesis` also carries its `attempt` and the `transition` r
 Three survived the first run. Each was a case no test isolated: W2 failing (only a crash was tested), a planned op undone by a restore, and two established attempts. Each now has its own test.
 
 **Not in A3:** D7's "and the external drive when the backup destination is one" (PR B, with the backup destination); `stack:backup status`'s waiver line (PR B).
+
+## Implementation notes (fix: the bucket copy)
+
+**What was wrong.** Every recovery on the owner's stack reported `bucket copy (evidence only, not relied on) failed: exit 1: Access Denied.` (found 2026-10-23; the bucket stayed empty, and the ledger on disk was unaffected). There were three causes, each reproduced against SeaweedFS 4.48 before the fix:
+
+1. **The identity.** `univarse-shred-ledger` had `Write:uv-shred-ledger` only. SeaweedFS checks a put's `ObjectLockMode` and retain-until headers as their own action, `PutObjectRetention`: a plain put was authorised, a COMPLIANCE put refused (403).
+2. **The volumes.** The stack ran `-volume.max=16` with SeaweedFS's default growth of 7 volumes a collection. The filer's own metadata log (`/topics/.system/log`, collection `''`) is written about a minute after the first change and took 7; `uv-quarantine` took 7, `uv-clean` the 2 left, and `uv-shred-ledger` none. Even an authorised put found no writable volume.
+3. **The deploy's order.** SeaweedFS loads `s3.json` only at start, and the deploy restarted it, when its files changed, only after recovery, so recovery's copy ran on the old identities.
+
+**The fix.**
+
+- The ledger identity holds `Write:uv-shred-ledger` and `PutObjectRetention:uv-shred-ledger`, and nothing that reads, lists, deletes, places a legal hold or bypasses governance (`render.ts`).
+- SeaweedFS grows one volume a collection (`WEED_MASTER_VOLUME_GROWTH_COPY_1=1`, `master.toml`'s `volume_growth.copy_1` as an environment variable) up to 24 volumes (`-volume.max=24`, a 3 GB ceiling at 128 MB each). The owner's stack keeps its 16; the ledger's bucket takes the 17th.
+- The deploy restarts SeaweedFS right after starting it when its files changed, before `buckets()` and the recovery, and records it, so it isn't restarted again at the end (`deploy.ts`).
+- **`pnpm stack:bucket-check [--try-delete]`** (`bucket-check.ts`) is the owner's post-deploy check (and A2's still owed). It talks S3 through the edge (`https://files.stack.univarse.localhost`, resolved to 127.0.0.1, verified against the edge CA) as both identities in `secrets.json`, and prints PASS and FAIL lines only, never a key. It checks:
+  - the app identity can list and read the bucket (A3-5's `ledger-bucket-read`);
+  - the bucket holds this ledger's chain from its genesis, with no gap;
+  - every entry on disk is in the bucket, byte for byte;
+  - object lock is enabled;
+  - every copied entry is retained in COMPLIANCE mode for 10 years from its write;
+  - the ledger identity can't list or read its bucket, or list or write `uv-quarantine` or `uv-clean`;
+  - with `--try-delete` only: the genesis's locked version survives a versioned delete by each identity.
+
+**Decisions made while building (for approval).**
+
+1. **The growth count is set by environment variable,** not a mounted `master.toml`: SeaweedFS reads its TOML keys from `WEED_`-prefixed variables, verified on 4.48 (one volume per collection with it, seven without). There is nothing to render and no extra file in the conf volume.
+2. **The maximum is 24.** An empty volume costs no measurable memory (natively: 119 MB with 7 volumes, 120 MB with 16), so the maximum bounds disk, not memory. 24 leaves the owner's stack 7 volumes of headroom after the ledger's, at 3 GB at most.
+3. **`compose.spec`'s secret-literal scan now requires a lower-case letter in its base64 branch.** `WEED_MASTER_VOLUME_GROWTH_COPY_1` is 32 characters with a digit, so the scan took it for a secret. Generated secrets are lower-case hex, or base64url from 30 or more random bytes, which have lower case. A base64-shaped literal is still caught (checked with one added to the file).
+4. **The integration test (`bucket.int.ts`) runs its own container, not the stack.** It resolves the `seaweedfs` service with `docker compose config` and runs that image, user, entrypoint, environment, command and memory limit, with `cap_drop: ALL` and `no-new-privileges`, on a data volume of its own and throwaway keys. It is not the stack's network, read-only root or Caddy; those are not what the bugs depended on.
+5. **The test carries its own control.** The owner's pre-fix settings are derived from this commit's (16 volumes, no growth variable, no `PutObjectRetention`), and the test asserts they differ in exactly those three settings, so a later change can't quietly make the control the fix.
+6. **`SEAWEEDFS_BIN`:** on a machine with the Docker CLI but no daemon, the test runs a weed binary of the image's version (checked) instead. That is how it ran while this was built. CI runs the container.
+7. **The bucket check reads the primary copy at its generation of record without the ledger lock.** It writes nothing to the ledger, so it doesn't take the lock; a destruction running at the same moment can show its newest entry as not yet copied (rerun).
+8. **Its write probe** (`bucket-check/<uuid>` in each other bucket) writes only if the identity is wrong. The app identity then removes it, and the line is a FAIL.
+9. **A refusal must be a 403.** Any other error is a FAIL, so a gateway that is down can't pass for one that refuses.
+10. **Retention is checked from the object's own write time,** with a day's tolerance for the job's clock, not from now.
+11. **`--try-delete` targets the genesis's version,** the oldest; if it fails, it has deleted real evidence. The copy on disk stays the authority, and the next copy rewrites nothing for it (its progress says it was copied).
+12. **The check stops after its first line if the app identity can't list the bucket** (an unreachable edge or a wrong CA, say). Every later check reads through it, and would otherwise report an empty bucket that isn't one.
+13. **`@aws-sdk/client-s3` becomes a dev dependency of `tools/stack`,** at the version the API already locks: the check runs on the host. The deploy's `BUCKETS` are exported so the test creates the buckets exactly as the deploy does.
+
+**What the owner's redeploy does.** The new command and environment make compose recreate SeaweedFS at `up -d --wait seaweedfs`, which loads the new `s3.json` too; the deploy then restarts it once more, because `s3.json` changed. That is harmless (two starts) and happens only on this deploy.
+
+**Tests.**
+
+- **Unit, `render.spec.ts`:** the ledger identity's actions exactly, so an added action fails; exactly two identities.
+- **Unit, `deploy.spec.ts`:**
+  - `s3.json` changed: SeaweedFS restarts right after it starts, before the buckets and recovery, and only then;
+  - `s3.json` unchanged: no early restart, and another service's change restarts only that one, at the end;
+  - a failed restart stops the deploy before the buckets and recovery.
+- **Unit, `bucket-check.spec.ts`** (14 cases, a fake S3 modelling the lock and each identity's permissions): every check's PASS and FAIL, the clock tolerance, a non-403 error, the probe removed, `--try-delete` only when asked, and no error message printed.
+- **Integration, `bucket.int.ts`** (`test:bucket`, CI; 6 cases, about 90 s):
+  - **before the fix:** the owner's 7/7/2 reproduced, with 0 free; the locked put refused (403); the plain put finding no volume (5xx); `copyToBucket` failing;
+  - **the upgrade,** the same data on this commit's settings: `copyToBucket` writes 3 entries; the ledger's bucket grows by exactly one volume, from `volume.list` (17 of 24);
+  - retention COMPLIANCE for 10 years, which the ledger identity can neither shorten nor switch to GOVERNANCE;
+  - `bucketCheck` passing all 13 lines, `--try-delete` included;
+  - a fresh stack: each bucket grows by exactly one volume.
+
+**Rehearsed end to end, while this was built (not committed):** `pnpm stack:bucket-check` itself, through a TLS proxy on 127.0.0.1:443 standing in for Caddy, with a throwaway edge CA, in front of SeaweedFS 4.48 on this commit's settings, with a real ledger copy on disk and the real `copyToBucket`. Results:
+- 11 PASS lines and exit 0, and with `--try-delete`, 13;
+- an entry on disk not copied: one FAIL line, exit 1;
+- the wrong CA: `UNABLE_TO_VERIFY_LEAF_SIGNATURE`, exit 1;
+- no `secrets.json`: exit 1, naming the file;
+- no key value anywhere in the output.
+
+**Mutations caught (21 of 21):**
+- **the deploy:** the restart moved back to the end; always restarted; not recorded (`markApplied`); not removed from the set;
+- **the identity, in `render.spec`:** `PutObjectRetention` dropped; `Read` added;
+- **against SeaweedFS:** `PutObjectRetention` dropped; the growth variable removed; the growth variable misspelled, so ignored (caught by the one-volume assertion with the maximum still at 24); the maximum back to 16;
+- **the check:** the retention mode ignored; any error taken for a refusal; the probe left behind; no clock tolerance; the content not compared; gaps not computed; `--try-delete` always on; the version's survival not verified; the lock not checked; an error message printed; the checks continuing after the app identity can't list.
+
+None survived.
+
+**Measured: SeaweedFS's memory after the upgrade (17 volumes; limit 256 MiB).**
+
+| Where | How | Value |
+| --- | --- | --- |
+| Native, while this was built | RSS | 178 MiB |
+| CI, the stack's image under its limit | `docker stats`, and the cgroup's `memory.peak` (`[bucket.int]` line) | _to record from this PR's CI run_ |
+| The owner's stack, after the redeploy | `docker stats --no-stream univarse-stack-seaweedfs-1` | _to record_ |
+
+**The owner's steps after merging:** the release, the deploy, `pnpm stack:keys recover` with no "bucket copy … failed" line, `pnpm stack:bucket-check`, and the `docker stats` line above (the PR lists them in order).
 
 ## Affected docs (in the implementation PRs)
 

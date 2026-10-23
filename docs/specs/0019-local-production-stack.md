@@ -194,6 +194,7 @@ Only Caddy is on `edge`. It reaches the API and web over `app`. The web app's se
   | valkey | 4 |
 
   The limits sum to at most 3,584 MB without ClamAV (`compose.spec`).
+  SeaweedFS's limit (256 MB) is unchanged by spec 0020's bucket fix (24 volumes, grown one at a time); its memory after that fix is recorded in spec 0020, "Implementation notes (fix: the bucket copy)".
 - **LS11 mutations, each killed by its test:**
   - a port on `0.0.0.0`;
   - the API given `db`;

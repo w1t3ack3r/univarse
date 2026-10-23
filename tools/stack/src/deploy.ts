@@ -117,6 +117,15 @@ export async function deploy(record: ReleaseRecord, commit: string, deps: Deploy
 
     // ── Storage: the buckets exist before the API and worker use them.
     if (deps.compose(['up', '-d', '--wait', 'seaweedfs'], images).status !== 0) return { ok: false, problems: ['SeaweedFS did not start'] };
+    // SeaweedFS reads its identities (s3.json) only at start, and the ledger's recovery below writes the bucket copy
+    // with one of them: restart it now when they changed, and record it, so it isn't restarted again at the end.
+    if (restart.has('seaweedfs')) {
+      deps.log('[stack:deploy] restarting seaweedfs before the buckets and the ledger\'s recovery: its identities changed');
+      if (deps.compose(['restart', 'seaweedfs'], images).status !== 0 || deps.compose(['up', '-d', '--wait', 'seaweedfs'], images).status !== 0)
+        return { ok: false, problems: ['SeaweedFS did not restart'] };
+      deps.markApplied(['seaweedfs']);
+      restart.delete('seaweedfs');
+    }
     const storage = deps.buckets();
     if (storage.length) return { ok: false, problems: storage };
 

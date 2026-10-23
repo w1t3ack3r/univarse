@@ -208,6 +208,42 @@ describe('[LS3][LS4] a verified record: the order of the deploy', () => {
     expect(calls.some((c) => c.includes('postgres'))).toBe(false);
   });
 
+  it('[A2-10] changed SeaweedFS identities (s3.json) restart SeaweedFS at once: before the buckets and the ledger\'s recovery, and not again at the end', async () => {
+    const d = deps({ prepare: (withVault) => (calls.push(`prepare:${String(withVault)}`), ['seaweedfs']) });
+    expect((await deploy(record(), COMMIT, d)).ok).toBe(true);
+    const e = effects();
+    const at = (c: string) => e.indexOf(c);
+    expect(e.slice(at('compose:up -d --wait seaweedfs'), at('buckets') + 1)).toEqual([
+      'compose:up -d --wait seaweedfs',
+      'compose:restart seaweedfs',
+      'compose:up -d --wait seaweedfs',
+      'markApplied:seaweedfs',
+      'buckets',
+    ]);
+    expect(at('buckets')).toBeLessThan(at('recover'));
+    expect(e.filter((c) => c.startsWith('compose:restart'))).toEqual(['compose:restart seaweedfs']);
+  });
+
+  it('[A2-10] SeaweedFS\'s identities unchanged: no early restart (another service\'s change restarts only that one, at the end)', async () => {
+    const d = deps({ prepare: (withVault) => (calls.push(`prepare:${String(withVault)}`), withVault ? ['caddy'] : []) });
+    expect((await deploy(record(), COMMIT, d)).ok).toBe(true);
+    const e = effects();
+    expect(e[e.indexOf('compose:up -d --wait seaweedfs') + 1]).toBe('buckets');
+    expect(e.filter((c) => c.startsWith('compose:restart'))).toEqual(['compose:restart caddy']);
+    expect(calls).not.toContain('markApplied:seaweedfs');
+  });
+
+  it('[A2-10] SeaweedFS failing to come back from its restart stops the deploy before the buckets and recovery', async () => {
+    const d = deps({
+      prepare: (withVault) => (calls.push(`prepare:${String(withVault)}`), ['seaweedfs']),
+      compose: (args) => (calls.push(`compose:${args.join(' ')}`), { status: args.join(' ') === 'restart seaweedfs' ? 1 : 0 }),
+    });
+    expect(await deploy(record(), COMMIT, d)).toEqual({ ok: false, problems: ['SeaweedFS did not restart'] });
+    expect(calls).not.toContain('buckets');
+    expect(calls).not.toContain('recover');
+    expect(calls).not.toContain('markApplied:seaweedfs');
+  });
+
   it('[LS5] nothing changed: nothing restarts', async () => {
     await deploy(record(), COMMIT, deps());
     expect(calls.some((c) => c.startsWith('compose:restart'))).toBe(false);

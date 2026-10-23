@@ -86,7 +86,7 @@ function scanThirdParty(): string[] {
  * turned off), owned by its own identity, the only one that writes it (a non-admin identity reaches only the buckets
  * it owns).
  */
-const BUCKETS: Readonly<Record<string, string>> = {
+export const BUCKETS: Readonly<Record<string, string>> = {
   'uv-quarantine': '',
   'uv-clean': '',
   'uv-shred-ledger': ' -withLock -owner univarse-shred-ledger',

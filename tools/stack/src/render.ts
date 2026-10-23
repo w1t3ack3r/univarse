@@ -172,11 +172,13 @@ export function renderS3Config(s: StackSecrets): string {
           actions: ['Read', 'Write', 'List', 'Tagging', 'Admin'],
         },
         // Spec 0020 A2-10: writes the shred ledger's evidence copy, to that bucket only; it can't read or list it.
-        // Object lock (COMPLIANCE) is what keeps a written entry from being deleted or overwritten.
+        // Object lock (COMPLIANCE) is what keeps a written entry from being deleted or overwritten. SeaweedFS 4.48
+        // checks a put's lock headers as their own action, so the identity holds PutObjectRetention too; nothing that
+        // reads, lists, deletes, holds or bypasses.
         {
           name: 'univarse-shred-ledger',
           credentials: [{ accessKey: s.ledgerS3AccessKey, secretKey: s.ledgerS3SecretKey }],
-          actions: ['Write:uv-shred-ledger'],
+          actions: ['Write:uv-shred-ledger', 'PutObjectRetention:uv-shred-ledger'],
         },
       ],
     },
