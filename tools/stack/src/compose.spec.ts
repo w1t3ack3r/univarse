@@ -7,6 +7,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { envText } from './render.js';
+import { generateSecrets } from './secrets.js';
 import { CADDY_IP, COMPOSE_FILE, isDigestRef, MEMORY_BUDGET_MB, PROJECT, ROLE_VARS, THIRD_PARTY, WEB_IP } from './config.js';
 
 interface Service {
@@ -153,15 +154,42 @@ describe('[LS8] Vault: TLS only, and its audit device on its own volume (C2, C3)
   });
 });
 
+/**
+ * Setting names the secret-literal scan skips: long upper-case names a digit makes base64-shaped. Each is skipped only
+ * as a whole token, so a longer literal that contains one is still scanned. Add a name only with the setting it is.
+ */
+const KNOWN_SETTING_NAMES = [
+  // SeaweedFS's master.toml `volume_growth.copy_1` (spec 0020, the bucket copy's fix).
+  'WEED_MASTER_VOLUME_GROWTH_COPY_1',
+] as const;
+
+/** Secret-shaped literals in compose text: long hex, or base64-shaped with a digit; image digests and KNOWN_SETTING_NAMES aside. */
+function secretShaped(text: string, known: readonly string[] = KNOWN_SETTING_NAMES): string[] {
+  let t = text.replace(/@sha256:[0-9a-f]{64}/g, '');
+  for (const name of known) t = t.replace(new RegExp(`(?<![A-Za-z0-9+/_=-])${name}(?![A-Za-z0-9+/_=-])`, 'g'), '');
+  // Generated secrets are hex, or base64url with digits; a long setting name (CLAMD_CONF_AlertEncryptedArchive) is neither.
+  return t.match(/[0-9a-f]{24,}|(?=[A-Za-z0-9+/_-]*\d)[A-Za-z0-9+/_-]{32,}={0,2}/g) ?? [];
+}
+
 describe('[LS9] no secret in the compose file', () => {
   it('[LS9] with the env files empty, no service is given a secret-named variable, and the file holds no secret-shaped literal', () => {
     const secretName = /PASSWORD|SECRET|TOKEN|PEPPER|VERIFIER|ACCESS_KEY|_URL$/;
     for (const [name, s] of Object.entries(config.services as Record<string, { environment?: Record<string, string | null> }>))
       expect([name, Object.keys(s.environment ?? {}).filter((k) => secretName.test(k))]).toEqual([name, []]);
     // Image digests are the only long hex in the file; nothing base64-shaped at all.
-    const text = readFileSync(COMPOSE_FILE, 'utf8').replace(/@sha256:[0-9a-f]{64}/g, '');
-    // Generated secrets are hex, or base64url with digits; a long setting name (CLAMD_CONF_AlertEncryptedArchive) is neither.
-    expect(text.match(/[0-9a-f]{24,}|(?=[A-Za-z0-9+/_-]*\d)[A-Za-z0-9+/_-]{32,}={0,2}/g) ?? []).toEqual([]);
+    expect(secretShaped(readFileSync(COMPOSE_FILE, 'utf8'))).toEqual([]);
+  });
+
+  it('[LS9] the scan still catches a planted secret: generated hex, generated base64url, and one containing a skipped name', () => {
+    const text = readFileSync(COMPOSE_FILE, 'utf8');
+    const s = generateSecrets();
+    const planted = [s.valkeyPassword, s.s3SecretKey, `${KNOWN_SETTING_NAMES[0]}x9Qa`];
+    for (const secret of planted) expect([secret.length, secretShaped(`${text}\n      PROBE: '${secret}'\n`)]).toEqual([secret.length, [secret]]);
+  });
+
+  it('[LS9] every skipped name is in the compose file (a stale entry is removed, not kept)', () => {
+    const text = readFileSync(COMPOSE_FILE, 'utf8');
+    for (const name of KNOWN_SETTING_NAMES) expect([name, text.includes(name)]).toEqual([name, true]);
   });
 });
 

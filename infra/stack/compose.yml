@@ -74,7 +74,12 @@ services:
     <<: *hardening
     user: '1000:1000'
     entrypoint: ['/usr/bin/weed']
-    command: ['server', '-dir=/data', '-ip.bind=0.0.0.0', '-s3', '-s3.port=8333', '-s3.config=/etc/seaweedfs/s3.json', '-master.volumeSizeLimitMB=128', '-volume.max=16']
+    # Spec 0020 (the bucket copy's fix): each collection (a bucket, and the filer's own log) grows one volume at a time,
+    # not SeaweedFS's default of 7, which spent all 16 slots on three collections and left the ledger's bucket none.
+    # At most 24 volumes of 128 MB (a 3 GB ceiling on disk); an empty volume costs no measurable memory.
+    environment:
+      WEED_MASTER_VOLUME_GROWTH_COPY_1: '1'
+    command: ['server', '-dir=/data', '-ip.bind=0.0.0.0', '-s3', '-s3.port=8333', '-s3.config=/etc/seaweedfs/s3.json', '-master.volumeSizeLimitMB=128', '-volume.max=24']
     volumes:
       - seaweedfs-data:/data
       - seaweedfs-conf:/etc/seaweedfs:ro

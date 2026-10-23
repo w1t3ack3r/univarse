@@ -4,43 +4,26 @@ Read this before doing anything. It covers where Phase 0 stands, what is left in
 
 ## Where things stand
 
-- **`main` at `33ae2d9`.** Spec 0020 PR A (the shred ledger) is complete: A1 (#90), A2 (#91) and A3, the waiver (#96). fastify 5.12.7 is in (#95).
+- **`main` at `011afed`.** Spec 0020 PR A (the shred ledger) is complete: A1 (#90), A2 (#91) and A3, the waiver (#96). fastify 5.12.7 is in (#95), and `fix(build)` (#98).
 - **Release `releases/2026-10-23-33ae2d9.json`.** Built from `33ae2d9`, with the gates passing and no active exceptions. The owner deployed it with `--init-ledger` on 2026-10-23.
 - **The ledger is live.** It is `1b879644-1e96-4d46-acb0-08eaa0e6a786`, authoritative on 1 destination (the primary). It has 0 destructions, so nothing was adopted. Recovery passes.
-- **Approved and not yet recorded in the docs:** A3's decisions 1–6 (spec 0020, "Implementation notes (PR A3)"). The owner approved them on 2026-10-23. Record that in the spec, in the first PR that touches it.
+- **A3's decisions 1–7,** approved by the owner on 2026-10-23, are recorded in spec 0020 (by the bucket fix).
 
-## A known bug: the ledger's bucket copy fails
+## The ledger's bucket copy: fixed, awaiting the owner's redeploy
 
-Every recovery reports `bucket copy (evidence only, not relied on) failed: exit 1: Access Denied.` The ledger itself is unaffected: the copy on disk is the authority, and the bucket is evidence only. Found on the running stack on 2026-10-23, with probes that wrote nothing (the bucket is still empty):
+Every recovery reported `bucket copy (evidence only, not relied on) failed: exit 1: Access Denied.` The ledger was unaffected (the copy on disk is the authority; the bucket is evidence only). The fix (branch `claude/eloquent-euler-kb83sp`) covers the three causes, each reproduced against SeaweedFS 4.48 and recorded in spec 0020, "Implementation notes (fix: the bucket copy)":
+1. the identity lacked `PutObjectRetention`, so a COMPLIANCE put was refused (403);
+2. the 16 volumes were spent 7/7/2 by the filer's log, `uv-quarantine` and `uv-clean`, leaving the ledger's bucket none. SeaweedFS now grows one volume a collection, up to 24;
+3. the deploy restarted SeaweedFS only after recovery, so a changed `s3.json` wasn't loaded. It now restarts SeaweedFS before the buckets and the recovery.
 
-1. **The identity lacks a permission.** The ledger identity (`univarse-shred-ledger`) has `Write:uv-shred-ledger` only. Its plain puts are authorized, but a put carrying `ObjectLockMode: COMPLIANCE` and a retain-until date is refused, `AccessDenied (403)`. SeaweedFS 4.48 checks retention as its own action. The binary has `PutObjectRetention`, `GetObjectRetention`, `PutObjectLegalHold` and `BypassGovernanceRetention`. The likely fix is to add `PutObjectRetention:uv-shred-ledger` to that identity in `tools/stack/src/render.ts` (`renderS3Config`), and nothing that can read, list, delete or bypass.
-2. **The volume limit is full.** The stack's SeaweedFS runs with `-volume.max=16` (`infra/stack/compose.yml`). All 16 are in use: 7 with no collection, 7 for `uv-quarantine`, 2 for `uv-clean`. SeaweedFS grows a new collection 7 volumes at a time, so `uv-shred-ledger` gets none ("No writable volumes and no free volumes left … Not enough data nodes"). Raise the limit, or set a smaller growth count, with the memory budget in mind (spec 0019: the stack's limits sum to at most 3.5 GB). Measure it, don't guess.
-3. **A related deploy-order gap.** The deploy restarts Vault, PostgreSQL, PgBouncer and Valkey early when their configuration changes, but SeaweedFS only after recovery. A changed `s3.json` therefore isn't loaded when recovery copies to the bucket. Restart SeaweedFS right after it starts when its files changed, before `buckets()` and before recovery (`tools/stack/src/deploy.ts`).
+`pnpm stack:bucket-check [--try-delete]` is committed. It is also the check still owed from A2: the first real write, COMPLIANCE retention of 10 years, and the identities' permissions.
 
-**The fix is the first PR after `fix(build)` (item 1 below).** It needs tests that would have caught each bug:
-- a test proving the rendered identity can put with the COMPLIANCE lock headers. It runs against a real SeaweedFS of the same version, in CI. Writing and running it are code work; running it against the owner's stack is not;
-- a deploy test for the restart order;
-- the volume settings measured.
-
-Afterwards, a release. The owner redeploys, runs `pnpm stack:keys recover`, and runs the post-deploy bucket check (below). That check is also still owed from A2: the first real write, COMPLIANCE retention of 10 years, and the identities' permissions.
-
-**The bucket check** was a one-off script outside the repo. Commit it as `pnpm stack:bucket-check` (in `tools/stack`). It talks S3 through the edge, `https://files.stack.univarse.localhost`, resolving to 127.0.0.1 and verified against `~/.univarse/stack/edge/edge-ca.crt`, with both identities read from `secrets.json`. It prints PASS or FAIL lines only, never a key. Its checks:
-- this ledger's entries are present, starting from its genesis;
-- every entry on disk is copied;
-- object lock is enabled;
-- each entry is retained in COMPLIANCE mode for 10 years;
-- the ledger identity can't list or read its bucket, or list or write another bucket;
-- the app identity can read the bucket (the waiver's `ledger-bucket-read`);
-- opt-in only (`--try-delete`): a locked version can't be deleted, even by the app identity.
+**After merging (the owner):** stop the stack and the dev ClamAV, and check the dev Vault is unsealed; release; deploy; `pnpm stack:keys recover` (no "bucket copy … failed" line); `pnpm stack:bucket-check`; `docker stats --no-stream univarse-stack-seaweedfs-1`, recorded in spec 0020 beside CI's number. The PR lists the exact commands.
 
 ## What is left for Phase 0, in order
 
-1. **`fix(build)`: the undeclared workspace dependencies.** In a clean checkout with no turbo cache, `pnpm typecheck` failed on its first run. CI never saw it, because it runs `pnpm build` first:
-   - `apps/web` typechecks `apps/api/src/testing/mfa-helpers.ts` (through its E2E fixtures), which imports `@univarse/crypto`. Now a dev dependency of web.
-   - `tools/stack` imports `packages/db` and `packages/crypto` source by relative path, and needs db's generated Prisma client. Both are now dev dependencies of stack.
-   - `@univarse/db`'s `typecheck` and `build` both ran `prisma generate` in parallel, so one compiled while the other rewrote `src/generated`. Its typecheck now waits for its own build (`packages/db/turbo.json`, as `lint` already did) and no longer generates. db's build now caches `src/generated/**` with `dist/**`; a cache hit used to restore `dist` alone, leaving nothing to recreate the clients. Run it through turbo (`pnpm typecheck`), or run `pnpm --filter @univarse/db generate` first.
-   - Not declared: `packages/db/scripts/capture-gate.ts` re-exports `packages/db-ops` source, but db-ops depends on db, so declaring it would be a cycle. That edge needs no build.
-2. **The bucket fix** (above), then a release and the owner's redeploy and bucket check.
+1. **`fix(build)`: the undeclared workspace dependencies.** Done (#98).
+2. **The bucket fix** (above): in review; then a release and the owner's redeploy and bucket check.
 3. **Spec 0020 PR B: backups, the rehearsed restore and the shred drill.** It is the last unmet exit criterion. First write the plan for the owner's approval. The proposed split, which the owner has yet to approve:
    - **B1:**
      - Vault moved to Raft storage (D4);
