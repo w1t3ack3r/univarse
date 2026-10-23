@@ -17,7 +17,7 @@ Every recovery reports `bucket copy (evidence only, not relied on) failed: exit 
 2. **The volume limit is full.** The stack's SeaweedFS runs with `-volume.max=16` (`infra/stack/compose.yml`). All 16 are in use: 7 with no collection, 7 for `uv-quarantine`, 2 for `uv-clean`. SeaweedFS grows a new collection 7 volumes at a time, so `uv-shred-ledger` gets none ("No writable volumes and no free volumes left … Not enough data nodes"). Raise the limit, or set a smaller growth count, with the memory budget in mind (spec 0019: the stack's limits sum to at most 3.5 GB). Measure it, don't guess.
 3. **A related deploy-order gap.** The deploy restarts Vault, PostgreSQL, PgBouncer and Valkey early when their configuration changes, but SeaweedFS only after recovery. A changed `s3.json` therefore isn't loaded when recovery copies to the bucket. Restart SeaweedFS right after it starts when its files changed, before `buckets()` and before recovery (`tools/stack/src/deploy.ts`).
 
-**The fix is the first PR.** It needs tests that would have caught each bug:
+**The fix is the first PR after `fix(build)` (item 1 below).** It needs tests that would have caught each bug:
 - a test proving the rendered identity can put with the COMPLIANCE lock headers. It runs against a real SeaweedFS of the same version, in CI. Writing and running it are code work; running it against the owner's stack is not;
 - a deploy test for the restart order;
 - the volume settings measured.
@@ -35,8 +35,13 @@ Afterwards, a release. The owner redeploys, runs `pnpm stack:keys recover`, and 
 
 ## What is left for Phase 0, in order
 
-1. **The bucket fix** (above), then a release and the owner's redeploy and bucket check.
-2. **Spec 0020 PR B: backups, the rehearsed restore and the shred drill.** It is the last unmet exit criterion. First write the plan for the owner's approval. The proposed split, which the owner has yet to approve:
+1. **`fix(build)`: the undeclared workspace dependencies.** In a clean checkout with no turbo cache, `pnpm typecheck` failed on its first run. CI never saw it, because it runs `pnpm build` first:
+   - `apps/web` typechecks `apps/api/src/testing/mfa-helpers.ts` (through its E2E fixtures), which imports `@univarse/crypto`. Now a dev dependency of web.
+   - `tools/stack` imports `packages/db` and `packages/crypto` source by relative path, and needs db's generated Prisma client. Both are now dev dependencies of stack.
+   - `@univarse/db`'s `typecheck` and `build` both ran `prisma generate` in parallel, so one compiled while the other rewrote `src/generated`. Its typecheck now waits for its own build (`packages/db/turbo.json`, as `lint` already did) and no longer generates. Run it through turbo (`pnpm typecheck`), or run `pnpm --filter @univarse/db generate` first.
+   - Not declared: `packages/db/scripts/capture-gate.ts` re-exports `packages/db-ops` source, but db-ops depends on db, so declaring it would be a cycle. That edge needs no build.
+2. **The bucket fix** (above), then a release and the owner's redeploy and bucket check.
+3. **Spec 0020 PR B: backups, the rehearsed restore and the shred drill.** It is the last unmet exit criterion. First write the plan for the owner's approval. The proposed split, which the owner has yet to approve:
    - **B1:**
      - Vault moved to Raft storage (D4);
      - continuous WAL archiving for PITR (D3);
@@ -48,12 +53,12 @@ Afterwards, a release. The owner redeploys, runs `pnpm stack:keys recover`, and 
      - the audit checkpoints (D12);
      - retention, `stack:backup status` with its waiver line, and the daily schedule (D6, BK8);
      - D7's "and the external drive when the backup destination is one" in `ledger waive`.
-3. **CI and local gates.** First a short spec for approval: which scanners block a merge and which only report, thresholds, exceptions, and the license policy. Then:
+4. **CI and local gates.** First a short spec for approval: which scanners block a merge and which only report, thresholds, exceptions, and the license policy. Then:
    - one PR for Semgrep, CodeQL (the owner decides whether CodeQL may run on this repo), osv-scanner, the license check and Checkov, each with a check that it fails for the reason intended (like `images:proofs`);
    - one PR for lefthook and commitlint (docs/13 §2's pre-commit gates).
 
    The owner makes the new checks required on `main`.
-4. **Phase 0 closure.** Reconcile the roadmap. Stale rows include the CI row, which lists Trivy as missing though spec 0013 delivered it, and the compose row (🟡). Record every exit criterion with its evidence. The owner signs off.
+5. **Phase 0 closure.** Reconcile the roadmap. Stale rows include the CI row, which lists Trivy as missing though spec 0013 delivered it, and the compose row (🟡). Record every exit criterion with its evidence. The owner signs off.
 
 **Formally deferred, not Phase 0 work (the owner's decision, 2026-10-23):** BullMQ and Storybook (Phase 1), and resource scopes (Phases 2, 4 and 7).
 
