@@ -22,6 +22,8 @@
   },
   "devDependencies": {
     "@types/pg": "^8.15.0",
+    "@univarse/crypto": "workspace:*",
+    "@univarse/db": "workspace:*",
     "pg": "^8.16.0",
     "tsx": "^4.20.0",
     "vitest": "^4.1.12"
