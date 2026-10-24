@@ -9,6 +9,7 @@
 // The steps are injected so the order and the stops are unit-tested; main.ts wires the real ones. Errors name
 // variables, never their values.
 import { vaultAddrProblem } from '@univarse/crypto';
+import { verifiesServer } from './tls.js';
 
 export const REQUIRED = [
   'PLATFORM_MIGRATOR_URL',
@@ -50,6 +51,8 @@ export function envProblems(env: JobEnv): string[] {
   for (const k of REQUIRED) if (!env[k]) problems.push(`${k} is not set`);
   for (const k of ['PLATFORM_MIGRATOR_URL', 'TENANT_POOL_01_MIGRATOR_URL', 'PLATFORM_DATABASE_URL', 'TENANT_POOL_01_DATABASE_URL', 'BOOTSTRAP_SUPERUSER_URL'])
     if (env[k] && !env[k].startsWith('postgresql://')) problems.push(`${k} is not a postgresql:// URL`);
+    // D7: in production every connection verifies PostgreSQL's certificate (src/tls.ts); refused before anything runs.
+    else if (env[k] && env.NODE_ENV === 'production' && !verifiesServer(env[k])) problems.push(`${k} must say sslmode=verify-full with sslrootcert in production`);
   if (env.SEED_DOMAIN && !DOMAIN.test(env.SEED_DOMAIN)) problems.push('SEED_DOMAIN is not a lower-case domain name');
   // Spec 0019 C1: refused at start, before anything is migrated (the key step comes last).
   const vault = vaultAddrProblem({ KEY_PROVIDER: env.KEY_PROVIDER === 'local' ? 'local' : 'vault', NODE_ENV: env.NODE_ENV, VAULT_ADDR: env.VAULT_ADDR });

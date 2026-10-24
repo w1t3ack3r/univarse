@@ -32,7 +32,7 @@ services:
     environment: { VALKEY_PASSWORD: '${VALKEY_PASSWORD}' }
 
   mailpit:
-    image: axllent/mailpit:v1.27
+    image: axllent/mailpit:v1.32.0
     <<: *hardening
     read_only: true
     ports:

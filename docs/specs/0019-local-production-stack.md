@@ -143,7 +143,7 @@ Only Caddy is on `edge`. It reaches the API and web over `app`. The web app's se
 9. **TLS verification on the database path.**
    - The API and worker connect with `sslmode=verify-full`, through PgBouncer.
    - PgBouncer verifies PostgreSQL (`server_tls_sslmode = verify-full`, the stack CA).
-   - The migrate job's URLs say `sslmode=require`, because Prisma's schema engine doesn't accept `verify-full`. **The limit:** the schema engine's connections (migrations) are encrypted but don't verify PostgreSQL's certificate. The job's node-postgres connections (bootstrap, `rls:check`, seed, data keys) treat `require` as verify-full and do verify it, until node-postgres's next major version changes that. Both legs are on the internal `db` network.
+   - The migrate job's URLs said `sslmode=require`, because Prisma's schema engine doesn't accept `verify-full`. **The limit, closed on 2026-10-24** ("Fix: the migrate job verifies PostgreSQL", below): the schema engine's connections (migrations) were encrypted but didn't verify PostgreSQL's certificate. The job's node-postgres connections (bootstrap, `rls:check`, seed, data keys) treated `require` as verify-full and did verify it.
 10. **The smoke retries for up to 90 s.** The worker has no healthcheck, so `up --wait` can return before its first pass; the first real smoke ran too early.
 11. **The API trusts the web app's forwarding headers too, and the smoke reads the login page.** The owner opened the stack in a browser and got "We couldn't find this institution". The API had trusted only Caddy's address, so it ignored the `X-Forwarded-Host` the web app's server components send, and resolved no tenant. The smoke had passed because that page answers 200. Now:
     - the web app has a fixed address, and the API trusts it as well (still a fixed list, never a blanket "trust all", docs/08 §3.4);
@@ -380,6 +380,31 @@ Only Caddy is on `edge`. It reaches the API and web over `app`. The web app's se
 
 - **A sealed dev Vault passed C2's precondition**, and failed the release at its journeys, an hour in. The precondition now also refuses a sealed or uninitialised dev Vault, naming `pnpm dev:vault` or `pnpm dev:infra`.
 - **On this 8 GB machine,** a release beside the running stack and the dev ClamAV starved Docker: the web build stalled, and the engine stopped answering. Before a release, stop the stack (`pnpm stack:down`) and the dev ClamAV; the release starts ClamAV itself for the journeys.
+
+## Fix: the migrate job verifies PostgreSQL (2026-10-24)
+
+PR A2's note 9 left the migrate job's migrations unverified. The fix was measured first. The schema engine (Prisma 7.10.0) and node-postgres were each pointed at a TLS endpoint that answers PostgreSQL's `SSLRequest`, and the test recorded whether the client accepted the certificate. The endpoint served three certificates:
+- one signed by a test CA, for the right host name;
+- one signed by the test CA, for another name;
+- a self-signed one, for the right name.
+
+| URL settings | Schema engine | node-postgres |
+|---|---|---|
+| `sslmode=require` (what the job had) | accepts a self-signed certificate: **no verification** | (verifies today; libpq's meaning, without verification, in its next major) |
+| `sslmode=require&sslcert=<CA>` | accepts another CA's certificate and a wrong name | n/a (`sslcert` is a *client* certificate to libpq and node-postgres) |
+| `sslmode=verify-full` | ignored: accepts an unknown CA's certificate | without `sslrootcert`, verifies against Node's trust (NODE_EXTRA_CA_CERTS) |
+| `sslmode=verify-full&sslrootcert=<CA>` | ignored, as above | **verifies:** refuses another CA and a wrong name |
+| `sslmode=require&sslcert=<CA>&sslaccept=strict` | **verifies:** refuses another CA, a wrong name, and any certificate without `sslcert` | n/a |
+
+So the two clients need different forms, and neither form works for both. Now:
+- **The URLs:** `migrate.env`'s five URLs use libpq's form, `sslmode=verify-full&sslrootcert=/ca/ca.crt` (`tools/stack/src/render.ts`). node-postgres verifies with it.
+- **The engine's form:** the image's Prisma configs turn that form into the engine's verifying form (`apps/migrate/src/tls.ts`, `schemaEngineUrl`). Any TLS setting it can't make verify stops the job, naming the variable and never the URL. A URL with no TLS settings passes unchanged, for the image's smoke against a disposable plaintext database.
+- **Production:** the job refuses any URL that doesn't verify (`envProblems`, before any step).
+- **The tests:**
+  - every database URL in every env file must say `verify-full`, and every direct one must name the CA (`render.spec.ts`);
+  - the translation and the production refusal are tested (`tls.spec.ts`, `job.spec.ts`), with 16 mutations, all killed.
+- **End to end:** the built `tls.js` and the shipped Prisma config were run through the real engine against the same endpoint. It accepted the right certificate and refused another CA's and a wrong name. With the old `require` URL, the config refused to load, without printing the URL.
+- **Not run here:** no Docker daemon here. The image's smoke and the stack's own deploy are the real-database checks; CI runs the smoke. The change reaches the owner's stack with the next release, because the migrate image changed.
 
 ## Affected docs (in the implementation PRs)
 

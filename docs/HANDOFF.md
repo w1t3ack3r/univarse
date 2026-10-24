@@ -50,12 +50,29 @@ Read this before doing anything. It covers where Phase 0 stands, what is left in
 
 **Formally deferred, not Phase 0 work (the owner's decision, 2026-10-23):** BullMQ and Storybook (Phase 1), and resource scopes (Phases 2, 4 and 7).
 
-**Open, not blocking:**
-- **Dependabot alerts #42 and #43** (`@vitest/mocker`, moderate) are still open, though the lockfile resolves only the patched 4.1.12. Recheck them. Dismissing them is the owner's call, never ours.
-- **The migrate job's five PostgreSQL URLs say `sslmode=require`** (`tools/stack/src/render.ts`, `migrate.env`), while every other URL in the stack says `verify-full`. Nothing there says why. Every deploy prints the `pg` driver's warning: today it treats `require` as `verify-full`, but its next major version gives it the weaker libpq meaning, which doesn't verify the certificate.
-  - **Investigate first.** The likely reason is Prisma's migrate engine: it doesn't read `NODE_EXTRA_CA_CERTS`, and it needs `sslrootcert` for `verify-full`. If so, the migrations may already connect without verifying PostgreSQL's certificate.
-  - **Then fix it:** each connection verifies the certificate (`verify-full`, with `sslrootcert=/ca/ca.crt` where Prisma needs it). Add a test that every rendered URL verifies, and a comment saying why.
-- **Third-party image findings at deploy** (D8, reported, not blocking): CRITICAL 2 in postgres and 3 in mailpit, from scans of 2026-10-20. Review them, and refresh the scans, as part of Phase 0's closure.
+**Open, not blocking (rechecked 2026-10-24):**
+- **Dependency advisories.**
+  - `pnpm audit` finds no advisory against `@vitest/mocker` 4.1.12, the only version the lockfile resolves. Dependabot alerts #42 and #43 are closed: GitHub shows both as fixed (checked by the owner, 2026-10-24).
+  - The same audit found newer advisories, now fixed on this branch: nodemailer 10.0.11 to 10.1.7 (3 moderate, in the API's mailer), and fast-uri 3.1.8 to 3.1.9 and 4.2.1 to 4.2.3 (moderate and low, under fastify's ajv), through overrides like the existing ones. Every version respects the 3-day release age. `pnpm audit` now reports none.
+- **The migrate job's TLS: fixed on this branch.** Spec 0019, "Fix: the migrate job verifies PostgreSQL".
+  - The investigation measured it: Prisma's schema engine didn't verify PostgreSQL's certificate with `sslmode=require` (it accepted a self-signed one), and it ignores `verify-full`.
+  - The job's URLs are now `verify-full` with `sslrootcert`, and the image's Prisma configs translate them into the only form the engine verifies with. Production refuses any URL that doesn't verify.
+  - It reaches the stack with the next release.
+- **Third-party images: re-scanned 2026-10-24** (Trivy 0.75.0, the deploy's version, from the registry). Both are still CRITICAL 2 and 3, as on 2026-10-20.
+  - **postgres** (pinned digest; HIGH 86). The 2 CRITICALs:
+    - libxml2 CVE-2026-6653, a denial of service from crafted XML. Debian 13 has no fix yet. Reaching it needs SQL access to PostgreSQL's XML functions, which the app doesn't use, on the internal `db` network.
+    - Go's crypto/tls CVE-2025-68121, in `gosu`. It is only the entrypoint's privilege drop, and makes no TLS connection.
+    - Today's `postgres:18` build has the same two, so there's nothing to move to yet. Recheck when Debian ships the libxml2 fix.
+  - **mailpit** v1.27 (HIGH 72). The 3 CRITICALs:
+    - OpenSSL CVE-2026-31789, twice (libcrypto3 and libssl3), which affects 32-bit systems only;
+    - Go's crypto/tls CVE-2025-68121. Mailpit's own TLS is unused: SMTP is plaintext on the internal network, and Caddy terminates its UI's TLS.
+    - **Moved to mailpit v1.32.0** (owner's decision, 2026-10-24), pinned `sha256:0790692be935ea4420d085694f7985b1f692ca6a8771ab0e0bd8ba75ac180498`: it scans with CRITICAL 0 and HIGH 0. The stack, dev compose and CI's E2E services all use it. Checked before moving:
+      - **The API the E2E reads is unchanged:** `GET /api/v1/search` returns `messages[].ID` and `Created`, and `GET /api/v1/message/{id}` returns `Text`.
+      - **The runtime is unchanged:** the same entrypoint, user, ports and `readyz` healthcheck.
+      - **`--allowed-hosts` (v1.31.1) is off unless set,** so Caddy's `mail.` host still reaches it.
+      - **The changelog from v1.28 to v1.32** lists security fixes, limits (50 MB a message, 1000 connections) and features, and no removed or renamed API.
+      - **Not yet seen:** its memory under the stack's 64 MB limit (no Docker here). The owner's next deploy will show it.
+  - The 158 HIGH findings haven't been reviewed one by one. That is still part of Phase 0's closure.
 
 ## What only the owner does (the cloud session gives exact commands)
 
