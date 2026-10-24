@@ -41,7 +41,7 @@ export type VaultState = 'absent' | 'uninitialised' | 'sealed' | 'ready';
 const vaultFile = (dir = STACK_DIR) => join(dir, 'vault-init.json');
 
 /** The CLI's view of its own listener: over TLS, the stack CA and the certificate's name; otherwise plain loopback. */
-const cliEnv = (t: VaultTarget) =>
+export const cliEnv = (t: VaultTarget) =>
   t.tls ? ['-e', 'VAULT_ADDR=https://127.0.0.1:8200', '-e', 'VAULT_CACERT=/vault/tls/ca.crt', '-e', 'VAULT_TLS_SERVER_NAME=vault'] : ['-e', 'VAULT_ADDR=http://127.0.0.1:8200'];
 
 /** `vault <args>` inside the container, against its own listener; `env` values reach it by name only. */

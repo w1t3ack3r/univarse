@@ -2,7 +2,7 @@
   "name": "@univarse/stack",
   "version": "0.0.0",
   "private": true,
-  "description": "The local production-like stack (spec 0019, ADR-030): secrets and certificates (stack:init), the verified deploy (stack:deploy), Vault (stack:vault), the smoke check, the edge CA's trust step (stack:trust), PgBouncer's pools (stack:pools), and the E2E and isolation runs over a temporary loopback tunnel (stack:e2e, stack:isolation), and the shred ledger with its destruction protocol (stack:keys, spec 0020) and its bucket copy's check (stack:bucket-check). Runs the verified images by digest only.",
+  "description": "The local production-like stack (spec 0019, ADR-030): secrets and certificates (stack:init), the verified deploy (stack:deploy), Vault (stack:vault), the smoke check, the edge CA's trust step (stack:trust), PgBouncer's pools (stack:pools), and the E2E and isolation runs over a temporary loopback tunnel (stack:e2e, stack:isolation), and the shred ledger with its destruction protocol (stack:keys, spec 0020) and its bucket copy's check (stack:bucket-check), and the sealed backups (stack:backup, spec 0020 PR B). Runs the verified images by digest only.",
   "type": "module",
   "scripts": {
     "init": "tsx src/init.ts",
@@ -21,7 +21,8 @@
     "test": "vitest run",
     "test:ledger": "vitest run --config vitest.ledger.config.ts",
     "test:bucket": "vitest run --config vitest.bucket.config.ts",
-    "test:vault": "vitest run --config vitest.vault.config.ts"
+    "test:vault": "vitest run --config vitest.vault.config.ts",
+    "backup": "tsx src/backup/cli.ts"
   },
   "devDependencies": {
     "@aws-sdk/client-s3": "^3.1146.0",
