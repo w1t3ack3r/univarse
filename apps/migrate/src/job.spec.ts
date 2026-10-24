@@ -11,6 +11,8 @@ const ENV: JobEnv = {
   TENANT_POOL_01_DATABASE_URL: `postgresql://univarse_app:${SECRET}@postgres:5432/univarse_pool_01`,
   SEED_DOMAIN: 'stack.univarse.localhost',
 };
+/** ENV as the stack renders it: every URL verifies PostgreSQL against the stack CA (D7). */
+const VERIFIED: JobEnv = Object.fromEntries(Object.entries(ENV).map(([k, v]) => [k, k.endsWith('_URL') ? `${v ?? ''}?sslmode=verify-full&sslrootcert=/ca/ca.crt` : v]));
 const WITH_BOOTSTRAP: JobEnv = {
   ...ENV,
   BOOTSTRAP_SUPERUSER_URL: `postgresql://postgres:${SECRET}@postgres:5432/postgres`,
@@ -84,13 +86,33 @@ describe('[LS4] the migrate job', () => {
   });
 
   it('[LS8] in production a plaintext VAULT_ADDR stops the job before any step (spec 0019 C1); https and development pass', async () => {
-    const plain = { ...ENV, NODE_ENV: 'production', KEY_PROVIDER: 'vault', VAULT_ADDR: 'http://127.0.0.1:8200' };
+    const plain = { ...VERIFIED, NODE_ENV: 'production', KEY_PROVIDER: 'vault', VAULT_ADDR: 'http://127.0.0.1:8200' };
     expect(envProblems(plain)).toEqual([expect.stringMatching(/VAULT_ADDR must be https:\/\/ in production/)]);
     const { steps, calls } = recorder();
     await expect(runJob(plain, steps)).rejects.toThrow(/VAULT_ADDR must be https/);
     expect(calls).toEqual([]);
     expect(envProblems({ ...plain, VAULT_ADDR: 'https://vault:8200' })).toEqual([]);
     expect(envProblems({ ...plain, NODE_ENV: 'development' })).toEqual([]);
+  });
+
+  it('[D7] in production every URL must verify PostgreSQL (verify-full with sslrootcert), refused before any step, naming no value', async () => {
+    const prod = { ...VERIFIED, NODE_ENV: 'production', KEY_PROVIDER: 'vault', VAULT_ADDR: 'https://vault:8200' };
+    expect(envProblems(prod)).toEqual([]);
+    for (const k of ['PLATFORM_MIGRATOR_URL', 'TENANT_POOL_01_MIGRATOR_URL', 'PLATFORM_DATABASE_URL', 'TENANT_POOL_01_DATABASE_URL']) {
+      const base = ENV[k] ?? '';
+      for (const weak of [base, `${base}?sslmode=require`, `${base}?sslmode=verify-full`, `${base}?sslmode=verify-ca&sslrootcert=/ca/ca.crt`]) {
+        const problems = envProblems({ ...prod, [k]: weak });
+        expect(problems).toEqual([`${k} must say sslmode=verify-full with sslrootcert in production`]);
+        expect(problems.join('\n')).not.toContain(SECRET);
+      }
+    }
+    const bootstrapPlain = { ...prod, ...Object.fromEntries(BOOTSTRAP.map((k) => [k, WITH_BOOTSTRAP[k]])) };
+    expect(envProblems(bootstrapPlain)).toEqual(['BOOTSTRAP_SUPERUSER_URL must say sslmode=verify-full with sslrootcert in production']);
+    const { steps, calls } = recorder();
+    await expect(runJob({ ...prod, PLATFORM_MIGRATOR_URL: ENV.PLATFORM_MIGRATOR_URL }, steps)).rejects.toThrow(/PLATFORM_MIGRATOR_URL must say sslmode=verify-full/);
+    expect(calls).toEqual([]);
+    // Outside production (the image's smoke, against a disposable plaintext database) a URL without TLS settings passes.
+    expect(envProblems({ ...ENV, NODE_ENV: 'test' })).toEqual([]);
   });
 
   it('[B-14] --check-only checks both migration statuses and rls:check, and changes nothing, even given the bootstrap', async () => {

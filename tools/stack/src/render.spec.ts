@@ -13,14 +13,25 @@ const env = (name: string) => files[name] ?? {};
 const masked = (u = '') => u.replace(/\/\/([^:/]+):[^@]+@/, '//$1:***@');
 
 describe('[LS5] the database path', () => {
-  it('[LS5] the API and worker reach PostgreSQL only through PgBouncer, verifying TLS (verify-full); the migrate job goes direct (PB8), with `require` for the Prisma schema engine', () => {
+  it("[LS5] the API and worker reach PostgreSQL only through PgBouncer, verifying TLS (verify-full); the migrate job goes direct (PB8), verifying too, with the CA named for Prisma's schema engine (D7)", () => {
     for (const f of ['api.env', 'worker.env'])
       for (const k of ['PLATFORM_DATABASE_URL', 'TENANT_POOL_01_DATABASE_URL']) {
         expect([f, k, masked(env(f)[k])]).toEqual([f, k, expect.stringMatching(/^postgresql:\/\/\w+:\*\*\*@pgbouncer:6432\/univarse_\w+\?sslmode=verify-full$/)]);
       }
     for (const [k, val] of Object.entries(env('migrate.env')).filter(([key]) => key.endsWith('_URL')))
-      expect([k, masked(val)]).toEqual([k, expect.stringMatching(/^postgresql:\/\/\w+:\*\*\*@postgres:5432\/\w+\?sslmode=require$/)]);
+      expect([k, masked(val)]).toEqual([k, expect.stringMatching(/^postgresql:\/\/\w+:\*\*\*@postgres:5432\/\w+\?sslmode=verify-full&sslrootcert=\/ca\/ca\.crt$/)]);
     for (const f of ['api.env', 'worker.env', 'migrate.env']) expect(env(f).NODE_EXTRA_CA_CERTS).toBe('/ca/ca.crt');
+  });
+
+  it('[D7] every database URL in every env file verifies its server, so a URL added later cannot skip it', () => {
+    const urls = Object.entries(files).flatMap(([f, e]) => Object.entries(e).filter(([, val]) => val.startsWith('postgresql://')).map(([k, val]) => [f, k, val] as const));
+    expect(urls.length).toBeGreaterThanOrEqual(12);
+    for (const [f, k, val] of urls) {
+      const q = new URL(val).searchParams;
+      expect([f, k, q.get('sslmode')]).toEqual([f, k, 'verify-full']);
+      // Direct to PostgreSQL means the migrate job, whose Prisma engine needs the CA named in the URL.
+      if (new URL(val).host === 'postgres:5432') expect([f, k, q.get('sslrootcert')]).toEqual([f, k, '/ca/ca.crt']);
+    }
   });
 
   it('[LS5] PgBouncer requires TLS from clients and verifies PostgreSQL against the stack CA, in transaction pooling', () => {

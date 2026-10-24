@@ -35,13 +35,14 @@ const PG = 'postgres:5432';
 const BOUNCER = 'pgbouncer:6432';
 const enc = encodeURIComponent;
 /**
- * Every database connection verifies its server against the stack CA (D7). The API and worker connect with
- * node-postgres, so they say `verify-full`. The migrate job's URLs are also read by Prisma's schema engine, which
- * accepts `require` (encrypted, not verified); node-postgres treats `require` as verify-full until its next major
- * version, so the job's own pg connections stay verified. That limit is stated in spec 0019's notes.
+ * Every database connection verifies its server against the stack CA (D7), as `sslmode=verify-full`. The API and
+ * worker trust the CA through NODE_EXTRA_CA_CERTS. The migrate job's URLs, direct to PostgreSQL, also name the CA in
+ * `sslrootcert`: its migrations run in Prisma's schema engine, which reads neither NODE_EXTRA_CA_CERTS nor
+ * `verify-full`, and the job's Prisma configs turn this form into the one the engine verifies with (apps/migrate
+ * src/tls.ts, measured in spec 0019's notes).
  */
-const url = (user: string, password: string, at: string, db: string, sslmode: 'verify-full' | 'require' = 'verify-full') =>
-  `postgresql://${user}:${enc(password)}@${at}/${db}?sslmode=${sslmode}`;
+const url = (user: string, password: string, at: string, db: string) => `postgresql://${user}:${enc(password)}@${at}/${db}?sslmode=verify-full`;
+const direct = (user: string, password: string, db: string) => `${url(user, password, PG, db)}&sslrootcert=/ca/ca.crt`;
 export const dbUrl = url;
 
 /** The settings every API and worker process shares. */
@@ -113,16 +114,16 @@ export function renderEnvFiles(s: StackSecrets, v: VaultTokens): Readonly<Record
     'migrate.env': {
       NODE_ENV: 'production',
       NODE_EXTRA_CA_CERTS: '/ca/ca.crt',
-      BOOTSTRAP_SUPERUSER_URL: url('postgres', s.postgresSuperuser, PG, 'postgres', 'require'),
+      BOOTSTRAP_SUPERUSER_URL: direct('postgres', s.postgresSuperuser, 'postgres'),
       ROLE_VERIFIER_MIGRATOR: s.verifiers.migrator,
       ROLE_VERIFIER_APP: s.verifiers.app,
       ROLE_VERIFIER_APP_PLATFORM: s.verifiers.appPlatform,
       ROLE_VERIFIER_RELAY_PLATFORM: s.verifiers.relayPlatform,
       ROLE_VERIFIER_BACKUP: s.backupVerifier,
-      PLATFORM_MIGRATOR_URL: url('univarse_migrator', s.roles.migrator, PG, 'univarse_platform', 'require'),
-      TENANT_POOL_01_MIGRATOR_URL: url('univarse_migrator', s.roles.migrator, PG, 'univarse_pool_01', 'require'),
-      PLATFORM_DATABASE_URL: url('univarse_app_platform', s.roles.appPlatform, PG, 'univarse_platform', 'require'),
-      TENANT_POOL_01_DATABASE_URL: url('univarse_app', s.roles.app, PG, 'univarse_pool_01', 'require'),
+      PLATFORM_MIGRATOR_URL: direct('univarse_migrator', s.roles.migrator, 'univarse_platform'),
+      TENANT_POOL_01_MIGRATOR_URL: direct('univarse_migrator', s.roles.migrator, 'univarse_pool_01'),
+      PLATFORM_DATABASE_URL: direct('univarse_app_platform', s.roles.appPlatform, 'univarse_platform'),
+      TENANT_POOL_01_DATABASE_URL: direct('univarse_app', s.roles.app, 'univarse_pool_01'),
       SEED_DOMAIN: STACK_DOMAIN,
       KEY_PROVIDER: 'vault',
       VAULT_ADDR: 'https://vault:8200', // C2: TLS only, verified against the stack CA (NODE_EXTRA_CA_CERTS)
