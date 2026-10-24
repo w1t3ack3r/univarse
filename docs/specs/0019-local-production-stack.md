@@ -79,7 +79,7 @@ And two closures ride on it: PgBouncer in the deployed path (ADR-015) and ADR-01
 
 - `infra/stack/compose.yml`: the stack. No UniVarse image is named in it: the deploy passes the four verified references to compose as `UNIVARSE_API_IMAGE`, `UNIVARSE_WEB_IMAGE`, `UNIVARSE_MIGRATE_IMAGE` and `UNIVARSE_PGBOUNCER_IMAGE`, and compose refuses to start without them.
 - `infra/stack/caddy/Caddyfile`, `infra/stack/vault/stack.hcl`. PgBouncer's configuration, PostgreSQL's `pg_hba.conf`, Valkey's and SeaweedFS's are rendered by the deploy into `~/.univarse/stack/rendered/` and copied into owner-only volumes; nothing secret is in the repository.
-- `tools/stack/src/` (TypeScript, run with `tsx`): `init.ts` (`pnpm stack:init [--rotate]`), `deploy.ts` and `deploy-deps.ts` (`pnpm stack:deploy`), `vault.ts` (`pnpm stack:vault status|init|unseal`), `smoke.ts` (`pnpm stack:smoke`), `down.ts` (`pnpm stack:down`, keeps volumes), with `render.ts`, `secrets.ts`, `certs.ts` and `volumes.ts`.
+- `tools/stack/src/` (TypeScript, run with `tsx`): `init.ts` (`pnpm stack:init [--rotate]`), `deploy.ts` and `deploy-deps.ts` (`pnpm stack:deploy`), `vault.ts` (`pnpm stack:vault status|init|unseal`; since spec 0020 B1 the command's entry point is `vault-cli.ts`, which adds `migrate-raft`), `smoke.ts` (`pnpm stack:smoke`), `down.ts` (`pnpm stack:down`, keeps volumes), with `render.ts`, `secrets.ts`, `certs.ts` and `volumes.ts`.
 - `infra/docker/migrate.Dockerfile`: the fourth role (PR A1).
 
 **Networks** (as built).
@@ -108,7 +108,7 @@ Only Caddy is on `edge`. It reaches the API and web over `app`. The web app's se
 
 **The `migrate` image.** Built from the same lockfile; runs as UID 65532 with a read-only root; its command is fixed (`migrate-and-seed`), with the domain (`SEED_DOMAIN=stack.univarse.localhost`) and connection strings from its env file. `rls:check` runs inside it after migrating, and its failure fails the job.
 
-**Vault (PR C).** Single node, file storage on its own volume, TLS listener, `disable_mlock` as in dev (stated), the file audit device on a second volume. `stack:vault init` initialises once (one unseal share, like dev), stores the share and root token in `~/.univarse/stack/vault-init.json` owner-only, enables Transit and the KEK, and writes a least-privilege app token for the API and worker.
+**Vault (PR C).** Single node, file storage on its own volume, TLS listener, `disable_mlock` as in dev (stated), the file audit device on a second volume. (Since spec 0020 B1, Vault uses integrated Raft storage on its own volume, and a stack on file storage is migrated once: see [spec 0020](0020-local-backups-and-shred-ledger.md) B-4.) `stack:vault init` initialises once (one unseal share, like dev), stores the share and root token in `~/.univarse/stack/vault-init.json` owner-only, enables Transit and the KEK, and writes a least-privilege app token for the API and worker.
 
 ## Implementation notes (PR A1)
 
@@ -396,5 +396,5 @@ Only Caddy is on `edge`. It reaches the API and web over `app`. The web app's se
 - **Backups and restore, and the shred ledger** (item 7.5): the next spec.
 - **LAN access for phones** (D5).
 - **TLS for Valkey, SeaweedFS, ClamAV and Mailpit** (D7).
-- **High availability, auto-unseal, Raft:** single node, manual unseal, stated.
+- **High availability, auto-unseal:** single node, manual unseal, stated. (Raft storage came later, single node, with spec 0020 B1.)
 - **Blocking on third-party image findings** (D8), unless the owner decides otherwise.

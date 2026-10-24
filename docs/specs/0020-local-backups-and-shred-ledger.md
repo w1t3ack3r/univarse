@@ -12,7 +12,7 @@
 - **Revision 6** removes `ledger accept`. The owner's commands are either **guarantee-preserving** (`rebuild-destination`, `remove-destination`, allowed only from a readable configured destination's own copy) or an **explicit waiver** of the guarantee (`ledger waive`). Nothing can promote a backup set's or the bucket's copy. BK16 is rewritten with its permitted and rejected cases; BK17 covers the waiver. The owner reviewed it on 2026-10-22: approved; one clarification asked for: how the waiver starts a new generation when no destination is readable.
 - **Revision 7** defines that bootstrap: the owner names the new generation's destinations, its `genesis` must be durable and verified on all of them before anything changes, and the old history is never claimed complete. It makes "durable" mean written, `fsync`ed and read back verified, throughout D7. BK17 gains the cases. The owner reviewed it on 2026-10-22: approved; one addition asked for: crash injection for the waiver protocol itself.
 - **Revision 8** gives the waiver explicit phases (W1–W4) with one point at which a generation becomes authoritative, makes each phase recoverable or inert, and adds BK17's crash cases.
-- **PR B1** is built (2026-10-24): see "Implementation notes (PR B1)", with 18 decisions made while building for the owner's approval.
+- **PR B1** is merged (#103, then #104 with the fixes the owner's run found) and running on the owner's stack since 2026-10-24: Vault on Raft, and the first sealed set. Its 18 decisions made while building are recorded as approved by the owner's go-ahead to merge #103 (2026-10-24). See "Implementation notes (PR B1)". **PR B2** (the rehearsed restore and the shred drill) is next.
 - **PR B's plan** (B-1 to B-17, below) was **approved by the owner on 2026-10-24, all as written**: the B1/B2 split with pruning, BK14's fourth case, D7's external-drive rule and every image subcommand moved into B1, and the amendments to D3, D5 and D9 made above.
 
 **Phase:** 0. Roadmap item **7.5** under [ADR-030](../19-decision-log.md): local backups with a rehearsed restore, and the shred ledger. It is the last local-stack requirement before Phase 0 can close.
@@ -532,11 +532,11 @@ D3 says `archive_command` writes each segment "to the backup destination's WAL a
   - a test covers it, and it is a BK10 mutation.
 - **`pnpm stack:vault migrate-raft`** (the owner, once):
   1. stop Vault;
-  2. run `vault operator migrate` in a one-shot container, with `vault-data` read-only and `vault-raft` writable;
+  2. run `vault operator migrate` in a one-shot container, with `vault-data` read-only and `vault-raft` writable (as built, it migrates from a scratch copy of `vault-data`, because the migration writes a lock into its source: B1 decision 13);
   3. start Vault on Raft. The owner unseals with the **same** unseal key: the migration keeps the barrier keyring;
   4. verify that every active DEK unwraps (the keys job's `verify-unwrap`, B-14). Only then is the migration recorded.
 
-  If verification fails, `pnpm stack:vault migrate-raft --revert` puts the file storage back. `vault-data` was never written.
+  If verification fails, `pnpm stack:vault migrate-raft --revert` puts the file storage back. `vault-data` was never written. (As built there is no `--revert`: nothing is recorded, the file storage was never written, and running the command again starts over. B1 decision 13.)
 - **The snapshot's token:** a new policy, `univarse-backup`, with `read` on `sys/storage/raft/snapshot` only. Its token sits in `vault-init.json`, beside the app's, so the backup never uses the root token.
 
 **Alternative:** have the backup use the root token. That is simpler, but a scheduled task would then hold root on Vault. Rejected.
@@ -871,11 +871,25 @@ Eight survived the first run:
 
 **Found on the owner's machine (2026-10-24, the first `pnpm stack:backup`):** the set completed (exit 0), but every line printed twice, the same fault as `migrate-raft`. Both CLIs now use `print.ts`'s `printer`, which prints each line as it comes and leaves only the outcome to print at the end. Sizes printed as "0.0 MB" for the Vault snapshot and the small tars, which reads like an empty artifact. They now print in B, KB or MB (`size`). Covered by `print.spec.ts`, `backup/size.spec.ts` and an assertion in `backup.spec.ts`; 8 mutations, all killed.
 
+**The owner's run (2026-10-24, release `2026-10-24-00baee7`):**
+- **The backup key:** generated offline. Its public key was committed by the owner (`baac586`), and merged with #104. Fingerprint `sha256:90c83219d8d23b1598dd2b867ebb836ef158b3c47991e99d9ab0c66a2571d84e`.
+- **The first deploy** refused on the file-storage Vault, as intended.
+- **`migrate-raft`,** after the two fixes above: the KEK at version 1 was identical, the probe decrypted with the app token, and `keys verify-unwrap` reported 3 of 3 data keys. The migration was recorded in `vault-raft.json`. `univarse-stack_vault-data` is kept, untouched.
+- **The deploy** then passed.
+- **The first set,** `20261024T161305Z-e2bd`, took 16 s and exited 0.
+  - 4 WAL segments were shipped first, through `000000010000000000000005`.
+  - `postgres.tar` was 58.3 MB. The other four artifacts, then printed as "0.0 MB", are small (the fix above).
+  - 6 sealed files: 5 artifacts and the manifest.
+  - The ledger is at seq 2, and the set needs WAL from `000000010000000000000006`.
+  - Pruning then removed the 4 shipped segments, which no kept set needs.
+- **Not yet rehearsed:** no restore has been tried; that is B2.
+- **`--commit` takes the full 40-character SHA.** A short one is refused as a different commit. That is correct, but the owner's first try used a short one.
+
 **Found in the final review:** `vaultStorage` checked the volumes as root with every capability dropped. Root without `CAP_DAC_OVERRIDE` can't search the vault user's 0700 directories, so a migrated stack would have read as unmigrated. It now checks as the vault user, with a test and a mutation. CI's `test:backup` exercises the real case.
 
 **Not run here:** the API's and stack's integration suites (no Docker daemon or Vault in this environment; CI runs them), and two existing `tools/stack` unit files that need a Docker daemon (`audit-failclosed.spec.ts`, `certs.spec.ts`), unchanged by B1.
 
-**The owner's steps after B1 merges** (B-17):
+**The owner's steps after B1 merges** (B-17). All done on 2026-10-24; "The owner's run" below has the results.
 1. **Generate the backup key.** Set `UNIVARSE_BACKUP_KEY_PASSPHRASE`, run `pnpm stack:backup keygen --out <offline path>`, keep a second copy, and commit `infra/backup/backup.pub` (a small PR).
 2. **Release and deploy.** Run `pnpm images:release`, then `pnpm stack:deploy releases/<record>.json`. It refuses on the old Vault, as intended.
 3. **Migrate Vault.** Run `pnpm stack:vault migrate-raft releases/<record>.json` (it unseals with the existing key), then deploy again.

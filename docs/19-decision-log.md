@@ -483,7 +483,7 @@ Alternatives considered: option — why not.
 ## ADR-032 — Local backups sealed to an offline key, Vault on Raft, and a two-phase destruction protocol with a durable ledger outside the stack
 **Status:** Accepted (2026-10-22) with [spec 0020](specs/0020-local-backups-and-shred-ledger.md) revision 8; PR B's plan (B-1 to B-17) approved on 2026-10-24. **Implemented:**
 - PR A, the destruction protocol, its ledger and the waiver (A1 #90, A2 #91, A3 #96);
-- PR B1, the backups: Vault on Raft, WAL archiving, sealed sets.
+- PR B1, the backups: Vault on Raft, WAL archiving, sealed sets (#103, #104). Running on the owner's stack since 2026-10-24.
 
 PR B2 (the rehearsed restore and the shred drill) remains. The evidence is in the spec's implementation notes.
 
