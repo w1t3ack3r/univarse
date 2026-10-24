@@ -68,14 +68,16 @@ describe('[B-2] the stack\'s archive_command on its own PostgreSQL 18', () => {
     psql('CREATE TABLE t (x int); INSERT INTO t VALUES (1)');
     const segment = psql('SELECT pg_walfile_name(pg_current_wal_lsn())');
     psql('SELECT pg_switch_wal()');
+    // The segment's own name exactly (the last field of `ls -l`): while it is copied it is `<segment>.part`, which
+    // merely contains the name (CI caught a wait that stopped there).
+    const finished = (listing: string) => listing.split('\n').find((l) => l.split(/\s+/).at(-1) === segment);
     let listed = '';
-    for (let i = 0; i < 60 && !listed.includes(segment); i++) {
+    for (let i = 0; i < 60 && !finished(listed); i++) {
       listed = docker(['exec', container, 'ls', '-l', '/wal-staging']).stdout;
-      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 500);
+      if (!finished(listed)) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 500);
     }
-    const line = listed.split('\n').find((l) => l.endsWith(segment)) ?? '';
-    expect(line).toMatch(/ 16777216 /);
-    expect(listed).not.toMatch(/\.part/);
+    expect(finished(listed) ?? '').toMatch(/ 16777216 /);
+    expect(listed).not.toContain(`${segment}.part`);
     expect(STAGED.test(segment)).toBe(true);
     expect(psql('SELECT failed_count FROM pg_stat_archiver')).toBe('0');
   });

@@ -853,7 +853,11 @@ Eight survived the first run:
 **Found in CI (the first runs on #103):**
 - `backup-facts`' count query resolved `public.pg_statistic` (decision 15 now says why it reads `pg_class` by OID).
 - `vault operator migrate` refused a read-only source: it writes a migration lock there. That was reproduced here with the 2.1.1 binary as a non-root user ("error setting migration lock: permission denied"). The migration now reads a scratch copy. That was also proven here: success, with the original byte-identical.
-- Two test-only problems: the Vault test's configs weren't readable by the vault user, and the PostgreSQL test checked readiness against the image's temporary setup server.
+- Three test-only problems:
+  - the Vault test's configs weren't readable by the vault user;
+  - the PostgreSQL test checked readiness against the image's temporary setup server;
+  - its wait stopped at a segment's `.part` copy, which merely contains the segment's name.
+- On `9184ab0`, the Vault migration passed in CI against the pinned image: every wrapped key unwrapped, the KEK was identical, the file storage's digest was unchanged, and the backup token snapshotted and was refused everything else.
 
 **Found in the final review:** `vaultStorage` checked the volumes as root with every capability dropped. Root without `CAP_DAC_OVERRIDE` can't search the vault user's 0700 directories, so a migrated stack would have read as unmigrated. It now checks as the vault user, with a test and a mutation. CI's `test:backup` exercises the real case.
 
