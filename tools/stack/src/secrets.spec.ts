@@ -53,6 +53,18 @@ describe('[LS9] the secrets', () => {
     expect(ownerOnlyProblems(secretsFile(dir))).toEqual([]);
   });
 
+  it('[B-3] a file from before PR B1 gains only the backup role\'s password and its matching verifier; every other secret is kept', async () => {
+    const { backupPassword: _p, backupVerifier: _v, ...before } = generateSecrets();
+    const { writeOwnerOnly, scramVerifier } = await import('../../../packages/db/scripts/pgbouncer-config.js');
+    writeOwnerOnly(secretsFile(dir), `${JSON.stringify(before)}\n`);
+    expect(saveSecrets(generateSecrets(), { dir })).toBe('upgraded');
+    const { backupPassword, backupVerifier, ...rest } = loadSecrets(dir);
+    expect(rest).toEqual(before);
+    expect(backupPassword).toMatch(/^[0-9a-f]{48}$/);
+    const [, iter, salt] = /^SCRAM-SHA-256\$(\d+):([^$]+)\$/.exec(backupVerifier) ?? [];
+    expect(scramVerifier(backupPassword, Buffer.from(salt ?? '', 'base64'), Number(iter))).toBe(backupVerifier);
+  });
+
   it('[LS9] the stack directory itself is owner-only', async () => {
     const { ownerOnlyDirProblems } = await import('../../../packages/db/scripts/pgbouncer-config.js');
     expect(ownerOnlyDirProblems(dir)).toEqual([]);
