@@ -869,6 +869,8 @@ Eight survived the first run:
 
 `vault.spec.ts` and `vault-raft-cli.spec.ts` cover these. 10 mutations, all killed. The env-file rewrite inside `migrate-raft` needs Docker, so the owner's rerun is its check.
 
+**Found on the owner's machine (2026-10-24, the first `pnpm stack:backup`):** the set completed (exit 0), but every line printed twice, the same fault as `migrate-raft`. Both CLIs now use `print.ts`'s `printer`, which prints each line as it comes and leaves only the outcome to print at the end. Sizes printed as "0.0 MB" for the Vault snapshot and the small tars, which reads like an empty artifact. They now print in B, KB or MB (`size`). Covered by `print.spec.ts`, `backup/size.spec.ts` and an assertion in `backup.spec.ts`; 8 mutations, all killed.
+
 **Found in the final review:** `vaultStorage` checked the volumes as root with every capability dropped. Root without `CAP_DAC_OVERRIDE` can't search the vault user's 0700 directories, so a migrated stack would have read as unmigrated. It now checks as the vault user, with a test and a mutation. CI's `test:backup` exercises the real case.
 
 **Not run here:** the API's and stack's integration suites (no Docker daemon or Vault in this environment; CI runs them), and two existing `tools/stack` unit files that need a Docker daemon (`audit-failclosed.spec.ts`, `certs.spec.ts`), unchanged by B1.

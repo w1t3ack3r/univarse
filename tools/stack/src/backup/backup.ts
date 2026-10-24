@@ -48,7 +48,8 @@ export interface BackupResult {
   readonly lines: string[];
 }
 
-const mb = (n: number) => `${(n / 1024 / 1024).toFixed(1)} MB`;
+/** A size the owner can read at any scale: a few-KB Vault snapshot showed as "0.0 MB", like an empty one. */
+export const size = (n: number) => (n < 1024 ? `${String(n)} B` : n < 1024 * 1024 ? `${(n / 1024).toFixed(1)} KB` : `${(n / 1024 / 1024).toFixed(1)} MB`);
 
 export async function takeBackup(deps: BackupDeps): Promise<BackupResult> {
   const lines: string[] = [];
@@ -72,7 +73,7 @@ export async function takeBackup(deps: BackupDeps): Promise<BackupResult> {
 
     const started = deps.now();
     const set = new SetWriter(destination, newSetId(started), key, deps.fs ?? realSetFs);
-    const done = (r: ArtifactRecord) => say(`${r.name}: ${mb(r.plainSize)} sealed`);
+    const done = (r: ArtifactRecord) => say(`${r.name}: ${size(r.plainSize)} sealed`);
     const base = deps.baseBackup();
     done(await set.add('postgres.tar', base.stream));
     const start = base.start();

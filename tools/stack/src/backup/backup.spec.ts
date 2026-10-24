@@ -102,6 +102,8 @@ describe('takeBackup', () => {
     // BK3/BK9: no secret in clear on disk, nor in what the command says.
     for (const name of readdirSync(dir)) expect([name, readFileSync(join(dir, name)).includes(SECRET)]).toEqual([name, false]);
     expect(r.lines.join('\n')).not.toContain(SECRET);
+    // A small artifact reads as its size, not "0.0 MB" like an empty one.
+    expect(r.lines).toContain('vault.snap.seal: 13 B sealed');
   });
 
   const refusals: [string, Partial<BackupDeps>, RegExp][] = [

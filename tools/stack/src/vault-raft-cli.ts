@@ -11,6 +11,7 @@ import { docker } from './docker.js';
 import { composeRunner } from './ledger/job.js';
 import { acquireRegistryLock, verifyRelease, type ReleaseRecord } from './release.js';
 import { STACK_VAULT } from './vault.js';
+import { printer } from './print.js';
 import { migrateRaft } from './vault-raft.js';
 import { ensureDataVolumes } from './volumes.js';
 
@@ -26,22 +27,15 @@ export function verifyUnwrapLines(j: { status: number | null; stdout: string; st
   return { ok: false, lines: [...tail(j.stdout), ...tail(j.stderr), why] };
 }
 
-/**
- * Runs `step` with a log that prints each line as it comes, and returns only the lines after those (the outcome): the
- * step's result repeats what it logged, and vault-cli prints the result, so the owner read every line twice.
- */
+/** Runs `step` with a log that prints each line as it comes, and returns only the lines after those (its outcome). */
 export function printedAsItGoes(
   step: (log: (l: string) => void) => { ok: boolean; lines: string[] },
   print: (l: string) => void = (l) => {
     console.log(`[stack:vault] ${l}`);
   },
 ): { ok: boolean; lines: string[] } {
-  let printed = 0;
-  const r = step((l) => {
-    printed += 1;
-    print(l);
-  });
-  return { ok: r.ok, lines: r.lines.slice(printed) };
+  const p = printer(print);
+  return p.unprinted(step(p.log));
 }
 
 export function migrateRaftCli(argv: readonly string[]): { ok: boolean; lines: string[] } {

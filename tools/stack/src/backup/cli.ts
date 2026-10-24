@@ -9,6 +9,7 @@ import { pathToFileURL } from 'node:url';
 import { PRIMARY } from '../keys.js';
 import { establishAuthority } from '../ledger/ledger.js';
 import { RELEASES } from '../config.js';
+import { printer } from '../print.js';
 import { acquireRegistryLock } from '../release.js';
 import { takeBackup } from './backup.js';
 import { loadSettings, saveSettings } from './config.js';
@@ -22,7 +23,12 @@ const here = (p: string) => resolve(process.env.INIT_CWD ?? process.cwd(), p);
 
 export async function main(argv: readonly string[]): Promise<{ ok: boolean; lines: string[] }> {
   const [cmd, ...rest] = argv;
-  if (cmd === undefined) return takeBackup(realBackupDeps());
+  if (cmd === undefined) {
+    const p = printer((l) => {
+      console.log(`[stack:backup] ${l}`);
+    });
+    return p.unprinted(await takeBackup({ ...realBackupDeps(), log: p.log }));
+  }
   if (cmd === 'keygen') {
     if (rest.length !== 2 || rest[0] !== '--out') return { ok: false, lines: [USAGE] };
     return keygen(here(rest[1] ?? ''));
