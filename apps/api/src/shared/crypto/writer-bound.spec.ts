@@ -55,6 +55,7 @@ describe('[D15][BK15] the writer bound', { timeout: 60_000 }, () => {
     expect(r.violations).toEqual([]);
     // Not vacuous: the known writers are found, each under the rule that admits it.
     expect(r.sites.map((s) => `${s.file} ${s.method} ${s.rule}`).sort()).toEqual([
+      'cli/backup-checks.ts createDrillTenant → encrypt A', // spec 0020 D11: the drill tenant's values
       'modules/identity/mfa.service.ts MfaService.beginEnrolment → encrypt B',
       'shared/crypto/key-maintenance.ts KeyMaintenance.sweepBatch → activeVersion A',
       'shared/crypto/key-maintenance.ts KeyMaintenance.sweepBatch → reencrypt A',

@@ -31,6 +31,8 @@ export interface EncryptedColumn {
   /** Compare-and-swap: replaces the value only if it is still `old`. Returns rows changed (0 or 1). */
   swap(tx: TenantTx, tenantId: string, id: string, old: string, next: string): Promise<number>;
   count(tx: TenantTx, tenantId: string): Promise<VersionCount[]>;
+  /** Spec 0020 B-14: up to `limit` values with their AAD, read only (no lock), for a restore's decrypt check. */
+  sample(tx: TenantTx, tenantId: string, limit: number): Promise<LockedValue[]>;
 }
 
 export const ENCRYPTED_COLUMNS: readonly EncryptedColumn[] = [
@@ -51,6 +53,12 @@ export const ENCRYPTED_COLUMNS: readonly EncryptedColumn[] = [
       tx.$queryRaw<VersionCount[]>`
         SELECT split_part(secret_enc, ':', 1) AS format, split_part(secret_enc, ':', 2) AS version, count(*)::int AS n
         FROM mfa_factor WHERE tenant_id = ${tenantId}::uuid GROUP BY 1, 2`,
+    async sample(tx, tenantId, limit) {
+      const rows = await tx.$queryRaw<{ id: string; value: string; user_id: string }[]>`
+        SELECT id::text, secret_enc AS value, user_id::text FROM mfa_factor
+        WHERE tenant_id = ${tenantId}::uuid ORDER BY id LIMIT ${limit}`;
+      return rows.map((r) => ({ id: r.id, value: r.value, aad: mfaSecretAad(tenantId, r.user_id) }));
+    },
   },
   {
     // NULL once delivered (spec 0002 B2): only pending and dead events hold a payload.
@@ -70,5 +78,11 @@ export const ENCRYPTED_COLUMNS: readonly EncryptedColumn[] = [
       tx.$queryRaw<VersionCount[]>`
         SELECT split_part(payload_enc, ':', 1) AS format, split_part(payload_enc, ':', 2) AS version, count(*)::int AS n
         FROM outbox_event WHERE tenant_id = ${tenantId}::uuid AND payload_enc IS NOT NULL GROUP BY 1, 2`,
+    async sample(tx, tenantId, limit) {
+      const rows = await tx.$queryRaw<{ id: string; value: string }[]>`
+        SELECT id::text, payload_enc AS value FROM outbox_event
+        WHERE tenant_id = ${tenantId}::uuid AND payload_enc IS NOT NULL ORDER BY id LIMIT ${limit}`;
+      return rows.map((r) => ({ id: r.id, value: r.value, aad: outboxAad(tenantId, r.id) }));
+    },
   },
 ];
