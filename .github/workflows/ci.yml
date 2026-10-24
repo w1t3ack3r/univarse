@@ -58,7 +58,7 @@ jobs:
           --health-cmd "valkey-cli ping" --health-interval 5s --health-timeout 5s --health-retries 20
       # E2E reads emailed activation/reset codes from Mailpit (spec 0005 W15). Same image as local dev.
       mailpit:
-        image: axllent/mailpit:v1.27
+        image: axllent/mailpit:v1.32.0
         ports: ['1025:1025', '8025:8025']
       # Vault (spec 0006, ADR-023) runs from compose, as in dev, not as a service: the production images refuse a
       # plaintext VAULT_ADDR (spec 0019 C1), so it needs its TLS listener and certificate (see "Start Vault" below).
@@ -441,7 +441,7 @@ jobs:
         options: >-
           --health-cmd "valkey-cli ping" --health-interval 5s --health-timeout 5s --health-retries 20
       mailpit:
-        image: axllent/mailpit:v1.27
+        image: axllent/mailpit:v1.32.0
         ports: ['1025:1025', '8025:8025']
       vault:
         image: hashicorp/vault:2.1.1

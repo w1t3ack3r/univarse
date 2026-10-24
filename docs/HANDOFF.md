@@ -66,7 +66,12 @@ Read this before doing anything. It covers where Phase 0 stands, what is left in
   - **mailpit** v1.27 (HIGH 72). The 3 CRITICALs:
     - OpenSSL CVE-2026-31789, twice (libcrypto3 and libssl3), which affects 32-bit systems only;
     - Go's crypto/tls CVE-2025-68121. Mailpit's own TLS is unused: SMTP is plaintext on the internal network, and Caddy terminates its UI's TLS.
-    - **mailpit v1.32.0** (2026-10-22, `sha256:0790692be935ea4420d085694f7985b1f692ca6a8771ab0e0bd8ba75ac180498`) scans with CRITICAL 0 and HIGH 0. Moving the pin is the owner's decision, in its own PR, checked against the stack's E2E (which reads mail through Mailpit's API).
+    - **Moved to mailpit v1.32.0** (owner's decision, 2026-10-24), pinned `sha256:0790692be935ea4420d085694f7985b1f692ca6a8771ab0e0bd8ba75ac180498`: it scans with CRITICAL 0 and HIGH 0. The stack, dev compose and CI's E2E services all use it. Checked before moving:
+      - **The API the E2E reads is unchanged:** `GET /api/v1/search` returns `messages[].ID` and `Created`, and `GET /api/v1/message/{id}` returns `Text`.
+      - **The runtime is unchanged:** the same entrypoint, user, ports and `readyz` healthcheck.
+      - **`--allowed-hosts` (v1.31.1) is off unless set,** so Caddy's `mail.` host still reaches it.
+      - **The changelog from v1.28 to v1.32** lists security fixes, limits (50 MB a message, 1000 connections) and features, and no removed or renamed API.
+      - **Not yet seen:** its memory under the stack's 64 MB limit (no Docker here). The owner's next deploy will show it.
   - The 158 HIGH findings haven't been reviewed one by one. That is still part of Phase 0's closure.
 
 ## What only the owner does (the cloud session gives exact commands)
