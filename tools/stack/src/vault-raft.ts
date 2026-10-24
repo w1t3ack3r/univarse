@@ -32,11 +32,14 @@ export interface VaultVolumes {
 }
 export const STACK_VOLUMES: VaultVolumes = { raft: RAFT_VOLUME, file: FILE_VOLUME };
 
-/** True when `volume` exists and holds `path` (checked read-only, with no network, in the pinned PostgreSQL image). */
+/**
+ * True when `volume` exists and holds `path`: checked read-only, with no network, in the pinned PostgreSQL image, as the
+ * vault user, who owns both volumes (root with every capability dropped can't search a 0700 directory it doesn't own).
+ */
 function volumeHolds(run: Runner, volume: string, path: string): boolean {
   if (run(['volume', 'inspect', volume], { allowFail: true }).status !== 0) return false;
   if (!/^[a-z/.]+$/.test(path)) throw new Error(`bad path ${path}`);
-  return run(['run', '--rm', '--network', 'none', '--read-only', '--cap-drop', 'ALL', '-v', `${volume}:/v:ro`, '--entrypoint', 'test', THIRD_PARTY.postgres, '-e', `/v/${path}`], { allowFail: true }).status === 0;
+  return run(['run', '--rm', '--network', 'none', '--read-only', '--cap-drop', 'ALL', '--user', VAULT_USER, '-v', `${volume}:/v:ro`, '--entrypoint', 'test', THIRD_PARTY.postgres, '-e', `/v/${path}`], { allowFail: true }).status === 0;
 }
 
 export function vaultStorage(run: Runner = docker, dir = STACK_DIR, volumes: VaultVolumes = STACK_VOLUMES): VaultStorage {

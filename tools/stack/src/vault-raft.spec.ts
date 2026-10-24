@@ -111,6 +111,18 @@ describe('vaultStorage', () => {
       expect(vaultStorage(s.deps.run, s.dir)).toBe(expected);
     });
 
+  it('checks each volume as the vault user that owns it, read-only and with no network', () => {
+    const seen: (readonly string[])[] = [];
+    const s = scripted();
+    const run: Runner = (args, opts) => {
+      if (args[0] === 'run') seen.push(args);
+      return s.deps.run(args, opts);
+    };
+    vaultStorage(run, s.dir);
+    expect(seen.length).toBe(2);
+    for (const a of seen) expect(a).toEqual(expect.arrayContaining(['--user', '100:1000', '--network', 'none', '--read-only', '--cap-drop', 'ALL']));
+  });
+
   it('only unmigrated and unverified are problems, each naming the migration', () => {
     expect(storageProblem('raft')).toBeNull();
     expect(storageProblem('fresh')).toBeNull();

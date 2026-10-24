@@ -826,7 +826,7 @@ WAL goes to `<destination>/wal/<timeline>/<name>.gz.seal`. Every file is written
     - `pg_verifybackup` "backup successfully verified" against the manifest from the stream;
     - restored with `recovery_target_lsn`: the row written before the target present, the row after it absent.
 
-**Mutations: 59 killed.**
+**Mutations: 60 killed.**
 - **sealing:** the final flag, the header hash, the counter in the nonce, unsealing's counter, the fingerprint check, the final-chunk boundary;
 - **keygen:** the path check, overwriting, links not resolved;
 - **a set and pruning:**
@@ -835,7 +835,7 @@ WAL goes to `<destination>/wal/<timeline>/<name>.gz.seal`. Every file is written
 - **WAL and volumes:** the staging volume emptied, staged files never removed, an existing file overwritten, the network allowed, the staging volume not ensured;
 - **the role and its environment:** BYPASSRLS, the password's shape unchecked, the role created without its verifier, TLS not verified, replication for every role, the secret not added on upgrade;
 - **Vault:**
-  - the deploy and its states: the deploy ignoring the state, a half-migrated Raft accepted, an unmigrated store taken for a fresh one;
+  - the deploy and its states: the deploy ignoring the state, a half-migrated Raft accepted, an unmigrated store taken for a fresh one, the volumes checked as root with no capabilities;
   - the migration: the KEK not compared, the probe's content not compared, an unwrap failure ignored, the file storage writable, a retry reading "before" from Raft, "before" read from Raft storage, the migration's success not confirmed, the backup token recreated;
 - **the backup:**
   - its locks: the ledger lock not taken, the registry lock kept;
@@ -849,6 +849,8 @@ WAL goes to `<destination>/wal/<timeline>/<name>.gz.seal`. Every file is written
 Eight survived the first run:
 - one was the equivalent mutant (decision 3), and its redundant code was removed;
 - seven were cases no test isolated, and each now has its own: `wx` under a race, the index's read-back, a malformed index, `fillVolumes` ensuring the staging volume, the upgraded secret, the migration's confirmation line, and the copied ledger file against the verified chain.
+
+**Found in the final review:** `vaultStorage` checked the volumes as root with every capability dropped. Root without `CAP_DAC_OVERRIDE` can't search the vault user's 0700 directories, so a migrated stack would have read as unmigrated. It now checks as the vault user, with a test and a mutation. CI's `test:backup` exercises the real case.
 
 **Not run here:** the API's and stack's integration suites (no Docker daemon or Vault in this environment; CI runs them), and two existing `tools/stack` unit files that need a Docker daemon (`audit-failclosed.spec.ts`, `certs.spec.ts`), unchanged by B1.
 
