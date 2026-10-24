@@ -21,24 +21,28 @@ export interface LedgerSnapshot {
 }
 
 /** Every regular file under `dir`, skipping the lock and dot-files (the bucket copy's own progress record). */
-function files(root: string, dir: string): TarEntry[] {
+export function readTree(root: string, dir: string): TarEntry[] {
   const out: TarEntry[] = [];
   for (const e of readdirSync(dir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
     if (e.name === LOCK_DIR || e.name.startsWith('.')) continue;
     const p = join(dir, e.name);
-    if (e.isDirectory()) out.push(...files(root, p));
+    if (e.isDirectory()) out.push(...readTree(root, p));
     else if (e.isFile()) out.push({ name: relative(root, p).split('\\').join('/'), data: readFileSync(p) });
   }
   return out;
 }
 
-export function snapshotLedger(primary: Destination): { ok: true; snapshot: LedgerSnapshot; entries: TarEntry[] } | { ok: false; problems: readonly string[] } {
+export function snapshotLedger(
+  primary: Destination,
+  /** Reads a copy's files; a test changes what it returns, as a writer ignoring the lock would. */
+  read: (root: string, dir: string) => TarEntry[] = readTree,
+): { ok: true; snapshot: LedgerSnapshot; entries: TarEntry[] } | { ok: false; problems: readonly string[] } {
   const a = establishAuthority(primary);
   if (!a.ok) return { ok: false, problems: ["the shred ledger's authority can't be established, so no set is taken (spec 0020 D8):", ...a.problems] };
   const longest = a.copies.reduce((x, c) => (c.entries.length > x.entries.length ? c : x));
   const last: Entry | undefined = longest.entries.at(-1);
   if (!last) return { ok: false, problems: ['the ledger is empty'] };
-  const tar = files(longest.dest.path, join(longest.dest.path, a.ledgerId));
+  const tar = read(longest.dest.path, join(longest.dest.path, a.ledgerId));
   // The file copied is the one authority verified: it ends with the chain's last entry, byte for byte.
   const own = relative(longest.dest.path, join(locationDir(longest.dest.path, a.ledgerId, a.at), 'ledger.jsonl')).split('\\').join('/');
   if (!tar.find((t) => t.name === own)?.data.toString('utf8').endsWith(lineOf(last)))

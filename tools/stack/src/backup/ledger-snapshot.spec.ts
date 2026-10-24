@@ -9,7 +9,7 @@ import { init } from '../ledger/commands.js';
 import { FakeKeysDb } from '../ledger/fake-keys-db.js';
 import { establishAuthority } from '../ledger/ledger.js';
 import { destroy, type ProtocolDeps } from '../ledger/protocol.js';
-import { snapshotLedger } from './ledger-snapshot.js';
+import { readTree, snapshotLedger } from './ledger-snapshot.js';
 
 const T1 = '10000000-0000-4000-8000-000000000001';
 let root: string;
@@ -54,6 +54,16 @@ describe('snapshotLedger', () => {
     if (!a.ok) throw new Error('no authority');
     appendFileSync(join(primary.path, a.ledgerId, 'gen-0001', 'ledger.jsonl'), '{"not":"an entry"}\n');
     expect(snapshotLedger(primary).ok).toBe(false);
+  });
+
+  it('refuses when the file read differs from the chain authority verified (a write that ignored the lock)', async () => {
+    expect((await init(deps(), [])).ok).toBe(true);
+    expect((await destroy(deps(), { slug: 't1' })).ok).toBe(true);
+    const truncated = (root: string, dir: string) =>
+      readTree(root, dir).map((e) => (e.name.endsWith('ledger.jsonl') ? { ...e, data: Buffer.from(e.data.toString('utf8').trimEnd().split('\n').slice(0, -1).join('\n') + '\n') } : e));
+    const s = snapshotLedger(primary, truncated);
+    expect(s.ok).toBe(false);
+    if (!s.ok) expect(s.problems.join()).toMatch(/changed while it was copied/);
   });
 
   it('never copies the lock or the bucket copy\'s progress record', async () => {

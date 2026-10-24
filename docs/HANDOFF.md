@@ -14,7 +14,7 @@ Read this before doing anything. It covers where Phase 0 stands, what is left in
 
 1. **`fix(build)`: the undeclared workspace dependencies.** Done (#98).
 2. **The bucket fix.** Done (#99), released and deployed. The bucket check passes on the owner's stack.
-3. **Spec 0020 PR B: backups, the rehearsed restore and the shred drill.** It is the last unmet exit criterion. **The plan is written** (spec 0020, "Plan (PR B …), for approval", decisions B-1 to B-17, 2026-10-24) and the owner approved it, all as written, on 2026-10-24. **B1 is next.** It keeps the split below with four moves into B1: pruning, the backup's ledger snapshot (BK14), D7's external-drive rule, and every image subcommand B2 needs (so PR B needs one release). The handoff's original split:
+3. **Spec 0020 PR B: backups, the rehearsed restore and the shred drill.** It is the last unmet exit criterion. **The plan is written** (spec 0020, "Plan (PR B …), for approval", decisions B-1 to B-17, 2026-10-24) and the owner approved it, all as written, on 2026-10-24. **B1 is built** on `claude/funny-cerf-b8v7hq` (spec 0020, "Implementation notes (PR B1)"): its 18 decisions made while building await the owner's approval, then the PR and its CI. After it merges, the owner's steps are listed there (keygen, release, `stack:vault migrate-raft`, the first `stack:backup`). **B2 is next.** It keeps the split below with four moves into B1: pruning, the backup's ledger snapshot (BK14), D7's external-drive rule, and every image subcommand B2 needs (so PR B needs one release). The handoff's original split:
    - **B1:**
      - Vault moved to Raft storage (D4);
      - continuous WAL archiving for PITR (D3);
@@ -37,7 +37,6 @@ Read this before doing anything. It covers where Phase 0 stands, what is left in
 
 **Open, not blocking:**
 - **Dependabot alerts #42 and #43** (`@vitest/mocker`, moderate) are still open, though the lockfile resolves only the patched 4.1.12. Recheck them. Dismissing them is the owner's call, never ours.
-- **Dependabot's `zod` 4.6.6 bump** (branch `dependabot/npm_and_yarn/zod-4.6.6`). zod is in the API contracts, so it needs a real review and the contract checks, not a blind merge.
 - **The migrate job's five PostgreSQL URLs say `sslmode=require`** (`tools/stack/src/render.ts`, `migrate.env`), while every other URL in the stack says `verify-full`. Nothing there says why. Every deploy prints the `pg` driver's warning: today it treats `require` as `verify-full`, but its next major version gives it the weaker libpq meaning, which doesn't verify the certificate.
   - **Investigate first.** The likely reason is Prisma's migrate engine: it doesn't read `NODE_EXTRA_CA_CERTS`, and it needs `sslrootcert` for `verify-full`. If so, the migrations may already connect without verifying PostgreSQL's certificate.
   - **Then fix it:** each connection verifies the certificate (`verify-full`, with `sslrootcert=/ca/ca.crt` where Prisma needs it). Add a test that every rendered URL verifies, and a comment saying why.
