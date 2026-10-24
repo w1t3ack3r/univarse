@@ -2,7 +2,7 @@
 // volumes of its own (never a stack's). A Vault on file storage is set up exactly as the stack's (`initialise`: the
 // audit device, Transit, the KEK, the app policy and token, the backup policy and token), wraps "data keys" with the
 // app token, then is migrated: every one of them unwraps afterwards, the KEK's metadata is identical, the file storage
-// was never written, and the backup token takes a snapshot and can do nothing else. Then a second migration of a
+// was never written (the migration reads a copy: Vault writes a lock key into its source), and the backup token takes a snapshot and can do nothing else. Then a second migration of a
 // failed attempt starts over. `pnpm --filter @univarse/stack test:backup`; CI only (it needs a Docker daemon).
 import { randomBytes } from 'node:crypto';
 import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
@@ -107,7 +107,7 @@ beforeAll(() => {
 
 afterAll(() => {
   docker(['rm', '-f', target.container], { allowFail: true });
-  for (const v of [volumes.raft, volumes.file]) docker(['volume', 'rm', '-f', v], { allowFail: true });
+  for (const v of [volumes.raft, volumes.file, `${volumes.raft}-source`]) docker(['volume', 'rm', '-f', v], { allowFail: true });
 });
 
 describe('[BK5] Vault from file storage to Raft', () => {

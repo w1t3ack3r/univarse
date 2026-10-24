@@ -41,9 +41,17 @@ function scripted(over: Partial<World> = {}) {
       w.raft = false;
       return ok();
     }
+    if (a[0] === 'volume' && (a[1] === 'create' || a[1] === 'rm')) {
+      calls.push(`volume ${a[1]} ${a.at(-1) ?? ''}`);
+      return ok();
+    }
+    if (a[0] === 'run' && (a.at(-1) ?? '').includes('cp -a /src/. /dst/')) {
+      calls.push(`copy ${a.filter((x) => x.includes(':/src') || x.includes(':/dst')).join(' ')}`);
+      return ok();
+    }
     if (a[0] === 'run' && a.includes('migrate')) {
-      calls.push(`migrate ${a.find((x) => x.startsWith(`${FILE_VOLUME}:`)) ?? ''}`);
-      if (!w.migrateOk) return { status: 1, stdout: '', stderr: 'error' };
+      calls.push(`migrate ${a.filter((x) => x.endsWith(':/vault/file') || x.endsWith(':/vault/file:ro')).join(' ')}`);
+      if (!w.migrateOk) return { status: 2, stdout: '', stderr: 'Error migrating: error setting migration lock: permission denied' };
       w.raft = true;
       return ok(w.migrateSilent ? 'copied key: path=core/x' : 'Success! All of the keys have been migrated.');
     }
@@ -142,7 +150,10 @@ describe('migrateRaft', () => {
       'compose stop vault',
       'ensureDataVolumes',
       'empty raft',
-      `migrate ${FILE_VOLUME}:/vault/file:ro`,
+      `volume create ${RAFT_VOLUME}-source`,
+      `copy ${FILE_VOLUME}:/src:ro ${RAFT_VOLUME}-source:/dst`,
+      `migrate ${RAFT_VOLUME}-source:/vault/file`,
+      `volume rm ${RAFT_VOLUME}-source`,
       'compose up -d --wait vault',
       'unseal',
       'read kek (ROOT)',
@@ -155,7 +166,7 @@ describe('migrateRaft', () => {
   });
 
   const failures: [string, Partial<World> | ((d: MigrateDeps) => MigrateDeps), RegExp][] = [
-    ['the migrate command fails', { migrateOk: false }, /operator migrate failed.*untouched/],
+    ['the migrate command fails, naming Vault\'s error', { migrateOk: false }, /operator migrate failed \(exit 2\): Error migrating: error setting migration lock.*untouched/],
     ['the migrate command exits 0 without saying every key was migrated', { migrateSilent: true }, /operator migrate failed/],
     ["the KEK's metadata differs afterwards", { kek: { ...KEK, keys: { '1': 1 } } }, /metadata changed/],
     ["the probe doesn't decrypt", { probeOnRaft: null }, /probe doesn't decrypt/],
@@ -184,6 +195,21 @@ describe('migrateRaft', () => {
       if (s.w.raft) expect(vaultStorage(s.deps.run, s.dir)).toBe('unverified');
     });
 
+  it('the file storage is only ever mounted read-only, and the scratch copy is removed even when the migration fails', () => {
+    for (const world of [{}, { migrateOk: false }]) {
+      const s = scripted(world);
+      const mounts: string[] = [];
+      const run: Runner = (args, opts) => {
+        for (const a of args) if (a.startsWith(`${FILE_VOLUME}:`)) mounts.push(a);
+        return s.deps.run(args, opts);
+      };
+      migrateRaft({ ...s.deps, run });
+      expect(mounts.length).toBeGreaterThan(0);
+      for (const m of mounts) expect(m).toMatch(/:ro$/);
+      expect(s.calls).toContain(`volume rm ${RAFT_VOLUME}-source`);
+    }
+  });
+
   it('a retry after a failed attempt compares with the first attempt\'s record, never with the half-copied Raft', () => {
     const s = scripted({ migrateOk: true, probeOnRaft: null });
     expect((migrateRaft(s.deps)).ok).toBe(false);
@@ -194,7 +220,7 @@ describe('migrateRaft', () => {
     s.calls.length = 0;
     const r = migrateRaft(s.deps);
     expect(r.ok).toBe(true);
-    expect(s.calls.slice(0, 4)).toEqual(['compose stop vault', 'ensureDataVolumes', 'empty raft', `migrate ${FILE_VOLUME}:/vault/file:ro`]);
+    expect(s.calls.slice(0, 7)).toEqual(['compose stop vault', 'ensureDataVolumes', 'empty raft', `volume create ${RAFT_VOLUME}-source`, `copy ${FILE_VOLUME}:/src:ro ${RAFT_VOLUME}-source:/dst`, `migrate ${RAFT_VOLUME}-source:/vault/file`, `volume rm ${RAFT_VOLUME}-source`]);
     expect(existsSync(s.pending)).toBe(false);
   });
 

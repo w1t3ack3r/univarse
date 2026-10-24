@@ -51,7 +51,9 @@ beforeAll(() => {
   docker(['run', '-d', '--name', container, '--user', svc.user ?? '999:999', '-e', 'POSTGRES_PASSWORD=ci-only-not-a-secret', '-e', 'POSTGRES_HOST_AUTH_METHOD=scram-sha-256',
     '-v', `${volume}:/wal-staging`, THIRD_PARTY.postgres, 'postgres', ...settings]);
   for (let i = 0; i < 120; i++) {
-    if (docker(['exec', container, 'pg_isready', '-U', 'postgres'], { allowFail: true }).status === 0) break;
+    // Over TCP: the image's first start runs a temporary socket-only server for its setup, then restarts; only the
+    // final server listens on TCP, so a socket check can pass between the two (CI saw it).
+    if (docker(['exec', container, 'pg_isready', '-h', '127.0.0.1', '-U', 'postgres'], { allowFail: true }).status === 0) break;
     Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 500);
   }
 }, 180_000);

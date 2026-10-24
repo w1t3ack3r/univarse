@@ -160,15 +160,29 @@ export function migrateRaft(d: MigrateDeps): { ok: boolean; lines: string[] } {
   d.ensureDataVolumes();
   // A stopped earlier attempt's partial copy: only ever the Raft volume, and only while it is unverified.
   d.run(['run', '--rm', '--network', 'none', '--user', VAULT_USER, '-v', `${vol.raft}:/r`, '--entrypoint', 'sh', THIRD_PARTY.postgres, '-c', 'find /r -mindepth 1 -delete']);
-  const m = d.run(
-    ['run', '--rm', '--network', 'none', '--read-only', '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges:true', '--tmpfs', '/tmp:rw,noexec,nosuid,size=16m', '--user', VAULT_USER,
-      '-v', `${vol.file}:/vault/file:ro`, '-v', `${vol.raft}:/vault/raft`, '-v', `${hostPath(MIGRATE_HCL)}:/vault/config/migrate.hcl:ro`,
-      '--entrypoint', 'vault', THIRD_PARTY.vault, 'operator', 'migrate', '-config=/vault/config/migrate.hcl'],
-    { allowFail: true },
-  );
-  if (m.status !== 0 || !/All of the keys have been migrated/.test(m.stdout + m.stderr))
-    return { ok: false, lines: [...lines, `vault operator migrate failed (exit ${String(m.status)}); the file storage is untouched; run this again`] };
-  say('migrated: every key copied from file storage to Raft (the file storage was read-only)');
+  // `vault operator migrate` writes a lock key into its SOURCE storage, so it can't read the file storage read-only. It
+  // reads a copy instead (a scratch volume, removed afterwards): the file storage itself is only ever read.
+  const scratch = `${vol.raft}-source`;
+  let m: { status: number; stdout: string; stderr: string };
+  try {
+    d.run(['volume', 'create', scratch]);
+    d.run(['run', '--rm', '--network', 'none', '--user', '0:0', '-v', `${vol.file}:/src:ro`, '-v', `${scratch}:/dst`, '--entrypoint', 'sh', THIRD_PARTY.postgres, '-c',
+      `find /dst -mindepth 1 -delete && cp -a /src/. /dst/ && chown -R ${VAULT_USER} /dst && chmod 0700 /dst`]);
+    m = d.run(
+      ['run', '--rm', '--network', 'none', '--read-only', '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges:true', '--tmpfs', '/tmp:rw,noexec,nosuid,size=16m', '--user', VAULT_USER,
+        '-v', `${scratch}:/vault/file`, '-v', `${vol.raft}:/vault/raft`, '-v', `${hostPath(MIGRATE_HCL)}:/vault/config/migrate.hcl:ro`,
+        '--entrypoint', 'vault', THIRD_PARTY.vault, 'operator', 'migrate', '-config=/vault/config/migrate.hcl'],
+      { allowFail: true },
+    );
+  } finally {
+    d.run(['volume', 'rm', '-f', scratch], { allowFail: true });
+  }
+  if (m.status !== 0 || !/All of the keys have been migrated/.test(m.stdout + m.stderr)) {
+    // Vault's own error lines name storage paths, never values.
+    const why = `${m.stdout}\n${m.stderr}`.split('\n').filter((l) => /^Error/.test(l.trim())).slice(-2).join(' | ');
+    return { ok: false, lines: [...lines, `vault operator migrate failed (exit ${String(m.status)})${why ? `: ${why}` : ''}; the file storage is untouched; run this again`] };
+  }
+  say('migrated: every key copied to Raft from a copy of the file storage (the file storage itself was only read)');
 
   if (d.compose(['up', '-d', '--wait', 'vault']).status !== 0) return { ok: false, lines: [...lines, 'Vault did not start on Raft'] };
   if (vaultState(d.run, d.target) === 'sealed') unseal(d.run, d.dir, d.target);

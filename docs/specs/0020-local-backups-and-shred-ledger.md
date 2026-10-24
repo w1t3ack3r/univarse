@@ -782,7 +782,7 @@ WAL goes to `<destination>/wal/<timeline>/<name>.gz.seal`. Every file is written
     - that release's `keys verify-unwrap` unwraps every data key.
 
     Only then is the marker written.
-13. **No `--revert` command.** The file storage is never written: it is mounted read-only, and CI checks it by digest. Going back is deploying the previous release from its own commit, whose compose still uses file storage. docs/10 says so.
+13. **No `--revert` command.** The file storage is never written. `vault operator migrate` writes a lock key into its *source* storage, so it migrates from a copy in a scratch volume, removed afterwards; the file storage itself is only ever mounted read-only, and CI checks it by digest. Going back is deploying the previous release from its own commit, whose compose still uses file storage. docs/10 says so.
 14. **B-7's open question, now answered, for your decision.** `ShardRegistry` gives one transaction per tenant, at READ COMMITTED, with no way to switch tenants inside one. A raw `set_config` would do it, but it bypasses `ShardRegistry`, which invariant 1 forbids. So:
     - each tenant's facts are one single-statement transaction, after the platform's;
     - **the window:** a write between the platform's WAL position and a tenant's statement shows in that tenant's counts but not in the restore;
@@ -849,6 +849,11 @@ WAL goes to `<destination>/wal/<timeline>/<name>.gz.seal`. Every file is written
 Eight survived the first run:
 - one was the equivalent mutant (decision 3), and its redundant code was removed;
 - seven were cases no test isolated, and each now has its own: `wx` under a race, the index's read-back, a malformed index, `fillVolumes` ensuring the staging volume, the upgraded secret, the migration's confirmation line, and the copied ledger file against the verified chain.
+
+**Found in CI (the first runs on #103):**
+- `backup-facts`' count query resolved `public.pg_statistic` (decision 15 now says why it reads `pg_class` by OID).
+- `vault operator migrate` refused a read-only source: it writes a migration lock there. That was reproduced here with the 2.1.1 binary as a non-root user ("error setting migration lock: permission denied"). The migration now reads a scratch copy. That was also proven here: success, with the original byte-identical.
+- Two test-only problems: the Vault test's configs weren't readable by the vault user, and the PostgreSQL test checked readiness against the image's temporary setup server.
 
 **Found in the final review:** `vaultStorage` checked the volumes as root with every capability dropped. Root without `CAP_DAC_OVERRIDE` can't search the vault user's 0700 directories, so a migrated stack would have read as unmigrated. It now checks as the vault user, with a test and a mutation. CI's `test:backup` exercises the real case.
 
