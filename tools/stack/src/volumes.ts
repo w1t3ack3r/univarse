@@ -62,6 +62,23 @@ export function fillScript(files: readonly VolumeFile[]): string {
   return lines.join('\n');
 }
 
+/**
+ * Data volumes the deploy creates and owns to a service's user, and never empties (unlike VOLUMES): spec 0020 B-2's
+ * WAL staging, where only the shipper removes a file once it is durable at the backup destination.
+ */
+export const DATA_VOLUMES: Readonly<Record<string, { readonly owner: string; readonly mode: '0700' }>> = Object.freeze({
+  'univarse-stack-pg-wal-staging': { owner: '999:999', mode: '0700' },
+});
+
+/** Creates each data volume if missing and sets its root's owner and mode; its content is never touched. */
+export function ensureDataVolumes(run: Runner = docker): void {
+  for (const [volume, { owner, mode }] of Object.entries(DATA_VOLUMES)) {
+    if (!/^\d+:\d+$/.test(owner)) throw new Error(`bad owner ${owner}`);
+    if (run(['volume', 'inspect', volume], { allowFail: true }).status !== 0) run(['volume', 'create', volume]);
+    run(['run', '--rm', '--network', 'none', '--user', '0:0', '--entrypoint', 'sh', '-v', `${volume}:/dst`, THIRD_PARTY.postgres, '-c', `chown ${owner} /dst && chmod ${mode} /dst`]);
+  }
+}
+
 /** The running services that read each volume, and so must restart when its content changes (a process reads it at start). */
 export const VOLUME_SERVICES: Readonly<Record<string, readonly string[]>> = Object.freeze({
   'univarse-stack-pg-certs': ['postgres'],
@@ -102,6 +119,7 @@ const saveState = (dir: string, s: VolumeState) => {
  * `markApplied`, after the restarts, clears it.
  */
 export function fillVolumes({ dir = STACK_DIR, run = docker }: { dir?: string; run?: Runner } = {}): string[] {
+  ensureDataVolumes(run);
   const state = loadState(dir);
   const restart = new Set<string>();
   for (const [volume, files] of Object.entries(VOLUMES)) {

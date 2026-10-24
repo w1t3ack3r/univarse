@@ -22,7 +22,7 @@ export function isoWeek(d: Date): string {
 
 /** A WAL file name's segment number (its last 16 hex digits), comparable across timelines. */
 const segno = (name: string) => BigInt(`0x${name.slice(8, 24)}`);
-const WAL_SEGMENT = /^([0-9A-F]{24})\.gz\.seal$/;
+const WAL_SEGMENT = /^([0-9A-F]{24})(?:\.[0-9A-F]{8}\.backup)?\.gz\.seal$/;
 
 export interface PrunePlan {
   readonly keep: readonly string[];
@@ -52,7 +52,7 @@ export function planPrune(sets: readonly SetOnDisk[], now: Date): PrunePlan {
   return { keep: [...keep].sort(), deleteSets: deleteSets.sort(), walFrom: oldest?.index ? oldest.index.startWal : null };
 }
 
-/** WAL segment files to delete under `wal/<timeline>/`: those numbered below `walFrom`. History files are kept. */
+/** WAL files to delete under `wal/<timeline>/`: segments (and backup-history files) numbered below `walFrom`. Timeline history files are kept. */
 export function walToDelete(files: readonly { readonly timeline: string; readonly name: string }[], walFrom: string | null): string[] {
   if (!walFrom) return [];
   const from = segno(walFrom);

@@ -38,9 +38,23 @@ services:
       # LS5: TLS only, SCRAM only (no plaintext, no trust); the file is in the certificate volume `stack:init` fills.
       - -c
       - hba_file=/certs/pg_hba.conf
+      # Spec 0020 D3, B-2: every finished WAL segment is copied into the staging volume (fsync'd, then renamed in), and
+      # `pnpm stack:backup wal` seals and ships it. A segment already staged with the same bytes counts as archived
+      # (PostgreSQL may archive one twice after a crash); different bytes fail, and PostgreSQL keeps it and retries.
+      - -c
+      - archive_mode=on
+      - -c
+      - archive_command=if [ -f /wal-staging/%f ]; then cmp -s %p /wal-staging/%f; else cp %p /wal-staging/%f.part && sync /wal-staging/%f.part && mv /wal-staging/%f.part /wal-staging/%f && sync /wal-staging; fi
+      # A quiet database still closes a segment within 5 minutes of a write (B-2's RPO).
+      - -c
+      - archive_timeout=300
+      # B-3: the base backup fetches its own WAL (-X fetch); this keeps it from being recycled while it runs.
+      - -c
+      - wal_keep_size=512MB
     volumes:
       - pgdata:/var/lib/postgresql
       - pg-certs:/certs:ro
+      - pg-wal-staging:/wal-staging
     networks: [db]
     mem_limit: 512m
     healthcheck:
@@ -249,3 +263,6 @@ volumes:
   stack-ca: { external: true, name: univarse-stack-ca }
   caddy-tls: { external: true, name: univarse-stack-caddy-tls }
   vault-tls: { external: true, name: univarse-stack-vault-tls }
+  # Spec 0020 B-2: archived WAL waiting to be sealed and shipped. Created and owned to PostgreSQL by the deploy, never
+  # emptied by it (volumes.ts DATA_VOLUMES): only the shipper removes a file, once it is durable at the destination.
+  pg-wal-staging: { external: true, name: univarse-stack-pg-wal-staging }
