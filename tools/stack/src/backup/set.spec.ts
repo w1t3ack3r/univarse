@@ -128,6 +128,7 @@ describe('SetWriter', () => {
     const id = newSetId(new Date());
     const w = new SetWriter(d, id, pub);
     async function* failing() {
+      await Promise.resolve();
       yield Buffer.from('partial');
       throw new Error('pg_basebackup exited 1');
     }

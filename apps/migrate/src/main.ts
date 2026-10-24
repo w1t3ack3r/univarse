@@ -28,6 +28,16 @@ async function superuser(url: string, database: string): Promise<pg.Client> {
   return c;
 }
 
+/** `prisma migrate <command>` for one database, its output shown (it names hosts and databases, never passwords). */
+function prisma(command: 'deploy' | 'status', which: 'platform' | 'tenant'): Promise<void> {
+  const r = spawnSync(process.execPath, [PRISMA_CLI, 'migrate', command, '--config', config(which)], {
+    stdio: 'inherit',
+    env: { ...process.env, CHECKPOINT_DISABLE: '1', PRISMA_HIDE_UPDATE_MESSAGE: '1' },
+  });
+  if (r.status !== 0) return Promise.reject(new Error(`prisma migrate ${command} (${which}) exited ${String(r.status ?? r.signal)}`));
+  return Promise.resolve();
+}
+
 await runJob(process.env, {
   bootstrap: (env) =>
     bootstrap({
@@ -39,17 +49,11 @@ await runJob(process.env, {
         relayPlatform: need(env, 'ROLE_VERIFIER_RELAY_PLATFORM'),
       },
       migratorCreatedb: false, // production shape: no shadow databases
+      backupPassword: env.ROLE_VERIFIER_BACKUP, // spec 0020 B-3: the stack's base backups
       log: (l) => console.log(l),
     }),
-  migrate: (which) => {
-    // Prisma's own output names the datasource's host and database, never its password.
-    const r = spawnSync(process.execPath, [PRISMA_CLI, 'migrate', 'deploy', '--config', config(which)], {
-      stdio: 'inherit',
-      env: { ...process.env, CHECKPOINT_DISABLE: '1', PRISMA_HIDE_UPDATE_MESSAGE: '1' },
-    });
-    if (r.status !== 0) return Promise.reject(new Error(`prisma migrate deploy (${which}) exited ${String(r.status ?? r.signal)}`));
-    return Promise.resolve();
-  },
+  migrate: (which) => prisma('deploy', which),
+  status: (which) => prisma('status', which),
   rlsCheck: (env) => rlsCheck({ tenantMigratorUrl: need(env, 'TENANT_POOL_01_MIGRATOR_URL'), platformMigratorUrl: need(env, 'PLATFORM_MIGRATOR_URL') }),
   seed: (env) =>
     seed({
@@ -79,7 +83,7 @@ await runJob(process.env, {
     }
   },
   log: (l) => console.log(l),
-}).catch((err: unknown) => {
+}, { checkOnly: process.argv.includes('--check-only') }).catch((err: unknown) => {
   console.error(`[migrate] FAILED: ${err instanceof Error ? err.message : String(err)}`);
   process.exit(1);
 });

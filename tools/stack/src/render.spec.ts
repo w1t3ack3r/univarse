@@ -70,6 +70,32 @@ describe('[LS9] each secret only where it is needed', () => {
   });
 });
 
+describe('[B-3] the base backup', () => {
+  it('[B-3] backup.env connects direct to PostgreSQL as the backup role, verify-full against the stack CA, and holds no other secret', () => {
+    expect(env('backup.env')).toEqual({
+      PGHOST: 'postgres',
+      PGPORT: '5432',
+      PGUSER: 'univarse_backup',
+      PGPASSWORD: s.backupPassword,
+      PGSSLMODE: 'verify-full',
+      PGSSLROOTCERT: '/ca/ca.crt',
+      PGAPPNAME: 'univarse-backup',
+    });
+  });
+
+  it('[B-3] the backup password reaches backup.env only; the migrate job gets its verifier', () => {
+    for (const [f, e] of Object.entries(files)) if (f !== 'backup.env') expect([f, envText(e).includes(s.backupPassword)]).toEqual([f, false]);
+    expect(env('migrate.env').ROLE_VERIFIER_BACKUP).toBe(s.backupVerifier);
+    expect(secretValues(s)).toEqual(expect.arrayContaining([s.backupPassword, s.backupVerifier]));
+  });
+
+  it('[B-3] pg_hba allows replication for the backup role only, over TLS with SCRAM', () => {
+    const hba = renderPgHba().split('\n').filter((l) => l && !l.startsWith('#'));
+    const replication = hba.filter((l) => l.split(/\s+/)[1] === 'replication');
+    expect(replication).toEqual(['hostssl replication univarse_backup 0.0.0.0/0 scram-sha-256']);
+  });
+});
+
 describe('[A2-10] the object store\'s identities', () => {
   const identities = (JSON.parse(renderS3Config(s)) as { identities: { name: string; actions: string[] }[] }).identities;
 

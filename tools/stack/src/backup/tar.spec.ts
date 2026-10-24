@@ -11,6 +11,7 @@ const collect = async (r: AsyncIterable<Buffer>) => {
   return Buffer.concat(out);
 };
 async function* chunks(b: Buffer, n: number) {
+  await Promise.resolve();
   for (let i = 0; i < b.length; i += n) yield b.subarray(i, i + n);
 }
 const read = async (b: Buffer, n = 777) => {
@@ -71,7 +72,7 @@ describe('tar', () => {
     expect(() => header({ name: '../x', size: 0, mode: 0, mtime: new Date(0), type: '0' })).toThrow(/unsafe/);
     const big = await collect(tarStream([{ name: 'big', data: Buffer.alloc(2000) }]));
     await expect((async () => {
-      for await (const _ of readTar(chunks(big, 100), { maxEntry: 1000 })) void _;
+      for await (const e of readTar(chunks(big, 100), { maxEntry: 1000 })) expect(e).toBeUndefined();
     })()).rejects.toThrow(/refused/);
   });
 });

@@ -48,7 +48,7 @@ interface Settings {
 function resolveService(): Service {
   const dir = mkdtempSync(join(tmpdir(), 'uv-bucket-compose-'));
   try {
-    for (const f of ['postgres.env', 'migrate.env', 'api.env', 'worker.env', 'web.env', 'keys.env']) writeFileSync(join(dir, f), '');
+    for (const f of ['postgres.env', 'migrate.env', 'api.env', 'worker.env', 'web.env', 'keys.env', 'backup.env']) writeFileSync(join(dir, f), '');
     const stand = Object.fromEntries(['UNIVARSE_API_IMAGE', 'UNIVARSE_WEB_IMAGE', 'UNIVARSE_MIGRATE_IMAGE', 'UNIVARSE_PGBOUNCER_IMAGE'].map((v) => [v, `localhost:5000/x@sha256:${'1'.repeat(64)}`]));
     const r = spawnSync('docker', ['compose', '-p', PROJECT, '-f', COMPOSE_FILE, 'config', '--format', 'json'], { encoding: 'utf8', env: { ...process.env, UNIVARSE_STACK_DIR: dir, ...stand } });
     if (r.status !== 0) throw new Error(`docker compose config failed: ${r.stderr}`);

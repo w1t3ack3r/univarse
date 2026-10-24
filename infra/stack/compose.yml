@@ -172,6 +172,23 @@ services:
     networks: [db, app]
     mem_limit: 512m
 
+  # Spec 0020 B-3: the base backup, one run per `pnpm stack:backup`: pg_basebackup's tar on stdout, which the host seals
+  # as it streams. Direct to PostgreSQL over TLS (verify-full against the stack CA), as the REPLICATION-only role;
+  # backup.env holds that role's password and nothing else.
+  pgbackup:
+    image: postgres:18@sha256:74935e72241653ca55e0414067e6d8763aceb8a810eb51b452253ec3dcfc4336
+    <<: *hardening
+    profiles: [job]
+    restart: 'no'
+    user: '999:999'
+    entrypoint: ['pg_basebackup']
+    command: ['--version']
+    env_file: ['${UNIVARSE_STACK_DIR:?run pnpm stack:init}/backup.env']
+    volumes:
+      - stack-ca:/ca:ro
+    networks: [db]
+    mem_limit: 256m
+
   # Spec 0020 A2-6: the destruction protocol's database step (`pnpm stack:keys`, and every deploy's recovery), one run
   # per step from the deployed API image, through PgBouncer like the API. Its own env file: the API's settings plus
   # the shred-ledger bucket's identity, which no other process holds.

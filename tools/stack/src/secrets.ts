@@ -27,7 +27,14 @@ export function generateSecrets(): StackSecrets {
     s3AccessKey: `uvstack${hex(8)}`,
     s3SecretKey: randomBytes(30).toString('base64url'),
     ...ledgerBucketSecrets(),
+    ...backupRoleSecrets(),
   };
+}
+
+/** Spec 0020 B-3: the backup role's password (backup.env) and the verifier the migrate job stores. */
+function backupRoleSecrets(): Pick<StackSecrets, 'backupPassword' | 'backupVerifier'> {
+  const backupPassword = hex(24);
+  return { backupPassword, backupVerifier: scramVerifier(backupPassword) };
 }
 
 /** Spec 0020 A2-10: the shred-ledger bucket's own identity. */
@@ -42,6 +49,7 @@ function ledgerBucketSecrets(): Pick<StackSecrets, 'ledgerS3AccessKey' | 'ledger
 const ADDITIONS: readonly { readonly has: keyof StackSecrets; readonly make: () => Partial<StackSecrets> }[] = [
   { has: 'pgbouncerAdminPassword', make: adminSecrets }, // spec 0019 PR B
   { has: 'ledgerS3AccessKey', make: ledgerBucketSecrets }, // spec 0020 A2
+  { has: 'backupPassword', make: backupRoleSecrets }, // spec 0020 B-3
 ];
 
 /** B5: PgBouncer's admin console, for `pnpm stack:pools` and the isolation probe only (never an app role). */
@@ -50,7 +58,7 @@ function adminSecrets(): Pick<StackSecrets, 'pgbouncerAdminPassword' | 'pgbounce
   return { pgbouncerAdminPassword, pgbouncerAdminVerifier: scramVerifier(pgbouncerAdminPassword) };
 }
 
-const KEYS: (keyof StackSecrets)[] = ['postgresSuperuser', 'roles', 'verifiers', 'pgbouncerAdminPassword', 'pgbouncerAdminVerifier', 'sessionPepper', 'valkeyPassword', 's3AccessKey', 's3SecretKey', 'ledgerS3AccessKey', 'ledgerS3SecretKey'];
+const KEYS: (keyof StackSecrets)[] = ['postgresSuperuser', 'roles', 'verifiers', 'pgbouncerAdminPassword', 'pgbouncerAdminVerifier', 'sessionPepper', 'valkeyPassword', 's3AccessKey', 's3SecretKey', 'ledgerS3AccessKey', 'ledgerS3SecretKey', 'backupPassword', 'backupVerifier'];
 
 /** The stack directory, created owner-only (its DACL replaced on Windows, mode 0700 elsewhere). */
 export function ensureStackDir(dir = STACK_DIR): string {
@@ -92,5 +100,5 @@ export function saveSecrets(s: StackSecrets, { dir = STACK_DIR, rotate = false }
 
 /** Every secret value, for the leak checks (LS9): nothing written outside STACK_DIR, or printed, may contain one. */
 export function secretValues(s: StackSecrets): string[] {
-  return [s.postgresSuperuser, ...Object.values(s.roles), ...Object.values(s.verifiers), s.pgbouncerAdminPassword, s.pgbouncerAdminVerifier, s.sessionPepper, s.valkeyPassword, s.s3SecretKey, s.ledgerS3SecretKey];
+  return [s.postgresSuperuser, ...Object.values(s.roles), ...Object.values(s.verifiers), s.pgbouncerAdminPassword, s.pgbouncerAdminVerifier, s.sessionPepper, s.valkeyPassword, s.s3SecretKey, s.ledgerS3SecretKey, s.backupPassword, s.backupVerifier];
 }

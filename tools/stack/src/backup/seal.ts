@@ -96,7 +96,7 @@ export function sealStream(recipient: KeyObject): Transform {
   const { header, contentKey } = newHeader(recipient);
   const headerHash = createHash('sha256').update(header).digest();
   let i = 0n;
-  let pending = Buffer.alloc(0);
+  let pending: Buffer = Buffer.alloc(0);
   let started = false;
   const chunk = (plain: Buffer, final: boolean) => {
     const c = createCipheriv('aes-256-gcm', contentKey, nonce(i));
@@ -133,7 +133,7 @@ export function unsealStream(recipient: KeyObject): Transform {
   let contentKey: Buffer | null = null;
   let headerHash: Buffer | null = null;
   let i = 0n;
-  let pending = Buffer.alloc(0);
+  let pending: Buffer = Buffer.alloc(0);
   const open = (sealed: Buffer, final: boolean) => {
     const d = createDecipheriv('aes-256-gcm', contentKey as Buffer, nonce(i));
     d.setAAD(aad(headerHash as Buffer, final));
@@ -150,7 +150,10 @@ export function unsealStream(recipient: KeyObject): Transform {
       try {
         pending = pending.length ? Buffer.concat([pending, data]) : data;
         if (!header) {
-          if (pending.length < HEADER) return done();
+          if (pending.length < HEADER) {
+            done();
+            return;
+          }
           header = pending.subarray(0, HEADER);
           contentKey = openHeader(header, recipient);
           headerHash = createHash('sha256').update(header).digest();
@@ -242,7 +245,7 @@ export function generateBackupKey(passphrase: string, kdf: { N: number; r: numbe
 }
 
 /** The private key from its file and the passphrase; a wrong passphrase or an edited file fails, naming neither. */
-export function loadPrivateKey(file: PrivateKeyFile, passphrase: string): KeyObject {
+export function loadPrivateKey(file: Readonly<Omit<PrivateKeyFile, 'format' | 'kdf'>> & { readonly format: string; readonly kdf: Readonly<Omit<PrivateKeyFile['kdf'], 'name'>> & { readonly name: string } }, passphrase: string): KeyObject {
   if (file.format !== 'univarse-backup-key-v1' || file.kdf.name !== 'scrypt') throw new SealError('not a UniVarse backup key file');
   const d = createDecipheriv('aes-256-gcm', passKey(passphrase, Buffer.from(file.kdf.salt, 'base64'), file.kdf), Buffer.from(file.iv, 'base64'));
   d.setAAD(Buffer.from(file.fingerprint, 'ascii'));

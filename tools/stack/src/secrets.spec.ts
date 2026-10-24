@@ -89,7 +89,8 @@ describe('[LS5] which volumes changed', () => {
     const run = (args: readonly string[]) => {
       if (args[0] === 'volume' && args[1] === 'inspect') return { status: missing.has(args[2] ?? '') ? 1 : 0, stdout: '', stderr: '' };
       if (args[0] === 'volume' && args[1] === 'create') missing.delete(args[2] ?? '');
-      if (args[0] === 'run') filled.push(args[args.indexOf('-v', args.indexOf('-v') + 1) + 1]?.split(':')[0] ?? '');
+      // A fill empties and copies (fillScript); the data volumes' ownership step (spec 0020 B-2) is not one.
+      if (args[0] === 'run' && args.at(-1)?.startsWith('set -eu')) filled.push(args[args.indexOf('-v', args.indexOf('-v') + 1) + 1]?.split(':')[0] ?? '');
       return { status: 0, stdout: '', stderr: '' };
     };
     // First fill: everything is new.

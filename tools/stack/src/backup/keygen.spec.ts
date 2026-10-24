@@ -44,7 +44,7 @@ describe('keyPathProblem', () => {
 
   it('accepts offline media, a sibling whose name only starts like a root, and refuses a relative path', () => {
     expect(keyPathProblem(join(s.dirs.offline, 'backup.key'), s.roots)).toBeNull();
-    expect(keyPathProblem(`${s.dirs.backups}-offline${'/'}k`, s.roots)).toBeNull();
+    expect(keyPathProblem(`${s.dirs.backups}-offline/k`, s.roots)).toBeNull();
     expect(keyPathProblem('backup.key', s.roots)).toMatch(/absolute/);
   });
 

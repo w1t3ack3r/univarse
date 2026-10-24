@@ -116,6 +116,7 @@ describe('shipWal', () => {
     const deps: WalDeps = {
       staged: () => ({
         async *[Symbol.asyncIterator]() {
+          await Promise.resolve();
           yield Buffer.alloc(0);
           throw new Error('docker run exited 1');
         },

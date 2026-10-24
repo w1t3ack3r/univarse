@@ -245,8 +245,8 @@ export function listSets(destination: string, fs: SetFs = realSetFs): SetOnDisk[
     let index: SetIndex | null = null;
     try {
       const raw = fs.read(join(destination, SETS, id, INDEX));
-      const parsed = raw ? (JSON.parse(raw.toString('utf8')) as SetIndex) : null;
-      if (parsed?.format === 'univarse-backup-set-v1' && parsed.complete && parsed.setId === id) index = parsed;
+      const parsed = raw ? (JSON.parse(raw.toString('utf8')) as Partial<Omit<SetIndex, 'format' | 'complete'>> & { format?: string; complete?: boolean }) : null;
+      if (parsed?.format === 'univarse-backup-set-v1' && parsed.complete === true && parsed.setId === id) index = parsed as SetIndex;
     } catch {
       index = null;
     }

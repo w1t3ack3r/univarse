@@ -1,7 +1,7 @@
 // Spec 0019 LS4: the migrate job runs its steps in order, stops at the first failure, and names variables, never
 // their values.
 import { describe, expect, it } from 'vitest';
-import { BOOTSTRAP, envProblems, runJob, type JobEnv, type JobSteps } from './job.js';
+import { BOOTSTRAP, BOOTSTRAP_OPTIONAL, envProblems, runJob, type JobEnv, type JobSteps } from './job.js';
 
 const SECRET = 'not-a-real-password-0123456789';
 const ENV: JobEnv = {
@@ -29,6 +29,7 @@ function recorder(fail?: string, isolation: string[] = []) {
   const steps: JobSteps = {
     bootstrap: () => step('bootstrap'),
     migrate: (which) => step(`migrate:${which}`),
+    status: (which) => step(`status:${which}`),
     rlsCheck: async () => (await step('rlsCheck'), { problems: isolation, tables: 14 }),
     seed: () => step('seed'),
     provisionKeys: () => step('provisionKeys'),
@@ -90,5 +91,22 @@ describe('[LS4] the migrate job', () => {
     expect(calls).toEqual([]);
     expect(envProblems({ ...plain, VAULT_ADDR: 'https://vault:8200' })).toEqual([]);
     expect(envProblems({ ...plain, NODE_ENV: 'development' })).toEqual([]);
+  });
+
+  it('[B-14] --check-only checks both migration statuses and rls:check, and changes nothing, even given the bootstrap', async () => {
+    const { calls, steps } = recorder();
+    await runJob({ ...WITH_BOOTSTRAP, ROLE_VERIFIER_BACKUP: 'SCRAM-SHA-256$4096:a$b:c' }, steps, { checkOnly: true });
+    expect(calls).toEqual(['status:platform', 'status:tenant', 'rlsCheck']);
+  });
+
+  it('[B-14] --check-only fails on a pending migration, and on an rls:check problem', async () => {
+    await expect(runJob(ENV, recorder('status:tenant').steps, { checkOnly: true })).rejects.toThrow(/status:tenant failed/);
+    await expect(runJob(ENV, recorder(undefined, ['t: no RLS']).steps, { checkOnly: true })).rejects.toThrow(/rls:check failed/);
+  });
+
+  it('[B-3] the backup verifier is optional with the bootstrap, and refused without it', () => {
+    expect(BOOTSTRAP_OPTIONAL).toEqual(['ROLE_VERIFIER_BACKUP']);
+    expect(envProblems({ ...WITH_BOOTSTRAP, ROLE_VERIFIER_BACKUP: 'v' })).toEqual([]);
+    expect(envProblems({ ...ENV, ROLE_VERIFIER_BACKUP: 'v' })).toEqual(['ROLE_VERIFIER_BACKUP is given without the bootstrap']);
   });
 });
