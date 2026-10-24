@@ -859,6 +859,8 @@ Eight survived the first run:
   - its wait stopped at a segment's `.part` copy, which merely contains the segment's name.
 - On `9184ab0`, the Vault migration passed in CI against the pinned image: every wrapped key unwrapped, the KEK was identical, the file storage's digest was unchanged, and the backup token snapshotted and was refused everything else.
 
+**Found on the owner's machine (2026-10-24, step 6):** `pnpm stack:vault migrate-raft` exited 13 ("unsettled top-level await") before doing anything. `vault.ts` was both the CLI's entry point and a module the migration imports, and its top-level `await import('./vault-raft-cli.js')` waited on a module that waited on `vault.ts`. The CLI now lives in `vault-cli.ts`, which nothing imports. `entrypoints.spec.ts` runs every `pnpm stack:*` entry point as a real process, through its usage path, so a deadlocked import graph fails a test. Unit tests that import the functions directly could not see it.
+
 **Found in the final review:** `vaultStorage` checked the volumes as root with every capability dropped. Root without `CAP_DAC_OVERRIDE` can't search the vault user's 0700 directories, so a migrated stack would have read as unmigrated. It now checks as the vault user, with a test and a mutation. CI's `test:backup` exercises the real case.
 
 **Not run here:** the API's and stack's integration suites (no Docker daemon or Vault in this environment; CI runs them), and two existing `tools/stack` unit files that need a Docker daemon (`audit-failclosed.spec.ts`, `certs.spec.ts`), unchanged by B1.
