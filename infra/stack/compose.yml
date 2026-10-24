@@ -116,7 +116,9 @@ services:
     entrypoint: ['vault']
     command: ['server', '-config=/vault/config/stack.hcl']
     volumes:
-      - vault-data:/vault/file
+      # Spec 0020 D4: Raft storage, on a volume the deploy creates and owns to the vault user (volumes.ts). The old file
+      # storage's volume (vault-data) is no longer mounted here, and is kept: the migration reads it read-only.
+      - vault-raft:/vault/raft
       - ./vault/stack.hcl:/vault/config/stack.hcl:ro
       # C2: its certificate and key, and the stack CA (the CLI's trust), filled by the deploy.
       - vault-tls:/vault/tls:ro
@@ -283,3 +285,6 @@ volumes:
   # Spec 0020 B-2: archived WAL waiting to be sealed and shipped. Created and owned to PostgreSQL by the deploy, never
   # emptied by it (volumes.ts DATA_VOLUMES): only the shipper removes a file, once it is durable at the destination.
   pg-wal-staging: { external: true, name: univarse-stack-pg-wal-staging }
+  # Spec 0020 D4: Vault's Raft storage. Created and owned to the vault user by the deploy (DATA_VOLUMES), never emptied
+  # by it; `pnpm stack:vault migrate-raft` fills it once from vault-data.
+  vault-raft: { external: true, name: univarse-stack-vault-raft }

@@ -64,10 +64,12 @@ export function fillScript(files: readonly VolumeFile[]): string {
 
 /**
  * Data volumes the deploy creates and owns to a service's user, and never empties (unlike VOLUMES): spec 0020 B-2's
- * WAL staging, where only the shipper removes a file once it is durable at the backup destination.
+ * WAL staging, where only the shipper removes a file once it is durable at the backup destination, and D4's Raft.
  */
 export const DATA_VOLUMES: Readonly<Record<string, { readonly owner: string; readonly mode: '0700' }>> = Object.freeze({
   'univarse-stack-pg-wal-staging': { owner: '999:999', mode: '0700' },
+  // Spec 0020 D4: Vault's Raft storage, owned to the vault user (100:1000).
+  'univarse-stack-vault-raft': { owner: '100:1000', mode: '0700' },
 });
 
 /** Creates each data volume if missing and sets its root's owner and mode; its content is never touched. */

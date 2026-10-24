@@ -16,6 +16,7 @@ import { ensureVault, loadVaultInit, tokensOf, vaultState } from './vault.js';
 import { realProtocolDeps } from './keys.js';
 import { init as initLedger } from './ledger/commands.js';
 import { recover as recoverLedger } from './ledger/protocol.js';
+import { vaultStorage } from './vault-raft.js';
 import { fillVolumes, markApplied, renderedDir } from './volumes.js';
 
 const TRIVY_IMAGE = 'aquasec/trivy:0.75.0@sha256:af6acf9a6b85dfe389a1941505c0ce9efef52a4719635e1a962f022a3d855daa';
@@ -143,7 +144,7 @@ async function recover(images: Readonly<Record<string, string>>, { initLedger: i
  * means no release has ever run here, so there is nothing to deploy.
  */
 const REGISTRY = 'univarse-dev-registry-1';
-function registry(): () => void {
+export function registry(): () => void {
   const state = docker(['inspect', '-f', '{{.State.Running}}', REGISTRY], { allowFail: true });
   if (state.status !== 0) throw new Error(`no local registry (${REGISTRY}): run \`pnpm images:release\` first`);
   if (state.stdout.trim() === 'true') return () => undefined;
@@ -168,6 +169,7 @@ export function realDeps(): DeployDeps {
     scanThirdParty,
     compose,
     vaultState: () => vaultState(),
+    vaultStorage: () => vaultStorage(),
     ensureVault: () => void ensureVault(),
     buckets,
     recover,
