@@ -3,7 +3,7 @@
 // audit device, Transit, the KEK, the app policy and token, the backup policy and token), wraps "data keys" with the
 // app token, then is migrated: every one of them unwraps afterwards, the KEK's metadata is identical, the file storage
 // was never written, and the backup token takes a snapshot and can do nothing else. Then a second migration of a
-// failed attempt starts over. `pnpm --filter @univarse/stack test:vault`; CI only (it needs a Docker daemon).
+// failed attempt starts over. `pnpm --filter @univarse/stack test:backup`; CI only (it needs a Docker daemon).
 import { randomBytes } from 'node:crypto';
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
