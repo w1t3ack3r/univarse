@@ -6,13 +6,37 @@ import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { REPO, RELEASES, STACK_DIR } from './config.js';
 import { imagesFrom } from './deploy.js';
-import { compose, registry } from './deploy-deps.js';
+import { compose, registry, writeEnvFiles } from './deploy-deps.js';
 import { docker } from './docker.js';
 import { composeRunner } from './ledger/job.js';
 import { acquireRegistryLock, verifyRelease, type ReleaseRecord } from './release.js';
 import { STACK_VAULT } from './vault.js';
+import { printer } from './print.js';
 import { migrateRaft } from './vault-raft.js';
 import { ensureDataVolumes } from './volumes.js';
+
+/**
+ * The keys job's answer, as migrate-raft reports it. On failure, its stderr's last lines too: a job that fails before
+ * its check (a configuration it refuses, Vault unreachable) says why only there. The API's errors name settings and
+ * paths, never values (CLAUDE.md invariant 8).
+ */
+export function verifyUnwrapLines(j: { status: number | null; stdout: string; stderr: string }): { ok: boolean; lines: string[] } {
+  const tail = (t: string) => t.trim().split('\n').map((l) => l.trimEnd()).filter(Boolean).slice(-5);
+  if (j.status === 0) return { ok: true, lines: tail(j.stdout) };
+  const why = j.status === null ? 'the keys job did not finish' : `the keys job exited ${String(j.status)}`;
+  return { ok: false, lines: [...tail(j.stdout), ...tail(j.stderr), why] };
+}
+
+/** Runs `step` with a log that prints each line as it comes, and returns only the lines after those (its outcome). */
+export function printedAsItGoes(
+  step: (log: (l: string) => void) => { ok: boolean; lines: string[] },
+  print: (l: string) => void = (l) => {
+    console.log(`[stack:vault] ${l}`);
+  },
+): { ok: boolean; lines: string[] } {
+  const p = printer(print);
+  return p.unprinted(step(p.log));
+}
 
 export function migrateRaftCli(argv: readonly string[]): { ok: boolean; lines: string[] } {
   const [arg0, ...rest] = argv;
@@ -29,23 +53,24 @@ export function migrateRaftCli(argv: readonly string[]): { ok: boolean; lines: s
     if (!v.ok) return { ok: false, lines: v.problems };
     const { images, problems } = imagesFrom(v);
     if (problems.length) return { ok: false, lines: problems };
+    // The keys job reads keys.env: rewritten with the app token, in case a deploy that stopped before its Vault step
+    // left it blank (the API's config refuses a blank token, so the job would fail before checking anything).
+    writeEnvFiles(false);
     const keys = composeRunner(images);
-    return migrateRaft({
+    return printedAsItGoes((log) => migrateRaft({
       run: docker,
       target: STACK_VAULT,
       dir: STACK_DIR,
       compose: (args) => compose(args, images),
       verifyUnwrap: () => {
-        const r = keys(['verify-unwrap']);
-        return { ok: r.status === 0, lines: r.stdout.trim().split('\n').filter(Boolean).slice(-5) };
+        const j = keys(['verify-unwrap']);
+        return verifyUnwrapLines(j);
       },
       ensureDataVolumes: () => {
         ensureDataVolumes();
       },
-      log: (l) => {
-        console.log(`[stack:vault] ${l}`);
-      },
-    });
+      log,
+    }));
   } finally {
     stopRegistry();
     lock.release();

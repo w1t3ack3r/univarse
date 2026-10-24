@@ -1,12 +1,11 @@
 // Spec 0019 D9/C2/C3: the stack's Vault. It publishes no port; everything goes through `docker exec` into its
 // container, with the Vault CLI against its own listener: over TLS, verified against the stack CA under the name
 // `vault` (C2). Secrets travel by environment (`-e NAME`) or stdin, never as arguments, and are never printed.
-//   pnpm stack:vault status | init | unseal | migrate-raft <releases/record.json>
+//   pnpm stack:vault status | init | unseal | migrate-raft <releases/record.json>   (the CLI is vault-cli.ts)
 // `init` runs once: one unseal share (as in development), stored with the root token and the app's least-privilege
 // token in STACK_DIR/vault-init.json, owner-only. After a restart Vault is sealed: the owner runs `unseal`.
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { pathToFileURL } from 'node:url';
 import { writeOwnerOnly } from '../../../packages/db/scripts/pgbouncer-config.js';
 import { STACK_DIR } from './config.js';
 import { docker, type Runner } from './docker.js';
@@ -135,32 +134,12 @@ export function ensureVault(run: Runner = docker, dir = STACK_DIR, target: Vault
 
 export const tokensOf = (v: VaultInit): VaultTokens => ({ appToken: v.appToken });
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  const cmd = process.argv[2];
-  const state = vaultState();
-  if (cmd === 'status') console.log(`[stack:vault] ${state}`);
-  else if (cmd === 'unseal') {
-    if (state !== 'sealed') console.log(`[stack:vault] nothing to do: Vault is ${state}`);
-    else {
-      unseal();
-      console.log(`[stack:vault] unsealed: ${vaultState()}`);
-    }
-  } else if (cmd === 'init') {
-    if (state !== 'uninitialised') console.log(`[stack:vault] nothing to do: Vault is ${state}`);
-    else {
-      initialise();
-      console.log('[stack:vault] initialised and unsealed; the audit device, Transit, the KEK and the app token are ready (saved owner-only)');
-    }
-  } else if (cmd === 'migrate-raft') {
-    // Spec 0020 B-4: once, offline. Loaded here only, so the deploy's modules never import the CLI.
-    const { migrateRaftCli } = await import('./vault-raft-cli.js');
-    const r = migrateRaftCli(process.argv.slice(3));
-    if (!r.ok) {
-      for (const l of r.lines) console.error(`[stack:vault] ${l}`);
-      process.exit(1);
-    }
-  } else {
-    console.error('usage: pnpm stack:vault status | init | unseal | migrate-raft <releases/record.json>');
-    process.exit(2);
-  }
+/**
+ * The tokens the env files carry: vault-init.json's whenever it exists, so a deploy that stops before its Vault step
+ * (a refusal, say) never rewrites keys.env and api.env with a blank VAULT_TOKEN, which the API's config refuses.
+ * Required when `withVault`; blank only before Vault was ever initialised.
+ */
+export function envTokens(withVault: boolean, dir = STACK_DIR): VaultTokens {
+  if (!withVault && !existsSync(vaultFile(dir))) return { appToken: '' };
+  return tokensOf(loadVaultInit(dir));
 }

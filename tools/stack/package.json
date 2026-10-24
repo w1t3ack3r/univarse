@@ -7,7 +7,7 @@
   "scripts": {
     "init": "tsx src/init.ts",
     "deploy": "tsx src/deploy.ts",
-    "vault": "tsx src/vault.ts",
+    "vault": "tsx src/vault-cli.ts",
     "down": "tsx src/down.ts",
     "smoke": "tsx src/smoke.ts",
     "trust": "tsx src/trust.ts",

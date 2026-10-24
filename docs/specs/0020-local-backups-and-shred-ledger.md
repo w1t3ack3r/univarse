@@ -859,6 +859,18 @@ Eight survived the first run:
   - its wait stopped at a segment's `.part` copy, which merely contains the segment's name.
 - On `9184ab0`, the Vault migration passed in CI against the pinned image: every wrapped key unwrapped, the KEK was identical, the file storage's digest was unchanged, and the backup token snapshotted and was refused everything else.
 
+**Found on the owner's machine (2026-10-24, step 6):** `pnpm stack:vault migrate-raft` exited 13 ("unsettled top-level await") before doing anything. `vault.ts` was both the CLI's entry point and a module the migration imports, and its top-level `await import('./vault-raft-cli.js')` waited on a module that waited on `vault.ts`. The CLI now lives in `vault-cli.ts`, which nothing imports. `entrypoints.spec.ts` runs every `pnpm stack:*` entry point as a real process, through its usage path, so a deadlocked import graph fails a test. Unit tests that import the functions directly could not see it.
+
+**Found on the owner's machine (2026-10-24, step 6, second run):** the migration itself succeeded: the KEK was identical and the probe decrypted. Then `keys verify-unwrap` failed with nothing on stdout, so nothing was recorded, and the file storage was left as it was. The cause was step 5. Its deploy was refused at the Raft guard, but before that `prepare(false)` had rewritten keys.env and api.env with a blank `VAULT_TOKEN`, because the token was read only at the deploy's Vault step. The API's config refuses a token shorter than 8 characters, so the keys job failed at startup, and only stderr said why, which was dropped. Four changes:
+- `envTokens` now puts vault-init.json's token in the env files whenever the file exists. A deploy that stops early no longer blanks a working token, which would also have stopped the API at its next restart.
+- `migrate-raft` rewrites the env files before it runs the keys job.
+- A failed job's stderr tail and its exit status are reported. The API's errors name settings, never values.
+- Each progress line now prints once. Before, they printed as they came and again in the result.
+
+`vault.spec.ts` and `vault-raft-cli.spec.ts` cover these. 10 mutations, all killed. The env-file rewrite inside `migrate-raft` needs Docker, so the owner's rerun is its check.
+
+**Found on the owner's machine (2026-10-24, the first `pnpm stack:backup`):** the set completed (exit 0), but every line printed twice, the same fault as `migrate-raft`. Both CLIs now use `print.ts`'s `printer`, which prints each line as it comes and leaves only the outcome to print at the end. Sizes printed as "0.0 MB" for the Vault snapshot and the small tars, which reads like an empty artifact. They now print in B, KB or MB (`size`). Covered by `print.spec.ts`, `backup/size.spec.ts` and an assertion in `backup.spec.ts`; 8 mutations, all killed.
+
 **Found in the final review:** `vaultStorage` checked the volumes as root with every capability dropped. Root without `CAP_DAC_OVERRIDE` can't search the vault user's 0700 directories, so a migrated stack would have read as unmigrated. It now checks as the vault user, with a test and a mutation. CI's `test:backup` exercises the real case.
 
 **Not run here:** the API's and stack's integration suites (no Docker daemon or Vault in this environment; CI runs them), and two existing `tools/stack` unit files that need a Docker daemon (`audit-failclosed.spec.ts`, `certs.spec.ts`), unchanged by B1.
