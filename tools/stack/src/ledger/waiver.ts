@@ -142,13 +142,25 @@ export function buildPlan(
 }
 
 /** `pnpm stack:keys ledger waive --reason … --confirm "…" --destination <path>… [--from <path>]…` */
-export async function waive(deps: ProtocolDeps, opts: { reason: string; confirm: string; destinations: readonly string[]; from: readonly string[] }): Promise<Result> {
+export async function waive(
+  deps: ProtocolDeps,
+  opts: {
+    reason: string;
+    confirm: string;
+    destinations: readonly string[];
+    from: readonly string[];
+    /** Spec 0020 D7 (PR B1): the backup destination's rule on the new generation's destinations; null when it holds. */
+    destinationRule?: (destinations: readonly string[]) => string | null;
+  },
+): Promise<Result> {
   const fs = deps.fs ?? realFs;
   const crash = deps.crash ?? noCrash;
   if (opts.confirm !== WAIVER_CONFIRMATION) return { ok: false, lines: [`the waiver needs its exact confirmation: --confirm "${WAIVER_CONFIRMATION}"`] };
   if (opts.reason.trim().length < 8) return { ok: false, lines: ['a reason is required (--reason "…")'] };
   if (!opts.destinations.length) return { ok: false, lines: ['name the new generation\'s destinations (--destination <path>, at least the primary)'] };
   if (!opts.destinations.some((p) => samePath(p, deps.primary.path))) return { ok: false, lines: [`the primary (${deps.primary.path}) must be one of the new generation's destinations`] };
+  const ruled = opts.destinationRule?.(opts.destinations) ?? null;
+  if (ruled) return { ok: false, lines: [`the new generation's destinations: ${ruled}`] };
   const lock = await deps.lock('ledger waive');
   try {
     // Only when no configured destination of the current generation can be read: otherwise the guarantee-preserving

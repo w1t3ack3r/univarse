@@ -78,6 +78,19 @@ describe('[BK17] refusals: nothing is written', () => {
     expect(db.calls.filter((c) => c.startsWith('waiverAudit') || c.startsWith('reapply'))).toEqual([]);
   });
 
+  it('[D7][B-9] refused when the backups are on an external drive and no new destination is on it; nothing written', async () => {
+    await lost();
+    const seen: string[][] = [];
+    const rule = (paths: readonly string[]) => (seen.push([...paths]), paths.includes(ext2) ? null : 'that drive must hold a ledger destination too');
+    const refused = await waive(deps(), { ...args({ destinations: [primary.path] }), destinationRule: rule });
+    expect(refused.ok).toBe(false);
+    expect(refused.lines.join()).toMatch(/must hold a ledger destination/);
+    expect(seen).toEqual([[primary.path]]);
+    expect(db.calls.filter((c) => c.startsWith('waiverAudit') || c.startsWith('reapply'))).toEqual([]);
+    // Naming a destination on that drive satisfies it.
+    expect((await waive(deps(), { ...args(), destinationRule: rule })).ok).toBe(true);
+  });
+
   it('[BK17][BK16] refused while a configured destination is readable: the guarantee-preserving commands apply', async () => {
     expect((await init(deps(), [ext])).ok).toBe(true);
     rmSync(primary.path, { recursive: true, force: true });
