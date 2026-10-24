@@ -5,7 +5,7 @@
 // was never written, and the backup token takes a snapshot and can do nothing else. Then a second migration of a
 // failed attempt starts over. `pnpm --filter @univarse/stack test:backup`; CI only (it needs a Docker daemon).
 import { randomBytes } from 'node:crypto';
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -35,6 +35,10 @@ function raftConfig(): string {
 }
 writeFileSync(join(conf, 'file.hcl'), `storage "file" {\n  path = "/vault/file"\n}\n${LISTENER}`);
 writeFileSync(join(conf, 'raft.hcl'), raftConfig());
+// mkdtemp makes the directory 0700, owned by the runner: the vault user (100) in the container must read its configs,
+// which hold nothing secret.
+chmodSync(conf, 0o755);
+for (const f of ['file.hcl', 'raft.hcl']) chmodSync(join(conf, f), 0o644);
 
 function start(config: 'file.hcl' | 'raft.hcl'): void {
   docker(['rm', '-f', target.container], { allowFail: true });
@@ -42,6 +46,11 @@ function start(config: 'file.hcl' | 'raft.hcl'): void {
     '-v', `${volumes.file}:/vault/file${config === 'raft.hcl' ? ':ro' : ''}`, ...(config === 'raft.hcl' ? ['-v', `${volumes.raft}:/vault/raft`] : []),
     '-v', `${conf}:/vault/config:ro`, '-v', '/vault/logs', '--entrypoint', 'vault', THIRD_PARTY.vault, 'server', `-config=/vault/config/${config}`]);
   for (let i = 0; i < 60 && vaultState(docker, target) === 'absent'; i++) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 500);
+  // Never answering: fail with Vault's own words, not a later step's exit code.
+  if (vaultState(docker, target) === 'absent') {
+    const logs = docker(['logs', '--tail', '20', target.container], { allowFail: true });
+    throw new Error(`Vault (${config}) did not answer: ${`${logs.stdout}\n${logs.stderr}`.trim()}`);
+  }
 }
 
 function ensureVolumes(): void {
