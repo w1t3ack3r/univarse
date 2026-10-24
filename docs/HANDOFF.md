@@ -14,7 +14,7 @@ Read this before doing anything. It covers where Phase 0 stands, what is left in
 
 1. **`fix(build)`: the undeclared workspace dependencies.** Done (#98).
 2. **The bucket fix.** Done (#99), released and deployed. The bucket check passes on the owner's stack.
-3. **Spec 0020 PR B: backups, the rehearsed restore and the shred drill.** It is the last unmet exit criterion. **The plan is written** (spec 0020, "Plan (PR B …), for approval", decisions B-1 to B-17, 2026-10-24) and awaits the owner's approval; nothing is built before it. It keeps the split below with four moves into B1: pruning, the backup's ledger snapshot (BK14), D7's external-drive rule, and every image subcommand B2 needs (so PR B needs one release). The handoff's original split:
+3. **Spec 0020 PR B: backups, the rehearsed restore and the shred drill.** It is the last unmet exit criterion. **The plan is written** (spec 0020, "Plan (PR B …), for approval", decisions B-1 to B-17, 2026-10-24) and the owner approved it, all as written, on 2026-10-24. **B1 is next.** It keeps the split below with four moves into B1: pruning, the backup's ledger snapshot (BK14), D7's external-drive rule, and every image subcommand B2 needs (so PR B needs one release). The handoff's original split:
    - **B1:**
      - Vault moved to Raft storage (D4);
      - continuous WAL archiving for PITR (D3);
