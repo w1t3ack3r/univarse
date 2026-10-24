@@ -9,10 +9,10 @@ import type { DeployDeps } from './deploy.js';
 import { nextState } from './state.js';
 import { docker } from './docker.js';
 import { acquireRegistryLock, verifyRelease } from './release.js';
-import { envText, renderEnvFiles, renderPgBouncerIni, renderPgHba, renderS3Config, renderUserlist, renderValkeyConf } from './render.js';
+import { envText, renderEnvFiles, renderPgBouncerIni, renderPgHba, renderS3Config, renderUserlist, renderValkeyConf, type StackSecrets } from './render.js';
 import { ensureStackDir, loadSecrets, upgradeSecrets } from './secrets.js';
 import { smoke } from './smoke.js';
-import { ensureVault, loadVaultInit, tokensOf, vaultState } from './vault.js';
+import { ensureVault, envTokens, vaultState } from './vault.js';
 import { realProtocolDeps } from './keys.js';
 import { init as initLedger } from './ledger/commands.js';
 import { recover as recoverLedger } from './ledger/protocol.js';
@@ -29,12 +29,17 @@ export function compose(args: readonly string[], images: Readonly<Record<string,
   return { status: r.status ?? 1 };
 }
 
-function prepare(withVault: boolean): string[] {
+/** The env files in STACK_DIR, owner-only, with Vault's tokens once they exist (envTokens). */
+export function writeEnvFiles(withVault: boolean): StackSecrets {
   ensureStackDir();
   for (const added of upgradeSecrets()) console.log(`[stack:deploy] secret added since this stack was initialised: ${added} (secrets.json, owner-only)`);
   const secrets = loadSecrets();
-  const tokens = withVault ? tokensOf(loadVaultInit()) : { appToken: '' };
-  for (const [name, file] of Object.entries(renderEnvFiles(secrets, tokens))) writeOwnerOnly(join(STACK_DIR, name), envText(file));
+  for (const [name, file] of Object.entries(renderEnvFiles(secrets, envTokens(withVault)))) writeOwnerOnly(join(STACK_DIR, name), envText(file));
+  return secrets;
+}
+
+function prepare(withVault: boolean): string[] {
+  const secrets = writeEnvFiles(withVault);
   const rendered = renderedDir();
   mkdirSync(rendered, { recursive: true });
   const files: Record<string, string> = {

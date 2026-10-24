@@ -133,3 +133,13 @@ export function ensureVault(run: Runner = docker, dir = STACK_DIR, target: Vault
 }
 
 export const tokensOf = (v: VaultInit): VaultTokens => ({ appToken: v.appToken });
+
+/**
+ * The tokens the env files carry: vault-init.json's whenever it exists, so a deploy that stops before its Vault step
+ * (a refusal, say) never rewrites keys.env and api.env with a blank VAULT_TOKEN, which the API's config refuses.
+ * Required when `withVault`; blank only before Vault was ever initialised.
+ */
+export function envTokens(withVault: boolean, dir = STACK_DIR): VaultTokens {
+  if (!withVault && !existsSync(vaultFile(dir))) return { appToken: '' };
+  return tokensOf(loadVaultInit(dir));
+}

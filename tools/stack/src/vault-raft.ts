@@ -194,7 +194,7 @@ export function migrateRaft(d: MigrateDeps): { ok: boolean; lines: string[] } {
   say('after: the KEK is identical, and the probe decrypts with the app token');
   const v = d.verifyUnwrap();
   for (const l of v.lines) say(l);
-  if (!v.ok) return { ok: false, lines: [...lines, 'not every active data key unwraps through the migrated Vault: not verified'] };
+  if (!v.ok) return { ok: false, lines: [...lines, 'not every active data key unwraps through the migrated Vault: not verified. The file storage is untouched: fix what the keys job says above and run this again'] };
 
   rmSync(pendingFile(d.dir), { force: true });
   writeOwnerOnly(markerFile(d.dir), `${JSON.stringify({ migratedAt: new Date().toISOString(), kek: { latestVersion: after.latest_version, versions: Object.keys(after.keys).length } }, null, 2)}\n`);
