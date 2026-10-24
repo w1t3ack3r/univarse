@@ -449,6 +449,275 @@ None survived.
 
 That is also the post-deploy check owed since A2: the first real write, COMPLIANCE retention of 10 years, and the identities' permissions. `--try-delete` was not run.
 
+## Plan (PR B: backups, the rehearsed restore and the shred drill), for approval
+
+**Status:** proposed 2026-10-24, not approved. Nothing is built until the owner approves the split (B-1) and decisions B-2 to B-17. Each decision gives the recommendation, the alternatives and why. Where a decision changes the wording of an approved D, it says so; those amendments are made in the spec only once approved.
+
+### B-1. The split: two PRs, as the handoff proposes, with four moves
+
+**Recommendation: B1 and B2, with these changes to the handoff's list.**
+
+- **B1: the stack can be backed up.**
+  - Vault on Raft, and its one-time migration (D4, BK5's first half);
+  - WAL archiving and its shipping (D3);
+  - D5's sealing, and `stack:backup keygen`;
+  - `pnpm stack:backup`, writing a set with its manifest (D2, BK3);
+  - **moved in:** pruning at the end of each backup (BK8's first sentence). BK3 says a backup "prunes at its end", and D6 says retention never depends on a separate step. A backup that doesn't prune would contradict both, even if only the owner runs it by hand;
+  - **moved in:** the backup's ledger snapshot under the ledger lock (BK14's fourth case, owed since A2). It is part of writing a set;
+  - **moved in:** D7's "the external drive is a ledger destination when the backup destination is one". The backup destination is chosen in B1, so the rule has to hold from the first backup, not from B2. That includes `ledger waive`'s requirement;
+  - **moved in:** every new subcommand in the release images that B2 needs (B-14). Then B1's release is the only release PR B needs, and the owner's drill runs on it;
+  - BK9's secrets checks for everything B1 writes or prints.
+- **B2: the restore is rehearsed and the shred drill holds.**
+  - `pnpm stack:restore-rehearsal` into the isolated stack (D9, D10, BK6), with BK4's PITR and BK5's second half proven there;
+  - the shred drill and its control (D11, BK7);
+  - the checkpoint comparison (D12);
+  - `stack:backup status` with its waiver line, the deploy's 26-hour warning, and `stack:backup schedule` (D6, BK8's rest);
+  - `pnpm stack:restore` (over the stack, documented, not rehearsed against live data, D9);
+  - BK9 for what B2 writes or prints; BK10's full mutation list;
+  - the docs (Affected docs, below) and the drill record.
+
+**Why split at all:** B1 changes the running stack (Vault's storage, PostgreSQL's configuration, a new role) and needs a release and a one-time owner migration. That should be deployed and verified on its own before anything depends on it. B2 changes nothing in the running stack.
+
+**Alternatives:**
+- **One PR:** too large to review adversarially, and the Raft migration would land in the same deploy as untested restore code.
+- **Three PRs (Raft alone first):** Raft alone is small, but the owner would do two releases and two deploys for it. Rejected unless the owner prefers to take the Vault migration on its own.
+
+### B-2. WAL: archived into a staging volume, then sealed and shipped by the host
+
+D3 says `archive_command` writes each segment "to the backup destination's WAL area". That can't satisfy D5. `archive_command` runs inside the PostgreSQL container, which has no way to seal: the image has no Node, and `openssl enc` has no AEAD mode. So:
+
+- **`archive_command`** copies each segment into a new stack volume, `pg-wal-staging`. It refuses to overwrite (`test ! -f`), and `sync`s before returning 0. PostgreSQL's own documented pattern.
+- **`archive_timeout = 300`** (5 minutes): a quiet database still closes a segment within 5 minutes of a write.
+- **`pnpm stack:backup wal`** (the host) ships the segments:
+  - it reads each staged segment through a one-shot container (no network, read-only volume, the pinned PostgreSQL image) as a stream;
+  - it compresses it (gzip, `zlib`), seals it (D5), and writes it to `<destination>/wal/<timeline>/`;
+  - each segment is made durable with A2's discipline: `fsync`, read back, and the sealed bytes' SHA-256 verified;
+  - only then does it delete the staged segment.
+- **When it runs:** every 15 minutes, by a second scheduled task (B-15), and at the start of every backup.
+- **Amends D3's wording:** "to a staging volume, then sealed and shipped to the backup destination's WAL area by the host".
+
+**Stated limits:**
+- **RPO:** while the machine runs and the schedule is registered, at most about 20 minutes (5 + 15).
+- **The failure domain:** a segment not yet shipped is inside the stack failure domain. Losing the stack loses up to that much.
+- **Disk space:** if shipping stops, the staging volume grows. If it fills, `archive_command` fails and PostgreSQL keeps the WAL in `pg_wal`. Both are on the Docker VM's disk. `status` and every deploy report the oldest staged segment's age, and warn after 1 hour.
+
+**Alternatives:**
+- **A bind mount of the host destination** as the archive target: the WAL would sit in clear, contradicting D5. Docker Desktop's file sharing also gives no `fsync` guarantee we can verify. Rejected.
+- **A sealing sidecar** built from the API image (it needs only the public key): it still needs that bind mount for the destination, with the same durability problem. It also adds a long-running service. Rejected.
+- **`pg_receivewal` streaming:** it has the same sealing problem, and it holds a replication slot that fills the disk when it stops. Rejected.
+
+### B-3. The base backup: `pg_basebackup` to stdout, sealed as it streams
+
+- **The command:** `pg_basebackup -Ft -D - -X fetch -c fast --manifest-checksums=SHA256`. It runs in a one-shot container from the pinned PostgreSQL image, on the `db` network, over TLS `verify-full`.
+- **Never in clear on disk:** its stdout is streamed to the host, sealed, and written. No unsealed copy touches the disk.
+- **`-X fetch`:** each set restores on its own, without the archive. Then a lost WAL area costs PITR, not the set. `wal_keep_size = 512MB` keeps `fetch` from failing on a busy database.
+- **The role:** a new replication role, `univarse_backup`. It has `REPLICATION` and nothing else: no database, no table, no `BYPASSRLS`.
+  - It is created by the migrate job's bootstrap, so this is a migrate image change.
+  - `pg_hba.conf` gains one line: `hostssl replication univarse_backup` from the `db` network, SCRAM.
+  - Its password is a new secret, generated by the deploy's `upgradeSecrets` (A2-6), with names printed and values never.
+
+**To verify while building:** whether `backup_manifest` is carried in the tar stream with `-D -` on PostgreSQL 18. If it isn't, the rehearsal checks the restored data with `pg_verifybackup` against a manifest written by a plain-format run instead.
+
+### B-4. Vault on Raft, and a deploy that can't initialise over the old Vault
+
+- **`stack.hcl`:**
+  - `storage "raft"` on a new volume, `vault-raft` (`node_id = "vault"`);
+  - `cluster_addr = "https://vault:8201"`, on the `app` network only, published nowhere.
+- **The old volume, `vault-data`, is kept** (D4). It is removed from the service but not deleted. A later explicit owner command deletes it, once the migrated Vault is verified.
+- **The guard, the important part:** today a deploy that finds Vault `uninitialised` initialises it. On B1's release, Vault would start on an empty Raft volume, and the deploy would create a **new** Vault with a new KEK. Every wrapped DEK would then be unreadable, with the data still in the old volume. So:
+  - the deploy **refuses** when `vault-raft` is empty and `vault-data` holds a Vault;
+  - its message names `pnpm stack:vault migrate-raft`;
+  - a test covers it, and it is a BK10 mutation.
+- **`pnpm stack:vault migrate-raft`** (the owner, once):
+  1. stop Vault;
+  2. run `vault operator migrate` in a one-shot container, with `vault-data` read-only and `vault-raft` writable;
+  3. start Vault on Raft. The owner unseals with the **same** unseal key: the migration keeps the barrier keyring;
+  4. verify that every active DEK unwraps (the keys job's `verify-unwrap`, B-14). Only then is the migration recorded.
+
+  If verification fails, `pnpm stack:vault migrate-raft --revert` puts the file storage back. `vault-data` was never written.
+- **The snapshot's token:** a new policy, `univarse-backup`, with `read` on `sys/storage/raft/snapshot` only. Its token sits in `vault-init.json`, beside the app's, so the backup never uses the root token.
+
+**Alternative:** have the backup use the root token. That is simpler, but a scheduled task would then hold root on Vault. Rejected.
+
+**Stated:** Vault's audit log volume is not in a set, as approved in D2.
+
+### B-5. Sealing: D5 as written, plus a passphrase on the private key
+
+- **The format:** a file starts with a header:
+  - magic `UVSEAL1`;
+  - the recipient key's fingerprint (SHA-256 of the public key);
+  - an ephemeral X25519 public key;
+  - an HKDF salt;
+  - the content key, wrapped under the ECDH-derived key (AES-256-GCM).
+
+  Then come 64 KiB chunks, each AES-256-GCM under the content key. Each chunk's nonce is the chunk counter, and its AAD is the header's hash, the counter and a final-chunk flag. So truncation, reordering, splicing between files and header edits all fail.
+- **Why a wrapped random key**, rather than a key derived straight from ECDH (equally secure): rotating the backup key re-wraps the headers without re-encrypting the sets.
+- **The private key:** PKCS#8, encrypted with a passphrase.
+  - The passphrase comes from `UNIVARSE_BACKUP_KEY_PASSPHRASE`, set by the owner as with `COSIGN_PASSWORD`. It is never prompted with echo and never printed.
+  - **An amendment to D5,** which doesn't say. It is a second factor if the offline copy is found.
+- **`keygen`:**
+  - **It refuses a path** under `~/.univarse/stack`, the repository, any ledger destination, or the backup destination. That is BK9's mutation.
+  - **It writes** `infra/backup/backup.pub` and prints the fingerprint only. The owner keeps two copies, as with the signing key.
+
+### B-6. A set on disk: what is sealed, and the clear index
+
+- **Layout:** `<destination>/sets/<setId>/` holds:
+  - one sealed file per artifact: `postgres.tar.seal`, `vault.snap.seal`, `files.tar.seal`, `stack.tar.seal` and `ledger.tar.seal`;
+  - `manifest.seal`;
+  - `index.json`, last.
+- **The sealed manifest holds everything D2 and BK3 name:**
+  - versions, and every artifact's size and plaintext SHA-256;
+  - the audit checkpoint and row counts (B-7);
+  - the ledger snapshot's generation, seq and head (B-8);
+  - the deployed digests, from the release record.
+- **The clear `index.json`:**
+  - the set id, its time, and complete: true;
+  - the backup start WAL file and timeline;
+  - each sealed file's name, size and SHA-256;
+  - the key fingerprint.
+
+  It holds no tenant name, no count, no secret.
+- **Why a clear index:** the scheduled task must prune, and `status` must report, **without the private key**. They can also check every sealed file's hash.
+- **Completeness:** the index is written last and is the set's completion marker. A set without it is incomplete and ignored, and is removed by a prune once it is a day old.
+- **Durability:** every file is `fsync`ed and read back, as in A2's store.
+
+**Alternative:** everything sealed, including what prune needs. The schedule would then need the private key, which D5 forbids. Rejected.
+
+### B-7. The audit checkpoint and row counts, against what the rehearsal restores to
+
+D10 asks that row counts and chain heads match the manifest. A physical backup has no single "moment" the host can read facts at, and the two databases can't share one transaction. So:
+
+- **One `REPEATABLE READ` transaction per database**, run by the keys job after the base backup:
+  - its first statement is `pg_create_restore_point('uv-<setId>-<db>')`;
+  - it then reads the chain heads (the platform's, and each tenant's), and row counts per table and per tenant, through the existing tenant-scoped access. That means no `BYPASSRLS` role, invariant 1.
+- **The rehearsal restores to the later of the two restore points** (`recovery_target_name`, inclusive). It then compares:
+  - each chain verifies, and holds the checkpoint's `seq` with its hash exactly;
+  - counts match exactly.
+- **Stated window:** a commit that lands between the first database's transaction and the later restore point is in the restore but not in that database's counts. On the owner's quiet stack that window is a second or two. The drill note says to run the drill while nobody is using the app.
+- **A mismatch fails the drill,** naming the table. It is never tolerated, and the owner reruns it.
+
+**To resolve while building, and bring back:** whether `ShardRegistry` can give one transaction across tenants (switching the tenant context inside it). If it can't, the shard's counts become one transaction per tenant, and the window above widens. I'll measure that and bring it back as a decision, not decide it alone.
+
+**Alternative:** pause the app during the facts. That is exact, but a backup would interrupt the stack every day. Rejected.
+
+### B-8. The ledger in a set
+
+- **Order and locks:** under the registry lock (the backup's own), then the ledger lock (D14's order).
+- **Authority first:** the backup establishes the authoritative ledger read-only, with A2's routine, and refuses to take a set when it can't. A set taken under a broken ledger would capture a broken state silently.
+- **What is copied:** the generation of record's files and every generation's `current.json` marker.
+- **Recorded:** the snapshot's generation, seq and head, in the manifest.
+- **The BK14 case:** a backup during a destruction waits, and its snapshot is a prefix of the live ledger.
+
+### B-9. The backup destination, and D7's external-drive rule
+
+- **The setting:** `~/.univarse/stack/backup.json`, written by `pnpm stack:backup destination <path>`. The default is `~/.univarse/backups/`, owner-only.
+- **What counts as "an external drive":** a destination on a different device from the primary ledger (`stat().dev`; on Windows the volume serial, which Node reports as `dev`).
+- **The rule:** when the destination is on a different device, a ledger destination on that same device must be configured. Until it is:
+  - `stack:backup` refuses, naming `pnpm stack:keys ledger add-destination <drive>\univarse-ledger`;
+  - `ledger waive` requires such a destination among its `--destination`s (D7, D8).
+
+**Alternative:** a flag the owner sets ("this is external"). It is easy to forget, and the rule would fail open. Rejected.
+
+### B-10. The isolated rehearsal stack
+
+D9 says PostgreSQL, Vault and SeaweedFS only. The D10 checks also need the release's code: the keys job (unwrap, decrypt, chains, recovery) and the migrate image (`rls:check`). So, as an **amendment to D9's wording**:
+
+- **The project:** `infra/stack/restore.compose.yml`, compose project `univarse-restore`, labelled. It runs on internal networks only, with no published port and no edge.
+- **Long-running:** PostgreSQL, PgBouncer, Vault and SeaweedFS.
+- **One-shot jobs:** from the release named in the set's manifest, by digest, verified with `images:verify` first. No API, worker or web.
+- **Its env files** are rendered from the set's own `secrets.json`, with this project's hostnames, into a temporary owner-only directory that is removed afterwards.
+- **No clear copy on the host:** a set is unsealed as a stream into the project's own volumes (`docker run -i … tar -x`). The one exception is the env files, which the stack writes owner-only today too.
+- **Teardown:** in a `finally`, even on failure (BK6). The command removes only volumes carrying its label. A leftover project from a crashed run is found and removed at the start.
+- **Memory:** about 1.1 GB more, by the limits. On the 8 GB machine the drill note says to stop the dev stack and dev ClamAV first. The real usage is measured and recorded in the drill.
+
+### B-11. The rehearsal's recovery runs on a scratch copy of the ledger
+
+D8 has every restore run recovery. In a rehearsal, recovery would append `reapplied` records to the **real** ledger for a database that is thrown away minutes later. That is false evidence, and it changes the thing BK6 says stays untouched. So:
+
+- **Authority:** the rehearsal establishes authority read-only from the real destinations. It fails closed exactly as D8 does.
+- **The scratch copy:** under the ledger lock, it copies them into a scratch directory, and recovery runs on that copy.
+- **The check:** the real ledger's heads before and after are compared, and must be equal.
+- **`pnpm stack:restore`,** the real one, uses the real ledger.
+
+**Alternative:** let the rehearsal write to the real ledger. Rejected for the reason above.
+
+### B-12. The shred drill
+
+- **The drill tenant:** a new tenant per drill, `shred-drill-<yyyymmdd>`.
+  - A `shred-drill` tenant destroyed once stays destroyed, so a second drill needs a fresh one.
+  - Each drill leaves one permanent, accepted destruction in the real ledger, which is its evidence.
+  - It is created by a new image subcommand (B-14). That command accepts only that slug pattern, and gives the tenant a data key and a few generated non-PII encrypted values.
+- **The sequence on the owner's stack:**
+  1. create the drill tenant;
+  2. `pnpm stack:backup`;
+  3. `pnpm stack:keys destroy shred-drill-<date>`, the real protocol;
+  4. `pnpm stack:restore-rehearsal <that set>`.
+- **In the rehearsal, before recovery (the control):** the drill tenant's values decrypt, and so do every other tenant's. That proves the set really held its keys. The control is shown, then torn down with the stack, which is D11's "removed".
+- **After recovery:** the drill tenant fails to decrypt with its key destroyed, and every other tenant decrypts.
+- **The mutation:** "the drill passes without the re-apply step" must turn the test red (BK10).
+
+### B-13. Retention and pruning (in B1)
+
+- **What is kept:** the 7 newest complete sets, plus the newest set of each of the 4 newest ISO weeks.
+- **What is never deleted:**
+  - the newest set;
+  - any WAL a kept set needs: every segment from the oldest kept set's start WAL file, timeline-aware.
+- **What else is deleted:** incomplete sets older than a day.
+- **Shape:** a pure function, unit-tested at every boundary. The deletion runs under the registry lock and logs what it removed, by set id.
+
+### B-14. Image changes, all in B1's release
+
+- **The migrate image:**
+  - the `univarse_backup` role;
+  - `EXECUTE` on `pg_create_restore_point` for the keys job's role;
+  - a `--check-only` mode (`rls:check` and the migration status, with no migration, seed or key creation), for the rehearsal.
+- **The API image, as new `keys` subcommands:**
+  - `backup-facts`: B-7;
+  - `verify-unwrap`: every active DEK, the platform's and each tenant's;
+  - `verify-decrypt`: a sample of each tenant's encrypted values, reported per tenant as `ok` or `key_destroyed`, never a value;
+  - `verify-chains`: every chain, against a checkpoint;
+  - `drill-tenant create`: B-12.
+
+  Each prints JSON with ids and counts only.
+
+**Why all in B1:** B2 then needs no release, so the owner releases once for all of PR B. If B2 finds that it needs another subcommand, that is a second release, and I'll say so before building it.
+
+### B-15. The schedule (B2)
+
+- **What `pnpm stack:backup schedule` registers,** with `schtasks /Create /XML`:
+  - a daily backup, at a time the owner gives;
+  - `stack:backup wal` every 15 minutes.
+- **How they run:** both as the owner, "only when logged on". Docker Desktop needs the session anyway, and the other option stores the owner's Windows password.
+- **The owner approves:** without `--apply`, the command prints the XML and changes nothing. A test checks exactly what it registers.
+- **Other systems:** Windows only, stated. Elsewhere it prints the equivalent cron lines and registers nothing.
+
+### B-16. What runs where
+
+- **CI, as new steps beside `test:ledger` and `test:bucket`:**
+  - sealing (unit);
+  - prune (unit);
+  - BK4's PITR, on a real PostgreSQL 18 container: a base backup, a row before the target time and one after, archive, restore to the time;
+  - BK5: a file-storage Vault, `operator migrate` to Raft, every DEK still unwraps, and a snapshot restored into a second Vault unwraps them;
+  - the deploy's refusal over an unmigrated Vault;
+  - the drill's two halves, with the real built keys CLI against the disposable databases.
+- **CI can't run the full rehearsal:** it needs a whole stack and a release. That runs on the owner's stack, and its record in `docs/ops/drills/` is BK6's and BK7's evidence. I won't claim a run that happened only in CI as the drill, or the reverse.
+
+### B-17. The owner's steps, in order
+
+**After B1 merges:**
+1. Generate the backup key offline: `pnpm stack:backup keygen --out <your path>` with `UNIVARSE_BACKUP_KEY_PASSPHRASE` set. Commit `infra/backup/backup.pub` (a small PR).
+2. Release (`pnpm images:release`) and deploy. The deploy refuses on the old Vault (B-4), as intended.
+3. Run `pnpm stack:vault migrate-raft`, then `pnpm stack:vault unseal`, then deploy again.
+4. Choose the destination (`pnpm stack:backup destination <path>`). If it's an external drive, add it as a ledger destination too.
+5. Run `pnpm stack:backup`. I'll give the exact checks to read.
+
+**After B2 merges:**
+1. `pnpm stack:backup schedule --apply`.
+2. The drill (B-12).
+3. Commit the drill record.
+
+**Spec amendments, made only once approved:** D3 (B-2), D5 (B-5's passphrase), D9 (B-10), and BK14's fourth case and D7's rule moving into B1 (B-1).
+
 ## Affected docs (in the implementation PRs)
 
 - **[10 §7](../10-infrastructure-and-deployment.md):** the local backup section: what, where, the schedule, the measured boundary, the owner's private key, the same-disk limit, the commands, the drill.
