@@ -24,17 +24,20 @@ const hex = (b: Uint8Array) => Buffer.from(b).toString('hex');
 
 /**
  * Row counts of every table the current role may read, computed inside PostgreSQL: `format('%I')` quotes each table
- * name there, so no identifier is ever interpolated here. Under a tenant transaction, RLS scopes every count.
+ * name there, so no identifier is ever interpolated here. Tables are found in pg_class by oid, and the privilege is
+ * checked by oid too, so no name is ever resolved for a row outside `public` (the planner may test any predicate
+ * first: a name-based check once resolved `public.pg_statistic`). Under a tenant transaction, RLS scopes every count.
  */
 async function counts(tx: { $queryRaw: TenantTx['$queryRaw'] }, tenantScoped: boolean): Promise<Record<string, string>> {
   const rows = await tx.$queryRaw<{ t: string; n: string }[]>`
-    SELECT c.table_name AS t,
-      (xpath('/row/n/text()', query_to_xml(format('SELECT count(*) AS n FROM public.%I', c.table_name), false, true, '')))[1]::text AS n
-    FROM information_schema.tables c
-    WHERE c.table_schema = 'public' AND c.table_type = 'BASE TABLE' AND c.table_name <> '_prisma_migrations'
-      AND has_table_privilege(format('public.%I', c.table_name), 'SELECT')
+    SELECT c.relname AS t,
+      (xpath('/row/n/text()', query_to_xml(format('SELECT count(*) AS n FROM public.%I', c.relname), false, true, '')))[1]::text AS n
+    FROM pg_catalog.pg_class c
+    JOIN pg_catalog.pg_namespace s ON s.oid = c.relnamespace
+    WHERE s.nspname = 'public' AND c.relkind IN ('r', 'p') AND NOT c.relispartition AND c.relname <> '_prisma_migrations'
+      AND has_table_privilege(c.oid, 'SELECT')
       AND (NOT ${tenantScoped} OR EXISTS (
-        SELECT 1 FROM information_schema.columns k WHERE k.table_schema = 'public' AND k.table_name = c.table_name AND k.column_name = 'tenant_id'))
+        SELECT 1 FROM pg_catalog.pg_attribute a WHERE a.attrelid = c.oid AND a.attname = 'tenant_id' AND NOT a.attisdropped))
     ORDER BY 1`;
   return Object.fromEntries(rows.map((r) => [r.t, r.n]));
 }

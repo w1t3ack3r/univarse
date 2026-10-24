@@ -787,7 +787,7 @@ WAL goes to `<destination>/wal/<timeline>/<name>.gz.seal`. Every file is written
     - each tenant's facts are one single-statement transaction, after the platform's;
     - **the window:** a write between the platform's WAL position and a tenant's statement shows in that tenant's counts but not in the restore;
     - a mismatch fails B2's drill, naming the table. The drill measures it on the owner's stack.
-15. **Row counts are computed in PostgreSQL** (`query_to_xml` with `format('%I')`), over the tables the role may select. The app interpolates no identifier, and RLS scopes every tenant's count.
+15. **Row counts are computed in PostgreSQL** (`query_to_xml` with `format('%I')`), over the tables the role may select. The app interpolates no identifier, and RLS scopes every tenant's count. The tables come from `pg_class`, and the privilege check uses each table's OID. CI's first run found why: a name-based check over `information_schema` can be evaluated before the schema filter, and it then tried to resolve `public.pg_statistic`.
 16. **The drill tenant** (`shred-drill-YYYYMMDD`): SUSPENDED, no domain, no product, a data key, and three outbox rows already `DEAD` holding encrypted random bytes. The relay never picks up a `DEAD` row. It is audited on both chains.
 17. **The destination's permissions:** the default is made owner-only. A path the owner chooses keeps its own permissions; the sets are sealed either way.
 18. **`stack:backup wal` while the registry lock is held** (a deploy, a release or a backup): it ships nothing, exits 0 and says so. The next run ships it, and B2's `status` reports the staged age.
