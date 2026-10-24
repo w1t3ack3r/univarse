@@ -28,12 +28,17 @@
 //     Spec 0020 A3: every entry in that bucket, for the waiver's plan (the app's S3 identity; evidence only).
 //   pnpm --filter @univarse/api keys ledger-waiver-audit --attempt <uuid> --detail <json>
 //     Spec 0020 D8's waiver (A3-6): its platform audit event, once per attempt (a repeat returns the first one's seq).
+//   pnpm --filter @univarse/api keys backup-facts | verify-unwrap | verify-decrypt | verify-chains [--checkpoint-stdin]
+//     Spec 0020 B-14: a backup's facts and a restore rehearsal's checks, as JSON (backup-checks.ts). Read-only.
+//   pnpm --filter @univarse/api keys drill-tenant create <shred-drill-YYYYMMDD>
+//     Spec 0020 D11: the shred drill's tenant (suspended, unreachable), its key and a few encrypted values.
 //   pnpm --filter @univarse/api keys rewrap-kek                 needs VAULT_ADMIN_TOKEN (operator only)
 import 'reflect-metadata';
 import { existsSync, readFileSync } from 'node:fs';
 import { NestFactory } from '@nestjs/core';
 import {
   checkRetiredKey,
+  FieldCrypto,
   DestructionConflictError,
   keyProviderFrom,
   RetiredKeyInUseError,
@@ -50,12 +55,15 @@ import { KeyMaintenance } from '../shared/crypto/key-maintenance.js';
 import { PLATFORM_DB } from '../shared/db/db.module.js';
 import { WorkerModule } from '../worker.module.js';
 import { copyToBucket, readBucket } from './ledger-copy.js';
+import { backupFacts, createDrillTenant, verifyChains, verifyDecrypt, verifyUnwrap, type Checkpoint } from './backup-checks.js';
+import { AuditWriter } from '../shared/audit/audit-writer.js';
+import { ShardRegistry } from '../shared/db/db.module.js';
 
 const rootEnv = new URL('../../../../.env', import.meta.url);
 if (process.env.NODE_ENV !== 'production' && existsSync(rootEnv)) process.loadEnvFile(rootEnv);
 
 const USAGE =
-  'usage: keys <status | rotate <slug> | sweep | migrate-v1 | resweep <slug> | destroy-check <slug> [--version <n>] | destroy <slug> --op <uuid> [--version <n>] | evidence [--legacy] [--tenant-id <uuid>]… | adopt --op <uuid> --tenant-id <uuid> --kind TENANT|RETIRED --versions <n,…> | reapply --op <uuid> --tenant-id <uuid> --kind TENANT|RETIRED --versions <n,…> | ledger-audit --action <name> --detail <json> | ledger-copy --ledger <uuid> --generation gen-NNNN[/<attempt>] | ledger-bucket-read | ledger-waiver-audit --attempt <uuid> --detail <json> | rewrap-kek>';
+  'usage: keys <status | rotate <slug> | sweep | migrate-v1 | resweep <slug> | destroy-check <slug> [--version <n>] | destroy <slug> --op <uuid> [--version <n>] | evidence [--legacy] [--tenant-id <uuid>]… | adopt --op <uuid> --tenant-id <uuid> --kind TENANT|RETIRED --versions <n,…> | reapply --op <uuid> --tenant-id <uuid> --kind TENANT|RETIRED --versions <n,…> | ledger-audit --action <name> --detail <json> | ledger-copy --ledger <uuid> --generation gen-NNNN[/<attempt>] | ledger-bucket-read | ledger-waiver-audit --attempt <uuid> --detail <json> | backup-facts | verify-unwrap | verify-decrypt | verify-chains [--checkpoint-stdin] | drill-tenant create <shred-drill-YYYYMMDD> | rewrap-kek>';
 const [command, ...args] = process.argv.slice(2);
 const config = loadConfig();
 // Spec 0015: the CLI publishes key-forget notices but never subscribes to the bus.
@@ -66,6 +74,7 @@ const ctx = await NestFactory.createApplicationContext(
 const platform = ctx.get<PlatformClient>(PLATFORM_DB);
 const keys = ctx.get(KeyMaintenance);
 const destruction = ctx.get(KeyDestruction);
+const shards = ctx.get(ShardRegistry);
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -439,6 +448,34 @@ try {
         return auditSeq;
       });
       console.log(JSON.stringify({ outcome: 'audited', auditSeq: String(seq) }));
+      break;
+    }
+    case 'backup-facts': {
+      console.log(JSON.stringify(await backupFacts(platform, shards)));
+      break;
+    }
+    case 'verify-unwrap': {
+      const r = await verifyUnwrap(platform, keyProviderFrom(config));
+      console.log(`${String(r.unwrapped)} of ${String(r.keys)} data keys unwrap`);
+      console.log(JSON.stringify(r));
+      if (!r.ok) process.exitCode = 1;
+      break;
+    }
+    case 'verify-decrypt': {
+      console.log(JSON.stringify(await verifyDecrypt(platform, shards, ctx.get(FieldCrypto))));
+      break;
+    }
+    case 'verify-chains': {
+      if (args.length && (args.length !== 1 || args[0] !== '--checkpoint-stdin')) throw new Error(USAGE);
+      const checkpoint = args.length ? (JSON.parse(readFileSync(0, 'utf8')) as Checkpoint) : null;
+      const r = await verifyChains(platform, shards, checkpoint);
+      console.log(JSON.stringify(r));
+      if (!r.ok) process.exitCode = 1;
+      break;
+    }
+    case 'drill-tenant': {
+      if (args[0] !== 'create' || args.length !== 2) throw new Error(USAGE);
+      console.log(JSON.stringify(await createDrillTenant(platform, shards, keyProviderFrom(config), ctx.get(FieldCrypto), ctx.get(AuditWriter), args[1] ?? '')));
       break;
     }
     case 'rewrap-kek': {

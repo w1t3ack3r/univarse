@@ -13,6 +13,7 @@ import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { isDigestRef, RELEASES, REPO, ROLE_VARS, type Role } from './config.js';
 import { hostRef, RELEASE_ROLES, type ReleaseRecord, type Verification } from './release.js';
+import { storageProblem, type VaultStorage } from './vault-raft.js';
 
 export type VaultState = 'absent' | 'uninitialised' | 'sealed' | 'ready';
 
@@ -35,6 +36,11 @@ export interface DeployDeps {
   scanThirdParty(): string[];
   compose(args: readonly string[], images: Readonly<Record<string, string>>): { status: number };
   vaultState(): VaultState;
+  /**
+   * Spec 0020 D4, B-4: what Vault's two storage volumes hold. The deploy proceeds only on `raft` or `fresh`, so it never
+   * starts Vault on a half-migrated Raft volume, nor initialises a second Vault beside the one in file storage.
+   */
+  vaultStorage(): VaultStorage;
   /** Initialises Vault on first use, otherwise completes any missing part of its setup (idempotent). */
   ensureVault(): void;
   /** The storage buckets, created if missing (idempotent); returns problems. SeaweedFS must be running. */
@@ -87,6 +93,8 @@ export async function deploy(record: ReleaseRecord, commit: string, deps: Deploy
     // ── Configuration, then Vault (it holds the KEK the migrate job and the API need).
     const restart = new Set(deps.prepare(false));
     for (const line of deps.scanThirdParty()) deps.log(line);
+    const vaultStorage = storageProblem(deps.vaultStorage());
+    if (vaultStorage) return { ok: false, problems: [vaultStorage] };
     if (deps.compose(['up', '-d', '--wait', 'vault'], images).status !== 0) return { ok: false, problems: ['Vault did not start'] };
     // A changed certificate (C2) loads only at start, and a restarted Vault is sealed: restart it now, record it at
     // once (so the next deploy doesn't restart it again), and let the sealed state below ask for the owner's unseal.

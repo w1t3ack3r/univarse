@@ -21,6 +21,13 @@ export const DATABASES = Object.freeze([
   { name: 'univarse_pool_01', appRole: ROLES.app, envPrefix: 'TENANT_POOL_01' },
 ] as const);
 
+/**
+ * Spec 0020 B-3: the stack's base backups connect as this role, over a replication connection. REPLICATION and LOGIN
+ * only: no database, no table, no BYPASSRLS (CONNECT on UniVarse's databases is revoked from PUBLIC below). Created
+ * only by the stack's migrate job, which is given its verifier; `pnpm db:setup` has no backups.
+ */
+export const BACKUP_ROLE = 'univarse_backup';
+
 /** The roles the app connects as: the only ones PgBouncer authenticates (the migrator always connects directly). */
 export const APP_ROLES: readonly string[] = [ROLES.app, ROLES.appPlatform];
 /** The roles PgBouncer authenticates: the app's, and the relay's (its own pool). */
@@ -33,6 +40,8 @@ export interface BootstrapOptions {
   readonly passwords: Readonly<Record<RoleKey, string>>;
   /** CREATEDB for the migrator: LOCAL DEVELOPMENT ONLY (Prisma's shadow database for `migrate dev`). */
   readonly migratorCreatedb: boolean;
+  /** Spec 0020 B-3: the backup role's password or SCRAM verifier; without it the role is neither created nor changed. */
+  readonly backupPassword?: string | undefined;
   readonly log?: (line: string) => void;
 }
 
@@ -40,8 +49,9 @@ const ident = (s: string) => `"${s.replace(/"/g, '""')}"`;
 /** Generated hex passwords or SCRAM verifiers only: nothing that could close the literal. */
 const SAFE_SECRET = /^[A-Za-z0-9+/=$:-]{16,512}$/;
 
-export async function bootstrap({ connect, passwords, migratorCreatedb, log = () => undefined }: BootstrapOptions): Promise<void> {
+export async function bootstrap({ connect, passwords, migratorCreatedb, backupPassword, log = () => undefined }: BootstrapOptions): Promise<void> {
   for (const [key, value] of Object.entries(passwords)) if (!SAFE_SECRET.test(value)) throw new Error(`the ${key} password has an unexpected shape`);
+  if (backupPassword !== undefined && !SAFE_SECRET.test(backupPassword)) throw new Error('the backup password has an unexpected shape');
   const admin = await connect('postgres');
   try {
     for (const [key, role] of Object.entries(ROLES) as [RoleKey, string][]) {
@@ -50,6 +60,11 @@ export async function bootstrap({ connect, passwords, migratorCreatedb, log = ()
       const createdb = key === 'migrator' && migratorCreatedb ? 'CREATEDB' : 'NOCREATEDB';
       await admin.query(`${verb} ROLE ${ident(role)} WITH LOGIN NOSUPERUSER NOCREATEROLE NOBYPASSRLS ${createdb} PASSWORD '${passwords[key]}'`);
       log(`  ✓ role ${role} ${exists ? '(password set)' : '(created)'}`);
+    }
+    if (backupPassword !== undefined) {
+      const exists = (await admin.query('SELECT 1 FROM pg_roles WHERE rolname = $1', [BACKUP_ROLE])).rowCount;
+      await admin.query(`${exists ? 'ALTER' : 'CREATE'} ROLE ${BACKUP_ROLE} WITH LOGIN REPLICATION NOSUPERUSER NOCREATEROLE NOCREATEDB NOBYPASSRLS PASSWORD '${backupPassword}'`);
+      log(`  ✓ role ${BACKUP_ROLE} ${exists ? '(password set)' : '(created)'}: REPLICATION only`);
     }
     // Spec 0017 D6: a UTC default for app sessions that send no TimeZone. The client's startup option remains the setting.
     for (const role of APP_ROLES) await admin.query(`ALTER ROLE ${ident(role)} SET timezone = 'UTC'`);

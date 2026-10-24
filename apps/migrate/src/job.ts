@@ -4,6 +4,8 @@
 //   3. rls:check, the static isolation gate, which fails the job;
 //   4. the idempotent seed, on SEED_DOMAIN;
 //   5. tenant data keys (spec 0006 E11), through the key provider.
+// With `--check-only` (spec 0020 B-14, the restore rehearsal's check of a restored database) it changes nothing:
+// each database's migration status must be up to date, then rls:check; no bootstrap, migration, seed or keys.
 // The steps are injected so the order and the stops are unit-tested; main.ts wires the real ones. Errors name
 // variables, never their values.
 import { vaultAddrProblem } from '@univarse/crypto';
@@ -24,6 +26,9 @@ export const BOOTSTRAP = [
   'ROLE_VERIFIER_RELAY_PLATFORM',
 ] as const;
 
+/** Optional with the bootstrap: spec 0020 B-3's backup role, created only when its verifier is given. */
+export const BOOTSTRAP_OPTIONAL = ['ROLE_VERIFIER_BACKUP'] as const;
+
 const DOMAIN = /^(?=.{1,200}$)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/;
 
 export type JobEnv = Readonly<Record<string, string | undefined>>;
@@ -31,6 +36,8 @@ export type JobEnv = Readonly<Record<string, string | undefined>>;
 export interface JobSteps {
   bootstrap(env: JobEnv): Promise<void>;
   migrate(which: 'platform' | 'tenant'): Promise<void>;
+  /** Rejects unless every migration is applied and none failed (`prisma migrate status`); changes nothing. */
+  status(which: 'platform' | 'tenant'): Promise<void>;
   rlsCheck(env: JobEnv): Promise<{ problems: string[]; tables: number }>;
   seed(env: JobEnv): Promise<void>;
   provisionKeys(env: JobEnv): Promise<void>;
@@ -50,12 +57,23 @@ export function envProblems(env: JobEnv): string[] {
   const given = BOOTSTRAP.filter((k) => env[k]);
   if (given.length > 0 && given.length < BOOTSTRAP.length)
     problems.push(`bootstrap needs all of ${BOOTSTRAP.join(', ')}, or none (missing: ${BOOTSTRAP.filter((k) => !env[k]).join(', ')})`);
+  for (const k of BOOTSTRAP_OPTIONAL) if (env[k] && !given.length) problems.push(`${k} is given without the bootstrap`);
   return problems;
 }
 
-export async function runJob(env: JobEnv, steps: JobSteps): Promise<void> {
+export async function runJob(env: JobEnv, steps: JobSteps, { checkOnly = false }: { checkOnly?: boolean } = {}): Promise<void> {
   const problems = envProblems(env);
   if (problems.length) throw new Error(`invalid environment:\n  ${problems.join('\n  ')}`);
+
+  if (checkOnly) {
+    for (const which of ['platform', 'tenant'] as const) {
+      steps.log(`[migrate] check-only: migration status (${which})`);
+      await steps.status(which);
+    }
+    await isolationGate(env, steps);
+    steps.log('[migrate] check-only: done, nothing changed');
+    return;
+  }
 
   if (env.BOOTSTRAP_SUPERUSER_URL) {
     steps.log('[migrate] bootstrap: roles, databases, privileges');
@@ -67,10 +85,7 @@ export async function runJob(env: JobEnv, steps: JobSteps): Promise<void> {
     await steps.migrate(which);
   }
 
-  steps.log('[migrate] rls:check');
-  const { problems: isolation, tables } = await steps.rlsCheck(env);
-  if (isolation.length) throw new Error(`rls:check failed (${String(isolation.length)} problem(s)):\n  ${isolation.join('\n  ')}`);
-  steps.log(`[migrate] rls:check passed: ${String(tables)} tenant tables isolated; platform capture intact`);
+  await isolationGate(env, steps);
 
   steps.log(`[migrate] seed on ${env.SEED_DOMAIN ?? ''}`);
   await steps.seed(env);
@@ -78,4 +93,11 @@ export async function runJob(env: JobEnv, steps: JobSteps): Promise<void> {
   steps.log('[migrate] tenant data keys');
   await steps.provisionKeys(env);
   steps.log('[migrate] done');
+}
+
+async function isolationGate(env: JobEnv, steps: JobSteps): Promise<void> {
+  steps.log('[migrate] rls:check');
+  const { problems: isolation, tables } = await steps.rlsCheck(env);
+  if (isolation.length) throw new Error(`rls:check failed (${String(isolation.length)} problem(s)):\n  ${isolation.join('\n  ')}`);
+  steps.log(`[migrate] rls:check passed: ${String(tables)} tenant tables isolated; platform capture intact`);
 }

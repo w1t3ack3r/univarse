@@ -44,7 +44,8 @@
     "stack:e2e": "pnpm --filter @univarse/stack run e2e",
     "stack:isolation": "pnpm --filter @univarse/stack run isolation",
     "stack:keys": "pnpm --filter @univarse/stack run keys",
-    "stack:bucket-check": "pnpm --filter @univarse/stack run bucket-check"
+    "stack:bucket-check": "pnpm --filter @univarse/stack run bucket-check",
+    "stack:backup": "pnpm --filter @univarse/stack run backup"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

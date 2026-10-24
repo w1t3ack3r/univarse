@@ -172,6 +172,11 @@ jobs:
       # the owner's pre-fix state reproduced, then the upgrade, its volume growth, retention, limits and stack:bucket-check.
       - name: Shred ledger bucket copy against the stack's SeaweedFS (spec 0020)
         run: pnpm --filter @univarse/stack test:bucket
+      # Spec 0020 PR B1, against the stack's pinned images on volumes of their own: Vault migrated from file storage to
+      # Raft (B-4, BK5's first half: every wrapped key still unwraps, the file storage is never written, the backup token
+      # takes a snapshot and nothing else); PostgreSQL 18's archive_command and pg_basebackup's stream (B-2, B-3).
+      - name: Backups' containers, Vault's migration to Raft and PostgreSQL's archiving (spec 0020 B1)
+        run: pnpm --filter @univarse/stack test:backup
       # Spec 0012 OB12: the compiled API and worker as two separate processes, each initialized by its own
       # `--import ./dist/otel.js`, exporting to the same collector service as dev (pinned image, file output).
       # Asserts trace structure (parent chain across the outbox, scan link, pg/Valkey spans, service.name)

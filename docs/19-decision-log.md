@@ -479,3 +479,34 @@ Alternatives considered: option — why not.
 - **Logical decoding (a replication slot read by the worker):** captures everything without triggers, but adds a replication slot to operate and monitor, needs replication privileges, and is heavier than three low-write tables justify.
 - **`LISTEN`/`NOTIFY` alone:** not durable (a notification is lost if no listener is connected) and unusable through PgBouncer's transaction pooling.
 - **The relay on the API's platform role:** rejected in review. Any API-side writer could then delete or settle pending events, bypassing capture without disabling a trigger.
+
+## ADR-032 — Local backups sealed to an offline key, Vault on Raft, and a two-phase destruction protocol with a durable ledger outside the stack
+**Status:** Accepted (2026-10-22) with [spec 0020](specs/0020-local-backups-and-shred-ledger.md) revision 8; PR B's plan (B-1 to B-17) approved on 2026-10-24. **Implemented:**
+- PR A, the destruction protocol, its ledger and the waiver (A1 #90, A2 #91, A3 #96);
+- PR B1, the backups: Vault on Raft, WAL archiving, sealed sets.
+
+PR B2 (the rehearsed restore and the shred drill) remains. The evidence is in the spec's implementation notes.
+
+**Context:**
+- [ADR-030](#adr-030--fully-local-development-deployment-and-operation-stay-on-the-owners-machine) makes backups with a rehearsed restore a local Phase 0 requirement.
+- [Spec 0006](specs/0006-envelope-encryption.md) requires that a restore can't bring a destroyed tenant's data back into use.
+
+**Decision:**
+- **PITR:** physical base backups plus continuous WAL archiving (D3). PostgreSQL archives into a staging volume, and the host seals and ships the WAL (B-2).
+- **Vault on integrated (Raft) storage,** single node (D4). The file storage is migrated once and verified, and the deploy refuses until it is.
+- **Sealing:** every set is sealed to an X25519 public key in the repository (D5), built on Node's `crypto`. Each artifact has a random content key, wrapped with ECDH and HKDF-SHA-256, and is encrypted in authenticated AES-256-GCM chunks. The private key stays offline with the owner, encrypted with a passphrase (scrypt).
+- **Destruction only through a host-side protocol** (D7–D8): `pending`, the transaction, then `committed`, each durable outside the stack before the next step. Recovery rolls `pending` forward and fails closed on anything it can't decide, and every deploy and restore runs it.
+- **Concurrency:** one host-side ledger lock serializes it all (D14), and the preconditions are re-checked inside the transaction.
+- **Retired keys:** a retired version is destroyed only after a grace period longer than the bounded writer window, and a sweep after it (D15).
+
+**Consequences:**
+- **The private key:** every restore needs it, and losing it makes every backup unreadable. The owner keeps two copies.
+- **Destruction** in the stack is an operator command, never an in-app action, until Phase 1 brings a host-side executor.
+- **The local erasure boundary** is the age of the oldest retained set, about 35 days with the daily schedule.
+- **The local RPO** is about 20 minutes while the machine runs; staged, unshipped WAL is inside the stack failure domain.
+- **One machine's limits:**
+  - the ledger's guarantees hold against the stack's loss and against mistakes, not against the machine's owner;
+  - they hold against the disk's loss only with an external destination;
+  - when no configured destination can be read, nothing restarts until the owner reconnects one, or explicitly waives the no-resurrection guarantee. A waiver is recorded and reported from then on.
+
+**Alternatives considered:** the spec's D1–D15 tables (a file-storage Vault copied while stopped; WAL written unsealed to the destination; a sealing sidecar; `pg_receivewal`; a ledger only in the object-locked bucket), each rejected there with its reason.

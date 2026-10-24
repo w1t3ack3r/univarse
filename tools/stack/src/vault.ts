@@ -1,7 +1,7 @@
 // Spec 0019 D9/C2/C3: the stack's Vault. It publishes no port; everything goes through `docker exec` into its
 // container, with the Vault CLI against its own listener: over TLS, verified against the stack CA under the name
 // `vault` (C2). Secrets travel by environment (`-e NAME`) or stdin, never as arguments, and are never printed.
-//   pnpm stack:vault status | init | unseal
+//   pnpm stack:vault status | init | unseal | migrate-raft <releases/record.json>
 // `init` runs once: one unseal share (as in development), stored with the root token and the app's least-privilege
 // token in STACK_DIR/vault-init.json, owner-only. After a restart Vault is sealed: the owner runs `unseal`.
 import { existsSync, readFileSync } from 'node:fs';
@@ -16,6 +16,9 @@ export const VAULT_CONTAINER = 'univarse-stack-vault-1';
 const MOUNT = 'transit';
 const KEK = 'univarse-kek';
 const POLICY = 'univarse-app';
+/** Spec 0020 B-4: the backup's policy: a Raft snapshot, read; nothing else (no Transit, no restore, no tokens). */
+export const BACKUP_POLICY = 'univarse-backup';
+export const BACKUP_POLICY_HCL = 'path "sys/storage/raft/snapshot" { capabilities = ["read"] }\n';
 /** C3: the file audit device, on the audit volume (the image's /vault/logs, owned by the vault user). */
 export const AUDIT_LOG = '/vault/logs/audit.log';
 
@@ -30,13 +33,15 @@ export interface VaultInit {
   readonly unsealKey: string;
   readonly rootToken: string;
   readonly appToken: string;
+  /** Spec 0020 B-4: reads Raft snapshots and nothing else (the backup's); absent until the first configure on B1. */
+  readonly backupToken?: string;
 }
 export type VaultState = 'absent' | 'uninitialised' | 'sealed' | 'ready';
 
 const vaultFile = (dir = STACK_DIR) => join(dir, 'vault-init.json');
 
 /** The CLI's view of its own listener: over TLS, the stack CA and the certificate's name; otherwise plain loopback. */
-const cliEnv = (t: VaultTarget) =>
+export const cliEnv = (t: VaultTarget) =>
   t.tls ? ['-e', 'VAULT_ADDR=https://127.0.0.1:8200', '-e', 'VAULT_CACERT=/vault/tls/ca.crt', '-e', 'VAULT_TLS_SERVER_NAME=vault'] : ['-e', 'VAULT_ADDR=http://127.0.0.1:8200'];
 
 /** `vault <args>` inside the container, against its own listener; `env` values reach it by name only. */
@@ -104,10 +109,19 @@ export function configure(run: Runner = docker, dir = STACK_DIR, target: VaultTa
     must(['write', '-f', `${MOUNT}/keys/${KEK}`, 'type=aes256-gcm96', 'derived=true'], 'creating the KEK');
   const policy = `path "${MOUNT}/encrypt/${KEK}" { capabilities = ["update"] }\npath "${MOUNT}/decrypt/${KEK}" { capabilities = ["update"] }\n`;
   must(['policy', 'write', POLICY, '-'], 'writing the app policy', policy);
-  if (init.appToken) return init;
-  const tok = must(['token', 'create', '-policy', POLICY, '-no-default-policy', '-period', '768h', '-orphan', '-format=json'], 'creating the app token');
-  const done = { ...init, appToken: (JSON.parse(tok.stdout) as { auth: { client_token: string } }).auth.client_token };
-  writeOwnerOnly(vaultFile(dir), `${JSON.stringify(done, null, 2)}\n`);
+  must(['policy', 'write', BACKUP_POLICY, '-'], 'writing the backup policy', BACKUP_POLICY_HCL);
+  const token = (p: string, what: string) =>
+    (JSON.parse(must(['token', 'create', '-policy', p, '-no-default-policy', '-period', '768h', '-orphan', '-format=json'], what).stdout) as { auth: { client_token: string } }).auth.client_token;
+  let done = init;
+  // Each token is saved as soon as it exists, so a stop between the two never orphans one.
+  if (!done.appToken) {
+    done = { ...done, appToken: token(POLICY, 'creating the app token') };
+    writeOwnerOnly(vaultFile(dir), `${JSON.stringify(done, null, 2)}\n`);
+  }
+  if (!done.backupToken) {
+    done = { ...done, backupToken: token(BACKUP_POLICY, 'creating the backup token') };
+    writeOwnerOnly(vaultFile(dir), `${JSON.stringify(done, null, 2)}\n`);
+  }
   return done;
 }
 
@@ -137,8 +151,16 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
       initialise();
       console.log('[stack:vault] initialised and unsealed; the audit device, Transit, the KEK and the app token are ready (saved owner-only)');
     }
+  } else if (cmd === 'migrate-raft') {
+    // Spec 0020 B-4: once, offline. Loaded here only, so the deploy's modules never import the CLI.
+    const { migrateRaftCli } = await import('./vault-raft-cli.js');
+    const r = migrateRaftCli(process.argv.slice(3));
+    if (!r.ok) {
+      for (const l of r.lines) console.error(`[stack:vault] ${l}`);
+      process.exit(1);
+    }
   } else {
-    console.error('usage: pnpm stack:vault status | init | unseal');
+    console.error('usage: pnpm stack:vault status | init | unseal | migrate-raft <releases/record.json>');
     process.exit(2);
   }
 }

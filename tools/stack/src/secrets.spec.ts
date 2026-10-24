@@ -53,6 +53,18 @@ describe('[LS9] the secrets', () => {
     expect(ownerOnlyProblems(secretsFile(dir))).toEqual([]);
   });
 
+  it('[B-3] a file from before PR B1 gains only the backup role\'s password and its matching verifier; every other secret is kept', async () => {
+    const { backupPassword: _p, backupVerifier: _v, ...before } = generateSecrets();
+    const { writeOwnerOnly, scramVerifier } = await import('../../../packages/db/scripts/pgbouncer-config.js');
+    writeOwnerOnly(secretsFile(dir), `${JSON.stringify(before)}\n`);
+    expect(saveSecrets(generateSecrets(), { dir })).toBe('upgraded');
+    const { backupPassword, backupVerifier, ...rest } = loadSecrets(dir);
+    expect(rest).toEqual(before);
+    expect(backupPassword).toMatch(/^[0-9a-f]{48}$/);
+    const [, iter, salt] = /^SCRAM-SHA-256\$(\d+):([^$]+)\$/.exec(backupVerifier) ?? [];
+    expect(scramVerifier(backupPassword, Buffer.from(salt ?? '', 'base64'), Number(iter))).toBe(backupVerifier);
+  });
+
   it('[LS9] the stack directory itself is owner-only', async () => {
     const { ownerOnlyDirProblems } = await import('../../../packages/db/scripts/pgbouncer-config.js');
     expect(ownerOnlyDirProblems(dir)).toEqual([]);
@@ -89,7 +101,8 @@ describe('[LS5] which volumes changed', () => {
     const run = (args: readonly string[]) => {
       if (args[0] === 'volume' && args[1] === 'inspect') return { status: missing.has(args[2] ?? '') ? 1 : 0, stdout: '', stderr: '' };
       if (args[0] === 'volume' && args[1] === 'create') missing.delete(args[2] ?? '');
-      if (args[0] === 'run') filled.push(args[args.indexOf('-v', args.indexOf('-v') + 1) + 1]?.split(':')[0] ?? '');
+      // A fill empties and copies (fillScript); the data volumes' ownership step (spec 0020 B-2) is not one.
+      if (args[0] === 'run' && args.at(-1)?.startsWith('set -eu')) filled.push(args[args.indexOf('-v', args.indexOf('-v') + 1) + 1]?.split(':')[0] ?? '');
       return { status: 0, stdout: '', stderr: '' };
     };
     // First fill: everything is new.

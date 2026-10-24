@@ -16,6 +16,7 @@
 | Issued documents | Forged transcripts or receipts that pass verification |
 | Availability | Portal down on result day or registration deadline |
 | Platform control | Compromise of the console → all tenants |
+| The backup private key ([spec 0020](specs/0020-local-backups-and-shred-ledger.md) D5) | Every backup set readable by whoever holds it. It exists only offline with the owner, encrypted with a passphrase (scrypt), never in `~/.univarse/stack`, the repository, a ledger destination or the backup destination (`keygen` refuses them); losing it makes every set unreadable, so the owner keeps two copies |
 | Key destructions (the shred ledger, [spec 0020](specs/0020-local-backups-and-shred-ledger.md)) | A destroyed tenant's data readable again after a restore, with nobody noticing. The ledger's hash chain makes an edited, deleted or reordered entry visible, not impossible; on one machine, only an external destination survives the loss of the disk |
 
 ## 2. Threat model (STRIDE, top threats)

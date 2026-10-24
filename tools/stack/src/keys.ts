@@ -21,6 +21,8 @@ import { deployedImages, keysJob } from './ledger/job.js';
 import { acquireLedgerLock } from './ledger/lock.js';
 import { abandon, destroy, recover, type ProtocolDeps, type Result } from './ledger/protocol.js';
 import { waive } from './ledger/waiver.js';
+import { loadSettings } from './backup/config.js';
+import { externalRuleProblem } from './backup/external.js';
 
 /** D7: the primary destination, outside the stack failure domain. */
 export const LEDGER_DIR = process.env.UNIVARSE_LEDGER_DIR ?? join(homedir(), '.univarse', 'ledger');
@@ -114,7 +116,14 @@ export async function main(argv: readonly string[]): Promise<Result> {
         }
         case 'waive': {
           const { values, lists } = parse(more, ['reason', 'confirm', 'destination', 'from'], ['destination', 'from']);
-          return waive(deps(), { reason: values.reason ?? '', confirm: values.confirm ?? '', destinations: (lists.destination ?? []).map(here), from: (lists.from ?? []).map(here) });
+          return waive(deps(), {
+            reason: values.reason ?? '',
+            confirm: values.confirm ?? '',
+            destinations: (lists.destination ?? []).map(here),
+            from: (lists.from ?? []).map(here),
+            // D7: with the backups on an external drive, the new generation needs a destination on it too.
+            destinationRule: (paths) => externalRuleProblem(loadSettings().destination, PRIMARY.path, paths),
+          });
         }
         case 'status':
           return status({ ...realProtocolDeps({}), primary: PRIMARY });

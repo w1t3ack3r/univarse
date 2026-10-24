@@ -50,6 +50,7 @@ function deps(over: Partial<DeployDeps> = {}, signed = SIGNED, vault: VaultState
     scanThirdParty: () => (calls.push('scan'), []),
     compose: (args) => (calls.push(`compose:${args.join(' ')}`), { status: 0 }),
     vaultState: () => (calls.push('vaultState'), vault),
+    vaultStorage: () => (calls.push('vaultStorage'), 'raft'),
     ensureVault: () => void calls.push('ensureVault'),
     buckets: () => (calls.push('buckets'), []),
     recover: (_images, { initLedger }) => (calls.push(`recover${initLedger ? ':init' : ''}`), Promise.resolve({ ok: true, lines: [] })),
@@ -130,6 +131,7 @@ describe('[LS3][LS4] a verified record: the order of the deploy', () => {
     expect(effects()).toEqual([
       'prepare:false',
       'scan',
+      'vaultStorage',
       'compose:up -d --wait vault',
       'vaultState',
       'ensureVault',
@@ -272,7 +274,23 @@ describe('[LS3][LS4] a verified record: the order of the deploy', () => {
 
   it('[LS3] the first deploy initialises Vault (ensureVault) before configuring with its token', async () => {
     await deploy(record(), COMMIT, deps({}, SIGNED, 'uninitialised'));
-    expect(effects().slice(3, 6)).toEqual(['vaultState', 'ensureVault', 'prepare:true']);
+    expect(effects().slice(4, 7)).toEqual(['vaultState', 'ensureVault', 'prepare:true']);
+  });
+
+  for (const [state, reason] of [
+    ['unmigrated', /pnpm stack:vault migrate-raft <this record>.*once/],
+    ['unverified', /started but never verified/],
+  ] as const)
+    it(`[B-4] Vault's storage ${state}: refused before Vault starts, naming the migration; nothing initialised, migrated or started`, async () => {
+      const r = await deploy(record(), COMMIT, deps({ vaultStorage: () => (calls.push('vaultStorage'), state) }));
+      expect(r.ok).toBe(false);
+      expect(r.problems.join()).toMatch(reason);
+      expect(effects()).toEqual(['prepare:false', 'scan', 'vaultStorage']);
+    });
+
+  it('[B-4] a fresh stack (no Vault data anywhere) proceeds, and Vault is initialised on Raft', async () => {
+    await deploy(record(), COMMIT, deps({ vaultStorage: () => (calls.push('vaultStorage'), 'fresh') }, SIGNED, 'uninitialised'));
+    expect(calls).toContain('ensureVault');
   });
 
   it('[LS6] a failed smoke fails the deploy and saves no state', async () => {
