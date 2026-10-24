@@ -52,7 +52,7 @@ Read this before doing anything. It covers where Phase 0 stands, what is left in
 
 **Open, not blocking (rechecked 2026-10-24):**
 - **Dependency advisories.**
-  - `pnpm audit` finds no advisory against `@vitest/mocker` 4.1.12, the only version the lockfile resolves. So Dependabot alerts #42 and #43 look stale. This session can't read the alerts themselves; dismissing them is the owner's call, never ours.
+  - `pnpm audit` finds no advisory against `@vitest/mocker` 4.1.12, the only version the lockfile resolves. Dependabot alerts #42 and #43 are closed: GitHub shows both as fixed (checked by the owner, 2026-10-24).
   - The same audit found newer advisories, now fixed on this branch: nodemailer 10.0.11 to 10.1.7 (3 moderate, in the API's mailer), and fast-uri 3.1.8 to 3.1.9 and 4.2.1 to 4.2.3 (moderate and low, under fastify's ajv), through overrides like the existing ones. Every version respects the 3-day release age. `pnpm audit` now reports none.
 - **The migrate job's TLS: fixed on this branch.** Spec 0019, "Fix: the migrate job verifies PostgreSQL".
   - The investigation measured it: Prisma's schema engine didn't verify PostgreSQL's certificate with `sslmode=require` (it accepted a self-signed one), and it ignores `verify-full`.
