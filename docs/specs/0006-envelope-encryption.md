@@ -146,10 +146,17 @@ Measured against that, `destroyTenantKeys` is the **first step** of erasure, not
 - **Vault locally:** `pnpm dev:infra` starts `hashicorp/vault:2.1.1` (file storage, persistent volume, port bound to 127.0.0.1). It then runs `tools/vault-dev.mjs`, which:
   - initialises Vault once, keeping the unseal key and root token in the git-ignored `.vault-dev.json`, never in `.env` or output;
   - unseals it on every start;
-  - ensures Transit, the derived KEK and the `univarse-app` policy (encrypt/decrypt on that key only);
-  - keeps one periodic, least-privilege app token in `.env`.
+  - ensures Transit, the derived KEK and the `univarse-app` policy (encrypt/decrypt on that key only, plus the token's own renewal and lookup, [spec 0023](0023-vault-app-token-renewal.md) T1);
+  - keeps one periodic, least-privilege app token in `.env`, renewing a kept one back to its full period (spec 0023 T7).
 
   The script is idempotent: re-running it keeps the existing token. CI runs Vault in dev mode, and the same script configures it.
+- **The app token's lifecycle** ([spec 0023](0023-vault-app-token-renewal.md)):
+  - it is periodic (768 h on the stack);
+  - the API and the worker renew it themselves, at start and every 6 hours;
+  - every deploy renews it, and re-issues it only when Vault says it is dead (then recreating the API and the worker);
+  - the smoke check fails when it has under 7 days left.
+
+  A renewal that fails is logged, never acted on: Transit's own failures already fail closed (E6).
 - **Provisioning:** `pnpm db:seed` now ends with `pnpm --filter @univarse/crypto run provision`, which gives every tenant an ACTIVE v1 key (idempotent). It prints versions and the KEK id only.
 - **Transient Vault failures are retried once** (timeout, network error, 5xx; never a 4xx), then fail closed.
   - **Why:** found in E2E. A cold Transit call takes 200–400 ms on an idle dev machine, but under full E2E load it passed the 3 s timeout and failed a request.

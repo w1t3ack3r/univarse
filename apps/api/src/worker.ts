@@ -23,7 +23,7 @@ const config = loadConfig(process.env, 'worker');
 if (!config.PLATFORM_RELAY_URL) throw new Error('PLATFORM_RELAY_URL is not set: run `pnpm db:setup`, which writes it to .env.worker');
 // Spec 0012 OB1: the same logger configuration as the API, as service `worker`.
 const log = createLogger({ service: 'worker', env: config.NODE_ENV, version: config.UNIVARSE_VERSION, level: config.LOG_LEVEL });
-const ctx = await NestFactory.createApplicationContext(WorkerModule.forRoot(config, { onShutdown: shutdownTracing }), { logger: new NestPinoLogger(log) });
+const ctx = await NestFactory.createApplicationContext(WorkerModule.forRoot(config, { onShutdown: shutdownTracing, renewVaultToken: true }), { logger: new NestPinoLogger(log) });
 const worker = ctx.get(OutboxWorker);
 worker.start(config.WORKER_POLL_MS);
 // Separate loop: a long key sweep never delays email.

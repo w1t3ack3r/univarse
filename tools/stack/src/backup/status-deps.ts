@@ -15,6 +15,7 @@ import { cronLines, parseTaskInfo, taskPath, TASKS, taskXml, type ScheduleInputs
 import { listSets, WAL } from './set.js';
 import type { Dated, StatusInputs, TaskState } from './status.js';
 import { stagedFiles } from './wal.js';
+import { SEALED_LINE, tokenStates, vaultState } from '../vault.js';
 
 const why = (e: unknown) => ({ problem: (e as Error).message });
 
@@ -74,6 +75,8 @@ export function realStatusInputs(now = new Date(), opts: { run?: Runner; exec?: 
     schedule: platform === 'win32' ? read(() => (['daily', 'wal'] as const).map((k) => taskState(k, opts.exec))) : null,
     externalRule: authority.ok ? externalRuleProblem(destination, PRIMARY.path, authority.destinations.map((d) => d.path)) : null,
     waived: authority.ok ? waivedSince(authority.entries) : { problem: authority.problems.join('; ') },
+    // Spec 0023 T5: looked up with the root token, the tokens on stdin; a sealed Vault is a problem in its own words.
+    tokens: read(() => (vaultState(opts.run ?? docker) === 'sealed' ? { problem: SEALED_LINE } : tokenStates(opts.run ?? docker))),
   };
 }
 

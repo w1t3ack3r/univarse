@@ -13,7 +13,7 @@ import { acquireLedgerLock } from '../ledger/lock.js';
 import { LEDGER_DIR, PRIMARY } from '../keys.js';
 import { acquireRegistryLock } from '../release.js';
 import { loadSecrets } from '../secrets.js';
-import { cliEnv, loadVaultInit, STACK_VAULT, VAULT_CONTAINER } from '../vault.js';
+import { cliEnv, loadVaultInit, renewBeforeSnapshot, STACK_VAULT, VAULT_CONTAINER } from '../vault.js';
 import type { BackupDeps } from './backup.js';
 import { DEFAULT_DESTINATION, loadSettings, PUBLIC_KEY_FILE, within } from './config.js';
 import { externalRuleProblem } from './external.js';
@@ -21,6 +21,7 @@ import { snapshotLedger } from './ledger-snapshot.js';
 import { BASEBACKUP_ARGS, startOf } from './pgbase.js';
 import { prune } from './prune.js';
 import { loadPublicKey } from './seal.js';
+import { docker } from '../docker.js';
 import { dockerStream } from './stream.js';
 import type { TarEntry } from './tar.js';
 import { realWalDeps, shipWal } from './wal.js';
@@ -72,6 +73,9 @@ export function realBackupDeps(): BackupDeps {
     vaultSnapshot: () => {
       const { backupToken } = loadVaultInit();
       if (!backupToken) throw new Error('Vault has no backup token yet: deploy this release once (its Vault setup creates it)');
+      // Spec 0023: the token renews itself first, so a daily backup keeps it alive on its own.
+      const stop = renewBeforeSnapshot(docker, backupToken);
+      if (stop) throw new Error(stop);
       // The token by name only (-e VAULT_TOKEN); the snapshot straight to stdout, never a file in the container.
       return dockerStream(['exec', ...cliEnv(STACK_VAULT), '-e', 'VAULT_TOKEN', VAULT_CONTAINER, 'vault', 'operator', 'raft', 'snapshot', 'save', '/dev/stdout'], { env: { VAULT_TOKEN: backupToken } });
     },

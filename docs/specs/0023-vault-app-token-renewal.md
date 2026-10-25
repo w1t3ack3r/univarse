@@ -1,6 +1,6 @@
 # Spec 0023: Renewing the stack's Vault tokens (the app's and the backup's)
 
-**Status:** **Approved by the owner on 2026-10-25, T1–T9 as written.** Proposed 2026-10-23, refreshed after PR B1 and measured on the owner's stack on 2026-10-25. Not built yet.
+**Status:** **Approved by the owner on 2026-10-25, T1–T9 as written.** Proposed 2026-10-23, refreshed after PR B1 and measured on the owner's stack on 2026-10-25. **Built** (implementation notes below), to be released and deployed before 2026-11-14.
 **Phase:** 0. Found while planning spec 0020's PR B, and urgent. It was written to come before PR B. B1 then shipped without it, so it now comes before B2 continues past B2a (#107), and it's deployed before **2026-11-14**.
 **Builds on:**
 
@@ -116,3 +116,90 @@ Neither period was capped, and each token holds only its own policy, without `de
 - [10 §7](../10-infrastructure-and-deployment.md) and [08](../08-security.md): the token's lifecycle and T1's trade-off;
 - [spec 0020](0020-local-backups-and-shred-ledger.md): PR B's plan points here for the restore and B-9;
 - `docs/HANDOFF.md`.
+
+## Implementation notes
+
+Built as approved, T1 to T9. It changes the API and worker image (T2's renewer), so a release follows, deployed before 2026-11-14.
+
+**What runs where.**
+
+- **`tools/stack/src/vault.ts`:**
+  - the policies (T1): `APP_POLICY_HCL` and `BACKUP_POLICY_HCL`, each with `SELF_HCL`;
+  - the classification of Vault's failures (T9);
+  - `lookupToken`, with the root token by environment and the token on stdin;
+  - `renewToken` and `renewTokens` (T3);
+  - `configure`'s create, keep, backfill and re-issue (T4, T6);
+  - `ensureVault`, which configures and then renews;
+  - `tokenReport` (T5), shared by the smoke check and `stack:backup status`;
+  - `renewBeforeSnapshot`, for the backup.
+- **`pnpm stack:vault renew`** renews both tokens by hand. A sealed Vault is named first.
+- **The deploy:**
+  - it prints each token's line (`vault: app token: renewed, 32.0 days`);
+  - a re-issued app token makes it recreate the API and the worker (`up -d --wait --force-recreate --no-deps api worker`). That happens after the stack is up and before the smoke check, and a failure stops the deploy.
+- **`stack:smoke`:**
+  - it names a sealed Vault before anything else;
+  - it prints each token's remaining life;
+  - it fails under 7 days.
+- **`stack:backup status`** shows each token's line, with a `WARN` under 7 days. The deploy prints those warnings too.
+- **The backup** renews its own token before each Vault snapshot.
+- **`packages/crypto` `VaultTokenRenewer`** (T2):
+  - it uses `renew-self` with no increment, at start and then every 6 hours, on a timer that never keeps a process alive;
+  - Vault's answers map to outcomes: 503 is sealed (a warning), 400 or 403 is refused (an error naming `pnpm stack:deploy`), and anything else is a failure (a warning). Each outcome is logged as an event, never with the token.
+- **The API and the worker:** `VaultTokenRenewal` runs it in each process, with the `vault` provider only. **`main.ts` and `worker.ts` switch it on.**
+- **`tools/vault-dev.mjs`** (T7): the dev app policy gains the self paths, and a kept dev token is renewed by root.
+
+**Decisions made while building (for approval).**
+
+1. **Renewal is off unless the process asks.** `AppModule` and `WorkerModule` default to no renewal, and only `main.ts` and `worker.ts` pass `renewVaultToken: true`. Otherwise every integration test, and the keys CLI (which reuses `WorkerModule`), would try to renew a dev or CI token. A test pins the default.
+2. **"Dead" means only Vault's own "bad token" or "invalid token",** and the integration test pins both against Vault 2.1.1:
+   - the root token's lookup of a dead token says "bad token";
+   - **so does a dead token renewing itself.** The plan expected it might say "permission denied" instead, but it doesn't.
+   - A sealed Vault answers 503, "Vault is sealed", to every call.
+3. **The backup stops only on a sealed Vault or a dead token.** Any other renewal failure lets the snapshot decide: the token still has its TTL, and losing the day's set to a transient renewal error is worse than the error itself.
+4. **A renewal is logged at `info`:** 4 lines a day per process, so the logs show when the token was last kept alive.
+5. **The accessors are saved and backfilled (T6), but lookups still use the token on stdin.** Stdin keeps the token off every command line already. Lookups and revocations by accessor are for a later `stack:vault rotate`.
+6. **`tokenReport` lives in `vault.ts`,** shared by the smoke check (a failure) and `status` (a warning), so the two can't drift.
+7. **`stack:backup status` exits 1 when the tokens can't be read**, such as with a sealed or stopped Vault, as it already does for any source it can't read.
+
+**Evidence.**
+
+- **Unit tests:**
+  - `tools/stack`:
+    - `vault.spec.ts`, against a scripted Vault: the policies, character for character; create, keep, backfill, re-issue, and stopping with nothing minted or saved; renewal; the backup's renewal; the classification and redaction. Every call is checked for a secret among its arguments;
+    - `deploy.spec.ts`: the recreate and its failure;
+    - `smoke.spec.ts`: the 7-day threshold on both sides;
+    - `status.spec.ts`, `vault-raft.spec.ts` and `entrypoints.spec.ts`.
+  - `packages/crypto`, `token-renewal.spec.ts`: each answer from Vault, the timer, and nothing ever thrown.
+  - `apps/api`, `token-renewal.spec.ts`: on and off, and the modules' default.
+- **Integration, `tools/stack/src/vault-token.int.ts`** (`test:vault`, a new CI step), on a throwaway Vault of the stack's pinned image, **6 of 6 passing, run here first, 76 s:**
+  - both tokens periodic at 768 h, with their accessors;
+  - renewal back to the full period;
+  - each token renewing and looking up itself, and refused everything else;
+  - a 4-second token expiring, Vault's "bad token" pinned, and `configure` re-issuing both, with the app's own `VaultTransitProvider` wrapping and unwrapping under the new token;
+  - the app's renewer keeping a 5-second token alive for 13 s, then dying 7 s after it stopped;
+  - a sealed Vault: "sealed" everywhere, nothing re-issued, then unsealed.
+- **Mutations: 24 of 24 caught.** They cover:
+  - the policies' self paths;
+  - re-issuing on any failure, and never re-issuing;
+  - the accessor backfill;
+  - the token passed as an argument;
+  - renewing with the root token;
+  - the sealed check and the sealed classification;
+  - a renewal failure thrown;
+  - the threshold, inclusive or missing;
+  - the backup stopping on any failure;
+  - the recreate never happening, always happening, or failing silently;
+  - `status` not warning;
+  - the renewer's 403, 503, timer, first renewal and escaping failure;
+  - the modules' default, and the `local` provider.
+- **Not covered by a test:**
+  - `stack:smoke`'s early sealed line, which needs a running stack;
+  - `main.ts` and `worker.ts` switching renewal on, which are one-line flags;
+  - `vault-dev.mjs`'s renewal of a kept token. CI always mints fresh tokens, so this path runs only on the owner's machine, and the owner's next `pnpm dev:vault` exercises it.
+
+**The owner's steps after merging:**
+1. **Prepare the machine:** `pnpm stack:down`, then stop the dev ClamAV, then check the dev Vault is unsealed with `pnpm dev:vault`. That run also renews the dev tokens (T7).
+2. **Release:** set `COSIGN_PASSWORD`, then run `pnpm images:release`.
+3. **Deploy** the new record. Its Vault lines should read `app token: renewed, 32.0 days` and `backup token: renewed, 32.0 days`.
+4. **Check the smoke check's token lines:** both at about 32 days.
+5. **Optionally,** look for `vault.token.renewed` in the API's and the worker's logs.

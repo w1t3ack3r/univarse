@@ -79,7 +79,7 @@ And two closures ride on it: PgBouncer in the deployed path (ADR-015) and ADR-01
 
 - `infra/stack/compose.yml`: the stack. No UniVarse image is named in it: the deploy passes the four verified references to compose as `UNIVARSE_API_IMAGE`, `UNIVARSE_WEB_IMAGE`, `UNIVARSE_MIGRATE_IMAGE` and `UNIVARSE_PGBOUNCER_IMAGE`, and compose refuses to start without them.
 - `infra/stack/caddy/Caddyfile`, `infra/stack/vault/stack.hcl`. PgBouncer's configuration, PostgreSQL's `pg_hba.conf`, Valkey's and SeaweedFS's are rendered by the deploy into `~/.univarse/stack/rendered/` and copied into owner-only volumes; nothing secret is in the repository.
-- `tools/stack/src/` (TypeScript, run with `tsx`): `init.ts` (`pnpm stack:init [--rotate]`), `deploy.ts` and `deploy-deps.ts` (`pnpm stack:deploy`), `vault.ts` (`pnpm stack:vault status|init|unseal`; since spec 0020 B1 the command's entry point is `vault-cli.ts`, which adds `migrate-raft`), `smoke.ts` (`pnpm stack:smoke`), `down.ts` (`pnpm stack:down`, keeps volumes), with `render.ts`, `secrets.ts`, `certs.ts` and `volumes.ts`.
+- `tools/stack/src/` (TypeScript, run with `tsx`): `init.ts` (`pnpm stack:init [--rotate]`), `deploy.ts` and `deploy-deps.ts` (`pnpm stack:deploy`), `vault.ts` (`pnpm stack:vault status|init|unseal`; since spec 0020 B1 the command's entry point is `vault-cli.ts`, which adds `migrate-raft`, and spec 0023 adds `renew`), `smoke.ts` (`pnpm stack:smoke`), `down.ts` (`pnpm stack:down`, keeps volumes), with `render.ts`, `secrets.ts`, `certs.ts` and `volumes.ts`.
 - `infra/docker/migrate.Dockerfile`: the fourth role (PR A1).
 
 **Networks** (as built).
@@ -98,7 +98,7 @@ Only Caddy is on `edge`. It reaches the API and web over `app`. The web app's se
 2. Start the local registry container if it is stopped (it is stopped again afterwards only if the deploy started it).
 3. `verifyRelease(record, { commit: --commit ?? HEAD })` with all four roles. Any problem: print each and exit non-zero. Nothing has been created, written or started.
 4. Render the env files and configuration into `~/.univarse/stack/` (owner-only) and fill the volumes. Scan the third-party images (D8) and report.
-5. Start Vault. Sealed: stop and ask the owner for `pnpm stack:vault unseal`. First deploy: initialise it. Then complete its setup (Transit, the KEK, the policy, the app token; idempotent) and render again with the app token.
+5. Start Vault. Sealed: stop and ask the owner for `pnpm stack:vault unseal`. First deploy: initialise it. Then complete its setup (Transit, the KEK, the policies, the app and backup tokens; idempotent) and render again with the app token. Since [spec 0023](0023-vault-app-token-renewal.md), this step also re-issues a token Vault says is dead, then renews both tokens. A re-issued app token makes the deploy recreate the API and the worker before the smoke check.
 6. Start PostgreSQL and run the `migrate` job. A failed job stops the deploy; nothing new starts.
 7. Start SeaweedFS and create the quarantine and clean buckets (idempotent).
 8. Start the rest: `docker compose -p univarse-stack -f infra/stack/compose.yml up -d --wait --remove-orphans`.

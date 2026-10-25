@@ -244,8 +244,11 @@ describe('migrateRaft', () => {
 });
 
 describe('the backup policy and token (B-4)', () => {
-  it('the policy reads Raft snapshots and nothing else', () => {
-    expect(BACKUP_POLICY_HCL).toBe('path "sys/storage/raft/snapshot" { capabilities = ["read"] }\n');
+  it('the policy reads Raft snapshots, and renews and looks up its own token (spec 0023 T1); nothing else', () => {
+    expect(BACKUP_POLICY_HCL).toBe(
+      'path "sys/storage/raft/snapshot" { capabilities = ["read"] }\n' +
+        'path "auth/token/renew-self" { capabilities = ["update"] }\npath "auth/token/lookup-self" { capabilities = ["read"] }\n',
+    );
   });
 
   it('configure writes the backup policy and creates its token once, saved beside the app token', () => {
@@ -257,6 +260,8 @@ describe('the backup policy and token (B-4)', () => {
       const v = args.slice(args.indexOf('vault') + 1);
       if (v[0] === 'audit' || v[0] === 'secrets') return { status: 0, stdout: JSON.stringify(v[0] === 'audit' ? { 'file/': {} } : { 'transit/': {} }), stderr: '' };
       if (v[0] === 'read') return { status: 0, stdout: '{}', stderr: '' };
+      // Spec 0023 T4: an existing token is looked up first (live here), and its accessor backfilled.
+      if (v[0] === 'write' && v[2] === 'auth/token/lookup') return { status: 0, stdout: JSON.stringify({ data: { ttl: 100, accessor: `acc-${opts.input ?? ''}` } }), stderr: '' };
       if (v[0] === 'policy') {
         writes.push(`${v[2] ?? ''}: ${opts.input ?? ''}`);
         return { status: 0, stdout: '', stderr: '' };
@@ -264,7 +269,7 @@ describe('the backup policy and token (B-4)', () => {
       if (v[0] === 'token') {
         created++;
         expect(v).toEqual(expect.arrayContaining(['-policy', BACKUP_POLICY, '-no-default-policy', '-orphan']));
-        return { status: 0, stdout: JSON.stringify({ auth: { client_token: 'BACKUP' } }), stderr: '' };
+        return { status: 0, stdout: JSON.stringify({ auth: { client_token: 'BACKUP', accessor: 'acc-BACKUP' } }), stderr: '' };
       }
       throw new Error(`unscripted ${v.join(' ')}`);
     };
