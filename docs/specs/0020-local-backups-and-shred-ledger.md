@@ -968,9 +968,15 @@ B-15, made concrete. `pnpm stack:backup schedule --at HH:MM` prints two task def
 - **The command each runs:** node's and pnpm's absolute paths, recorded when the schedule is made, run in this checkout (`node <pnpm.cjs> --dir <repo> stack:backup`). The task then doesn't depend on Task Scheduler's PATH.
 - **Logs:** each run appends what it prints to `~/.univarse/stack/logs/backup-YYYY-MM-DD.log`, owner-only. Nothing printed is secret (BK9's scan covers it). A log over 30 days old is removed by the next run.
 - **Contention:** a scheduled backup that finds the registry lock held (a deploy or a release) **waits for it**, checking every minute for up to an hour. Only then does it fail, and the failure is logged. The WAL task already ships nothing and exits 0 then (B1 decision 18).
-  - **Amended while building (2026-10-25), for the owner's approval.** The plan had Task Scheduler's `RestartOnFailure` retry a failed run. Windows applies that setting only when a task fails to *start*, not when it exits non-zero, so it would never have retried. The wait is the backup's own, and unit-tested.
+  - **Amended while building (2026-10-25), approved by the owner on 2026-10-25.** The plan had Task Scheduler's `RestartOnFailure` retry a failed run. Windows applies that setting only when a task fails to *start*, not when it exits non-zero, so it would never have retried. The wait is the backup's own, and unit-tested.
 - **Stated:**
   - **the tasks run whatever this checkout holds.** A branch checked out at 03:00 is what runs. The set records the tools' commit (`versions.tools`);
+  - **so a scheduled run warns when the checkout isn't a clean `main`** (added 2026-10-25, approved by the owner; built in B2b):
+    - it still takes the backup, since an imperfect backup beats none;
+    - it logs `WARN` with the branch and whether the tree is dirty;
+    - `stack:backup status`, and with it the deploy's warnings, show the warning until a later run is clean. It names the branch, never file contents.
+
+    The owner's rule keeps this checkout on a clean `main`, with all branch work in worktrees, so the warning catches a slip, not normal use;
   - **Windows only.** Elsewhere the command prints the equivalent crontab lines and registers nothing (B-15).
 - **The test:** the exact XML for given inputs, and that nothing is registered without `--apply` (BK8).
 
@@ -1185,7 +1191,7 @@ Built as approved (B2-2 to B2-4), with B2-4's amendment (the backup waits for th
 - `wal.ts`: gains a read-only listing of the staging volume;
 - `deploy.ts`: gains a final `backupWarnings` step.
 
-**Decisions made while building (for approval):**
+**Decisions made while building (approved by the owner on 2026-10-25, all seven as built):**
 1. **The tasks live in a `\UniVarse\` folder,** named `backup` and `backup-wal`, so they're easy to find in Task Scheduler and can't collide with anything else's.
 2. **The task query goes through PowerShell's `Get-ScheduledTaskInfo`, not `schtasks /Query`.** `schtasks` prints its labels in the system's language, while PowerShell gives the result as a number. "Not run yet" (`0x41303`) is no failure, and "running now" (`0x41301`) counts as no failure.
 3. **Registration writes the XML as UTF-16 with a byte-order mark,** as its declaration says, to a temporary file that is removed straight after.

@@ -33,7 +33,7 @@ Read this before doing anything. It covers where Phase 0 stands, what is left in
    - **The plan** (spec 0020, "Plan (PR B …), for approval", decisions B-1 to B-17) was approved, all as written, on 2026-10-24.
    - **B1 is done:** merged (#103, #104), released and deployed, Vault migrated, and the first set taken (above). Spec 0020's "Implementation notes (PR B1)" hold the evidence, including what the owner's run found.
    - **B2's plan was approved by the owner, all as written, on 2026-10-25** (spec 0020, "Plan (PR B2 …)", B2-1 to B2-17). It is two PRs, B2a first:
-     - **B2a:** `stack:backup status`, the deploy's warnings and the schedule. **Built** (spec 0020, "Implementation notes (PR B2a)"), with 7 decisions made while building for the owner's approval; the owner then registers the schedule (B2-17);
+     - **B2a:** `stack:backup status`, the deploy's warnings and the schedule. **Built** (spec 0020, "Implementation notes (PR B2a)"), with 7 decisions made while building, and its amendment to B2-4, all approved by the owner on 2026-10-25; the owner then registers the schedule (B2-17);
      - **B2b:** the restore engine, `stack:restore-rehearsal`, `stack:drill` and `stack:restore`.
 
      No release is expected for either. B1 took four things from B2's original split: pruning, the backup's ledger snapshot (BK14), D7's external-drive rule, and every image subcommand B2 needs.
