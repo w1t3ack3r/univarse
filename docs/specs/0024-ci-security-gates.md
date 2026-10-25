@@ -1,6 +1,6 @@
 # Spec 0024: CI security gates, and the local hooks
 
-**Status:** **Proposed (2026-10-25),** for the owner's approval. Nothing built yet.
+**Status:** **Proposed (2026-10-25),** for the owner's approval. G12 is decided (proprietary; CodeQL with no upload); G1–G11 and H1–H3 await approval. Nothing built yet.
 **Phase:** 0. It closes the roadmap's rows "CI pipeline with all security scans" (🟡) and "lefthook, commitlint" (❌).
 **Builds on:**
 
@@ -47,7 +47,7 @@ Locally, no hook runs at all, and Conventional Commits are followed by hand. Squ
 | G9 | **Jobs and required checks.** Two new jobs:<br>• **`security-scans`:** the exceptions check first, then Semgrep, osv-scanner, the license check, Checkov and their proofs, and the PR-title check. In parallel with `build-test`, target under 5 minutes;<br>• **`codeql`:** in parallel, target under 15 minutes.<br>The owner adds both to `main`'s required checks. | Parallel jobs keep CI's critical path unchanged. Alternative: steps inside `build-test`, which is already about 20 minutes. Rejected. |
 | G10 | **The PR title is checked as a Conventional Commit in CI**: `type(scope): description`, with the types `feat`, `fix`, `docs`, `test`, `build`, `ci`, `chore`, `refactor` and `perf`, and a scope required, lowercase. | The squash merge makes the title `main`'s commit message, so this is the gate that keeps history clean, whatever the local hooks did. Alternative: commitlint on every commit in the PR. Rejected: those commits disappear in the squash. |
 | G11 | **Dependabot version updates for the GitHub Actions,** weekly (`.github/dependabot.yml`). The workflows say "Renovate bumps them", but no bot is configured. | Pinned SHAs go stale silently otherwise, missing security fixes to the actions. Security updates for npm already arrive (#100, #102). Alternative: Renovate. Rejected: one more app on the repo for the same job. |
-| G12 | **The owner's two decisions, before building:**<br>• **the product's license.** The repository is public and has no license file, which means all rights reserved by default. G6 assumes proprietary. If the owner intends an open license, G6 changes;<br>• **CodeQL on this repository at all,** and if so, with or without upload (G7). | Both are the owner's: licensing is a business decision, and repo settings are the owner's. |
+| G12 | **Decided by the owner, 2026-10-25:**<br>• **the product is proprietary.** G6's policy stands as written: copyleft and source-available licenses are refused for production dependencies;<br>• **CodeQL runs, with no upload.** G7 stands as written: read-only, the SARIF checked by our script and kept as a run artifact. CS12 is unchanged. | The repository is public but has no license file, so it is "all rights reserved" by default, which matches. Stating that explicitly (a `LICENSE` saying so, and `"license": "UNLICENSED"` in the root `package.json`) is a small addition to PR A, for the owner to confirm. |
 
 **PR B: the local hooks** (lefthook and commitlint, from docs/13 §2, with three changes):
 
@@ -72,7 +72,7 @@ Locally, no hook runs at all, and Conventional Commits are followed by hand. Squ
 
 ## The owner's steps
 
-1. **Decide G12:** the license intent, and whether CodeQL runs (and whether it uploads).
+1. **G12 is decided** (2026-10-25): proprietary, and CodeQL with no upload. Still to confirm: the explicit `LICENSE` and `"license": "UNLICENSED"` (G12).
 2. **After PR A merges:** add `security-scans` and `codeql` to `main`'s required checks.
 3. **Optionally:** approve a one-time formatting PR (H3), after which Prettier joins CI and the hook.
 
