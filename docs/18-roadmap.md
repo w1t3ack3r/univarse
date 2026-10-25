@@ -104,6 +104,7 @@ Each roadmap line checked against the repository, CI and the decision log.
 - ~~**Retiring CI10's bindings**~~ **Done (2026-10-23, [spec 0022](specs/0022-retire-ci10.md)):** the static guard is retired. The database capture of [spec 0016](specs/0016-platform-invalidation-outbox.md) covers every writer, and `rls:check` fails if a trigger is disabled or dropped.
 - **Crypto-shredding and restore safety:** the shred ledger (spec 0006). It makes sure a restored backup can't bring back a shredded key's data. It isn't itself a cross-tenant cache-isolation check, and it's built with backups.
 - ~~`GET /users` pagination.~~ **Done (2026-10-23, [spec 0021](specs/0021-users-pagination.md)):** cursor pages by username, and query parameters in the contract.
+- **Renewing the stack's Vault tokens** ([spec 0023](specs/0023-vault-app-token-renewal.md), proposed). Nothing renews the app token or B1's backup token: both are periodic at 768 h. They expire about 2026-11-21 and 2026-11-25, and the app then fails closed on every encrypted field. To be deployed before 2026-11-14.
 
 **Phase 0 status: open.** It's not closed locally or otherwise. Three separate lists follow.
 

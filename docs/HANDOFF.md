@@ -1,16 +1,18 @@
-# Handoff: finishing Phase 0 (2026-10-24)
+# Handoff: finishing Phase 0 (2026-10-25)
 
 Read this before doing anything. It covers where Phase 0 stands, what is left in order, what only the owner can do, and how to work. `CLAUDE.md` and [18-roadmap.md](18-roadmap.md) still apply. Update this file as items close, and delete it when Phase 0 closes.
 
 ## Where things stand
 
-- **`main` at `7c28384`.**
+- **`main` at `81bba38`.**
   - Spec 0020 PR A, the shred ledger, is complete: A1 (#90), A2 (#91) and A3, the waiver (#96).
   - PR B1 is merged: #103 (`00baee7`) for Vault on Raft, WAL archiving and sealed sets, and #104 (`7c28384`) for the fixes found on the owner's machine and the backup public key.
+  - Then #105 (docs) and #106 (`81bba38`): the migrate job verifies PostgreSQL, the nodemailer and fast-uri advisories are fixed, and mailpit is at v1.32.0.
   - Earlier: fastify 5.12.7 (#95), `fix(build)` (#98) and the bucket copy's fix (#99).
-- **Release `releases/2026-10-24-00baee7.json`,** deployed by the owner on 2026-10-24.
-  - Vault was migrated to Raft first: the KEK was identical, the probe decrypted, and 3 of 3 data keys unwrapped.
-  - #104 changed only `tools/stack` and added `infra/backup/backup.pub`, so it needs no new release.
+  - **Open:** B2a, #107.
+- **Releases:**
+  - `releases/2026-10-24-00baee7.json`, deployed by the owner on 2026-10-24. Vault was migrated to Raft first: the KEK was identical, the probe decrypted, and 3 of 3 data keys unwrapped.
+  - `releases/2026-10-25-81bba38.json`, with #106's fixes, deployed by the owner on 2026-10-25. It's the stack's current release.
 - **Backups run.**
   - The backup public key is `infra/backup/backup.pub`, fingerprint `sha256:90c83219d8d23b1598dd2b867ebb836ef158b3c47991e99d9ab0c66a2571d84e`. The owner keeps the private key offline.
   - The first set, `20261024T161305Z-e2bd`, completed on 2026-10-24 (exit 0). It has 6 sealed files, the ledger at seq 2, and needs WAL from `000000010000000000000006`.
@@ -27,7 +29,13 @@ Read this before doing anything. It covers where Phase 0 stands, what is left in
 3. **Spec 0020 PR B: backups, the rehearsed restore and the shred drill.** It is the last unmet exit criterion.
    - **The plan** (spec 0020, "Plan (PR B …), for approval", decisions B-1 to B-17) was approved, all as written, on 2026-10-24.
    - **B1 is done:** merged (#103, #104), released and deployed, Vault migrated, and the first set taken (above). Spec 0020's "Implementation notes (PR B1)" hold the evidence, including what the owner's run found.
-   - **B2 is next,** starting with its plan for approval. B1 took four things from B2's original split: pruning, the backup's ledger snapshot (BK14), D7's external-drive rule, and every image subcommand B2 needs. So B2 should need no new release unless it finds otherwise.
+   - **B2 is next,** starting with its plan for approval. B1 took four things from B2's original split: pruning, the backup's ledger snapshot (BK14), D7's external-drive rule, and every image subcommand B2 needs. So B2 should need no new release unless it finds otherwise. **B2a is open as #107:** `stack:backup status`, the deploy's backup warnings, and the schedule.
+   - **Spec 0023 comes before the rest of B2** (item 4).
+4. **Spec 0023: renewing the stack's Vault tokens. Urgent.** Nothing renews either of the stack's Vault tokens: the app's (created with the stack's Vault, about 2026-10-20/21) or B1's backup token (2026-10-24). Both are periodic, 768 h, with nothing renewing them.
+   - **What happens:** around **2026-11-21**, the API and worker lose Transit, failing closed, so every encrypted field becomes unreadable. Around **2026-11-25**, the daily backup loses its Vault snapshot.
+   - **The plan:** [spec 0023](specs/0023-vault-app-token-renewal.md), T1–T8, refreshed after B1 for both tokens. It awaits the owner's approval.
+   - **Step 0, the owner:** a read-only lookup that prints each token's expiry and period, never a token. The spec gives the exact command.
+   - **Deadline:** released and deployed before **2026-11-14**. It changes the API and worker image, so it needs a release.
 
    The handoff's original split, for reference:
    - **B1:**
@@ -41,23 +49,23 @@ Read this before doing anything. It covers where Phase 0 stands, what is left in
      - the audit checkpoints (D12);
      - retention, `stack:backup status` with its waiver line, and the daily schedule (D6, BK8);
      - D7's "and the external drive when the backup destination is one" in `ledger waive`.
-4. **CI and local gates.** First a short spec for approval: which scanners block a merge and which only report, thresholds, exceptions, and the license policy. Then:
+5. **CI and local gates.** First a short spec for approval: which scanners block a merge and which only report, thresholds, exceptions, and the license policy. Then:
    - one PR for Semgrep, CodeQL (the owner decides whether CodeQL may run on this repo), osv-scanner, the license check and Checkov, each with a check that it fails for the reason intended (like `images:proofs`);
    - one PR for lefthook and commitlint (docs/13 §2's pre-commit gates).
 
    The owner makes the new checks required on `main`.
-5. **Phase 0 closure.** Reconcile the roadmap. Stale rows include the CI row, which lists Trivy as missing though spec 0013 delivered it, and the compose row (🟡). Record every exit criterion with its evidence. The owner signs off.
+6. **Phase 0 closure.** Reconcile the roadmap. Stale rows include the CI row, which lists Trivy as missing though spec 0013 delivered it, and the compose row (🟡). Record every exit criterion with its evidence. The owner signs off.
 
 **Formally deferred, not Phase 0 work (the owner's decision, 2026-10-23):** BullMQ and Storybook (Phase 1), and resource scopes (Phases 2, 4 and 7).
 
 **Open, not blocking (rechecked 2026-10-24):**
 - **Dependency advisories.**
   - `pnpm audit` finds no advisory against `@vitest/mocker` 4.1.12, the only version the lockfile resolves. Dependabot alerts #42 and #43 are closed: GitHub shows both as fixed (checked by the owner, 2026-10-24).
-  - The same audit found newer advisories, now fixed on this branch: nodemailer 10.0.11 to 10.1.7 (3 moderate, in the API's mailer), and fast-uri 3.1.8 to 3.1.9 and 4.2.1 to 4.2.3 (moderate and low, under fastify's ajv), through overrides like the existing ones. Every version respects the 3-day release age. `pnpm audit` now reports none.
-- **The migrate job's TLS: fixed on this branch.** Spec 0019, "Fix: the migrate job verifies PostgreSQL".
+  - The same audit found newer advisories, fixed in #106 (released in `81bba38`): nodemailer 10.0.11 to 10.1.7 (3 moderate, in the API's mailer), and fast-uri 3.1.8 to 3.1.9 and 4.2.1 to 4.2.3 (moderate and low, under fastify's ajv), through overrides like the existing ones. Every version respects the 3-day release age. `pnpm audit` now reports none.
+- **The migrate job's TLS: fixed in #106, released in `81bba38`.** Spec 0019, "Fix: the migrate job verifies PostgreSQL".
   - The investigation measured it: Prisma's schema engine didn't verify PostgreSQL's certificate with `sslmode=require` (it accepted a self-signed one), and it ignores `verify-full`.
   - The job's URLs are now `verify-full` with `sslrootcert`, and the image's Prisma configs translate them into the only form the engine verifies with. Production refuses any URL that doesn't verify.
-  - It reaches the stack with the next release.
+  - It reached the stack with the release of `81bba38`.
 - **Third-party images: re-scanned 2026-10-24** (Trivy 0.75.0, the deploy's version, from the registry). Both are still CRITICAL 2 and 3, as on 2026-10-20.
   - **postgres** (pinned digest; HIGH 86). The 2 CRITICALs:
     - libxml2 CVE-2026-6653, a denial of service from crafted XML. Debian 13 has no fix yet. Reaching it needs SQL access to PostgreSQL's XML functions, which the app doesn't use, on the internal `db` network.
@@ -71,7 +79,7 @@ Read this before doing anything. It covers where Phase 0 stands, what is left in
       - **The runtime is unchanged:** the same entrypoint, user, ports and `readyz` healthcheck.
       - **`--allowed-hosts` (v1.31.1) is off unless set,** so Caddy's `mail.` host still reaches it.
       - **The changelog from v1.28 to v1.32** lists security fixes, limits (50 MB a message, 1000 connections) and features, and no removed or renamed API.
-      - **Not yet seen:** its memory under the stack's 64 MB limit (no Docker here). The owner's next deploy will show it.
+      - **Measured on the owner's stack (2026-10-25, the deploy of `81bba38`):** 21.4 MiB of its 64 MB limit (33%).
   - The 158 HIGH findings haven't been reviewed one by one. That is still part of Phase 0's closure.
 
 ## What only the owner does (the cloud session gives exact commands)
