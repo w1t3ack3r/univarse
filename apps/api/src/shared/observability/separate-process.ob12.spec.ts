@@ -74,7 +74,8 @@ const call = (method: string, path: string, o: { body?: object; cookie?: string 
 const waitFor = async <T>(what: string, check: () => Promise<T | undefined> | T | undefined, ms = 30_000): Promise<T> => {
   const until = Date.now() + ms;
   for (;;) {
-    const v = await Promise.resolve(check()).catch(() => undefined);
+    // .then, so a check that throws synchronously is retried too, not thrown past the catch.
+    const v = await Promise.resolve().then(check).catch(() => undefined);
     if (v !== undefined && v !== false) return v;
     if (Date.now() > until) throw new Error(`timed out waiting for ${what}\napi:\n${output.api.slice(-2000)}\nworker:\n${output.worker.slice(-2000)}`);
     await new Promise((r) => setTimeout(r, 250));
@@ -102,7 +103,8 @@ function spans(): Span[] {
   if (!existsSync(OUT)) return [];
   const text = readFileSync(OUT).subarray(offset).toString('utf8');
   const out: Span[] = [];
-  for (const line of text.split('\n')) {
+  // Whole lines only: the collector may be writing the last one as this reads (a parse of it fails as unterminated).
+  for (const line of text.slice(0, text.lastIndexOf('\n') + 1).split('\n')) {
     if (!line.trim()) continue;
     const doc = JSON.parse(line) as {
       resourceSpans?: { resource?: { attributes?: OtlpAttr[] }; scopeSpans?: { scope?: { name?: string }; spans?: (Omit<Span, 'service' | 'scope' | 'attributes' | 'links' | 'parentSpanId'> & { parentSpanId?: string; attributes?: OtlpAttr[]; links?: { traceId: string; spanId: string }[] })[] }[] }[];
