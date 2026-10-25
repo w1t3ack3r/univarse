@@ -1,7 +1,7 @@
 import { spawnSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { header, readTar, tarStream } from './tar.js';
 
@@ -39,7 +39,9 @@ describe('tar', () => {
     const dir = mkdtempSync(join(tmpdir(), 'uv-tar-'));
     const file = join(dir, 'x.tar');
     writeFileSync(file, await collect(tarStream(entries)));
-    const list = spawnSync('tar', ['-tf', file], { encoding: 'utf8' });
+    // A relative name, from the archive's own directory: GNU tar reads `C:\…` as host:path (a remote archive), and
+    // Git for Windows puts GNU tar first on the PATH. Every tar reads a plain name.
+    const list = spawnSync('tar', ['-tf', basename(file)], { encoding: 'utf8', cwd: dir });
     expect(list.status).toBe(0);
     expect(list.stdout.trim().split('\n')).toEqual(entries.map((e) => e.name));
 
