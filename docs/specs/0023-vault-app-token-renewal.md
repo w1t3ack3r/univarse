@@ -53,7 +53,18 @@ Remove-Item tools\stack\token-ttl.ts
 - **The app token:** `expire_time` about 2026-11-21.
 - **The backup token:** `expire_time` about 2026-11-25.
 
-The deadline in T8 is set by whichever expires first, a week before it. Neither the script nor its 2026-10-23 version has run against a Vault yet.
+The deadline in T8 is set by whichever expires first, a week before it.
+
+**Measured on the owner's stack, 2026-10-25** (the release `81bba38`, Vault on Raft):
+
+| Token | Issued | Expires | TTL then | `period` | Policies |
+| --- | --- | --- | --- | --- | --- |
+| App | 2026-10-20T19:42:31Z | **2026-11-21T19:42:31Z** | 27.09 days | 2764800 | `univarse-app` |
+| Backup | 2026-10-24T15:54:08Z | **2026-11-25T15:54:08Z** | 30.93 days | 2764800 | `univarse-backup` |
+
+Neither period was capped, and each token holds only its own policy, without `default`. The app token kept its original issue time and expiry through the move to Raft. So the deadline stands at 2026-11-14.
+
+**What the first run found:** it failed for both tokens with `exit 2`, and only the rerun printed why: Vault was sealed (503, "Vault is sealed"), after a restart. A sealed Vault and an expired token are different problems with different remedies, but a bare exit code hides which one it is. That is T9.
 
 ## Decisions for approval
 
@@ -66,7 +77,8 @@ The deadline in T8 is set by whichever expires first, a week before it. Neither 
 | T5 | **`stack:smoke` fails when either token's TTL is under 7 days,** and prints the TTL and expiry. | Seven days leaves time to act after a failed renewal. With T2 the TTL is normally close to 32 days; under 7 means renewal has been failing for over three weeks. |
 | T6 | **`vault-init.json` gains `appTokenAccessor`.** `configure()` saves it from `token create`, and backfills it with one lookup for an existing token. | Later lookups and a revocation then need the accessor, not the token. The accessor isn't the token, but it is kept owner-only like the rest of the file and never printed either. |
 | T7 | **`tools/vault-dev.mjs` renews the dev tokens it keeps.** | It has half of the gap: it re-issues an expired token (its root lookup answers 403), but never renews a valid one. So a dev token dies 32 days after issue, mid-session, until `pnpm dev:vault` runs again. The fix is one `auth/token/renew` (root) for each token it keeps. With T2 the dev API renews its token too. CI uses a fresh dev-mode Vault per run, so CI isn't affected. |
-| T8 | **One PR, next: after B2a (#107), before the rest of B2,** released and deployed before **2026-11-14**. That's a week before the app token's likely expiry; Step 0 gives the exact dates. | Small and urgent. B2's restore rehearsal then builds on it (below). It changes the API and worker image (T2's renewer), so it needs a release, unlike B2a. |
+| T8 | **One PR, next: after B2a (#107), before the rest of B2,** released and deployed before **2026-11-14**. That's a week before the app token's expiry, 2026-11-21T19:42Z, measured by Step 0. | Small and urgent. B2's restore rehearsal then builds on it (below). It changes the API and worker image (T2's renewer), so it needs a release, unlike B2a. |
+| T9 | **Every token command, and `stack:smoke`, names a sealed Vault first.** `renew`, the lookups in `configure()` and T5's check read `vault status` before anything else. A sealed Vault gets its own line, "Vault is sealed: run `pnpm stack:vault unseal`", the one the deploy already prints, rather than a token failure. Each Vault error is then classified as sealed, the token invalid or expired ("bad token" or "invalid token"), or another error with Vault's own message (with anything shaped like a token redacted), never a bare exit code. | Found by Step 0's first run (above): a sealed Vault after a restart looked exactly like two dead tokens. On this laptop a reboot seals Vault, so a sealed Vault will be common. T4's re-issue must never treat it as a dead token. Alternative: leave the smoke check to fail on the API's health, which names neither cause. |
 
 ## How it meets spec 0020 PR B
 
@@ -86,7 +98,8 @@ The deadline in T8 is set by whichever expires first, a week before it. Neither 
   - `configure()` with a live token keeps it; with "bad token" re-issues it and saves the new token and accessor; with any other failure throws and saves nothing;
   - each policy holds exactly its paths: the app policy its two Transit paths plus the two `-self` paths, and the backup policy its own plus the same two;
   - the backfilled accessor; the deploy recreating the API and worker when (and only when) the token changed (`deploy.spec.ts`);
-  - the smoke check's threshold at 7 days, either side (`smoke.spec.ts`).
+  - the smoke check's threshold at 7 days, either side (`smoke.spec.ts`);
+  - T9: a sealed Vault (503, "Vault is sealed") is reported as sealed by `renew`, `configure()` and the smoke check, never as a dead token, and never re-issues one. "bad token" is reported as invalid or expired, and any other error prints Vault's message with token-shaped strings redacted.
 - **Unit, `packages/crypto`:** the renewer's schedule, its warning and error lines (with no token in them), and that a failure never throws into the app (fake `fetch`, fake timers).
 - **Integration, CI, against the real `hashicorp/vault:2.1.1`,** `tools/stack/src/vault-token.int.ts`, in its own vitest config and CI step, like `audit-failclosed.spec.ts`: a throwaway server-mode Vault, set up by the stack's own `initialise()`:
   - the token's `period` is 768 h; after `renew`, the TTL is back to the period;

@@ -33,8 +33,8 @@ Read this before doing anything. It covers where Phase 0 stands, what is left in
    - **Spec 0023 comes before the rest of B2** (item 4).
 4. **Spec 0023: renewing the stack's Vault tokens. Urgent.** Nothing renews either of the stack's Vault tokens: the app's (created with the stack's Vault, about 2026-10-20/21) or B1's backup token (2026-10-24). Both are periodic, 768 h, with nothing renewing them.
    - **What happens:** around **2026-11-21**, the API and worker lose Transit, failing closed, so every encrypted field becomes unreadable. Around **2026-11-25**, the daily backup loses its Vault snapshot.
-   - **The plan:** [spec 0023](specs/0023-vault-app-token-renewal.md), T1–T8, refreshed after B1 for both tokens. It awaits the owner's approval.
-   - **Step 0, the owner:** a read-only lookup that prints each token's expiry and period, never a token. The spec gives the exact command.
+   - **The plan:** [spec 0023](specs/0023-vault-app-token-renewal.md), T1–T9, refreshed after B1 for both tokens. Step 0 ran on 2026-10-25: the app token expires 2026-11-21T19:42Z and the backup token 2026-11-25T15:54Z, both with a 768 h period and their own policy only. It awaits the owner's approval.
+   - **Step 0 is done** (2026-10-25). Its first run hit a sealed Vault after a restart, which looked like two dead tokens; that is T9.
    - **Deadline:** released and deployed before **2026-11-14**. It changes the API and worker image, so it needs a release.
 
    The handoff's original split, for reference:
