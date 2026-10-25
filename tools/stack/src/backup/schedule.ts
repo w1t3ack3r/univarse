@@ -30,10 +30,14 @@ export function parseAt(s: string | undefined): string | null {
 }
 
 const xml = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&apos;');
-/** One argument for Windows' command line: quoted, since the owner's paths hold spaces (a path can't hold a `"`). */
-const arg = (s: string) => {
+/**
+ * One argument for Windows' command line: quoted, since the owner's paths hold spaces (a path can't hold a `"`).
+ * Backslashes right before the closing quote are doubled: Windows reads `\"` as a literal quote, so a path ending in
+ * `\` (as this checkout's, from a directory URL, does) would otherwise swallow the rest of the line into itself.
+ */
+export const arg = (s: string) => {
   if (s.includes('"')) throw new Error(`a path with a double quote can't be scheduled: ${s}`);
-  return `"${s}"`;
+  return `"${s.replace(/(\\+)$/, '$1$1')}"`;
 };
 
 /** What the task runs: the backup command, in this checkout, in scheduled mode (its log, and its wait for the lock). */

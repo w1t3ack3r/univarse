@@ -1228,6 +1228,15 @@ Built as approved (B2-2 to B2-4), with B2-4's amendment (the backup waits for th
   The infinite-wait mutant first hung the test run instead of failing it. The fake clock now fails a wait that never ends.
 - **Not run here:** Task Scheduler itself. This environment is Linux. `schtasks /Create` with this XML, and the PowerShell query, are first exercised on the owner's machine (B2-17).
 
+**Fixed after the owner's first registration (2026-10-25): the tasks' `--dir` argument.**
+- **What broke:** this checkout's path comes from a directory URL, so it ends in `\`. Quoted as `"C:\Projects\univarse\"`, the closing `\"` is a literal quote to Windows, so the argument swallowed the rest of the line. pnpm would have received `--dir 'C:\Projects\univarse" stack:backup --scheduled'` and no command, so every scheduled run would have failed.
+- **How it was found:** reading the registered XML, then reproduced by starting Node with that exact command line, before either task had run (`0x41303`, not run yet).
+- **The fix:** `arg()` doubles the backslashes before the closing quote, as Windows' rules require.
+- **The tests:**
+  - a pure one;
+  - one on a Windows host that has the real command line split exactly as Task Scheduler's launch does (`windowsVerbatimArguments`), with a trailing backslash and spaces. Both fail without the fix.
+- **The owner re-registers once:** `pnpm stack:backup schedule --at 02:00 --apply` replaces both tasks (`/F`).
+
 ## Affected docs (in the implementation PRs)
 
 - **[10 §7](../10-infrastructure-and-deployment.md):** the local backup section: what, where, the schedule, the measured boundary, the owner's private key, the same-disk limit, the commands, the drill.
