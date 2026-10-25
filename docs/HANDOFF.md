@@ -19,11 +19,11 @@ Read this before doing anything. It covers where Phase 0 stands, what is left in
     - `20261024T161305Z-e2bd`, the first, needing WAL from `000000010000000000000006`;
     - `20261025T033359Z-02d9`, on the new release, needing WAL from `000000010000000000000011`. Its Vault snapshot is 26.3 KB, the stack's parts 20.5 KB, and the ledger 4.0 KB. Its files are 1.0 KB, an empty tar: the demo tenants have no uploads.
   - Both have 6 sealed files and the ledger at seq 2, and exited 0.
-  - Until B2 registers the schedule, `pnpm stack:backup` and `pnpm stack:backup wal` run only by hand. WAL staged in `univarse-stack-pg-wal-staging` stays inside the stack until shipped.
+  - Until the owner registers B2a's schedule, `pnpm stack:backup` and `pnpm stack:backup wal` run only by hand. WAL staged in `univarse-stack-pg-wal-staging` stays inside the stack until shipped.
 - **The old Vault file storage, `univarse-stack_vault-data`, is kept, untouched** (B-4). Deleting it is a later explicit owner step, never part of a deploy.
 - **The ledger is live, and its bucket copy works.** It is `1b879644-1e96-4d46-acb0-08eaa0e6a786`, created by the deploy of `33ae2d9` with `--init-ledger` on 2026-10-23. Since 2026-10-25 it is authoritative on **2 destinations**: the owner added one. Recovery passes with no failed copy, and `pnpm stack:bucket-check` passes every line (spec 0020, "Implementation notes (fix: the bucket copy)", with the measured memory).
 - **A3's decisions 1–7** (approved 2026-10-23) and **PR B's plan, B-1 to B-17** (approved 2026-10-24), are recorded in spec 0020. **B1's 18 decisions made while building:** the owner gave the go-ahead to merge #103 on 2026-10-24, with the PR stating they awaited approval. They are recorded as approved by that go-ahead; the owner may still revisit any of them.
-- **To confirm with the owner:** whether the second ledger destination is on the external drive. Only that survives losing this disk. Backup sets on this disk don't survive it either, unless the destination is moved to that drive (`pnpm stack:backup destination <path>`).
+- **The ledger's second destination is on the external drive** (the owner confirmed, 2026-10-25), so the ledger survives losing this disk. The backup sets are still on this disk (the default destination), so they don't, unless the destination moves to that drive (`pnpm stack:backup destination <path>`).
 
 ## What is left for Phase 0, in order
 
@@ -32,8 +32,8 @@ Read this before doing anything. It covers where Phase 0 stands, what is left in
 3. **Spec 0020 PR B: backups, the rehearsed restore and the shred drill.** It is the last unmet exit criterion.
    - **The plan** (spec 0020, "Plan (PR B …), for approval", decisions B-1 to B-17) was approved, all as written, on 2026-10-24.
    - **B1 is done:** merged (#103, #104), released and deployed, Vault migrated, and the first set taken (above). Spec 0020's "Implementation notes (PR B1)" hold the evidence, including what the owner's run found.
-   - **B2's plan is written, for the owner's approval** (spec 0020, "Plan (PR B2 …)", B2-1 to B2-17, 2026-10-25). It proposes two PRs:
-     - **B2a:** `stack:backup status`, the deploy's warnings and the schedule;
+   - **B2's plan was approved by the owner, all as written, on 2026-10-25** (spec 0020, "Plan (PR B2 …)", B2-1 to B2-17). It is two PRs, B2a first:
+     - **B2a:** `stack:backup status`, the deploy's warnings and the schedule. **Built** (spec 0020, "Implementation notes (PR B2a)"), with 7 decisions made while building for the owner's approval; the owner then registers the schedule (B2-17);
      - **B2b:** the restore engine, `stack:restore-rehearsal`, `stack:drill` and `stack:restore`.
 
      No release is expected for either. B1 took four things from B2's original split: pruning, the backup's ledger snapshot (BK14), D7's external-drive rule, and every image subcommand B2 needs.

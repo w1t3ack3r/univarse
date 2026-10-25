@@ -18,6 +18,8 @@ import { init as initLedger } from './ledger/commands.js';
 import { recover as recoverLedger } from './ledger/protocol.js';
 import { vaultStorage } from './vault-raft.js';
 import { fillVolumes, markApplied, renderedDir } from './volumes.js';
+import { realStatusInputs } from './backup/status-deps.js';
+import { statusReport } from './backup/status.js';
 
 const TRIVY_IMAGE = 'aquasec/trivy:0.75.0@sha256:af6acf9a6b85dfe389a1941505c0ce9efef52a4719635e1a962f022a3d855daa';
 
@@ -181,6 +183,13 @@ export function realDeps(): DeployDeps {
     smoke,
     logs,
     saveState,
+    backupWarnings: () => {
+      try {
+        return statusReport(realStatusInputs()).warnings;
+      } catch (e) {
+        return [`the backup status could not be read: ${(e as Error).message}`];
+      }
+    },
     log: (line) => console.log(line),
   };
 }

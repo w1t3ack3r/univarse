@@ -12,7 +12,7 @@
 - **Revision 6** removes `ledger accept`. The owner's commands are either **guarantee-preserving** (`rebuild-destination`, `remove-destination`, allowed only from a readable configured destination's own copy) or an **explicit waiver** of the guarantee (`ledger waive`). Nothing can promote a backup set's or the bucket's copy. BK16 is rewritten with its permitted and rejected cases; BK17 covers the waiver. The owner reviewed it on 2026-10-22: approved; one clarification asked for: how the waiver starts a new generation when no destination is readable.
 - **Revision 7** defines that bootstrap: the owner names the new generation's destinations, its `genesis` must be durable and verified on all of them before anything changes, and the old history is never claimed complete. It makes "durable" mean written, `fsync`ed and read back verified, throughout D7. BK17 gains the cases. The owner reviewed it on 2026-10-22: approved; one addition asked for: crash injection for the waiver protocol itself.
 - **Revision 8** gives the waiver explicit phases (W1–W4) with one point at which a generation becomes authoritative, makes each phase recoverable or inert, and adds BK17's crash cases.
-- **PR B1** is merged (#103, then #104 with the fixes the owner's run found) and running on the owner's stack since 2026-10-24: Vault on Raft, and the first sealed set. Its 18 decisions made while building are recorded as approved by the owner's go-ahead to merge #103 (2026-10-24). See "Implementation notes (PR B1)". **PR B2** (the rehearsed restore and the shred drill): its plan is written for the owner's approval ("Plan (PR B2 …)", B2-1 to B2-17, 2026-10-25).
+- **PR B1** is merged (#103, then #104 with the fixes the owner's run found) and running on the owner's stack since 2026-10-24: Vault on Raft, and the first sealed set. Its 18 decisions made while building are recorded as approved by the owner's go-ahead to merge #103 (2026-10-24). See "Implementation notes (PR B1)". **PR B2** (the rehearsed restore and the shred drill): its plan ("Plan (PR B2 …)", B2-1 to B2-17) was approved by the owner on 2026-10-25. B2a (status, the deploy's warnings, the schedule) is being built first.
 - **PR B's plan** (B-1 to B-17, below) was **approved by the owner on 2026-10-24, all as written**: the B1/B2 split with pruning, BK14's fourth case, D7's external-drive rule and every image subcommand moved into B1, and the amendments to D3, D5 and D9 made above.
 
 **Phase:** 0. Roadmap item **7.5** under [ADR-030](../19-decision-log.md): local backups with a rehearsed restore, and the shred ledger. It is the last local-stack requirement before Phase 0 can close.
@@ -905,7 +905,7 @@ Eight survived the first run:
 
 ## Plan (PR B2: the rehearsed restore, the shred drill, status and the schedule), for approval
 
-**Status:** written 2026-10-25, for the owner's approval. Nothing is built. B-1 to B-17 (approved 2026-10-24) still apply. This section fills in how B2 builds them, and the decisions they left open.
+**Status:** **approved by the owner on 2026-10-25, all as written** (B2-1 to B2-17). One amendment, made while building B2a, is marked in B2-4. The owner also confirmed that the ledger's second destination is on the external drive. B-1 to B-17 (approved 2026-10-24) still apply. This section fills in how B2 builds them, and the decisions they left open.
 
 **For the owner's decision**, in order of weight. Each is explained below.
 1. **Split B2 in two (B2-1).** B2a is `status`, the deploy's warnings and the schedule: small, and it gets daily backups running now. B2b is the restore, the rehearsal and the drill.
@@ -967,7 +967,8 @@ B-15, made concrete. `pnpm stack:backup schedule --at HH:MM` prints two task def
   - **at most one at a time** (`IgnoreNew`), with a 2-hour limit.
 - **The command each runs:** node's and pnpm's absolute paths, recorded when the schedule is made, run in this checkout (`node <pnpm.cjs> --dir <repo> stack:backup`). The task then doesn't depend on Task Scheduler's PATH.
 - **Logs:** each run appends what it prints to `~/.univarse/stack/logs/backup-YYYY-MM-DD.log`, owner-only. Nothing printed is secret (BK9's scan covers it). A log over 30 days old is removed by the next run.
-- **Contention:** a backup that finds the registry lock held (a deploy or a release) fails, and is logged. The daily task retries a failed run up to 3 times, an hour apart (`RestartOnFailure`), so a deploy at backup time costs an hour, not a day. The WAL task already ships nothing and exits 0 then (B1 decision 18).
+- **Contention:** a scheduled backup that finds the registry lock held (a deploy or a release) **waits for it**, checking every minute for up to an hour. Only then does it fail, and the failure is logged. The WAL task already ships nothing and exits 0 then (B1 decision 18).
+  - **Amended while building (2026-10-25), for the owner's approval.** The plan had Task Scheduler's `RestartOnFailure` retry a failed run. Windows applies that setting only when a task fails to *start*, not when it exits non-zero, so it would never have retried. The wait is the backup's own, and unit-tested.
 - **Stated:**
   - **the tasks run whatever this checkout holds.** A branch checked out at 03:00 is what runs. The set records the tools' commit (`versions.tools`);
   - **Windows only.** Elsewhere the command prints the equivalent crontab lines and registers nothing (B-15).
@@ -1171,6 +1172,53 @@ That's about 1.6 GB at most, beside the stack's 3.5 GB. The drill's note says to
   2. Run `pnpm stack:drill --key <path>`, while nobody is using the app.
   3. Commit the record it writes (a small PR).
 - **Neither needs a release,** as above.
+
+## Implementation notes (PR B2a: status, the deploy's warnings, the schedule)
+
+Built as approved (B2-2 to B2-4), with B2-4's amendment (the backup waits for the registry lock itself). **No image changes and no release:** everything is in `tools/stack` and the docs.
+
+**Files** (`tools/stack/src/backup/`):
+- `status.ts`: the report, a pure function of its inputs;
+- `status-deps.ts`: the real inputs (sets, shipped and staged WAL, the tasks, the ledger), and the schedule's registration;
+- `schedule.ts`: the tasks' XML, the crontab lines, and parsing the task query;
+- `scheduled.ts`: a scheduled run's lock wait and its log;
+- `wal.ts`: gains a read-only listing of the staging volume;
+- `deploy.ts`: gains a final `backupWarnings` step.
+
+**Decisions made while building (for approval):**
+1. **The tasks live in a `\UniVarse\` folder,** named `backup` and `backup-wal`, so they're easy to find in Task Scheduler and can't collide with anything else's.
+2. **The task query goes through PowerShell's `Get-ScheduledTaskInfo`, not `schtasks /Query`.** `schtasks` prints its labels in the system's language, while PowerShell gives the result as a number. "Not run yet" (`0x41303`) is no failure, and "running now" (`0x41301`) counts as no failure.
+3. **Registration writes the XML as UTF-16 with a byte-order mark,** as its declaration says, to a temporary file that is removed straight after.
+4. **`--scheduled`** is the one flag the tasks pass. It does two things:
+   - it appends every printed line, timestamped, to the day's log, plus the exit code;
+   - for a backup, it waits for the registry lock.
+
+   A run by hand behaves exactly as before.
+5. **The deploy prints all of `status`'s warnings,** not only the two B2-3 named (newest set, staged WAL): a missing task or a broken external rule is just as worth seeing. A status that can't be read at all becomes one warning. Nothing blocks.
+6. **`schedule --remove`** needs no `--at`.
+7. **Off Windows, the user** for the crontab lines comes from the OS when `USERNAME` isn't set. That was found running the command here.
+
+**Evidence.**
+- **Unit tests** (`status.spec.ts`, `schedule.spec.ts`, `scheduled.spec.ts`, `deploy.spec.ts`, `entrypoints.spec.ts`):
+  - every warning at its boundary (26 h, 1 h);
+  - the boundary taken from the oldest complete set;
+  - each unreadable source reported and making `ok` false, alone;
+  - **the daily task's XML, line by line,** and the WAL task's trigger;
+  - nothing run without `--apply`; the UTF-16 file and its removal; a failed registration stopping;
+  - the PowerShell query and its result codes;
+  - the lock wait with the real registry lock, and the 30-day log;
+  - the deploy printing warnings only after it passed;
+  - the CLI's refusals, as real processes.
+- **Run here, for real, under a temporary home:**
+  - `status`: every source it couldn't read was named (no Docker, no ledger, no set), and it exited 1;
+  - `schedule --at 13:30`: the crontab lines;
+  - `wal --scheduled`: Docker's error logged with the exit code, in a 0700 folder and a 0600 file.
+- **Mutations: 50, all killed.** Four survived the first run:
+  - three were cases no test isolated, and each now has its own test: an unreadable source making `ok` false on its own, the newest of several shipped files, and the scheduled lock's wiring (moved into `registryLockFor` to be testable);
+  - one was a redundant guard, removed. It had also hidden a failed result whose run time couldn't be read, and that case now has a test.
+
+  The infinite-wait mutant first hung the test run instead of failing it. The fake clock now fails a wait that never ends.
+- **Not run here:** Task Scheduler itself. This environment is Linux. `schtasks /Create` with this XML, and the PowerShell query, are first exercised on the owner's machine (B2-17).
 
 ## Affected docs (in the implementation PRs)
 
