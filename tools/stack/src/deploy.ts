@@ -41,8 +41,11 @@ export interface DeployDeps {
    * starts Vault on a half-migrated Raft volume, nor initialises a second Vault beside the one in file storage.
    */
   vaultStorage(): VaultStorage;
-  /** Initialises Vault on first use, otherwise completes any missing part of its setup (idempotent). */
-  ensureVault(): void;
+  /**
+   * Initialises Vault on first use, otherwise completes any missing part of its setup (idempotent), re-issues a token
+   * Vault says is dead and renews both (spec 0023 T3, T4). Its lines say what happened to the tokens, never a token.
+   */
+  ensureVault(): { appTokenReissued: boolean; lines: string[] };
   /** The storage buckets, created if missing (idempotent); returns problems. SeaweedFS must be running. */
   buckets(): string[];
   /**
@@ -114,7 +117,8 @@ export async function deploy(record: ReleaseRecord, commit: string, deps: Deploy
     if (vault === 'sealed') return { ok: false, problems: ['Vault is sealed: run `pnpm stack:vault unseal`, then deploy again (spec 0019 D9)'] };
     if (vault === 'absent') return { ok: false, problems: ['Vault is not reachable'] };
     if (vault === 'uninitialised') deps.log('[stack:deploy] first deploy: initialising Vault (its keys are saved owner-only in the stack directory)');
-    deps.ensureVault();
+    const tokens = deps.ensureVault();
+    for (const line of tokens.lines) deps.log(`[stack:deploy] vault: ${line}`);
     for (const s of deps.prepare(true)) restart.add(s);
 
     // ── LS4: the database, then the migrate job, before the API, worker and web; a failed job starts nothing new.
@@ -169,6 +173,13 @@ export async function deploy(record: ReleaseRecord, commit: string, deps: Deploy
         return { ok: false, problems: [`${others.join(', ')} did not restart healthy`] };
     }
     deps.markApplied();
+    // Spec 0023 T4: a re-issued app token reaches the API and worker only in new containers: a restart keeps the old
+    // environment, and compose may not see the env file change.
+    if (tokens.appTokenReissued) {
+      deps.log('[stack:deploy] recreating api, worker: the app token was re-issued');
+      if (deps.compose(['up', '-d', '--wait', '--force-recreate', '--no-deps', 'api', 'worker'], images).status !== 0)
+        return { ok: false, problems: ['the API and worker did not come back with the re-issued app token'] };
+    }
 
     // ── LS6: the smoke check.
     const smoke = await deps.smoke();

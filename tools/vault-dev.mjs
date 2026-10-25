@@ -1,8 +1,10 @@
 // DEV/CI ONLY (ADR-023, spec 0006). Makes a running Vault ready for UniVarse:
 //   1. local: initialise once (1 unseal share) and unseal on every start; keys go to the git-ignored
 //      .vault-dev.json, never to .env or stdout.   CI build-test: as local, from compose. CI pgbouncer-isolation: dev mode, VAULT_ROOT_TOKEN set.
-//   2. ensure the Transit engine, the derived aes256-gcm96 KEK, and the app policy (encrypt/decrypt only)
-//   3. ensure .env holds a working least-privilege app token (VAULT_TOKEN) plus KEY_PROVIDER/VAULT_ADDR,
+//   2. ensure the Transit engine, the derived aes256-gcm96 KEK, and the app policy (encrypt/decrypt, and its own
+//      renewal and lookup: spec 0023 T1, so the dev API keeps its token alive as the stack's does)
+//   3. ensure .env holds a working least-privilege app token (VAULT_TOKEN) plus KEY_PROVIDER/VAULT_ADDR, renewing a
+//      kept token back to its full period (spec 0023 T7: a valid one used to die 32 days after issue),
 //      and (dev/CI only) the operator key-admin token VAULT_ADMIN_TOKEN for the `keys` CLI and tests.
 // Never prints a secret.
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
@@ -76,7 +78,10 @@ async function main() {
   } else if (!existing.data.derived) {
     throw new Error(`${MOUNT}/${KEY} exists but is not derived: per-tenant binding (spec 0006 E2) requires derived=true`);
   }
-  const policy = `path "${MOUNT}/encrypt/${KEY}" { capabilities = ["update"] }\npath "${MOUNT}/decrypt/${KEY}" { capabilities = ["update"] }\n`;
+  // Spec 0023 T1: as the stack's app policy (tools/stack/src/vault.ts, APP_POLICY_HCL).
+  const policy =
+    `path "${MOUNT}/encrypt/${KEY}" { capabilities = ["update"] }\npath "${MOUNT}/decrypt/${KEY}" { capabilities = ["update"] }\n` +
+    'path "auth/token/renew-self" { capabilities = ["update"] }\npath "auth/token/lookup-self" { capabilities = ["read"] }\n';
   await vault('PUT', `sys/policies/acl/${POLICY}`, { token: root, body: { policy } });
 
   // Operator key admin (spec 0006 E8): rotate the KEK, read its metadata, rewrap DEKs. Never the app's.
@@ -94,6 +99,8 @@ async function main() {
       // These tokens have no default policy, so they can't look themselves up; root checks them.
       const found = await vault('POST', 'auth/token/lookup', { token: root, body: { token }, ok: [200, 403] });
       if (!found.data?.policies?.includes(policyName)) token = undefined;
+      // Spec 0023 T7: a kept token is renewed (by root) back to its full period, so it never dies mid-session.
+      else await vault('POST', 'auth/token/renew', { token: root, body: { token } });
     }
     if (!token) {
       const out = await vault('POST', 'auth/token/create', {

@@ -2,6 +2,7 @@
 // area's file names, the staging volume's listing, the scheduled tasks and the ledger. The report is a pure function
 // of those inputs, so every boundary is tested; status-deps.ts reads them. Nothing in it is secret.
 import type { SetOnDisk } from './set.js';
+import { tokenReport, type TokenState } from '../vault.js';
 
 export const NEWEST_SET_WARN_H = 26;
 export const STAGED_WARN_H = 1;
@@ -35,6 +36,8 @@ export interface StatusInputs {
   readonly externalRule: string | null;
   /** BK17: the waiver statement of the ledger's generation, or null; or why the ledger couldn't be read. */
   readonly waived: string | null | { readonly problem: string };
+  /** Spec 0023 T5: the two Vault tokens' remaining life, or why it couldn't be read; absent where not asked. */
+  readonly tokens?: readonly TokenState[] | { readonly problem: string };
 }
 
 export interface StatusReport {
@@ -128,6 +131,18 @@ export function statusReport(i: StatusInputs): StatusReport {
     ok = false;
     warn(`the shred ledger can't be read: ${i.waived.problem}`);
   } else if (i.waived) lines.push(i.waived);
+
+  // Spec 0023 T5: a token near its end stops the backup (its Vault snapshot) and the app; the deploy shows this too.
+  if (i.tokens !== undefined) {
+    if (failed(i.tokens)) {
+      ok = false;
+      warn(`the Vault tokens can't be read: ${i.tokens.problem}`);
+    } else {
+      const t = tokenReport(i.tokens);
+      lines.push(...t.lines);
+      for (const pr of t.problems) warn(pr);
+    }
+  }
 
   return { ok, lines, warnings };
 }

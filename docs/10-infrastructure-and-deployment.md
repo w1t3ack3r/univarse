@@ -149,6 +149,7 @@ pnpm stack:trust                             # the edge CA's fingerprint, and ho
 pnpm stack:deploy releases/<record>.json     # verify the record, then migrate, recover the shred ledger, start and smoke-check
 pnpm stack:deploy <record> --init-ledger    # once, the first deploy with spec 0020: creates the shred ledger
 pnpm stack:vault unseal                      # after a restart (the deploy says when)
+pnpm stack:vault renew                       # both Vault tokens back to their full 32 days (the deploy and the services also do it)
 pnpm stack:smoke                             # the smoke check again, on the running stack
 pnpm stack:pools                             # PgBouncer's SHOW POOLS, from inside the stack
 pnpm stack:isolation                         # spec 0017's PB1 and PB2 through the stack's PgBouncer
@@ -178,7 +179,12 @@ pnpm stack:down                              # stop it; volumes are kept
   - PostgreSQL is on `db` with only PgBouncer and the migrate job;
   - the API and worker reach the database only through PgBouncer, over TLS verified against the stack CA.
 - **Memory:** the limits sum to at most 3.5 GB without ClamAV (`--profile scan`). Idle it uses about 0.6 GB (spec 0019's notes).
-- **Vault** listens only with TLS (the stack CA's certificate) and logs every request to its audit volume, values HMAC'd. If the audit log can't be written, Vault refuses requests and the app fails closed. A changed Vault certificate (after `stack:init --rotate`) restarts Vault, which comes back sealed: the deploy then asks for `pnpm stack:vault unseal`.
+- **Vault** listens only with TLS (the stack CA's certificate) and logs every request to its audit volume, values HMAC'd. If the audit log can't be written, Vault refuses requests and the app fails closed. A changed Vault certificate (after `stack:init --rotate`) restarts Vault, which comes back sealed: the deploy then asks for `pnpm stack:vault unseal`. So does a reboot of this machine. The smoke check names a sealed Vault first.
+- **Vault's two tokens** ([spec 0023](specs/0023-vault-app-token-renewal.md)):
+  - the app's, for Transit, and the backup's, for Raft snapshots;
+  - each periodic at 32 days, and kept alive by renewal: the API and the worker renew theirs every 6 hours, the backup renews its own at each run, and every deploy renews both;
+  - a token Vault says is dead is re-issued by the next deploy, which then recreates the API and the worker;
+  - `stack:smoke` and `stack:backup status` show each token's remaining life, and the smoke check fails under 7 days.
 - **The shred ledger** ([spec 0020](specs/0020-local-backups-and-shred-ledger.md) D7, D8) lives outside the stack, in `~/.univarse/ledger/`, plus every destination you add (`pnpm stack:keys ledger add-destination <path>`: an external drive is recommended, since only it survives the loss of this disk). A destruction is accepted only once its records are durable on every destination. Every deploy runs its recovery after the migrate job, before the API and worker start: a destruction a restore undid is made again, and anything it can't decide stops the deploy. With a destination unreadable, nothing restarts until you reconnect it, rebuild it (`ledger rebuild-destination`) or remove it (`ledger remove-destination`). The stack's `uv-shred-ledger` bucket keeps an object-locked copy of every entry for 10 years, as evidence only, never relied on. **If no destination can be read at all,** only `ledger waive` lets the stack run again: it records that the no-resurrection guarantee is waived for every destruction before that moment, re-applies every destruction it can still find (in any surviving copy, `--from` copies, the bucket and the database), and starts a new generation on the destinations you name, guaranteed from then on. Every deploy, `recover`, `ledger status` and `stack:smoke` then report "no-resurrection guarantee waived since <time>" for as long as that generation is the ledger.
 - **Backups** ([spec 0020](specs/0020-local-backups-and-shred-ledger.md) PR B1). `pnpm stack:backup` writes a *set* to the backup destination:
   - **What is in a set:** PostgreSQL (`pg_basebackup`, with the WAL it needs), Vault's Raft snapshot, the clean bucket's files, the parts of `~/.univarse/stack` a restore needs, a copy of the shred ledger, and a manifest.

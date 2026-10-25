@@ -20,7 +20,7 @@ const run = (file: string, args: readonly string[]) =>
 describe('the stack commands load and answer', { timeout: 120_000 }, () => {
   const cases: [string, string[], number, RegExp][] = [
     ['vault', ['migrate-raft', 'releases/does-not-exist.json'], 1, /usage: pnpm stack:vault migrate-raft/],
-    ['vault', ['nope'], 2, /usage: pnpm stack:vault status \| init \| unseal \| migrate-raft/],
+    ['vault', ['nope'], 2, /usage: pnpm stack:vault status \| init \| unseal \| renew \| migrate-raft/],
     ['backup', ['nope'], 1, /usage: pnpm stack:backup/],
     // B2a: refused before anything is read or registered.
     ['backup', ['schedule'], 1, /usage: pnpm stack:backup .*schedule --at <HH:MM>/],

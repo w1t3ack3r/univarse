@@ -172,6 +172,10 @@ Built in [spec 0010](specs/0010-file-uploads.md).
 - Distinct secrets per environment. Dev secrets are useless in prod.
 - DB credentials: separate users per service role ([07 §1](07-data-and-database.md)). Prefer IAM/short-lived credentials where the provider supports them.
 - **The local stack's keys** ([spec 0019](specs/0019-local-production-stack.md) D9, B2) live only in `~/.univarse/stack/`, owner-only: the internal stack CA's key, the edge CA's key (never in a container), Vault's unseal share and root token, and every generated password. The owner trusts the edge CA in their user's root store. It is name-constrained to `stack.univarse.localhost`, so its key can't be used to impersonate any other site to that browser.
+- **The stack's Vault tokens renew themselves** ([spec 0023](specs/0023-vault-app-token-renewal.md) T1). Each policy grants its token `renew-self` and `lookup-self`, and nothing else about tokens.
+  - **The trade-off:** a leaked token no longer dies within 32 days on its own. Whoever holds it can keep it alive, so revocation is the only end, as it is for any token that is renewed.
+  - **What bounds it:** each token is least-privilege (the app's can only encrypt and decrypt with the KEK; the backup's can only read a snapshot), and Vault's audit device records every use as HMACs.
+  - **Never shown:** tokens travel to the Vault CLI by environment name or stdin, never as arguments, and no command or log prints one.
 - gitleaks runs in pre-commit and CI. A detected secret = rotate first, then clean history.
 - **The invalidation relay's role reaches only the worker** ([spec 0016](specs/0016-platform-invalidation-outbox.md) IO17): `pnpm db:setup` writes `PLATFORM_RELAY_URL` to the git-ignored `.env.worker`, never to the root `.env` that the API's development preload loads; only `worker.ts` loads it; worker containers receive it by name, API containers never; and the API refuses to start with it set.
 

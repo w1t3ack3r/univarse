@@ -23,7 +23,8 @@ import type { Entry } from './ledger/chain.js';
 import { establishAuthority } from './ledger/ledger.js';
 import { waivedSince } from './ledger/waiver.js';
 import { loadSecrets } from './secrets.js';
-import { AUDIT_LOG, loadVaultInit, VAULT_CONTAINER, vaultCli } from './vault.js';
+import { AUDIT_LOG, loadVaultInit, SEALED_LINE, tokenReport, tokenStates, VAULT_CONTAINER, vaultCli, vaultState } from './vault.js';
+export { tokenReport } from './vault.js';
 
 interface Res {
   status: number;
@@ -239,6 +240,8 @@ export function waiverNotice(read: () => { ok: true; entries: readonly Entry[] }
 const SETTLE_MS = 90_000;
 
 export async function smoke(): Promise<string[]> {
+  // Spec 0023 T9: a sealed Vault first, by name. Otherwise every check below fails on it for 90 s without saying why.
+  if (vaultState() === 'sealed') return [SEALED_LINE];
   // Retried until it passes or SETTLE_MS is up; the last attempt's problems are the report.
   const deadline = Date.now() + SETTLE_MS;
   const since = new Date().toISOString();
@@ -251,6 +254,10 @@ export async function smoke(): Promise<string[]> {
   for (const s of ['api', 'worker']) if (!jsonLinesOnly(logsOf(s).stdout)) problems.push(`${s}: stdout is not JSON lines only`);
   // C3: Vault's audit device records a wrap and an unwrap, HMAC'd, never in clear.
   problems.push(...auditCheck());
+  // Spec 0023 T5: neither token is near its end.
+  const tokens = tokenReport(tokenStates());
+  for (const l of tokens.lines) console.log(`[stack:smoke] ${l}`);
+  problems.push(...tokens.problems);
 
   const ids = docker(['ps', '-q', '--filter', `label=com.docker.compose.project=${PROJECT}`]).stdout.trim().split('\n').filter(Boolean);
   if (ids.length) problems.push(...inspectProblems(JSON.parse(docker(['inspect', ...ids]).stdout) as Inspect[]));
@@ -265,5 +272,5 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     for (const p of problems) console.error(`[stack:smoke] FAIL ${p}`);
     process.exit(1);
   }
-  console.log('[stack:smoke] PASS: HTTPS (verified), the redirect and HSTS, Vault audit (HMACs only), health, tenant, /login, worker and relay, JSON logs, and the hardened shape (LS1, LS6, LS7)');
+  console.log('[stack:smoke] PASS: HTTPS (verified), the redirect and HSTS, Vault audit (HMACs only), the life left in both Vault tokens, health, tenant, /login, worker and relay, JSON logs, and the hardened shape (LS1, LS6, LS7)');
 }

@@ -4,6 +4,7 @@ import { ProductService } from './modules/products/product.service.js';
 import { AuditWriter } from './shared/audit/audit-writer.js';
 import { Redis } from 'ioredis';
 import { fieldCryptoProvider, keyringProvider } from './shared/crypto/envelope.js';
+import { RENEW_VAULT_TOKEN, VaultTokenRenewal } from './shared/crypto/token-renewal.js';
 import { KeyDestruction, KeyForgetListener } from './shared/crypto/key-forget.js';
 import { BUS_SUBSCRIBE, InvalidationBus } from './shared/infra/invalidation-bus.js';
 import { VALKEY } from './shared/infra/rate-limiter.js';
@@ -25,6 +26,8 @@ export interface WorkerOverrides {
   readonly onShutdown?: () => Promise<void>;
   /** Spec 0015: the `keys` CLI publishes invalidations but never subscribes. Default: subscribe. */
   readonly subscribe?: boolean;
+  /** Spec 0023 T2: keep the Vault token alive (renewed at start, then every 6 h). Only the real process sets it. */
+  readonly renewVaultToken?: boolean;
 }
 
 /**
@@ -71,6 +74,8 @@ export class WorkerModule {
         AuditWriter,
         keyringProvider,
         fieldCryptoProvider,
+        { provide: RENEW_VAULT_TOKEN, useValue: overrides.renewVaultToken ?? false },
+        VaultTokenRenewal,
         KeyForgetListener,
         KeyDestruction,
         ProductService,

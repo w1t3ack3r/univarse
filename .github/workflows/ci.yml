@@ -177,6 +177,11 @@ jobs:
       # takes a snapshot and nothing else); PostgreSQL 18's archive_command and pg_basebackup's stream (B-2, B-3).
       - name: Backups' containers, Vault's migration to Raft and PostgreSQL's archiving (spec 0020 B1)
         run: pnpm --filter @univarse/stack test:backup
+      # Spec 0023, on a throwaway Vault of the stack's pinned image: both tokens periodic at 768 h, renewal back to the
+      # full period, the policies' self paths and nothing more, a dead token re-issued (and Vault's answers for a dead
+      # token and a sealed Vault pinned), and the app's renewer keeping a short-period token alive.
+      - name: The stack's Vault tokens, renewed and re-issued (spec 0023)
+        run: pnpm --filter @univarse/stack test:vault
       # Spec 0012 OB12: the compiled API and worker as two separate processes, each initialized by its own
       # `--import ./dist/otel.js`, exporting to the same collector service as dev (pinned image, file output).
       # Asserts trace structure (parent chain across the outbox, scan link, pg/Valkey spans, service.name)

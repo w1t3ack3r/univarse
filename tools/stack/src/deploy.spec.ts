@@ -51,7 +51,7 @@ function deps(over: Partial<DeployDeps> = {}, signed = SIGNED, vault: VaultState
     compose: (args) => (calls.push(`compose:${args.join(' ')}`), { status: 0 }),
     vaultState: () => (calls.push('vaultState'), vault),
     vaultStorage: () => (calls.push('vaultStorage'), 'raft'),
-    ensureVault: () => void calls.push('ensureVault'),
+    ensureVault: () => (calls.push('ensureVault'), { appTokenReissued: false, lines: [] }),
     buckets: () => (calls.push('buckets'), []),
     recover: (_images, { initLedger }) => (calls.push(`recover${initLedger ? ':init' : ''}`), Promise.resolve({ ok: true, lines: [] })),
     smoke: () => (calls.push('smoke'), Promise.resolve([])),
@@ -303,6 +303,31 @@ describe('[LS3][LS4] a verified record: the order of the deploy', () => {
   it('[B-4] a fresh stack (no Vault data anywhere) proceeds, and Vault is initialised on Raft', async () => {
     await deploy(record(), COMMIT, deps({ vaultStorage: () => (calls.push('vaultStorage'), 'fresh') }, SIGNED, 'uninitialised'));
     expect(calls).toContain('ensureVault');
+  });
+
+  it('[0023 T4] a re-issued app token: the API and worker are recreated, after the stack is up and before the smoke check', async () => {
+    const lines: string[] = [];
+    await deploy(record(), COMMIT, deps({ ensureVault: () => (calls.push('ensureVault'), { appTokenReissued: true, lines: ['the app token was invalid or expired: re-issued'] }), log: (l) => void lines.push(l) }));
+    const recreate = 'compose:up -d --wait --force-recreate --no-deps api worker';
+    const at = calls.indexOf(recreate);
+    expect(at).toBeGreaterThan(calls.indexOf('markApplied'));
+    expect(at).toBeLessThan(calls.indexOf('smoke'));
+    expect(lines).toContain('[stack:deploy] vault: the app token was invalid or expired: re-issued');
+  });
+
+  it('[0023 T4] the app token unchanged (or only the backup token re-issued): nothing is recreated', async () => {
+    await deploy(record(), COMMIT, deps({ ensureVault: () => (calls.push('ensureVault'), { appTokenReissued: false, lines: ['the backup token was invalid or expired: re-issued'] }) }));
+    expect(calls.filter((c) => c.includes('--force-recreate'))).toEqual([]);
+  });
+
+  it('[0023 T4] the API and worker failing to come back with a re-issued token fails the deploy, before the smoke check', async () => {
+    const r = await deploy(record(), COMMIT, deps({
+      ensureVault: () => (calls.push('ensureVault'), { appTokenReissued: true, lines: [] }),
+      compose: (args) => (calls.push(`compose:${args.join(' ')}`), { status: args.includes('--force-recreate') ? 1 : 0 }),
+    }));
+    expect(r.ok).toBe(false);
+    expect(r.problems.join()).toMatch(/re-issued app token/);
+    expect(calls).not.toContain('smoke');
   });
 
   it('[LS6] a failed smoke fails the deploy and saves no state', async () => {

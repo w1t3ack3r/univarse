@@ -107,3 +107,32 @@ describe('statusReport', () => {
       expect([Object.keys(one)[0], statusReport(base(one)).ok]).toEqual([Object.keys(one)[0], false]);
   });
 });
+
+describe('[0023 T5] the Vault tokens in status', () => {
+  const info = (days: number) => ({ ttlSeconds: Math.round(days * 86400), expireTime: '2026-11-21T19:42:31Z', period: 2764800, accessor: 'acc' });
+
+  it('each token gets its line; with a week or more left, no warning', () => {
+    const r = statusReport(base({ tokens: [{ name: 'app', info: info(27.1) }, { name: 'backup', info: info(30.9) }] }));
+    expect(r.ok).toBe(true);
+    expect(r.warnings).toEqual([]);
+    expect(r.lines).toEqual(expect.arrayContaining(['the app token has 27.1 days, until 2026-11-21T19:42:31Z', 'the backup token has 30.9 days, until 2026-11-21T19:42:31Z']));
+  });
+
+  it('a token under a week is a warning (the deploy prints it too), and the status still exits 0', () => {
+    const r = statusReport(base({ tokens: [{ name: 'app', info: info(27) }, { name: 'backup', info: info(6.5) }] }));
+    expect(r.ok).toBe(true);
+    expect(r.warnings).toEqual([expect.stringMatching(/^the backup token has only 6\.5 days.*under 7 days/)]);
+  });
+
+  it("tokens that can't be read are a warning, and make the status exit 1, as any unreadable source does", () => {
+    const r = statusReport(base({ tokens: { problem: 'Vault is sealed: run `pnpm stack:vault unseal` (spec 0019 D9)' } }));
+    expect(r.ok).toBe(false);
+    expect(r.warnings).toEqual(["the Vault tokens can't be read: Vault is sealed: run `pnpm stack:vault unseal` (spec 0019 D9)"]);
+  });
+
+  it('without the tokens input, no token line and no token warning', () => {
+    const r = statusReport(base());
+    expect(r.lines.filter((l) => l.includes('token'))).toEqual([]);
+    expect(r.warnings).toEqual([]);
+  });
+});
