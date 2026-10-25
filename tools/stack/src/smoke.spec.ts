@@ -2,7 +2,7 @@
 // runs after every deploy (smoke.ts); this pins what it refuses.
 import { describe, expect, it } from 'vitest';
 import { nextEntry, WAIVER_STATEMENT } from './ledger/chain.js';
-import { auditProblems, HSTS, hstsProblems, waiverNotice } from './smoke.js';
+import { auditProblems, HSTS, hstsProblems, tokenReport, waiverNotice } from './smoke.js';
 
 describe('[LS7] HSTS at the edge (B1)', () => {
   it('[LS7] one header with the stack value passes', () => {
@@ -62,5 +62,37 @@ describe('[BK17] the waiver, reported by every smoke run', () => {
   it("[BK17] generation 1, or a ledger that can't be read: no notice", () => {
     expect(waiverNotice(() => ({ ok: true, entries: [genesis(1)], destinations: [], at }))).toBeNull();
     expect(waiverNotice(() => ({ ok: false, problems: ['missing'] }))).toBeNull();
+  });
+});
+
+describe('[0023 T5] the tokens in the smoke check', () => {
+  const DAY = 86400;
+  const info = (days: number) => ({ ttlSeconds: Math.round(days * DAY), expireTime: '2026-11-21T19:42:31.913252177Z', period: 2764800, accessor: 'acc' });
+
+  it('each token gets a line with its life left; 7 days or more is no problem', () => {
+    const r = tokenReport([
+      { name: 'app', info: info(27.1) },
+      { name: 'backup', info: info(7) },
+    ]);
+    expect(r.problems).toEqual([]);
+    expect(r.lines).toEqual(['the app token has 27.1 days, until 2026-11-21T19:42:31Z', 'the backup token has 7.0 days, until 2026-11-21T19:42:31Z']);
+  });
+
+  it('just under 7 days fails, naming the token and the remedy', () => {
+    const r = tokenReport([{ name: 'backup', info: { ...info(7), ttlSeconds: 7 * DAY - 1 } }]);
+    expect(r.problems).toHaveLength(1);
+    expect(r.problems[0]).toMatch(/^the backup token has only 7\.0 days.*under 7 days: its renewal is failing \(run `pnpm stack:vault renew`/);
+  });
+
+  it('a missing token, a dead one and a sealed Vault are problems, each in its own words', () => {
+    const r = tokenReport([
+      { name: 'app', failure: { kind: 'bad_token' } },
+      { name: 'backup', missing: true },
+    ]);
+    expect(r.problems).toEqual([
+      'the app token could not be looked up: Vault says the token is invalid or expired (`pnpm stack:deploy` re-issues it)',
+      'the backup token is missing from vault-init.json: deploy once (its Vault step creates it)',
+    ]);
+    expect(tokenReport([{ name: 'app', failure: { kind: 'sealed' } }]).problems[0]).toMatch(/Vault is sealed: run `pnpm stack:vault unseal`/);
   });
 });

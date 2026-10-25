@@ -177,7 +177,11 @@ export function realDeps(): DeployDeps {
     compose,
     vaultState: () => vaultState(),
     vaultStorage: () => vaultStorage(),
-    ensureVault: () => void ensureVault(),
+    ensureVault: () => {
+      const v = ensureVault();
+      const lines = [...v.reissued.map((n) => `the ${n} token was invalid or expired: re-issued`), ...v.renewal.lines];
+      return { appTokenReissued: v.reissued.includes('app'), lines };
+    },
     buckets,
     recover,
     smoke,

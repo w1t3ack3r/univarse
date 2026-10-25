@@ -22,7 +22,8 @@
     "test:ledger": "vitest run --config vitest.ledger.config.ts",
     "test:bucket": "vitest run --config vitest.bucket.config.ts",
     "backup": "tsx src/backup/cli.ts",
-    "test:backup": "vitest run --config vitest.backup.config.ts"
+    "test:backup": "vitest run --config vitest.backup.config.ts",
+    "test:vault": "vitest run --config vitest.vault.config.ts"
   },
   "devDependencies": {
     "@aws-sdk/client-s3": "^3.1146.0",

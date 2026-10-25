@@ -4,3 +4,4 @@ export * from './keyring.js';
 export * from './keys.js';
 export * from './platform-audit.js';
 export * from './providers.js';
+export * from './token-renewal.js';

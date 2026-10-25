@@ -55,7 +55,7 @@ Read this before doing anything. It covers where Phase 0 stands, what is left in
    - **What happens:** around **2026-11-21**, the API and worker lose Transit, failing closed, so every encrypted field becomes unreadable. Around **2026-11-25**, the daily backup loses its Vault snapshot.
    - **The plan:** [spec 0023](specs/0023-vault-app-token-renewal.md), T1–T9, refreshed after B1 for both tokens. Step 0 ran on 2026-10-25: the app token expires 2026-11-21T19:42Z and the backup token 2026-11-25T15:54Z, both with a 768 h period and their own policy only. **Approved by the owner on 2026-10-25, T1–T9 as written.**
    - **Step 0 is done** (2026-10-25). Its first run hit a sealed Vault after a restart, which looked like two dead tokens; that is T9.
-   - **Deadline:** released and deployed before **2026-11-14**. It changes the API and worker image, so it needs a release.
+   - **Built,** in review: `feat/vault-token-renewal` (spec 0023, "Implementation notes"). Then the owner's release and deploy, before **2026-11-14**, since it changes the API and worker image.
 
 5. **CI and local gates.** First a short spec for approval: which scanners block a merge and which only report, thresholds, exceptions, and the license policy. Then:
    - one PR for Semgrep, CodeQL (the owner decides whether CodeQL may run on this repo), osv-scanner, the license check and Checkov, each with a check that it fails for the reason intended (like `images:proofs`);

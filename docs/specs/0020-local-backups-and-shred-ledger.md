@@ -984,6 +984,8 @@ B-15, made concrete. `pnpm stack:backup schedule --at HH:MM` prints two task def
 
 ### B2-5. The restore engine: one routine, two targets (B2b)
 
+**The tokens of a restored set** ([spec 0023](0023-vault-app-token-renewal.md), built first). A restored Raft snapshot brings back each token with its old expiry, so either may be past its period, and Vault then revokes it after unseal. The restore therefore runs `configure()` against the restored Vault, with the restored root token. That re-issues a dead token (spec 0023 T4) and renders the restored stack's env files with it. B2b tests a set whose tokens have expired, using `configure`'s short test period.
+
 `tools/stack/src/restore/` holds one routine with its steps injected, as the deploy's are (spec 0019 LS3). That way the order, the stops and the teardown are unit-tested without Docker. It runs against one of two targets:
 
 | | `stack:restore-rehearsal` | `stack:restore` |
