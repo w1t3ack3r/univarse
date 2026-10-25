@@ -4,10 +4,11 @@ Read this before doing anything. It covers where Phase 0 stands, what is left in
 
 ## Where things stand
 
-- **`main` at `81bba38`.**
+- **`main` at `c87b72c`.**
   - Spec 0020 PR A, the shred ledger, is complete: A1 (#90), A2 (#91) and A3, the waiver (#96).
   - PR B1 is merged: #103 (`00baee7`) for Vault on Raft, WAL archiving and sealed sets, and #104 (`7c28384`) for the fixes found on the owner's machine and the backup public key.
   - #106 (`81bba38`): the migrate job verifies PostgreSQL, the nodemailer and fast-uri advisories, and mailpit v1.32.0 (the open items below).
+  - Since: B2a (#107, `c87b72c`) and the OB12 test fix (#109, `07511c2`).
   - Earlier: fastify 5.12.7 (#95), `fix(build)` (#98), the bucket copy's fix (#99), and the docs (#105).
 - **Release `releases/2026-10-25-81bba38.json`,** deployed by the owner on 2026-10-25.
   - **The migrate job's TLS fix, on the owner's PostgreSQL:** both Prisma migration runs connected with the engine's verifying settings, and the bootstrap, `rls:check`, the seed and the keys all passed. The `pg` driver's `sslmode=require` warning no longer prints.
@@ -33,11 +34,10 @@ Read this before doing anything. It covers where Phase 0 stands, what is left in
    - **The plan** (spec 0020, "Plan (PR B …), for approval", decisions B-1 to B-17) was approved, all as written, on 2026-10-24.
    - **B1 is done:** merged (#103, #104), released and deployed, Vault migrated, and the first set taken (above). Spec 0020's "Implementation notes (PR B1)" hold the evidence, including what the owner's run found.
    - **B2's plan was approved by the owner, all as written, on 2026-10-25** (spec 0020, "Plan (PR B2 …)", B2-1 to B2-17). It is two PRs, B2a first:
-     - **B2a:** `stack:backup status`, the deploy's warnings and the schedule. **Built** (spec 0020, "Implementation notes (PR B2a)"), with 7 decisions made while building, and its amendment to B2-4, all approved by the owner on 2026-10-25; the owner then registers the schedule (B2-17);
+     - **B2a:** `stack:backup status`, the deploy's warnings and the schedule. **Merged** (#107; spec 0020, "Implementation notes (PR B2a)"), with 7 decisions made while building, and its amendment to B2-4, all approved by the owner on 2026-10-25; the owner then registers the schedule (B2-17);
      - **B2b:** the restore engine, `stack:restore-rehearsal`, `stack:drill` and `stack:restore`.
 
      No release is expected for either. B1 took four things from B2's original split: pruning, the backup's ledger snapshot (BK14), D7's external-drive rule, and every image subcommand B2 needs.
-
    The handoff's original split, for reference:
    - **B1:**
      - Vault moved to Raft storage (D4);
@@ -50,12 +50,19 @@ Read this before doing anything. It covers where Phase 0 stands, what is left in
      - the audit checkpoints (D12);
      - retention, `stack:backup status` with its waiver line, and the daily schedule (D6, BK8);
      - D7's "and the external drive when the backup destination is one" in `ledger waive`.
-4. **CI and local gates.** First a short spec for approval: which scanners block a merge and which only report, thresholds, exceptions, and the license policy. Then:
+   - **Spec 0023 comes before B2b** (item 4).
+4. **Spec 0023: renewing the stack's Vault tokens. Urgent.** Nothing renews either of the stack's Vault tokens: the app's (created with the stack's Vault, about 2026-10-20/21) or B1's backup token (2026-10-24). Both are periodic, 768 h, with nothing renewing them.
+   - **What happens:** around **2026-11-21**, the API and worker lose Transit, failing closed, so every encrypted field becomes unreadable. Around **2026-11-25**, the daily backup loses its Vault snapshot.
+   - **The plan:** [spec 0023](specs/0023-vault-app-token-renewal.md), T1–T9, refreshed after B1 for both tokens. Step 0 ran on 2026-10-25: the app token expires 2026-11-21T19:42Z and the backup token 2026-11-25T15:54Z, both with a 768 h period and their own policy only. **Approved by the owner on 2026-10-25, T1–T9 as written.**
+   - **Step 0 is done** (2026-10-25). Its first run hit a sealed Vault after a restart, which looked like two dead tokens; that is T9.
+   - **Deadline:** released and deployed before **2026-11-14**. It changes the API and worker image, so it needs a release.
+
+5. **CI and local gates.** First a short spec for approval: which scanners block a merge and which only report, thresholds, exceptions, and the license policy. Then:
    - one PR for Semgrep, CodeQL (the owner decides whether CodeQL may run on this repo), osv-scanner, the license check and Checkov, each with a check that it fails for the reason intended (like `images:proofs`);
    - one PR for lefthook and commitlint (docs/13 §2's pre-commit gates).
 
    The owner makes the new checks required on `main`.
-5. **Phase 0 closure.** Reconcile the roadmap. Stale rows include the CI row, which lists Trivy as missing though spec 0013 delivered it, and the compose row (🟡). Record every exit criterion with its evidence. The owner signs off.
+6. **Phase 0 closure.** Reconcile the roadmap. Stale rows include the CI row, which lists Trivy as missing though spec 0013 delivered it, and the compose row (🟡). Record every exit criterion with its evidence. The owner signs off.
 
 **Formally deferred, not Phase 0 work (the owner's decision, 2026-10-23):** BullMQ and Storybook (Phase 1), and resource scopes (Phases 2, 4 and 7).
 
@@ -79,10 +86,10 @@ Read this before doing anything. It covers where Phase 0 stands, what is left in
       - **The runtime is unchanged:** the same entrypoint, user, ports and `readyz` healthcheck.
       - **`--allowed-hosts` (v1.31.1) is off unless set,** so Caddy's `mail.` host still reaches it.
       - **The changelog from v1.28 to v1.32** lists security fixes, limits (50 MB a message, 1000 connections) and features, and no removed or renamed API.
-      - **On the owner's stack (2026-10-25):** healthy, 7.8 MiB of its 64 MiB, and the deploy's own scan shows CRITICAL 0, HIGH 0.
+      - **On the owner's stack (2026-10-25):** healthy. It used 7.8 MiB of its 64 MiB just after the deploy, and 21.4 MiB (33%) later that day. The deploy's own scan shows CRITICAL 0 and HIGH 0.
   - The 158 HIGH findings haven't been reviewed one by one. That is still part of Phase 0's closure.
 
-## What only the owner does (the cloud session gives exact commands)
+## What only the owner does (Claude gives the exact commands)
 
 Everything that runs on the owner's Windows machine or touches the stack, the keys or the ledger:
 - **Releases:**
