@@ -1,16 +1,19 @@
-# Handoff: finishing Phase 0 (2026-10-25)
+# Handoff: finishing Phase 0 (2026-10-26)
 
 Read this before doing anything. It covers where Phase 0 stands, what is left in order, what only the owner can do, and how to work. `CLAUDE.md` and [18-roadmap.md](18-roadmap.md) still apply. Update this file as items close, and delete it when Phase 0 closes.
 
 ## Where things stand
 
-- **`main` at `c87b72c`.**
+- **`main` at `5110b25`.**
   - Spec 0020 PR A, the shred ledger, is complete: A1 (#90), A2 (#91) and A3, the waiver (#96).
   - PR B1 is merged: #103 (`00baee7`) for Vault on Raft, WAL archiving and sealed sets, and #104 (`7c28384`) for the fixes found on the owner's machine and the backup public key.
   - #106 (`81bba38`): the migrate job verifies PostgreSQL, the nodemailer and fast-uri advisories, and mailpit v1.32.0 (the open items below).
-  - Since: B2a (#107, `c87b72c`) and the OB12 test fix (#109, `07511c2`).
+  - Since: B2a (#107, `c87b72c`), the OB12 test fix (#109, `07511c2`), spec 0023 (#110, `e6a0066`), the backup tests on Windows (#111, `c347bf7`) and spec 0024 (#112, `5110b25`).
   - Earlier: fastify 5.12.7 (#95), `fix(build)` (#98), the bucket copy's fix (#99), and the docs (#105).
-- **Release `releases/2026-10-25-81bba38.json`,** deployed by the owner on 2026-10-25.
+- **Release `releases/2026-10-25-e6a0066.json`,** spec 0023, deployed by the owner on 2026-10-25. It is the stack's current release.
+  - **Both Vault tokens renewed:** the deploy printed `app token: renewed, 32.0 days` and `backup token: renewed, 32.0 days`; the smoke check shows both until 2026-11-26. The API and the worker each logged `vault.token.renewed` (2,764,800 s) at start, and renew every 6 hours from then.
+  - **Its first two runs stopped, as designed:** Vault was sealed after `stack:down` (unsealed, then deployed again), and then the ledger's destination on `D:` was unreadable at the moment of recovery. The drive was fine a minute later (`ledger status`: authoritative, both copies 2 entries), and the next run passed. An external drive that sleeps or isn't mounted yet stops a deploy, which is the ledger refusing to run without every copy; the remedy is to open the drive, then deploy again.
+- **Release `releases/2026-10-25-81bba38.json`,** deployed by the owner on 2026-10-25, before it.
   - **The migrate job's TLS fix, on the owner's PostgreSQL:** both Prisma migration runs connected with the engine's verifying settings, and the bootstrap, `rls:check`, the seed and the keys all passed. The `pg` driver's `sslmode=require` warning no longer prints.
   - **mailpit v1.32.0:** healthy, using 7.8 MiB of its 64 MiB.
   - **Before it:** `2026-10-24-00baee7`, deployed on 2026-10-24 after Vault's migration to Raft. The KEK was identical, the probe decrypted, and 3 of 3 data keys unwrapped.
@@ -20,7 +23,7 @@ Read this before doing anything. It covers where Phase 0 stands, what is left in
     - `20261024T161305Z-e2bd`, the first, needing WAL from `000000010000000000000006`;
     - `20261025T033359Z-02d9`, on the new release, needing WAL from `000000010000000000000011`. Its Vault snapshot is 26.3 KB, the stack's parts 20.5 KB, and the ledger 4.0 KB. Its files are 1.0 KB, an empty tar: the demo tenants have no uploads.
   - Both have 6 sealed files and the ledger at seq 2, and exited 0.
-  - Until the owner registers B2a's schedule, `pnpm stack:backup` and `pnpm stack:backup wal` run only by hand. WAL staged in `univarse-stack-pg-wal-staging` stays inside the stack until shipped.
+  - Until the owner registers B2a's schedule, `pnpm stack:backup` and `pnpm stack:backup wal` run only by hand. The deploy of `e6a0066` warned of both: WAL staged over an hour, and the two tasks not registered. WAL staged in `univarse-stack-pg-wal-staging` stays inside the stack until shipped.
 - **The old Vault file storage, `univarse-stack_vault-data`, is kept, untouched** (B-4). Deleting it is a later explicit owner step, never part of a deploy.
 - **The ledger is live, and its bucket copy works.** It is `1b879644-1e96-4d46-acb0-08eaa0e6a786`, created by the deploy of `33ae2d9` with `--init-ledger` on 2026-10-23. Since 2026-10-25 it is authoritative on **2 destinations**: the owner added one. Recovery passes with no failed copy, and `pnpm stack:bucket-check` passes every line (spec 0020, "Implementation notes (fix: the bucket copy)", with the measured memory).
 - **A3's decisions 1–7** (approved 2026-10-23) and **PR B's plan, B-1 to B-17** (approved 2026-10-24), are recorded in spec 0020. **B1's 18 decisions made while building:** the owner gave the go-ahead to merge #103 on 2026-10-24, with the PR stating they awaited approval. They are recorded as approved by that go-ahead; the owner may still revisit any of them.
@@ -51,15 +54,15 @@ Read this before doing anything. It covers where Phase 0 stands, what is left in
      - retention, `stack:backup status` with its waiver line, and the daily schedule (D6, BK8);
      - D7's "and the external drive when the backup destination is one" in `ledger waive`.
    - **Spec 0023 comes before B2b** (item 4).
-4. **Spec 0023: renewing the stack's Vault tokens. Urgent.** Nothing renews either of the stack's Vault tokens: the app's (created with the stack's Vault, about 2026-10-20/21) or B1's backup token (2026-10-24). Both are periodic, 768 h, with nothing renewing them.
+4. **Spec 0023: renewing the stack's Vault tokens.** **Done:** merged (#110), released and deployed on 2026-10-25 (above), with its 7 decisions made while building approved by the owner on 2026-10-25. The text below is its history.
    - **What happens:** around **2026-11-21**, the API and worker lose Transit, failing closed, so every encrypted field becomes unreadable. Around **2026-11-25**, the daily backup loses its Vault snapshot.
    - **The plan:** [spec 0023](specs/0023-vault-app-token-renewal.md), T1–T9, refreshed after B1 for both tokens. Step 0 ran on 2026-10-25: the app token expires 2026-11-21T19:42Z and the backup token 2026-11-25T15:54Z, both with a 768 h period and their own policy only. **Approved by the owner on 2026-10-25, T1–T9 as written.**
    - **Step 0 is done** (2026-10-25). Its first run hit a sealed Vault after a restart, which looked like two dead tokens; that is T9.
-   - **Built,** in review: `feat/vault-token-renewal` (spec 0023, "Implementation notes"). Then the owner's release and deploy, before **2026-11-14**, since it changes the API and worker image.
+   - **Built** (#110), released and deployed on 2026-10-25, well before the 2026-11-14 deadline.
 
-5. **CI and local gates.** **The spec is drafted:** [spec 0024](specs/0024-ci-security-gates.md), G1–G12 and H1–H3, for the owner's approval (G12 decided: proprietary, and CodeQL with no upload). Then:
-   - one PR for Semgrep, CodeQL (the owner decides whether CodeQL may run on this repo), osv-scanner, the license check and Checkov, each with a check that it fails for the reason intended (like `images:proofs`);
-   - one PR for lefthook and commitlint (docs/13 §2's pre-commit gates).
+5. **CI and local gates.** **The plan is approved:** [spec 0024](specs/0024-ci-security-gates.md), G1–G12 and H1–H3, all as written, on 2026-10-25 (#112). G12: proprietary, stated by a `LICENSE`, and CodeQL with no upload. Then:
+   - **PR A:** Semgrep, CodeQL, osv-scanner, the license check and Checkov, each with a proof that it fails for the reason intended, plus the PR-title check, Dependabot for the actions, and the `LICENSE`;
+   - **PR B:** lefthook and commitlint (docs/13 §2's hooks, with H2 and H3's changes).
 
    The owner makes the new checks required on `main`.
 6. **Phase 0 closure.** Reconcile the roadmap. Stale rows include the CI row, which lists Trivy as missing though spec 0013 delivered it, and the compose row (🟡). Record every exit criterion with its evidence. The owner signs off.

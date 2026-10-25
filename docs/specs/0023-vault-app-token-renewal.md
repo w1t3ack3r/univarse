@@ -1,6 +1,6 @@
 # Spec 0023: Renewing the stack's Vault tokens (the app's and the backup's)
 
-**Status:** **Approved by the owner on 2026-10-25, T1–T9 as written.** Proposed 2026-10-23, refreshed after PR B1 and measured on the owner's stack on 2026-10-25. **Built** (implementation notes below), to be released and deployed before 2026-11-14.
+**Status:** **Approved by the owner on 2026-10-25, T1–T9 as written.** Proposed 2026-10-23, refreshed after PR B1 and measured on the owner's stack on 2026-10-25. **Built** (#110, implementation notes below), and **deployed on the owner's stack on 2026-10-25** (the release `e6a0066`).
 **Phase:** 0. Found while planning spec 0020's PR B, and urgent. It was written to come before PR B. B1 then shipped without it, so it now comes before B2 continues past B2a (#107), and it's deployed before **2026-11-14**.
 **Builds on:**
 
@@ -148,7 +148,7 @@ Built as approved, T1 to T9. It changes the API and worker image (T2's renewer),
 - **The API and the worker:** `VaultTokenRenewal` runs it in each process, with the `vault` provider only. **`main.ts` and `worker.ts` switch it on.**
 - **`tools/vault-dev.mjs`** (T7): the dev app policy gains the self paths, and a kept dev token is renewed by root.
 
-**Decisions made while building (for approval).**
+**Decisions made while building (approved by the owner on 2026-10-25, all seven as built).**
 
 1. **Renewal is off unless the process asks.** `AppModule` and `WorkerModule` default to no renewal, and only `main.ts` and `worker.ts` pass `renewVaultToken: true`. Otherwise every integration test, and the keys CLI (which reuses `WorkerModule`), would try to renew a dev or CI token. A test pins the default.
 2. **"Dead" means only Vault's own "bad token" or "invalid token",** and the integration test pins both against Vault 2.1.1:
@@ -203,3 +203,11 @@ Built as approved, T1 to T9. It changes the API and worker image (T2's renewer),
 3. **Deploy** the new record. Its Vault lines should read `app token: renewed, 32.0 days` and `backup token: renewed, 32.0 days`.
 4. **Check the smoke check's token lines:** both at about 32 days.
 5. **Optionally,** look for `vault.token.renewed` in the API's and the worker's logs.
+
+**Deployed (2026-10-25, the release `e6a0066`).**
+- **The deploy renewed both tokens:** `vault: app token: renewed, 32.0 days` and `vault: backup token: renewed, 32.0 days`.
+- **The smoke check's token lines:** `the app token has 32.0 days, until 2026-11-26T22:30:38Z`, and `the backup token has 32.0 days, until 2026-11-26T22:29:57Z`. Before the deploy they expired 2026-11-21 and 2026-11-25.
+- **The services renew themselves:** the API (22:30:37Z) and the worker (22:30:38Z) each logged `vault.token.renewed`, `ttlSeconds` 2764800, at start. They renew every 6 hours from then.
+- **On the way, two designed stops:**
+  - Vault was sealed after `stack:down`, and the deploy named it (`Vault is sealed: run pnpm stack:vault unseal`);
+  - the shred ledger's destination on `D:` was unreadable at the moment of recovery, an external drive not yet awake or mounted. A minute later `ledger status` showed both copies authoritative, and the next deploy passed.

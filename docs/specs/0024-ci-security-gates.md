@@ -1,6 +1,6 @@
 # Spec 0024: CI security gates, and the local hooks
 
-**Status:** **Proposed (2026-10-25),** for the owner's approval. G12 is decided (proprietary; CodeQL with no upload); G1–G11 and H1–H3 await approval. Nothing built yet.
+**Status:** **Approved by the owner on 2026-10-25, all as written:** G1–G11 and H1–H3, with G12 decided (proprietary, stated by a `LICENSE`; CodeQL with no upload). Nothing built yet.
 **Phase:** 0. It closes the roadmap's rows "CI pipeline with all security scans" (🟡) and "lefthook, commitlint" (❌).
 **Builds on:**
 
