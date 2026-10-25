@@ -56,7 +56,10 @@ describe('STAGED_ERE', () => {
   it('matches exactly what STAGED matches, through the real grep', async () => {
     const candidates = [...NAMES, `${SEG1}.part`, 'archive_status', '0000000100000000000000G1', `${SEG1}.00000028.backup.part`, '00000002.history.part', 'readme', `x${SEG1}`];
     const out: Buffer[] = [];
-    const child = spawn('grep', ['-E', STAGED_ERE], { stdio: ['pipe', 'pipe', 'inherit'] });
+    // MSYS=noglob: Git for Windows' grep, started by a non-MSYS process, otherwise glob-expands its arguments itself and
+    // mangles the pattern's `{24}` (it then matches nothing). The pattern runs in the postgres image's grep in
+    // production; this only keeps the host's grep from rewriting it. Elsewhere the variable means nothing.
+    const child = spawn('grep', ['-E', STAGED_ERE], { stdio: ['pipe', 'pipe', 'inherit'], env: { ...process.env, MSYS: 'noglob' } });
     child.stdin.end(`${candidates.join('\n')}\n`);
     for await (const b of child.stdout as AsyncIterable<Buffer>) out.push(b);
     expect(Buffer.concat(out).toString().trim().split('\n')).toEqual(candidates.filter((c) => STAGED.test(c)));

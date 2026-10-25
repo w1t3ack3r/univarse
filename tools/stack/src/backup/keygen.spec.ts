@@ -38,7 +38,9 @@ describe('keyPathProblem', () => {
 
   it('refuses a path that reaches a forbidden root through a link', () => {
     const link = join(s.root, 'innocent');
-    symlinkSync(s.dirs.backups, link);
+    // Windows lets only an administrator (or Developer Mode) make a symlink; a directory junction is the link anyone
+    // can make there, and the one a real path is likeliest to cross. realpath resolves both.
+    symlinkSync(s.dirs.backups, link, process.platform === 'win32' ? 'junction' : 'dir');
     expect(keyPathProblem(join(link, 'backup.key'), s.roots)).toMatch(/the backup destination/);
   });
 
@@ -48,10 +50,19 @@ describe('keyPathProblem', () => {
     expect(keyPathProblem('backup.key', s.roots)).toMatch(/absolute/);
   });
 
-  it('compares case-insensitively on Windows only', () => {
+  // `platform` can only simulate Windows on a POSIX host: on a Windows host Node's path module is win32's, which
+  // compares without case whatever is passed, so POSIX semantics can't be simulated there. Each host checks what it can.
+  it.skipIf(process.platform === 'win32')('compares case-insensitively on Windows only (simulated on a POSIX host)', () => {
     expect(within('/A/B/c', '/a/b', 'win32')).toBe(true);
     expect(within('/A/B/c', '/a/b', 'linux')).toBe(false);
     expect(canonical('/X/Y', 'win32')).toBe('/x/y');
+  });
+
+  it.runIf(process.platform === 'win32')('compares case-insensitively on this Windows host, existing or not', () => {
+    expect(within(join(s.root, 'BACKUPS', 'Key'), s.dirs.backups)).toBe(true);
+    expect(within(join(s.root.toUpperCase(), 'not-yet', 'K'), join(s.root, 'NOT-YET'))).toBe(true);
+    expect(canonical(join(s.root, 'X', 'Y'))).toBe(canonical(join(s.root, 'x', 'y')));
+    expect(keyPathProblem(join(s.dirs.backups.toUpperCase(), 'backup.key'), s.roots)).toMatch(/the backup destination/);
   });
 });
 
