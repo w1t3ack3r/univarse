@@ -46,6 +46,26 @@ export function realWalDeps(run: Runner = docker, stream: StreamRunner = dockerS
   };
 }
 
+/**
+ * B2-2: the staged files that match STAGED, with their modification times, for `status`. The same read-only tool
+ * container as the shipper, no network; a file still being copied (`.part`) doesn't match.
+ */
+export function stagedFiles(run: Runner = docker): { name: string; at: Date }[] {
+  const r = run([...tool(false), '--entrypoint', 'find', THIRD_PARTY.postgres, '/w', '-maxdepth', '1', '-type', 'f', '-printf', '%T@ %f\n'], { allowFail: true });
+  // Docker's own last line says why (not running, say); it names images and volumes, never a value.
+  if (r.status !== 0) throw new Error(`the staging volume can't be listed (exit ${String(r.status)}): ${r.stderr.trim().split('\n').at(-1)?.slice(0, 200) ?? ''}`);
+  return parseStaged(r.stdout);
+}
+
+/** `find -printf '%T@ %f\n'`'s lines: seconds since the epoch, then the name. Only STAGED names are kept. */
+export function parseStaged(out: string): { name: string; at: Date }[] {
+  return out
+    .split('\n')
+    .map((l) => /^(\d+(?:\.\d+)?) (\S+)$/.exec(l.trim()))
+    .filter((m): m is RegExpExecArray => m !== null && STAGED.test(m[2] ?? ''))
+    .map((m) => ({ name: m[2] ?? '', at: new Date(Math.round(Number(m[1]) * 1000)) }));
+}
+
 /** Where a staged file goes: its timeline's directory (a history file's name is its timeline). */
 export function walPath(destination: string, name: string): string {
   if (!STAGED.test(name)) throw new Error(`not a WAL file: ${name}`);

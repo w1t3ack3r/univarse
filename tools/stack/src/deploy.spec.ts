@@ -57,6 +57,7 @@ function deps(over: Partial<DeployDeps> = {}, signed = SIGNED, vault: VaultState
     smoke: () => (calls.push('smoke'), Promise.resolve([])),
     logs: () => '',
     saveState: () => void calls.push('saveState'),
+    backupWarnings: () => (calls.push('backupWarnings'), []),
     log: () => undefined,
     ...over,
   };
@@ -146,8 +147,19 @@ describe('[LS3][LS4] a verified record: the order of the deploy', () => {
       'markApplied',
       'smoke',
       'saveState',
+      'backupWarnings',
     ]);
     expect(calls.at(-1)).toBe('registry-stop');
+  });
+
+  it("[B2-3] a deploy that passed prints the backup's warnings, and they never fail it; a failed deploy prints none", async () => {
+    const said: string[] = [];
+    const ok = await deploy(record(), COMMIT, deps({ backupWarnings: () => ['the newest set is older than 26 hours'], log: (l) => said.push(l) }));
+    expect(ok).toEqual({ ok: true, problems: [] });
+    expect(said.at(-1)).toBe('[stack:deploy] WARN backup: the newest set is older than 26 hours');
+    calls = [];
+    expect((await deploy(record(), COMMIT, deps({ smoke: () => Promise.resolve(['web /login: HTTP 502']) }))).ok).toBe(false);
+    expect(calls).not.toContain('backupWarnings');
   });
 
   it('[LS5] a changed certificate or configuration restarts exactly the services that read it: PostgreSQL before the migrate job, the rest once the stack is up', async () => {

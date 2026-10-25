@@ -53,6 +53,11 @@ export interface DeployDeps {
   smoke(): Promise<string[]>;
   logs(): string;
   saveState(images: Readonly<Record<string, string>>): void;
+  /**
+   * Spec 0020 D6, B2-3: `stack:backup status`'s warnings (the newest set's age, staged WAL, the schedule), printed at
+   * the end of a deploy that passed. They never block it, and a backup state that can't be read is one more warning.
+   */
+  backupWarnings(): string[];
   log(line: string): void;
 }
 
@@ -172,6 +177,7 @@ export async function deploy(record: ReleaseRecord, commit: string, deps: Deploy
       return { ok: false, problems: smoke };
     }
     deps.saveState(images);
+    for (const w of deps.backupWarnings()) deps.log(`[stack:deploy] WARN backup: ${w}`);
     return { ok: true, problems: [] };
   } finally {
     stopRegistry();

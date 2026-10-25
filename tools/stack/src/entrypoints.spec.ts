@@ -22,6 +22,11 @@ describe('the stack commands load and answer', { timeout: 120_000 }, () => {
     ['vault', ['migrate-raft', 'releases/does-not-exist.json'], 1, /usage: pnpm stack:vault migrate-raft/],
     ['vault', ['nope'], 2, /usage: pnpm stack:vault status \| init \| unseal \| migrate-raft/],
     ['backup', ['nope'], 1, /usage: pnpm stack:backup/],
+    // B2a: refused before anything is read or registered.
+    ['backup', ['schedule'], 1, /usage: pnpm stack:backup .*schedule --at <HH:MM>/],
+    ['backup', ['schedule', '--at', '25:00'], 1, /usage: pnpm stack:backup/],
+    ['backup', ['schedule', '--at', '13:30', '--now'], 1, /usage: pnpm stack:backup/],
+    ['backup', ['status', 'extra'], 1, /usage: pnpm stack:backup/],
     ['keys', ['nope'], 1, /usage: pnpm stack:keys/],
     ['deploy', [], 2, /usage: pnpm stack:deploy/],
     ['bucket-check', ['--nope'], 2, /usage: pnpm stack:bucket-check/],
