@@ -1,6 +1,6 @@
 # Spec 0023: Renewing the stack's Vault tokens (the app's and the backup's)
 
-**Status:** **Proposed (2026-10-23), refreshed after PR B1 (2026-10-25),** for the owner's approval. Nothing built yet.
+**Status:** **Approved by the owner on 2026-10-25, T1–T9 as written.** Proposed 2026-10-23, refreshed after PR B1 and measured on the owner's stack on 2026-10-25. Not built yet.
 **Phase:** 0. Found while planning spec 0020's PR B, and urgent. It was written to come before PR B. B1 then shipped without it, so it now comes before B2 continues past B2a (#107), and it's deployed before **2026-11-14**.
 **Builds on:**
 
