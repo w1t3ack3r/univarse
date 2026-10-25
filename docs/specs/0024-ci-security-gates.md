@@ -47,7 +47,7 @@ Locally, no hook runs at all, and Conventional Commits are followed by hand. Squ
 | G9 | **Jobs and required checks.** Two new jobs:<br>• **`security-scans`:** the exceptions check first, then Semgrep, osv-scanner, the license check, Checkov and their proofs, and the PR-title check. In parallel with `build-test`, target under 5 minutes;<br>• **`codeql`:** in parallel, target under 15 minutes.<br>The owner adds both to `main`'s required checks. | Parallel jobs keep CI's critical path unchanged. Alternative: steps inside `build-test`, which is already about 20 minutes. Rejected. |
 | G10 | **The PR title is checked as a Conventional Commit in CI**: `type(scope): description`, with the types `feat`, `fix`, `docs`, `test`, `build`, `ci`, `chore`, `refactor` and `perf`, and a scope required, lowercase. | The squash merge makes the title `main`'s commit message, so this is the gate that keeps history clean, whatever the local hooks did. Alternative: commitlint on every commit in the PR. Rejected: those commits disappear in the squash. |
 | G11 | **Dependabot version updates for the GitHub Actions,** weekly (`.github/dependabot.yml`). The workflows say "Renovate bumps them", but no bot is configured. | Pinned SHAs go stale silently otherwise, missing security fixes to the actions. Security updates for npm already arrive (#100, #102). Alternative: Renovate. Rejected: one more app on the repo for the same job. |
-| G12 | **Decided by the owner, 2026-10-25:**<br>• **the product is proprietary.** G6's policy stands as written: copyleft and source-available licenses are refused for production dependencies;<br>• **CodeQL runs, with no upload.** G7 stands as written: read-only, the SARIF checked by our script and kept as a run artifact. CS12 is unchanged. | The repository is public but has no license file, so it is "all rights reserved" by default, which matches. Stating that explicitly (a `LICENSE` saying so, and `"license": "UNLICENSED"` in the root `package.json`) is a small addition to PR A, for the owner to confirm. |
+| G12 | **Decided by the owner, 2026-10-25:**<br>• **the product is proprietary.** G6's policy stands as written: copyleft and source-available licenses are refused for production dependencies;<br>• **CodeQL runs, with no upload.** G7 stands as written: read-only, the SARIF checked by our script and kept as a run artifact. CS12 is unchanged. | The repository is public but has no license file, so it is "all rights reserved" by default, which matches. **Confirmed by the owner (2026-10-25):** PR A states it explicitly, with a `LICENSE` ("All rights reserved") and `"license": "UNLICENSED"` in the root `package.json`. |
 
 **PR B: the local hooks** (lefthook and commitlint, from docs/13 §2, with three changes):
 
@@ -72,7 +72,7 @@ Locally, no hook runs at all, and Conventional Commits are followed by hand. Squ
 
 ## The owner's steps
 
-1. **G12 is decided** (2026-10-25): proprietary, and CodeQL with no upload. Still to confirm: the explicit `LICENSE` and `"license": "UNLICENSED"` (G12).
+1. **G12 is decided** (2026-10-25): proprietary, stated by a `LICENSE` and `"license": "UNLICENSED"` in PR A; and CodeQL with no upload.
 2. **After PR A merges:** add `security-scans` and `codeql` to `main`'s required checks.
 3. **Optionally:** approve a one-time formatting PR (H3), after which Prettier joins CI and the hook.
 
