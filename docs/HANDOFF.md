@@ -57,7 +57,7 @@ Read this before doing anything. It covers where Phase 0 stands, what is left in
    - **Step 0 is done** (2026-10-25). Its first run hit a sealed Vault after a restart, which looked like two dead tokens; that is T9.
    - **Built,** in review: `feat/vault-token-renewal` (spec 0023, "Implementation notes"). Then the owner's release and deploy, before **2026-11-14**, since it changes the API and worker image.
 
-5. **CI and local gates.** First a short spec for approval: which scanners block a merge and which only report, thresholds, exceptions, and the license policy. Then:
+5. **CI and local gates.** **The spec is drafted:** [spec 0024](specs/0024-ci-security-gates.md), G1–G12 and H1–H3, for the owner's approval (with two owner decisions, G12: the product's license, and CodeQL). Then:
    - one PR for Semgrep, CodeQL (the owner decides whether CodeQL may run on this repo), osv-scanner, the license check and Checkov, each with a check that it fails for the reason intended (like `images:proofs`);
    - one PR for lefthook and commitlint (docs/13 §2's pre-commit gates).
 
