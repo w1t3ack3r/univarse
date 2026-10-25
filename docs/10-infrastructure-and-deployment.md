@@ -162,6 +162,9 @@ pnpm stack:backup keygen --out <offline path>  # once: the backup key pair; the 
 pnpm stack:backup destination <path>         # where sets go (default ~/.univarse/backups)
 pnpm stack:backup                            # one sealed set, then pruning (spec 0020 D2–D6)
 pnpm stack:backup wal                        # ship the WAL staged since the last run
+pnpm stack:backup status                     # the newest set, the erasure boundary, WAL, the schedule (no key needed)
+pnpm stack:backup schedule --at 13:30        # prints the two scheduled tasks; again with --apply registers them (Windows)
+pnpm stack:backup schedule --remove          # unregisters them
 pnpm stack:down                              # stop it; volumes are kept
 ```
 
@@ -183,11 +186,30 @@ pnpm stack:down                              # stop it; volumes are kept
   - **The index:** a clear `index.json` names the files, their hashes and the WAL the set needs, and nothing else. It is written last, and a set without it is incomplete and ignored.
   - **The order and the locks:** the backup holds the registry lock. It takes the ledger lock only while it copies the ledger, which must establish its authority first, as recovery does.
   - **Pruning:** every backup ends by pruning. It keeps the 7 newest sets plus the newest set of each of the 4 ISO weeks before them, and the WAL from the oldest kept set on.
-  - **WAL:** PostgreSQL archives each finished segment into the staging volume `univarse-stack-pg-wal-staging`, within 5 minutes of a write. `pnpm stack:backup wal` (every 15 minutes, once B2's schedule is registered; until then, run it and `pnpm stack:backup` by hand) seals and ships the segments, and removes each staged copy only once it is durable at the destination. The local RPO is about 20 minutes while the machine runs. A segment not yet shipped is inside the stack, and is lost with it.
+  - **WAL:** PostgreSQL archives each finished segment into the staging volume `univarse-stack-pg-wal-staging`, within 5 minutes of a write. `pnpm stack:backup wal` (every 15 minutes, by the schedule below) seals and ships the segments, and removes each staged copy only once it is durable at the destination. The local RPO is about 20 minutes while the machine runs. A segment not yet shipped is inside the stack, and is lost with it.
   - **Vault on Raft:** a running Vault can now be snapshotted consistently. A stack on the old file storage is migrated once with `pnpm stack:vault migrate-raft <record>`, which verifies the KEK, a probe and every data key before it records the migration. The deploy refuses until then. The old file storage (`univarse-stack_vault-data`) is never written and is kept, so going back means deploying the previous release from its own commit. Deleting it is a separate owner step, once the owner chooses. The snapshot uses a token whose policy reads snapshots and nothing else.
   - **An external drive:** when the destination is on another drive than the ledger's primary, that drive must hold a ledger destination too (`pnpm stack:keys ledger add-destination`). Otherwise the backup refuses.
   - **Same-disk limit:** a set on this disk survives a broken stack, a bad migration or a mistake, but not the loss of the disk. Only a copy on separate media does.
-  - **Restore:** the rehearsed restore and the shred drill come with PR B2.
+  - **The schedule** ([spec 0020](specs/0020-local-backups-and-shred-ledger.md) B2-4): `pnpm stack:backup schedule --at <HH:MM>` prints two Windows scheduled tasks, in the `\UniVarse\` folder, and changes nothing. With `--apply` it registers them:
+    - `backup`, daily at that local time;
+    - `backup-wal`, every 15 minutes.
+
+    How they run:
+    - as you, only while you're logged on (Docker Desktop runs in your session, and the alternative stores your Windows password);
+    - a run missed while the machine slept runs when it wakes, and neither task wakes the machine;
+    - with node's and pnpm's paths from when you scheduled them, in this checkout. **They run whatever this checkout holds**, so a branch left checked out is what runs;
+    - a backup that finds a deploy or a release holding the registry lock waits for it, up to an hour;
+    - each run appends what it prints to `~/.univarse/stack/logs/backup-YYYY-MM-DD.log` (owner-only), and logs older than 30 days are removed.
+
+    Elsewhere than Windows, the command prints the equivalent crontab lines and registers nothing.
+  - **Status:** `pnpm stack:backup status` needs no private key. It shows the newest set and its age, the **actual erasure boundary** (the age of the oldest set still kept), the newest shipped and oldest staged WAL, the tasks' last runs, D7's external-drive rule and any waiver. It marks with `WARN`:
+    - a newest set over 26 hours old, or none;
+    - WAL staged for over an hour;
+    - a task not registered, or whose last run failed;
+    - the external rule not holding.
+
+    It exits 1 only when something can't be read. Every deploy that passes prints the same warnings at its end; they never block it.
+  - **Restore:** the rehearsed restore and the shred drill come with PR B2b.
 - **Secrets** live only in `~/.univarse/stack/`: `secrets.json`, `vault-init.json` (Vault's unseal key and root token), `certs/` (the stack CA's key), `edge/` (the edge CA's key) and the rendered env files. `pnpm stack:init --rotate` replaces the secrets and internal certificates, and the next deploy applies them, restarting each service whose files changed. The edge CA changes only with `--rotate-edge`, after which it must be installed again. A PostgreSQL superuser password is fixed when the database volume is first created, so after rotating it, reset `univarse-stack_pgdata` (the stack's data is demo data).
 
 ## 5. Deployment process

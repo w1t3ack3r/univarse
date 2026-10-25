@@ -12,7 +12,7 @@
 - **Revision 6** removes `ledger accept`. The owner's commands are either **guarantee-preserving** (`rebuild-destination`, `remove-destination`, allowed only from a readable configured destination's own copy) or an **explicit waiver** of the guarantee (`ledger waive`). Nothing can promote a backup set's or the bucket's copy. BK16 is rewritten with its permitted and rejected cases; BK17 covers the waiver. The owner reviewed it on 2026-10-22: approved; one clarification asked for: how the waiver starts a new generation when no destination is readable.
 - **Revision 7** defines that bootstrap: the owner names the new generation's destinations, its `genesis` must be durable and verified on all of them before anything changes, and the old history is never claimed complete. It makes "durable" mean written, `fsync`ed and read back verified, throughout D7. BK17 gains the cases. The owner reviewed it on 2026-10-22: approved; one addition asked for: crash injection for the waiver protocol itself.
 - **Revision 8** gives the waiver explicit phases (W1–W4) with one point at which a generation becomes authoritative, makes each phase recoverable or inert, and adds BK17's crash cases.
-- **PR B1** is merged (#103, then #104 with the fixes the owner's run found) and running on the owner's stack since 2026-10-24: Vault on Raft, and the first sealed set. Its 18 decisions made while building are recorded as approved by the owner's go-ahead to merge #103 (2026-10-24). See "Implementation notes (PR B1)". **PR B2** (the rehearsed restore and the shred drill) is next.
+- **PR B1** is merged (#103, then #104 with the fixes the owner's run found) and running on the owner's stack since 2026-10-24: Vault on Raft, and the first sealed set. Its 18 decisions made while building are recorded as approved by the owner's go-ahead to merge #103 (2026-10-24). See "Implementation notes (PR B1)". **PR B2** (the rehearsed restore and the shred drill): its plan ("Plan (PR B2 …)", B2-1 to B2-17) was approved by the owner on 2026-10-25. B2a (status, the deploy's warnings, the schedule) is being built first.
 - **PR B's plan** (B-1 to B-17, below) was **approved by the owner on 2026-10-24, all as written**: the B1/B2 split with pruning, BK14's fourth case, D7's external-drive rule and every image subcommand moved into B1, and the amendments to D3, D5 and D9 made above.
 
 **Phase:** 0. Roadmap item **7.5** under [ADR-030](../19-decision-log.md): local backups with a rehearsed restore, and the shred ledger. It is the last local-stack requirement before Phase 0 can close.
@@ -902,6 +902,329 @@ Eight survived the first run:
 - `stack:backup status` and the deploy's 26-hour and staged-WAL warnings;
 - `stack:backup schedule`;
 - BK4's PITR test in CI.
+
+## Plan (PR B2: the rehearsed restore, the shred drill, status and the schedule), for approval
+
+**Status:** **approved by the owner on 2026-10-25, all as written** (B2-1 to B2-17). One amendment, made while building B2a, is marked in B2-4. The owner also confirmed that the ledger's second destination is on the external drive. B-1 to B-17 (approved 2026-10-24) still apply. This section fills in how B2 builds them, and the decisions they left open.
+
+**For the owner's decision**, in order of weight. Each is explained below.
+1. **Split B2 in two (B2-1).** B2a is `status`, the deploy's warnings and the schedule: small, and it gets daily backups running now. B2b is the restore, the rehearsal and the drill.
+2. **One command for the drill (B2-11):** `pnpm stack:drill` runs B-12's four steps in order and writes the record.
+3. **Files go back through SeaweedFS's filer,** from a one-shot container on the rehearsal's own network, so no port is published (B2-8).
+4. **`pnpm stack:restore`, the real one, keeps what it replaces (B2-12).** It copies the data volumes and the stack directory aside before restoring, and asks for a confirmation phrase.
+5. **The scheduled tasks (B2-4):** run from this checkout with node's and pnpm's absolute paths, log to `~/.univarse/stack/logs/`, at a daily time the owner gives.
+6. **The rehearsal waits for the WAL it needs (B2-7):** up to 6 minutes, shipping as it goes, then refuses with the reason.
+7. **`--to <time>` (B2-6):** row counts are compared only at the set's own target. A later time can't match them.
+
+**No release is expected.** Every check B2 runs already exists in B1's images: `migrate --check-only`, and the keys job's `backup-facts`, `verify-unwrap`, `verify-decrypt`, `verify-chains`, `drill-tenant create`, `evidence` and `reapply`. B2 changes host tools and adds a compose file. If building shows it needs a new image subcommand, that means a second release, and I'll say so before building it.
+
+### B2-1. Two PRs: B2a, then B2b
+
+- **B2a: running backups unattended** (D6, BK8's rest):
+  - `pnpm stack:backup status` (B2-2);
+  - the deploy's warnings (B2-3);
+  - `pnpm stack:backup schedule [--apply | --remove]` (B2-4).
+- **B2b: the restore is rehearsed** (D9 to D11, BK4 to BK7):
+  - the restore engine (B2-5 to B2-10);
+  - `pnpm stack:restore-rehearsal`, `pnpm stack:drill` and `pnpm stack:restore`;
+  - the CI tests (B2-13), the docs and the drill record.
+
+**Why:** backups now run only when the owner remembers, and each day without one widens the RPO. B2a is a day's work and reviews easily. B2b is the largest piece of PR B and deserves its own adversarial review.
+
+**Alternative:** one B2 PR, as B-1 planned. It's simpler to track, but the schedule waits for the rehearsal. Rejected unless the owner prefers one PR.
+
+### B2-2. `pnpm stack:backup status` (B2a)
+
+It reads only what needs no private key: the clear `index.json` files, the WAL area's file names, the staging volume's listing, and the ledger. It prints:
+- **the newest complete set:** its id and age, or "no set";
+- **the actual erasure boundary** (D6): the age of the oldest retained complete set, and the number of sets retained;
+- **incomplete sets**, by id (a prune removes them once they are a day old);
+- **WAL:** the newest shipped segment and its age, and the oldest *staged* segment's age (from the staging volume, through the same read-only tool container the shipper uses);
+- **the schedule:** whether both tasks are registered (`schtasks /Query`), and their last result;
+- **the destination,** and whether D7's external-drive rule holds;
+- **the waiver line,** "no-resurrection guarantee waived since <time>", when the ledger's generation came from a waiver (BK17).
+
+**Warnings** are lines marked `WARN`:
+- the newest set is over 26 hours old, or there is none;
+- a staged segment is over 1 hour old (B-2's stated limit);
+- the schedule isn't registered;
+- the external rule doesn't hold.
+
+**The exit code:** 0 when everything could be read, warnings or not. 1 only when something couldn't be read. **Alternative:** exit 1 on any warning, so a script could gate on it. Nothing gates on it today, and a failing `status` reads like a broken one. Rejected.
+
+### B2-3. The deploy's warnings (B2a)
+
+At the end of every deploy, beside the D8 lines, the deploy prints `status`'s newest-set and staged-WAL warnings. They **never block** (D6 says "warns"). A destination that can't be read is a warning too, not a failure: the deploy's job is the stack, and a missing external drive must not stop it.
+
+### B2-4. The schedule (B2a)
+
+B-15, made concrete. `pnpm stack:backup schedule --at HH:MM` prints two task definitions as XML, and changes nothing. With `--apply`, it registers them with `schtasks /Create /XML`. `--remove` deletes both.
+- **`UniVarse backup`:** daily at `--at`.
+- **`UniVarse backup WAL`:** every 15 minutes, all day.
+- **Both:**
+  - **as the owner, only when logged on** (B-15);
+  - **`StartWhenAvailable`:** a run missed while the machine slept runs at the next wake. Neither task wakes the machine;
+  - **at most one at a time** (`IgnoreNew`), with a 2-hour limit.
+- **The command each runs:** node's and pnpm's absolute paths, recorded when the schedule is made, run in this checkout (`node <pnpm.cjs> --dir <repo> stack:backup`). The task then doesn't depend on Task Scheduler's PATH.
+- **Logs:** each run appends what it prints to `~/.univarse/stack/logs/backup-YYYY-MM-DD.log`, owner-only. Nothing printed is secret (BK9's scan covers it). A log over 30 days old is removed by the next run.
+- **Contention:** a scheduled backup that finds the registry lock held (a deploy or a release) **waits for it**, checking every minute for up to an hour. Only then does it fail, and the failure is logged. The WAL task already ships nothing and exits 0 then (B1 decision 18).
+  - **Amended while building (2026-10-25), approved by the owner on 2026-10-25.** The plan had Task Scheduler's `RestartOnFailure` retry a failed run. Windows applies that setting only when a task fails to *start*, not when it exits non-zero, so it would never have retried. The wait is the backup's own, and unit-tested.
+- **Stated:**
+  - **the tasks run whatever this checkout holds.** A branch checked out at 03:00 is what runs. The set records the tools' commit (`versions.tools`);
+  - **so a scheduled run warns when the checkout isn't a clean `main`** (added 2026-10-25, approved by the owner; built in B2b):
+    - it still takes the backup, since an imperfect backup beats none;
+    - it logs `WARN` with the branch and whether the tree is dirty;
+    - `stack:backup status`, and with it the deploy's warnings, show the warning until a later run is clean. It names the branch, never file contents.
+
+    The owner's rule keeps this checkout on a clean `main`, with all branch work in worktrees, so the warning catches a slip, not normal use;
+  - **Windows only.** Elsewhere the command prints the equivalent crontab lines and registers nothing (B-15).
+- **The test:** the exact XML for given inputs, and that nothing is registered without `--apply` (BK8).
+
+**Alternatives:** running as SYSTEM, or "whether logged on or not". Docker Desktop runs in the owner's session, so the first can't reach it, and the second stores the owner's Windows password. Rejected (B-15).
+
+### B2-5. The restore engine: one routine, two targets (B2b)
+
+`tools/stack/src/restore/` holds one routine with its steps injected, as the deploy's are (spec 0019 LS3). That way the order, the stops and the teardown are unit-tested without Docker. It runs against one of two targets:
+
+| | `stack:restore-rehearsal` | `stack:restore` |
+|---|---|---|
+| Compose project | `univarse-restore` (`infra/stack/restore.compose.yml`), labelled | the stack's own, after `stack:down` |
+| Volumes | `univarse-restore-*`, created, then removed | the stack's, with the old data copied aside first (B2-12) |
+| Ledger | a scratch copy (B-11, B2-10) | the real ledger, under its lock |
+| Afterwards | torn down in a `finally`, even on failure (BK6) | left for the owner to deploy the set's release |
+
+### B2-6. The rehearsal, step by step
+
+1. **Before anything is created:**
+   - the private key opens with the passphrase. The key comes from `--key <path>` and the passphrase from `UNIVARSE_BACKUP_KEY_PASSPHRASE`, both never printed. A wrong passphrase stops it here;
+   - the set is complete, and every sealed file's SHA-256 matches its `index.json`;
+   - a leftover `univarse-restore` project from a crashed run is found by its label and removed.
+2. **The release:** the manifest's deployed digests name a release record in `releases/`. It is verified as the deploy verifies one, with the record's own commit, under the registry lock and with the registry started. A record or image that's no longer there stops it, naming `images:prune` as the likely cause.
+3. **The manifest,** unsealed into memory: the facts (B-7), the ledger head, and each artifact's plaintext SHA-256. Every artifact unsealed later is hashed as it streams, and any mismatch stops the rehearsal.
+4. **The configuration:** the set's `stack.tar` gives `secrets.json`, `vault-init.json` and `certs/`. The env files and rendered configs (`pg_hba.conf`, `pgbouncer.ini`, `userlist.txt`, `s3.json`) are rendered from them, with the stack's own service names, into a temporary owner-only directory, then copied into the project's labelled config volumes. The certificates are the set's own, so their names (`postgres`, `pgbouncer`, `vault`) hold inside the project's networks.
+5. **PostgreSQL:**
+   - `postgres.tar` is unsealed as a stream straight into the data volume (`docker run -i … tar -x`, as uid 999);
+   - the WAL from the set's start file through the target's file is unsealed and gunzipped as a stream into a second labelled volume;
+   - PostgreSQL starts with `restore_command = cp /wal-restore/%f %p`, the target (below), `recovery_target_action = promote` and **`archive_mode = off`**, so a restored cluster never archives anywhere;
+   - it must end recovery at the target: `pg_last_wal_replay_lsn()` must reach it, or the rehearsal stops.
+   - **The target:** by default, the facts' WAL position (`recovery_target_lsn`, B1 decision 5), so the counts and the checkpoint compare exactly. With `--to <ISO time>`, `recovery_target_time`:
+     - **refused** before the set's creation (use an earlier set);
+     - **a time past the newest shipped WAL** makes PostgreSQL end recovery short of it, which it reports itself. The rehearsal stops with "target not reached", naming the newest segment it had. WAL file names carry no time, so this can't be checked before starting;
+     - **the counts** are then reported, not compared, since a later time holds more rows;
+     - **the checkpoint** must still hold: the chains are append-only, so the checkpoint's `seq` keeps its hash.
+6. **Vault:**
+   - started on an empty labelled Raft volume, initialised with throwaway keys (held in memory, never written) and unsealed with them;
+   - `operator raft snapshot restore -force` from the unsealed stream;
+   - then unsealed with the set's own unseal key, from `vault-init.json`. This is BK5's second half on real data. B1 proved the mechanics by hand.
+7. **SeaweedFS:** started, with its buckets created as the deploy creates them. The files are restored as B2-8 describes.
+8. **PgBouncer:** started.
+9. **The checks before recovery,** each a one-shot job from the verified release, in the project:
+   - `migrate --check-only`: the migration status, and `rls:check`;
+   - `keys verify-chains`, with the manifest's checkpoint;
+   - `keys backup-facts`, compared with the manifest's counts (at the default target only);
+   - `keys verify-unwrap`;
+   - `keys verify-decrypt`, the D11 **control**. Every tenant whose keys the set holds decrypts, the drill tenant's included when the set has one. A tenant destroyed *before* the set was taken (an earlier drill's, say) is already `key_destroyed` in the set, before and after recovery. A tenant with no encrypted values reports `empty`, which is shown and not a failure, except for the drill tenant, which must have values.
+10. **Recovery** (D8) on the scratch ledger (B2-10), through the project's keys job.
+11. **The checks after recovery:**
+    - `keys verify-decrypt`: every tenant with an accepted destruction is `key_destroyed`, and every other is `ok` (or `empty`, as above);
+    - `keys verify-unwrap`: every key not destroyed unwraps;
+    - `keys verify-chains`: recovery's own audit events keep the chains verifying.
+12. **The real ledger's heads,** read before step 1 and again now, must be equal (B-11).
+13. **The record** (B2-11), then the **teardown**: `compose down -v` for the labelled project only, the temporary directory and the scratch ledger removed, in a `finally`.
+
+**What is never in clear on the host's disk:** artifact data and WAL. They go from the sealed files, through host memory, into the project's Docker volumes. The temporary directory holds the rendered env and config files, owner-only, as `~/.univarse/stack` does, and is removed afterwards.
+
+### B2-7. The WAL a target needs
+
+- **Which:** every segment from the set's start file through the target's, on the set's timeline, plus any `.history` file that timeline needs. The shipper already ships those (B1).
+- **First, it ships:** the rehearsal ships staged WAL itself (it holds the registry lock, so it calls the shipper directly).
+- **Then it waits:** for the default target, the segment holding the facts' position is often still open, because `archive_timeout` is 5 minutes. So the rehearsal ships every 30 s for up to 6 minutes, saying what it waits for. If it is still missing, it stops: "the segment holding this set's target hasn't been archived yet: run this again in a few minutes."
+- **A gap** (a segment missing between the start and the target, which isn't the newest) stops it at once, naming the segment. Waiting can't fill it.
+
+**Alternative:** make the backup force a WAL switch after its facts (`pg_switch_wal()`), so the segment closes at once. That needs `EXECUTE` on a superuser function for an app role, the kind of grant B1 decision 5 avoided, and it's a migrate image change, so a release. Rejected; waiting costs the drill a few minutes.
+
+### B2-8. Files: back through the filer, checked one by one
+
+D10 asks that every restored file's SHA-256 matches. The manifest holds `files.tar`'s hash, not each file's. So:
+- `files.tar` is unsealed as a stream, and the host hashes each entry as it passes;
+- the stream goes into a one-shot container from the pinned SeaweedFS image, on the project's own network. That container writes each entry into the restored bucket through the filer (`/buckets/uv-clean/<key>`);
+- each object is then read back over the S3 path, hashed inside the container, and compared with the host's hash. Only hashes and keys come back, never content.
+
+**Alternative:** a temporary loopback tunnel to the project's S3 port (B4's pattern), with the host's S3 client. It reuses tested code, but it publishes a port, which D9 rules out. Rejected.
+
+**To verify while building, and bring back if it fails:** that an object written through the filer is readable through SeaweedFS 4.48's S3 API with its key unchanged. If it isn't, the fallback is the tunnel above. That's an owner decision, since it bends D9.
+
+### B2-9. Counts, chains and the window
+
+- **Counts compare exactly at the default target.** A mismatch fails the rehearsal, naming the table (B-7). B1 decision 14's window applies, since each tenant's counts are their own transaction. The drill measures it.
+- **The chains** are verified twice: against the checkpoint before recovery, and whole after it.
+- **The note to the owner:** run the drill while nobody is using the app.
+
+### B2-10. The scratch ledger (B-11, made concrete)
+
+Recovery finds every destination by the path written in the ledger itself, so a plain copy would lead it back to the real destinations. So:
+- under the ledger lock, briefly, every configured destination's copy is read and verified (authority, D8, read-only), then copied into `scratch/<destination id>/`. Then the lock is released;
+- recovery runs with a `LedgerFs` that maps each real destination's path to its scratch copy. Windows paths are compared without case, as `canonical()` does. Nothing else in the protocol changes;
+- **the bucket copy is off in a rehearsal** (D7's evidence copy, never relied on): the restored SeaweedFS has no ledger bucket, since D2 leaves it out;
+- **the check** (B2-6 step 12): the real heads are unchanged.
+
+**Tests:** a scratch run against real files, where recovery appends `reapplied` in the scratch copies and the real ones stay byte-identical. And the mutation "a path not remapped", which must turn a test red.
+
+### B2-11. The drill: `pnpm stack:drill --key <path>`
+
+B-12's sequence, as one command that stops at the first failure:
+1. `keys drill-tenant create shred-drill-<YYYYMMDD>`. A drill tenant from today already existing stops it;
+2. `pnpm stack:backup`;
+3. `pnpm stack:keys destroy shred-drill-<YYYYMMDD>`: the real protocol, with every ledger destination needed;
+4. the rehearsal of that set, with D11's expectations made explicit:
+   - **before recovery (the control):** the drill tenant is `ok`. If it doesn't decrypt, the set never held its keys, and the drill fails. Every other tenant is as B2-6 step 9 says;
+   - **after recovery:** the drill tenant is `key_destroyed`, and every other tenant is exactly as the control found it.
+
+**What it leaves, by design (B-12):** a suspended tenant with destroyed keys, and one accepted destruction in the ledger. That is its evidence.
+
+**The record:** `docs/ops/drills/YYYY-MM-DD-restore-and-shred.md`, written by the command for the owner to commit. It holds:
+- the set id, the release, and the target position or time;
+- each D10 check, pass or fail, with counts;
+- **the timings:**
+  - RTO, from the first unseal to the last check;
+  - the RPO reached: how old the newest shipped WAL segment was when the rehearsal began, by its file's time at the destination. It's the data a restore at that moment would have lost;
+- the peak memory of the project's containers, sampled with `docker stats` every 5 s.
+
+It holds slugs, ids, counts, hashes and times only. BK9's scan runs over it before it is written. `stack:restore-rehearsal` alone writes the same record without the drill's lines.
+
+**Alternative:** four separate commands, as B-12 lists. They're more transparent, but the order matters (the backup must come between the tenant and the destruction), and it's easy to get wrong by hand. Rejected; the single command prints each step as it goes.
+
+### B2-12. `pnpm stack:restore <set> [--to <time>]`, the real one
+
+The same routine against the stack itself, for a real disaster. It is never run in a drill (D9).
+- **Requires:**
+  - the stack down (`stack:down`; it refuses otherwise);
+  - `--key`;
+  - `--confirm "replace the stack's data"`, exactly.
+- **It keeps what it replaces:**
+  - before restoring, it copies `pgdata`, `vault-raft` and `seaweedfs-data` into `univarse-stack-<name>-before-restore-<time>` volumes;
+  - it moves `~/.univarse/stack` to `~/.univarse/stack.before-restore-<time>` and writes the set's parts in its place;
+  - nothing is deleted. Deleting the copies is the owner's step, as with `vault-data`.
+- **Recovery uses the real ledger,** and fails closed exactly as a deploy does.
+- **It ends** by printing the deploy command for the release the set names. It doesn't deploy by itself.
+- **The disk:** the copies need as much free space as the data. It checks that first, and refuses with the figure.
+- **Tested** against throwaway project and volume names, in unit tests (the order, the refusals) and in CI's restore test (B2-13).
+
+**Alternative:** document a manual procedure only. A restore nobody can run under pressure is the real risk, and the routine is already the rehearsal's. Rejected. **The alternative to keeping copies** is replacing in place, which saves the disk space. A restore picked from the wrong set would then be unrecoverable. Rejected.
+
+### B2-13. What runs where
+
+- **Unit** (`tools/stack`):
+  - the engine's order, stops and teardown on every failure (BK6);
+  - `status`'s figures and warnings at their boundaries (26 h, 1 h);
+  - the schedule's exact XML;
+  - the WAL range and gap detection;
+  - `--to`'s refusals;
+  - the scratch ledger's remapping;
+  - the drill's expectations (a control that doesn't decrypt fails; a drill tenant still `ok` after recovery fails);
+  - `stack:restore`'s refusals and its copies.
+- **CI, a new `test:restore` step,** on the real pinned images, without the release's app images:
+  - **BK4:** PostgreSQL 18 with a base backup, a row before the target time and one after, the WAL archived, sealed and shipped by the real shipper. Then the engine's PostgreSQL step restores to the time: the first row is present, the second absent;
+  - **BK5's second half:** a Raft snapshot from one Vault, sealed, then restored by the engine's Vault step into a fresh Vault and unsealed with the first's key. A probe encrypted before it decrypts after;
+  - **files:** B2-8's filer path, with each object read back over S3 and its hash compared. This is where B2-8's open question is answered;
+  - **teardown:** after an injected failure, no labelled container or volume remains.
+- **The owner's machine:** the full rehearsal and the drill. They need the whole stack and a release, which CI doesn't have (B-16). Their record is BK6's and BK7's evidence. I won't present a CI run as the drill, or the reverse.
+
+### B2-14. Memory
+
+The project's limits:
+- PostgreSQL 512 MB, Vault 256 MB, SeaweedFS 256 MB, PgBouncer 64 MB;
+- one job at a time, 512 MB.
+
+That's about 1.6 GB at most, beside the stack's 3.5 GB. The drill's note says to stop the dev stack and dev ClamAV first, and the record shows the measured peak.
+
+### B2-15. Evidence: BK9 and BK10
+
+- **BK9:**
+  - the scan of every B2 command's output and of the drill record;
+  - the temporary directory gone after a rehearsal, failed or not;
+  - no artifact or WAL bytes in clear on the host's disk. A test runs the rehearsal's file handling over a temporary root and searches it for a known plaintext.
+- **BK10's mutations for B2:**
+  - the shred drill passing without the re-apply step (BK7);
+  - the control not required to decrypt;
+  - teardown skipped on a failure;
+  - the real ledger written by a rehearsal;
+  - a path not remapped in the scratch ledger;
+  - a count mismatch tolerated;
+  - the checkpoint not compared;
+  - an artifact's hash not checked;
+  - a WAL gap accepted;
+  - the release not verified;
+  - the boundary measured from the newest set instead of the oldest;
+  - the 26-hour warning off by its boundary;
+  - the schedule registered without `--apply`;
+  - `stack:restore` without its confirmation, or without its copies.
+
+### B2-16. Docs
+
+- **[10 §7](../10-infrastructure-and-deployment.md):** the local section: `status`, the schedule, the rehearsal, the drill, the real restore as a runbook, and the measured RTO and RPO.
+- **[16 §5](../16-compliance-ndpa.md):** the boundary as `status` measures it.
+- **[08](../08-security.md):** the restore's handling of the private key and the scratch ledger.
+- **[spec 0006](0006-envelope-encryption.md):** the restore rule, now rehearsed.
+- **[18](../18-roadmap.md):** item 7.5, closed only by the owner's drill record.
+- **ADR-032:** implemented.
+- **This spec:** the implementation notes.
+
+### B2-17. The owner's steps
+
+- **After B2a merges:** `pnpm stack:backup schedule --at <time>`. Read the XML, then run it again with `--apply`. `pnpm stack:backup status` then shows both tasks.
+- **After B2b merges:**
+  1. Stop the dev stack and dev ClamAV. Connect the drive with the backup key, and set `UNIVARSE_BACKUP_KEY_PASSPHRASE`.
+  2. Run `pnpm stack:drill --key <path>`, while nobody is using the app.
+  3. Commit the record it writes (a small PR).
+- **Neither needs a release,** as above.
+
+## Implementation notes (PR B2a: status, the deploy's warnings, the schedule)
+
+Built as approved (B2-2 to B2-4), with B2-4's amendment (the backup waits for the registry lock itself). **No image changes and no release:** everything is in `tools/stack` and the docs.
+
+**Files** (`tools/stack/src/backup/`):
+- `status.ts`: the report, a pure function of its inputs;
+- `status-deps.ts`: the real inputs (sets, shipped and staged WAL, the tasks, the ledger), and the schedule's registration;
+- `schedule.ts`: the tasks' XML, the crontab lines, and parsing the task query;
+- `scheduled.ts`: a scheduled run's lock wait and its log;
+- `wal.ts`: gains a read-only listing of the staging volume;
+- `deploy.ts`: gains a final `backupWarnings` step.
+
+**Decisions made while building (approved by the owner on 2026-10-25, all seven as built):**
+1. **The tasks live in a `\UniVarse\` folder,** named `backup` and `backup-wal`, so they're easy to find in Task Scheduler and can't collide with anything else's.
+2. **The task query goes through PowerShell's `Get-ScheduledTaskInfo`, not `schtasks /Query`.** `schtasks` prints its labels in the system's language, while PowerShell gives the result as a number. "Not run yet" (`0x41303`) is no failure, and "running now" (`0x41301`) counts as no failure.
+3. **Registration writes the XML as UTF-16 with a byte-order mark,** as its declaration says, to a temporary file that is removed straight after.
+4. **`--scheduled`** is the one flag the tasks pass. It does two things:
+   - it appends every printed line, timestamped, to the day's log, plus the exit code;
+   - for a backup, it waits for the registry lock.
+
+   A run by hand behaves exactly as before.
+5. **The deploy prints all of `status`'s warnings,** not only the two B2-3 named (newest set, staged WAL): a missing task or a broken external rule is just as worth seeing. A status that can't be read at all becomes one warning. Nothing blocks.
+6. **`schedule --remove`** needs no `--at`.
+7. **Off Windows, the user** for the crontab lines comes from the OS when `USERNAME` isn't set. That was found running the command here.
+
+**Evidence.**
+- **Unit tests** (`status.spec.ts`, `schedule.spec.ts`, `scheduled.spec.ts`, `deploy.spec.ts`, `entrypoints.spec.ts`):
+  - every warning at its boundary (26 h, 1 h);
+  - the boundary taken from the oldest complete set;
+  - each unreadable source reported and making `ok` false, alone;
+  - **the daily task's XML, line by line,** and the WAL task's trigger;
+  - nothing run without `--apply`; the UTF-16 file and its removal; a failed registration stopping;
+  - the PowerShell query and its result codes;
+  - the lock wait with the real registry lock, and the 30-day log;
+  - the deploy printing warnings only after it passed;
+  - the CLI's refusals, as real processes.
+- **Run here, for real, under a temporary home:**
+  - `status`: every source it couldn't read was named (no Docker, no ledger, no set), and it exited 1;
+  - `schedule --at 13:30`: the crontab lines;
+  - `wal --scheduled`: Docker's error logged with the exit code, in a 0700 folder and a 0600 file.
+- **Mutations: 50, all killed.** Four survived the first run:
+  - three were cases no test isolated, and each now has its own test: an unreadable source making `ok` false on its own, the newest of several shipped files, and the scheduled lock's wiring (moved into `registryLockFor` to be testable);
+  - one was a redundant guard, removed. It had also hidden a failed result whose run time couldn't be read, and that case now has a test.
+
+  The infinite-wait mutant first hung the test run instead of failing it. The fake clock now fails a wait that never ends.
+- **Not run here:** Task Scheduler itself. This environment is Linux. `schtasks /Create` with this XML, and the PowerShell query, are first exercised on the owner's machine (B2-17).
 
 ## Affected docs (in the implementation PRs)
 

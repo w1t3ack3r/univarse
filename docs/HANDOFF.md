@@ -1,24 +1,29 @@
-# Handoff: finishing Phase 0 (2026-10-24)
+# Handoff: finishing Phase 0 (2026-10-25)
 
 Read this before doing anything. It covers where Phase 0 stands, what is left in order, what only the owner can do, and how to work. `CLAUDE.md` and [18-roadmap.md](18-roadmap.md) still apply. Update this file as items close, and delete it when Phase 0 closes.
 
 ## Where things stand
 
-- **`main` at `7c28384`.**
+- **`main` at `81bba38`.**
   - Spec 0020 PR A, the shred ledger, is complete: A1 (#90), A2 (#91) and A3, the waiver (#96).
   - PR B1 is merged: #103 (`00baee7`) for Vault on Raft, WAL archiving and sealed sets, and #104 (`7c28384`) for the fixes found on the owner's machine and the backup public key.
-  - Earlier: fastify 5.12.7 (#95), `fix(build)` (#98) and the bucket copy's fix (#99).
-- **Release `releases/2026-10-24-00baee7.json`,** deployed by the owner on 2026-10-24.
-  - Vault was migrated to Raft first: the KEK was identical, the probe decrypted, and 3 of 3 data keys unwrapped.
-  - #104 changed only `tools/stack` and added `infra/backup/backup.pub`, so it needs no new release.
+  - #106 (`81bba38`): the migrate job verifies PostgreSQL, the nodemailer and fast-uri advisories, and mailpit v1.32.0 (the open items below).
+  - Earlier: fastify 5.12.7 (#95), `fix(build)` (#98), the bucket copy's fix (#99), and the docs (#105).
+- **Release `releases/2026-10-25-81bba38.json`,** deployed by the owner on 2026-10-25.
+  - **The migrate job's TLS fix, on the owner's PostgreSQL:** both Prisma migration runs connected with the engine's verifying settings, and the bootstrap, `rls:check`, the seed and the keys all passed. The `pg` driver's `sslmode=require` warning no longer prints.
+  - **mailpit v1.32.0:** healthy, using 7.8 MiB of its 64 MiB.
+  - **Before it:** `2026-10-24-00baee7`, deployed on 2026-10-24 after Vault's migration to Raft. The KEK was identical, the probe decrypted, and 3 of 3 data keys unwrapped.
 - **Backups run.**
   - The backup public key is `infra/backup/backup.pub`, fingerprint `sha256:90c83219d8d23b1598dd2b867ebb836ef158b3c47991e99d9ab0c66a2571d84e`. The owner keeps the private key offline.
-  - The first set, `20261024T161305Z-e2bd`, completed on 2026-10-24 (exit 0). It has 6 sealed files, the ledger at seq 2, and needs WAL from `000000010000000000000006`.
-  - Until B2 registers the schedule, `pnpm stack:backup` and `pnpm stack:backup wal` run only by hand. WAL staged in `univarse-stack-pg-wal-staging` stays inside the stack until shipped.
+  - **Two sets are kept:**
+    - `20261024T161305Z-e2bd`, the first, needing WAL from `000000010000000000000006`;
+    - `20261025T033359Z-02d9`, on the new release, needing WAL from `000000010000000000000011`. Its Vault snapshot is 26.3 KB, the stack's parts 20.5 KB, and the ledger 4.0 KB. Its files are 1.0 KB, an empty tar: the demo tenants have no uploads.
+  - Both have 6 sealed files and the ledger at seq 2, and exited 0.
+  - Until the owner registers B2a's schedule, `pnpm stack:backup` and `pnpm stack:backup wal` run only by hand. WAL staged in `univarse-stack-pg-wal-staging` stays inside the stack until shipped.
 - **The old Vault file storage, `univarse-stack_vault-data`, is kept, untouched** (B-4). Deleting it is a later explicit owner step, never part of a deploy.
-- **The ledger is live, and its bucket copy works.** It is `1b879644-1e96-4d46-acb0-08eaa0e6a786`, created by the deploy of `33ae2d9` with `--init-ledger` on 2026-10-23. Recovery passes with no failed copy, and `pnpm stack:bucket-check` passes every line (spec 0020, "Implementation notes (fix: the bucket copy)", with the measured memory).
+- **The ledger is live, and its bucket copy works.** It is `1b879644-1e96-4d46-acb0-08eaa0e6a786`, created by the deploy of `33ae2d9` with `--init-ledger` on 2026-10-23. Since 2026-10-25 it is authoritative on **2 destinations**: the owner added one. Recovery passes with no failed copy, and `pnpm stack:bucket-check` passes every line (spec 0020, "Implementation notes (fix: the bucket copy)", with the measured memory).
 - **A3's decisions 1–7** (approved 2026-10-23) and **PR B's plan, B-1 to B-17** (approved 2026-10-24), are recorded in spec 0020. **B1's 18 decisions made while building:** the owner gave the go-ahead to merge #103 on 2026-10-24, with the PR stating they awaited approval. They are recorded as approved by that go-ahead; the owner may still revisit any of them.
-- **Recommended, not yet done:** add an external drive as a second ledger destination (`pnpm stack:keys ledger add-destination <path>`). Only it survives losing this disk, and the same holds for backup sets on this disk.
+- **The ledger's second destination is on the external drive** (the owner confirmed, 2026-10-25), so the ledger survives losing this disk. The backup sets are still on this disk (the default destination), so they don't, unless the destination moves to that drive (`pnpm stack:backup destination <path>`).
 
 ## What is left for Phase 0, in order
 
@@ -27,7 +32,11 @@ Read this before doing anything. It covers where Phase 0 stands, what is left in
 3. **Spec 0020 PR B: backups, the rehearsed restore and the shred drill.** It is the last unmet exit criterion.
    - **The plan** (spec 0020, "Plan (PR B …), for approval", decisions B-1 to B-17) was approved, all as written, on 2026-10-24.
    - **B1 is done:** merged (#103, #104), released and deployed, Vault migrated, and the first set taken (above). Spec 0020's "Implementation notes (PR B1)" hold the evidence, including what the owner's run found.
-   - **B2 is next,** starting with its plan for approval. B1 took four things from B2's original split: pruning, the backup's ledger snapshot (BK14), D7's external-drive rule, and every image subcommand B2 needs. So B2 should need no new release unless it finds otherwise.
+   - **B2's plan was approved by the owner, all as written, on 2026-10-25** (spec 0020, "Plan (PR B2 …)", B2-1 to B2-17). It is two PRs, B2a first:
+     - **B2a:** `stack:backup status`, the deploy's warnings and the schedule. **Built** (spec 0020, "Implementation notes (PR B2a)"), with 7 decisions made while building, and its amendment to B2-4, all approved by the owner on 2026-10-25; the owner then registers the schedule (B2-17);
+     - **B2b:** the restore engine, `stack:restore-rehearsal`, `stack:drill` and `stack:restore`.
+
+     No release is expected for either. B1 took four things from B2's original split: pruning, the backup's ledger snapshot (BK14), D7's external-drive rule, and every image subcommand B2 needs.
 
    The handoff's original split, for reference:
    - **B1:**
@@ -50,14 +59,13 @@ Read this before doing anything. It covers where Phase 0 stands, what is left in
 
 **Formally deferred, not Phase 0 work (the owner's decision, 2026-10-23):** BullMQ and Storybook (Phase 1), and resource scopes (Phases 2, 4 and 7).
 
-**Open, not blocking (rechecked 2026-10-24):**
+**Open, not blocking (rechecked 2026-10-24; #106 merged and deployed 2026-10-25):**
 - **Dependency advisories.**
   - `pnpm audit` finds no advisory against `@vitest/mocker` 4.1.12, the only version the lockfile resolves. Dependabot alerts #42 and #43 are closed: GitHub shows both as fixed (checked by the owner, 2026-10-24).
-  - The same audit found newer advisories, now fixed on this branch: nodemailer 10.0.11 to 10.1.7 (3 moderate, in the API's mailer), and fast-uri 3.1.8 to 3.1.9 and 4.2.1 to 4.2.3 (moderate and low, under fastify's ajv), through overrides like the existing ones. Every version respects the 3-day release age. `pnpm audit` now reports none.
-- **The migrate job's TLS: fixed on this branch.** Spec 0019, "Fix: the migrate job verifies PostgreSQL".
+  - The same audit found newer advisories, fixed in #106: nodemailer 10.0.11 to 10.1.7 (3 moderate, in the API's mailer), and fast-uri 3.1.8 to 3.1.9 and 4.2.1 to 4.2.3 (moderate and low, under fastify's ajv), through overrides like the existing ones. Every version respects the 3-day release age. `pnpm audit` now reports none.
+- **The migrate job's TLS: fixed in #106, and running on the owner's stack.** Spec 0019, "Fix: the migrate job verifies PostgreSQL".
   - The investigation measured it: Prisma's schema engine didn't verify PostgreSQL's certificate with `sslmode=require` (it accepted a self-signed one), and it ignores `verify-full`.
   - The job's URLs are now `verify-full` with `sslrootcert`, and the image's Prisma configs translate them into the only form the engine verifies with. Production refuses any URL that doesn't verify.
-  - It reaches the stack with the next release.
 - **Third-party images: re-scanned 2026-10-24** (Trivy 0.75.0, the deploy's version, from the registry). Both are still CRITICAL 2 and 3, as on 2026-10-20.
   - **postgres** (pinned digest; HIGH 86). The 2 CRITICALs:
     - libxml2 CVE-2026-6653, a denial of service from crafted XML. Debian 13 has no fix yet. Reaching it needs SQL access to PostgreSQL's XML functions, which the app doesn't use, on the internal `db` network.
@@ -71,7 +79,7 @@ Read this before doing anything. It covers where Phase 0 stands, what is left in
       - **The runtime is unchanged:** the same entrypoint, user, ports and `readyz` healthcheck.
       - **`--allowed-hosts` (v1.31.1) is off unless set,** so Caddy's `mail.` host still reaches it.
       - **The changelog from v1.28 to v1.32** lists security fixes, limits (50 MB a message, 1000 connections) and features, and no removed or renamed API.
-      - **Not yet seen:** its memory under the stack's 64 MB limit (no Docker here). The owner's next deploy will show it.
+      - **On the owner's stack (2026-10-25):** healthy, 7.8 MiB of its 64 MiB, and the deploy's own scan shows CRITICAL 0, HIGH 0.
   - The 158 HIGH findings haven't been reviewed one by one. That is still part of Phase 0's closure.
 
 ## What only the owner does (the cloud session gives exact commands)
