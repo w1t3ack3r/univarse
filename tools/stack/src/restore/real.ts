@@ -80,7 +80,10 @@ export function realRestoreDeps(req: RestoreRequest, opts: RealOptions): Restore
   let images: Readonly<Record<string, string>> = {};
   let stopRegistry: () => void = () => undefined;
   let target = 'recovery_target_action=promote';
-  const env = (): ComposeEnv => ({ dir, data, images, target });
+  // Before the release is verified (a teardown after its refusal), compose still needs its image variables to parse the
+  // file: stand-ins that name no image, never pulled, as the deploy's own log reader uses.
+  const STAND_IN = Object.fromEntries(['UNIVARSE_API_IMAGE', 'UNIVARSE_MIGRATE_IMAGE', 'UNIVARSE_PGBOUNCER_IMAGE'].map((v) => [v, 'x']));
+  const env = (): ComposeEnv => ({ dir, data, images: Object.keys(images).length ? images : STAND_IN, target });
   const destination = () => loadSettings().destination;
   const keys = () => jobRunner('keys', env(), ['--enable-source-maps', 'dist/cli/keys.js']);
   const keysJob = <T>(args: readonly string[], input?: string): Job<T> => {
