@@ -21,3 +21,4 @@ docs
 infra/compose/otel/out
 infra/compose/seaweedfs/s3.json
 apps/web/e2e
+.tools

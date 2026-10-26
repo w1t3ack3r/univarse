@@ -1,0 +1,23 @@
+# Spec 0024 H1–H3: the local git hooks, installed by `pnpm install` (tools/hooks/install.mjs). They are a convenience:
+# `git commit --no-verify` still works, and CI is the gate. Prettier is left out until the repository is formatted (H3).
+pre-commit:
+  parallel: true
+  commands:
+    # The staged files only, with the workspace's one ESLint config.
+    eslint:
+      glob: '*.{ts,tsx,mts,cts,js,mjs,cjs}'
+      run: pnpm exec eslint --no-warn-ignored {staged_files}
+    # The pinned, checksum-verified gitleaks from `pnpm tools:gitleaks`, as CI's.
+    gitleaks:
+      run: node tools/hooks/gitleaks-staged.mjs
+
+commit-msg:
+  commands:
+    commitlint:
+      run: pnpm exec commitlint --edit {1}
+
+# The type check moved here from pre-commit (H2): across the workspace it can't fit pre-commit's 10 seconds.
+pre-push:
+  commands:
+    typecheck:
+      run: pnpm exec turbo run typecheck --affected

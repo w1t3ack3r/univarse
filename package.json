@@ -6,6 +6,8 @@
     "node": ">=24 <25"
   },
   "scripts": {
+    "prepare": "node tools/hooks/install.mjs",
+    "tools:gitleaks": "node tools/hooks/gitleaks.mjs",
     "build": "turbo run build",
     "typecheck": "turbo run typecheck",
     "lint": "turbo run lint && eslint tools",
@@ -48,11 +50,14 @@
     "stack:backup": "pnpm --filter @univarse/stack run backup"
   },
   "devDependencies": {
+    "@commitlint/cli": "21.2.4",
+    "@commitlint/config-conventional": "21.2.4",
     "@eslint/js": "^10.0.1",
     "@types/node": "^24.0.0",
     "eslint": "^10.11.0",
     "globals": "^17.13.0",
     "js-yaml": "4.3.2",
+    "lefthook": "2.2.2",
     "prettier": "^3.6.0",
     "turbo": "^2.5.0",
     "typescript": "~5.9.3",
