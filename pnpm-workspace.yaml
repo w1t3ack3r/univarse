@@ -20,3 +20,7 @@ onlyBuiltDependencies:
   - argon2
   - '@nestjs/core'
   - '@swc/core'
+# Refused on purpose (spec 0024 H1): lefthook's postinstall would install the hooks on every install, Docker builds
+# included. `pnpm install`'s prepare step (tools/hooks/install.mjs) installs them, only in a git checkout.
+ignoredBuiltDependencies:
+  - lefthook
