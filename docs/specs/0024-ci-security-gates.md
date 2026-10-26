@@ -1,6 +1,6 @@
 # Spec 0024: CI security gates, and the local hooks
 
-**Status:** **Approved by the owner on 2026-10-25, all as written:** G1–G11 and H1–H3, with G12 decided (proprietary, stated by a `LICENSE`; CodeQL with no upload). **PR A built** (its implementation notes, below): all 12 decisions made while building were approved by the owner on 2026-10-26, with the `LICENSE` holder's name confirmed. PR B is next.
+**Status:** **Approved by the owner on 2026-10-25, all as written:** G1–G11 and H1–H3, with G12 decided (proprietary, stated by a `LICENSE`; CodeQL with no upload). **PR A built** (its implementation notes, below): all 12 decisions made while building were approved by the owner on 2026-10-26, with the `LICENSE` holder's name confirmed; merged as #115. **PR B built** (its implementation notes, below), with H2 and GC8 amended by the owner on 2026-10-26.
 **Phase:** 0. It closes the roadmap's rows "CI pipeline with all security scans" (🟡) and "lefthook, commitlint" (❌).
 **Builds on:**
 
@@ -54,7 +54,7 @@ Locally, no hook runs at all, and Conventional Commits are followed by hand. Squ
 | # | Decision | Recommendation, and the alternative |
 | --- | --- | --- |
 | H1 | **lefthook as a dev dependency, installed by `pnpm prepare` (`lefthook install`), with no postinstall script.** The workspace's `onlyBuiltDependencies` list stays as it is. lefthook ships its binary as a platform package, so nothing is downloaded at install time. | It keeps the "only these packages run install scripts" rule intact. Alternative: Husky. Rejected: it runs shell scripts, and lefthook's parallel, staged-file hooks are faster. |
-| H2 | **pre-commit**, under 10 s:<br>• `eslint` on the staged files;<br>• `gitleaks protect --staged`, using a pinned, checksum-verified gitleaks fetched by `pnpm tools:gitleaks` (the same version and checksum as CI). It's never fetched unverified, and if it's absent the hook says how to get it, rather than skipping silently.<br>**commit-msg:** commitlint, with `@commitlint/config-conventional`, G10's types, and a scope required.<br>**pre-push:** `turbo run typecheck --affected`. | `tsc -b` moves from pre-commit (docs/13 §2) to pre-push: it can't stay under 10 s across the workspace. Alternative: pre-commit typecheck. Rejected for the 10-second budget. |
+| H2 | **pre-commit**, under 10 s:<br>• `eslint` on the staged files;<br>• `gitleaks protect --staged`, using a pinned, checksum-verified gitleaks fetched by `pnpm tools:gitleaks` (the same version and checksum as CI). It's never fetched unverified, and if it's absent the hook says how to get it, rather than skipping silently.<br>**commit-msg:** commitlint, with `@commitlint/config-conventional`, G10's types, and a scope required.<br>**pre-push:** `turbo run typecheck --affected`. | `tsc -b` moves from pre-commit (docs/13 §2) to pre-push: it can't stay under 10 s across the workspace. Alternative: pre-commit typecheck. Rejected for the 10-second budget.<br>**Amended by the owner, 2026-10-26** (PR B's notes): ESLint moves to pre-push too, and the commit-msg check is G10's own code instead of commitlint. Measured on the owner's machine, ESLint took 10–11 s and commitlint 4–5 s, so a commit took 17–18 s. |
 | H3 | **Prettier is left out of the hooks for now.** `main` isn't Prettier-clean (its own files fail `prettier --check`), so a staged-files check would reformat whole files on touch, mixing formatting into every change. The fix is one formatting-only PR, then `format:check` in CI and in the hook. That's the owner's call, since it touches nearly every file once. | docs/13 §2 is amended to say so. Alternative: enforce it now. Rejected: diffs become unreviewable. |
 
 ## Acceptance criteria
@@ -68,7 +68,7 @@ Locally, no hook runs at all, and Conventional Commits are followed by hand. Squ
 | GC5 | Every scanner is pinned (G5): a version and a checksum, or a digest, or a SHA. A changed checksum fails the job. |
 | GC6 | The PR-title check refuses a title without a type, without a scope, or with an unknown type, and accepts this repository's recent titles. |
 | GC7 | `.github/dependabot.yml` covers `github-actions`, weekly. |
-| GC8 | **PR B:** on a fresh clone, `pnpm install` installs the hooks, and:<br>• a commit with a lint error, a planted fake secret, or the message "update stuff" is refused;<br>• a push with a type error is refused;<br>• a normal commit passes in under 10 s;<br>• `--no-verify` still works: CI is the gate. |
+| GC8 | **PR B:** on a fresh clone, `pnpm install` installs the hooks, and:<br>• a commit with a planted fake secret, or the message "update stuff", is refused;<br>• a push with a lint error or a type error is refused (amended 2026-10-26, with H2);<br>• a normal commit passes in under 10 s;<br>• `--no-verify` still works: CI is the gate. |
 
 ## The owner's steps
 
@@ -183,3 +183,58 @@ Without the option, Node accepts a tag as short as 4 bytes, so a forger has only
 - **Unit, lint and typecheck:** `packages/crypto` 49 of 49, `tools/stack` 439 of 439 (1 skipped); `pnpm ci:policy` and its 9 tests pass.
 - **CodeQL's fixes:** `check-breaking.test.mjs` gains the split comment and the escaped backslash, each mutation-checked; the contracts, db, stack and tools tests pass, as do lint and typecheck.
 - **CI:** the PR's first run found CodeQL's 17 (above) and a lint error: the root `eslint tools` read the proof fixtures, which are now ignored.
+
+## Implementation notes (PR B: the local hooks)
+
+Built as H1–H3, with H2 amended by the owner on 2026-10-26 (below). No release: nothing here ships in an image.
+
+**What runs where** (`lefthook.yml`, lefthook 2.2.2):
+
+- **pre-commit:** `tools/hooks/gitleaks-staged.mjs` runs `gitleaks git --staged --redact` (gitleaks 8.30.1 replaced `protect --staged` with this). If `pnpm tools:gitleaks` hasn't been run, the commit is refused, saying so.
+- **commit-msg:** `tools/hooks/commit-msg.mjs` holds the first line to G10 with `titleProblem` from `tools/security/pr-title.mjs`, CI's own PR-title check, so the two can't drift. Git's own messages pass: merges, reverts, `fixup!`, `squash!` and `amend!`.
+- **pre-push**, in parallel:
+  - ESLint, with the workspace's one config, on the pushed files;
+  - `turbo run typecheck --affected`.
+- **`pnpm tools:gitleaks`** (`tools/hooks/gitleaks.mjs`):
+  - it fetches CI's gitleaks 8.30.1 into `.tools/`, which is git-ignored and outside every image's build context;
+  - it checks the archive against the SHA-256 pinned for each platform before unpacking anything. The pins come from the release's published checksum list, whose `linux_x64` line is the one CI already pins.
+  - On Windows it uses Windows' own `tar.exe`: under Git Bash, the `tar` on PATH is GNU tar, which reads neither zips nor a `C:` path.
+- **Installing (H1):** `pnpm install`'s `prepare` runs `tools/hooks/install.mjs`, which installs the hooks except:
+  - in CI;
+  - outside a git checkout: the image builds run `pnpm install` with `.git` excluded, so a plain `lefthook install` would have failed all three;
+  - where lefthook isn't installed.
+
+  lefthook's own postinstall stays refused, and `pnpm-workspace.yaml` says so (`ignoredBuiltDependencies`).
+- **CI** runs `tools/hooks/hooks.test.mjs` after the unit tests.
+
+**The owner's amendment (2026-10-26).** As approved, a normal commit took 17–18 s on the owner's machine, against GC8's 10 s:
+- ESLint took 10–11 s, most of it starting the typed config: 6.5 s even for a plain `.mjs` file;
+- commitlint took 4–5 s: 3.6 s just to load.
+
+The owner chose:
+- **pre-commit:** gitleaks only. A secret is the one thing a later commit can't undo.
+- **commit-msg:** G10's own code instead of commitlint, which also drops commitlint's 456 lockfile lines.
+- **pre-push:** ESLint on the pushed files, beside the typecheck.
+
+**Evidence.**
+
+- **`node --test tools/hooks/hooks.test.mjs`:** 8 of 8 pass. **8 of 8 mutations caught:**
+  - the three install skips;
+  - the checksum comparison, and the refusal of a platform with no pin;
+  - the commit message's G10 check, its comment-line skip, and git's own messages.
+- **GC8, on a fresh clone of the branch** (Windows, Git Bash), where `pnpm install` alone installed the three hooks:
+
+  | Case | Result |
+  | --- | --- |
+  | A commit without `pnpm tools:gitleaks` | refused, naming the command |
+  | A normal commit | passes in 4.0, 2.4 and 2.6 s |
+  | A planted fake GitHub token (random, never printed) | refused: `leaks found: 1` |
+  | The message "update stuff" | refused: no type |
+  | Git's own merge message | passes |
+  | `--no-verify` with "update stuff" | commits |
+  | A push with `any` in a domain file | refused: `no-explicit-any`, `no-unsafe-return` |
+  | A push with a type error | refused: `TS2322` |
+  | A clean push | passes |
+
+- **A push takes 19 to 105 s.** On this branch every package counts as affected, because the root `package.json` and lockfile changed, so the typecheck builds and checks all 12. The 105 s was the first run, with no turbo cache. A branch touching one package checks only what depends on it.
+- **All 80 recent subjects on `main`** pass the commit-msg check, as they pass the PR-title check.

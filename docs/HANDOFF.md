@@ -62,7 +62,7 @@ Read this before doing anything. It covers where Phase 0 stands, what is left in
 
 5. **CI and local gates.** **The plan is approved:** [spec 0024](specs/0024-ci-security-gates.md), G1–G12 and H1–H3, all as written, on 2026-10-25 (#112). G12: proprietary, stated by a `LICENSE`, and CodeQL with no upload. Then:
    - **PR A:** Semgrep, CodeQL, osv-scanner, the license check and Checkov, each with a proof that it fails for the reason intended, plus the PR-title check, Dependabot for the actions, and the `LICENSE`. **Built, in review** (spec 0024, "Implementation notes (PR A)", ADR-033), with 12 decisions made while building: all approved by the owner on 2026-10-26 (the `LICENSE` holder confirmed). Its baseline found 5 GCM deciphers without a fixed tag length, now fixed, so **a release follows**: it changes the API image;
-   - **PR B:** lefthook and commitlint (docs/13 §2's hooks, with H2 and H3's changes).
+   - **PR B:** lefthook and commitlint (docs/13 §2's hooks, with H2 and H3's changes). **Built, in review** (spec 0024, "Implementation notes (PR B)"), with H2 and GC8 amended by the owner on 2026-10-26: gitleaks at commit, G10's own message check instead of commitlint, and ESLint and the typecheck before a push. No release.
 
    The owner makes the new checks required on `main`.
 6. **Phase 0 closure.** Reconcile the roadmap. Stale rows include the CI row, which lists Trivy as missing though spec 0013 delivered it, and the compose row (🟡). Record every exit criterion with its evidence. The owner signs off.

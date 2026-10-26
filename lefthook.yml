@@ -16,12 +16,14 @@ commit-msg:
       run: node tools/hooks/commit-msg.mjs {1}
 
 # ESLint (typed) and the type check take 10 seconds or more each to start on the owner's machine, so they run here.
+# In order, stopping at the first failure: the type check builds what the affected packages import (turbo's ^build),
+# so ESLint's typed rules then see those packages built, never an unresolved import.
 pre-push:
-  parallel: true
-  commands:
+  piped: true
+  jobs:
+    - name: typecheck
+      run: pnpm exec turbo run typecheck --affected
     # The pushed files only, with the workspace's one ESLint config.
-    eslint:
+    - name: eslint
       glob: '*.{ts,tsx,mts,cts,js,mjs,cjs}'
       run: node node_modules/eslint/bin/eslint.js --no-warn-ignored {push_files}
-    typecheck:
-      run: pnpm exec turbo run typecheck --affected

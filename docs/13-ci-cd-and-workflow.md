@@ -15,10 +15,15 @@
   - **Enforcement:** `api-breaking-changes` is a required status check in the `protect-main` ruleset, together with `build-test` and `secrets-scan`.
 - **Review:** solo phase: self-review + AI review (`/code-review`) + CI. Every change to auth, RLS, payments or results engines gets a deliberate second pass the next day ("sleep on it" rule) or a second reviewer once the team grows.
 
-## 2. Local quality gates (pre-commit via lefthook)
+## 2. Local quality gates (lefthook)
 
-- `prettier --check` (staged), `eslint` (staged), `tsc -b` (affected), `gitleaks protect --staged`, commitlint.
-- Keep hooks under 10 s. Anything heavier runs in CI.
+Built by [spec 0024](specs/0024-ci-security-gates.md) PR B (`lefthook.yml`). `pnpm install` installs the hooks, except in CI, outside a git checkout, and where lefthook isn't installed. They are a convenience: `--no-verify` still works, and CI is the gate.
+
+- **pre-commit:** `gitleaks git --staged`, with the pinned, checksum-verified gitleaks from `pnpm tools:gitleaks` (CI's version). Without it, the commit is refused, saying how to get it.
+- **commit-msg:** the first line is held to G10, `type(scope): description`, by the same code as CI's PR-title check (`tools/security/pr-title.mjs`). Git's own merge, revert and fixup messages pass.
+- **pre-push:** ESLint on the pushed files, and `turbo run typecheck --affected`.
+- **A commit stays under 10 s** (2–4 s measured). ESLint's typed rules and the type check each take 10 s or more to start on the owner's machine, so they run before a push instead.
+- **Not yet:** Prettier. The repository isn't formatted yet; one formatting-only PR (spec 0024 H3, the owner's call) comes first.
 
 ## 3. CI pipeline (GitHub Actions)
 
