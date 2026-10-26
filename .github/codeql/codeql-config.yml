@@ -1,0 +1,12 @@
+# Spec 0024 G7: CodeQL's configuration. security-extended (G3: its errors and warnings block). Any query-filters
+# exclude needs a "# reason: …" comment on the line above it (tools/security/exceptions.mjs).
+name: univarse
+queries:
+  - uses: security-extended
+paths-ignore:
+  - '**/node_modules'
+  - '**/dist'
+  - '**/.next'
+  - packages/db/src/generated
+  - tools/security/fixtures
+  - tools/ci-policy/fixtures

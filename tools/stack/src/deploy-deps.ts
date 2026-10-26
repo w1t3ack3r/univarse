@@ -1,7 +1,7 @@
 // Spec 0019: the deploy's real steps (deploy.ts orders them and owns the LS3 guarantees). Secrets are rendered into
 // STACK_DIR owner-only and reach containers only through env files and volumes; nothing here prints one.
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { writeOwnerOnly } from '../../../packages/db/scripts/pgbouncer-config.js';
 import { COMPOSE_FILE, PROJECT, RELEASES, STACK_DIR, THIRD_PARTY, TUNNEL_IMAGE } from './config.js';
@@ -62,7 +62,8 @@ function prepare(withVault: boolean): string[] {
  */
 function scanThirdParty(): string[] {
   const file = join(STACK_DIR, 'scans.json');
-  const known: Record<string, { critical: number; high: number; scannedAt: string }> = existsSync(file) ? (JSON.parse(readFileSync(file, 'utf8')) as Record<string, { critical: number; high: number; scannedAt: string }>) : {};
+  const text = readIfExists(file);
+  const known: Record<string, { critical: number; high: number; scannedAt: string }> = text === null ? {} : (JSON.parse(text) as Record<string, { critical: number; high: number; scannedAt: string }>);
   const lines: string[] = [];
   // B4: the test tunnel's forwarder is reported with the stack's own images.
   for (const [name, ref] of Object.entries({ ...THIRD_PARTY, socat: TUNNEL_IMAGE })) {
@@ -122,9 +123,20 @@ function logs(): string {
   return r.stdout;
 }
 
+/** A file's text, or null when it doesn't exist: read directly, never checked first (no check-then-use race). */
+function readIfExists(path: string): string | null {
+  try {
+    return readFileSync(path, 'utf8');
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === 'ENOENT') return null;
+    throw e;
+  }
+}
+
 function saveState(images: Readonly<Record<string, string>>): void {
   const file = join(RELEASES, 'deploy-state.json');
-  const prev: unknown = existsSync(file) ? JSON.parse(readFileSync(file, 'utf8')) : undefined;
+  const text = readIfExists(file);
+  const prev: unknown = text === null ? undefined : JSON.parse(text);
   // `images`: the compose variables of what runs now, for `pnpm stack:keys` (spec 0020: the keys job runs the
   // deployed API image). images:prune reads only `current` and `rollback`.
   writeFileSync(file, `${JSON.stringify({ ...nextState(prev, images), images }, null, 2)}\n`);

@@ -10,6 +10,9 @@ ARG RUNTIME_IMAGE=gcr.io/distroless/base-debian13:nonroot@sha256:a0d70d6a97cd697
 ARG PGBOUNCER_VERSION=1.26.1
 ARG PGBOUNCER_SHA256=00886a2994b4844cd37110970df777772cfc42a74c400522c82fba509a3f42d9
 
+# Spec 0024: two Checkov checks, by design (tools/security/exceptions.mjs requires each reason).
+# checkov:skip=CKV_DOCKER_2: distroless runtime (no shell). It is proved by use: the deploy runs the ledger recovery and the smoke check through it, and stack:pools reads it
+# checkov:skip=CKV_DOCKER_7: the base images are ARGs pinned by tag and digest above, which Checkov cannot resolve
 FROM ${BUILD_IMAGE} AS build
 ARG PGBOUNCER_VERSION
 ARG PGBOUNCER_SHA256

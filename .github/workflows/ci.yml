@@ -1,6 +1,6 @@
 # CI — docs/13-ci-cd-and-workflow.md §3 (Phase 0 subset).
 # Every job must pass before merge to main.
-# Actions are pinned to full commit SHAs (resolved via the GitHub API 2026-10-01); Renovate bumps them.
+# Actions are pinned to full commit SHAs (resolved via the GitHub API); Dependabot proposes their updates weekly (spec 0024 G11).
 name: ci
 
 on:
@@ -36,6 +36,126 @@ jobs:
           echo "${GITLEAKS_SHA256}  gitleaks.tgz" | sha256sum -c -
           tar -xzf gitleaks.tgz gitleaks
           ./gitleaks git --redact --verbose --no-banner --exit-code 1 .  # --verbose: file, line, rule, fingerprint; the secret stays redacted
+
+  # Spec 0024: the security gates, in parallel with build-test. Each scanner is pinned (G5), blocks at its threshold
+  # on the whole tree (G2, G3), honours only exceptions that pass tools/security/exceptions.mjs (G4), and is then proved
+  # to block on a fixture, for the intended finding (G8). Findings below the threshold go to the job summary.
+  security-scans:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      SEMGREP_IMAGE: semgrep/semgrep@sha256:529ee8a277ec8adc5b534d7c74eea0a47e9de21d62852b6ba7ac6ba9566845c3 # 1.180.0
+      CHECKOV_IMAGE: bridgecrew/checkov@sha256:19ab1e9a08bf76f78391ca6fa46bb62fd08737e4e66466b16a82aa2d1337e153 # the 3.3.28 tag; its CLI reports 3.3.27
+      OSV_VERSION: 2.7.0
+      OSV_SHA256: 160c6253e2922e9e0a6a9771c5c4c40a4b3c6090b34a3cdd5e80c96cc2e4218b
+      SEMGREP_RULES: --config p/typescript --config p/nodejs --config p/owasp-top-ten --config p/github-actions --config p/dockerfile
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { persist-credentials: false }
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0 (version from packageManager)
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # G10: a squash merge makes the title the commit on main. The title reaches the script by environment only.
+      - name: The PR title is a Conventional Commit (spec 0024 G10)
+        if: github.event_name == 'pull_request'
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: node tools/security/pr-title.mjs
+      - name: The gates' own logic (spec 0024)
+        run: node --test tools/security/security.test.mjs
+      - name: Exceptions, checked before any scan (spec 0024 G4)
+        run: node tools/security/exceptions.mjs | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Semgrep (spec 0024 G3, G5)
+        run: |
+          # shellcheck disable=SC2086 # SEMGREP_RULES is a list of flags
+          docker run --rm -v "$PWD:/src:ro" -w /src "$SEMGREP_IMAGE" semgrep scan --metrics=off --disable-version-check $SEMGREP_RULES --json --quiet \
+            --exclude node_modules --exclude dist --exclude .next --exclude generated --exclude tools/security/fixtures --exclude tools/ci-policy/fixtures . > semgrep.json
+          node tools/security/gates.mjs semgrep semgrep.json 2>&1 | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: osv-scanner (checksum-verified; spec 0024 G3, G5)
+        run: |
+          curl -sSfLo osv-scanner "https://github.com/google/osv-scanner/releases/download/v${OSV_VERSION}/osv-scanner_linux_amd64"
+          echo "${OSV_SHA256}  osv-scanner" | sha256sum -c -
+          chmod +x osv-scanner
+          # Exit 1 means "vulnerabilities found", which the gate decides on; anything above 1 is a failed scan.
+          status=0; ./osv-scanner scan source --config osv-scanner.toml --lockfile pnpm-lock.yaml --format json > osv.json || status=$?
+          if [ "$status" -gt 1 ]; then echo "osv-scanner failed (exit $status)"; exit "$status"; fi
+          node tools/security/gates.mjs osv osv.json 2>&1 | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Licenses (spec 0024 G6)
+        run: node tools/security/licenses.mjs 2>&1 | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Checkov, the Dockerfiles and the workflows (spec 0024 G3, G5)
+        run: |
+          status=0; docker run --rm -v "$PWD:/src:ro" "$CHECKOV_IMAGE" -d /src --framework dockerfile github_actions --skip-download --quiet --compact -o json \
+            --skip-path node_modules --skip-path tools/security/fixtures --skip-path tools/ci-policy/fixtures > checkov.json || status=$?
+          if [ "$status" -gt 1 ]; then echo "Checkov failed (exit $status)"; exit "$status"; fi
+          node tools/security/gates.mjs checkov checkov.json 2>&1 | tee -a "$GITHUB_STEP_SUMMARY"
+      # G8: each gate blocks on its fixture, for the intended finding. A proof that passes for the wrong reason fails.
+      - name: Proofs, each gate fails for its intended reason (spec 0024 G8)
+        run: |
+          F=tools/security/fixtures
+          docker run --rm -v "$PWD/$F/semgrep:/src:ro" -w /src "$SEMGREP_IMAGE" semgrep scan --metrics=off --disable-version-check --config p/typescript --config p/nodejs --json --quiet . > proof-semgrep.json
+          node tools/security/gates.mjs semgrep proof-semgrep.json --expect gcm-no-tag-length
+          status=0; ./osv-scanner scan source --lockfile "pnpm-lock.yaml:$F/osv/vulnerable-lockfile.yaml" --format json > proof-osv.json || status=$?
+          if [ "$status" -gt 1 ]; then echo "osv-scanner failed (exit $status)"; exit "$status"; fi
+          node tools/security/gates.mjs osv proof-osv.json --expect GHSA-35jh-r3h4-6jhm
+          status=0; docker run --rm -v "$PWD/$F/checkov:/src:ro" "$CHECKOV_IMAGE" -d /src --framework dockerfile github_actions --skip-download --quiet --compact -o json > proof-checkov.json || status=$?
+          if [ "$status" -gt 1 ]; then echo "Checkov failed (exit $status)"; exit "$status"; fi
+          node tools/security/gates.mjs checkov proof-checkov.json --expect CKV_DOCKER_3
+          node tools/security/gates.mjs checkov proof-checkov.json --expect CKV_GHA_2
+          # These must fail, and for their reason: a crash fails too, so each proof also checks the message. Not with a
+          # bare `!`: bash's -e ignores a negated command, so a gate that passed would go unnoticed.
+          refuses() {
+            local want="$1" out; shift
+            if out=$("$@" 2>&1); then echo "PROOF FAILED: it passed: $*"; return 1; fi
+            echo "$out"
+            if ! grep -qF -- "$want" <<<"$out"; then echo "PROOF FAILED: it did not fail for \"$want\": $*"; return 1; fi
+          }
+          refuses 'copyleft-server@2.0.0: AGPL-3.0-only is not on the allowlist' node tools/security/licenses.mjs --prod "$F/licenses/prod.json" --dev "$F/licenses/dev.json"
+          refuses 'expired on 2020-01-01' node tools/security/exceptions.mjs --root "$F/exceptions/expired"
+          refuses 'must name its rule and give a reason' node tools/security/exceptions.mjs --root "$F/exceptions/blanket-suppression"
+          refuses 'CKV_DOCKER_2 has no reason' node tools/security/exceptions.mjs --root "$F/exceptions/checkov-no-reason"
+          refuses 'missing owner' node tools/security/exceptions.mjs --root "$F/exceptions/license-no-owner"
+          echo "Every gate blocked on its fixture, for its intended finding." | tee -a "$GITHUB_STEP_SUMMARY"
+
+  # Spec 0024 G7: CodeQL with no upload, so the job keeps CI's read-only token (spec 0013 CS12). The SARIF is decided
+  # on here, kept as a run artifact, and its proof runs the same CLI on a fixture database.
+  codeql:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { persist-credentials: false }
+      - uses: github/codeql-action/init@24c54180a607b1449ed407dd24f251e4e9147c8d # v4.38.3
+        id: codeql
+        with:
+          languages: javascript-typescript
+          build-mode: none
+          config-file: .github/codeql/codeql-config.yml
+      - uses: github/codeql-action/analyze@24c54180a607b1449ed407dd24f251e4e9147c8d # v4.38.3
+        with:
+          upload: never
+          output: codeql-results
+          category: univarse
+      - name: Decide on the SARIF (spec 0024 G3)
+        run: node tools/security/gates.mjs codeql codeql-results/javascript.sarif 2>&1 | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Proof, CodeQL blocks on a command injection (spec 0024 G8)
+        env:
+          CODEQL: ${{ steps.codeql.outputs.codeql-path }}
+        run: |
+          "$CODEQL" database create proof-db --language=javascript --build-mode=none --source-root tools/security/fixtures/codeql
+          "$CODEQL" database analyze proof-db codeql/javascript-queries:codeql-suites/javascript-security-extended.qls --format=sarif-latest --output=proof.sarif
+          node tools/security/gates.mjs codeql proof.sarif --expect js/command-line-injection
+      - if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: codeql-sarif
+          path: codeql-results/
+          retention-days: 30
 
   build-test:
     runs-on: ubuntu-24.04

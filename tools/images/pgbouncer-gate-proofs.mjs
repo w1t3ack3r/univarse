@@ -289,7 +289,7 @@ export async function proveAll({
         return failedFor(
           r,
           new RegExp(
-            `^PgBouncer ${VULNERABLE.version.replace(/\./g, '\\.')}: ${VULNERABLE.expectCve} is (High|Critical) \\(blocking`,
+            `^PgBouncer ${VULNERABLE.version.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}: ${VULNERABLE.expectCve} is (High|Critical) \\(blocking`,
           ),
         );
       },

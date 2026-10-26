@@ -1,6 +1,7 @@
 {
   "name": "univarse",
   "private": true,
+  "license": "UNLICENSED",
   "packageManager": "pnpm@10.34.6",
   "engines": {
     "node": ">=24 <25"

@@ -1,7 +1,7 @@
 // Spec 0020 PR B1: the backup's real steps (backup.ts orders them). Secrets reach containers only through env files
 // and `-e NAME`; nothing here prints one, and every artifact is sealed before it touches the disk.
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { GetObjectCommand, ListObjectsV2Command } from '@aws-sdk/client-s3';
 import { restrictDirToOwner } from '../../../../packages/db/scripts/pgbouncer-config.js';
@@ -32,10 +32,16 @@ const CLEAN_BUCKET = 'uv-clean';
 /** A backup during a destruction waits for it, as a deploy does (a destroy holds the ledger lock a minute or two). */
 const LEDGER_WAIT_MS = 10 * 60_000;
 
-/** A file, or every file under a directory, named relative to `root`; nothing when it doesn't exist. */
+/** A file, or every file under a directory, named relative to `root`; nothing when it doesn't exist. Each path is
+ * opened directly, never checked first, so nothing can change between a check and the read. */
 function readTree(root: string, path: string): TarEntry[] {
-  if (!existsSync(path)) return [];
-  if (statSync(path).isFile()) return [{ name: relative(root, path).split('\\').join('/'), data: readFileSync(path) }];
+  try {
+    return [{ name: relative(root, path).split('\\').join('/'), data: readFileSync(path) }];
+  } catch (e) {
+    const code = (e as NodeJS.ErrnoException).code;
+    if (code === 'ENOENT') return [];
+    if (code !== 'EISDIR') throw e;
+  }
   return readdirSync(path, { withFileTypes: true })
     .sort((a, b) => a.name.localeCompare(b.name))
     .flatMap((e) => (e.isDirectory() || e.isFile() ? readTree(root, join(path, e.name)) : []));

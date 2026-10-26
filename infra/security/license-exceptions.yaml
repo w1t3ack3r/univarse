@@ -1,0 +1,37 @@
+# Spec 0024 G4/G6: production dependencies outside the license allowlist (tools/security/licenses.mjs), each with the
+# evidence for shipping it in a proprietary, hosted product. Checked by tools/security/exceptions.mjs: every field is
+# required, and a license exception expires within 365 days, so each is reviewed at least yearly.
+- id: LIC-sharp
+  packages: ['@img/sharp-win32-x64', '@img/sharp-libvips-linux-x64', '@img/sharp-libvips-linuxmusl-x64']
+  licenses: ['Apache-2.0 AND LGPL-3.0-or-later', 'LGPL-3.0-or-later']
+  statement: >-
+    libvips, inside Next.js's optional image optimiser (next → sharp). LGPL-3.0, dynamically loaded, unmodified. The
+    LGPL's obligations attach to distribution; UniVarse is hosted and distributes no binary to anyone, and the web
+    image's own code doesn't link it statically.
+  owner: samuel
+  expired_at: 2027-10-26
+- id: LIC-elkjs
+  packages: ['elkjs']
+  licenses: ['EPL-2.0']
+  statement: >-
+    A graph-layout library in Prisma Studio (prisma → @prisma/studio-core), shipped only as part of the Prisma CLI in
+    the migrate image, never in the app's request path. EPL-2.0 is weak, file-level copyleft: only modifications to its
+    own files would have to be published, and it is used unmodified.
+  owner: samuel
+  expired_at: 2027-10-26
+- id: LIC-caniuse-lite
+  packages: ['caniuse-lite']
+  licenses: ['CC-BY-4.0']
+  statement: >-
+    Browser-support data (next → caniuse-lite), not code. CC-BY-4.0 requires attribution, which travels with the
+    package's own license file.
+  owner: samuel
+  expired_at: 2027-10-26
+- id: LIC-poppins
+  packages: ['@fontsource/poppins']
+  licenses: ['OFL-1.1']
+  statement: >-
+    The brand font, Poppins, in the web app. The SIL Open Font License allows bundling and embedding the font with
+    software, including commercial software; it forbids only selling the font on its own.
+  owner: samuel
+  expired_at: 2027-10-26

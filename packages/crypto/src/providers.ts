@@ -1,6 +1,7 @@
 // KEK providers (spec 0006 E3, ADR-023). The KEK never leaves the provider; callers see only wrapped
 // strings. The wrap context binds a wrapped DEK to its tenant and version (E2).
 import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
+import { TAG_BYTES } from './cipher.js';
 
 /**
  * Raised when a DEK can't be wrapped or unwrapped (fail closed, E6). `detail` is for operators only:
@@ -190,7 +191,7 @@ export class LocalKeyProvider implements KeyProvider {
 
   wrap(dek: Uint8Array, context: string): Promise<string> {
     const iv = randomBytes(12);
-    const c = createCipheriv('aes-256-gcm', this.kek, iv);
+    const c = createCipheriv('aes-256-gcm', this.kek, iv, { authTagLength: TAG_BYTES });
     c.setAAD(Buffer.from(context, 'utf8'));
     const ct = Buffer.concat([c.update(dek), c.final()]);
     return Promise.resolve(['local', iv.toString('base64url'), ct.toString('base64url'), c.getAuthTag().toString('base64url')].join(':'));
@@ -200,7 +201,7 @@ export class LocalKeyProvider implements KeyProvider {
     try {
       const [tag0, iv, ct, tag] = wrapped.split(':');
       if (tag0 !== 'local' || !iv || !ct || !tag) throw new Error('format');
-      const d = createDecipheriv('aes-256-gcm', this.kek, Buffer.from(iv, 'base64url'));
+      const d = createDecipheriv('aes-256-gcm', this.kek, Buffer.from(iv, 'base64url'), { authTagLength: TAG_BYTES });
       d.setAAD(Buffer.from(context, 'utf8'));
       d.setAuthTag(Buffer.from(tag, 'base64url'));
       return Promise.resolve(Buffer.concat([d.update(Buffer.from(ct, 'base64url')), d.final()]));
