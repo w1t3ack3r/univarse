@@ -4,7 +4,7 @@
 // into `<scratch>/<destination id>/`; recovery then runs with a LedgerFs that maps each real destination's path to
 // its copy. Any write that maps to no scratch copy is refused, so a path left unmapped can never reach a real
 // destination: it fails the rehearsal instead.
-import { join, relative, resolve, sep } from 'node:path';
+import { join, posix, win32 } from 'node:path';
 import { readTree } from '../backup/ledger-snapshot.js';
 import type { Destination } from '../ledger/chain.js';
 import { establishAuthority } from '../ledger/ledger.js';
@@ -17,15 +17,17 @@ export interface PathMap {
 
 /** `p` mapped through the first root it is (or is under), compared as `canonical()` compares on Windows; or null. */
 export function mapPath(p: string, map: readonly PathMap[], platform: NodeJS.Platform = process.platform): string | null {
+  // The platform's own path rules, not the host's: a Windows path is resolved as Windows resolves it, wherever this runs.
+  const path = platform === 'win32' ? win32 : posix;
   const norm = (x: string) => {
-    const r = resolve(x);
+    const r = path.resolve(x);
     return platform === 'win32' ? r.toLowerCase() : r;
   };
   const target = norm(p);
   for (const m of map) {
     const root = norm(m.from);
     if (target === root) return m.to;
-    if (target.startsWith(root.endsWith(sep) ? root : root + sep)) return join(m.to, relative(root, target));
+    if (target.startsWith(root.endsWith(path.sep) ? root : root + path.sep)) return path.join(m.to, path.relative(root, target));
   }
   return null;
 }
