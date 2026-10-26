@@ -522,7 +522,7 @@ PR B2 (the rehearsed restore and the shred drill) remains. The evidence is in th
 - **Each scanner blocks on the whole tree, not only on new findings** (G2), from a triaged baseline. Thresholds (G3): Semgrep `ERROR`; CodeQL `security-extended` errors and warnings; any osv-scanner vulnerability; a production license outside the allowlist; any failed Checkov check. Everything below is printed, never hidden.
 - **One exceptions discipline** (G4), checked before any scan by `tools/security/exceptions.mjs`:
   - file-based exceptions record their evidence and owner, and expire: 30 days for a vulnerability, 365 for a license;
-  - an inline suppression names its rule and gives its reason, beside the code it covers;
+  - an inline suppression names its rule and gives its reason, beside the code it covers (`nosemgrep`, `checkov:skip`, and `codeql[<rule>]` on the line above a CodeQL result);
   - a blanket suppression, or one without a reason, is refused;
   - every active exception is printed on every run.
 - **Pinned engines, fresh rules** (G5): images by digest, the osv-scanner binary by checksum, `codeql-action` by SHA; Semgrep's rule packs are fetched each run.

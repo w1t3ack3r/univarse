@@ -1,6 +1,6 @@
 // E2E fixtures: real API + DB (spec 0005 W10). Users are created per run with known credentials.
 // Helpers come from the API source so hashing and TOTP match the server exactly.
-import { createHmac, randomBytes } from 'node:crypto';
+import { createHmac, randomBytes, randomInt } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { createPlatformClient, createTenantShardClient, forTenant } from '@univarse/db';
 import type { Page } from '@playwright/test';
@@ -141,7 +141,7 @@ const randomBase32 = (n: number) => [...randomBytes(n)].map((b) => B32[b % 32]).
  * edge are both on loopback, which the API trusts. In production the edge's peer is the real client, so
  * a client-supplied X-Forwarded-For is never believed. The API integration tests do the same.
  */
-export const randomClientIp = (): string => `10.${randomBytes(1)[0]!}.${randomBytes(1)[0]!}.${1 + (randomBytes(1)[0]! % 254)}`;
+export const randomClientIp = (): string => `10.${String(randomInt(256))}.${String(randomInt(256))}.${String(randomInt(1, 255))}`;
 
 /** A current code for a setup key as shown on screen (spaces ignored). */
 export const totpFromKey = (key: string): string => hotp(base32Decode(key.replace(/\s+/g, '')), timeStep(Date.now()));

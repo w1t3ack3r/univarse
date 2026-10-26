@@ -7,11 +7,22 @@
 //      kept token back to its full period (spec 0023 T7: a valid one used to die 32 days after issue),
 //      and (dev/CI only) the operator key-admin token VAULT_ADMIN_TOKEN for the `keys` CLI and tests.
 // Never prints a secret.
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
+
+/** A file's text, or null when it doesn't exist: read directly, never checked first (no check-then-use race). */
+function readIfExists(p) {
+  try {
+    return readFileSync(p, 'utf8');
+  } catch (e) {
+    if (e.code === 'ENOENT') return null;
+    throw e;
+  }
+}
+
 
 const envPath = new URL('../.env', import.meta.url);
 const keyFile = new URL('../.vault-dev.json', import.meta.url);
-const env = existsSync(envPath) ? readFileSync(envPath, 'utf8') : '';
+const env = readIfExists(envPath) ?? '';
 const envVal = (k) => (env.match(new RegExp(`^${k}=(.*)$`, 'm')) ?? [])[1];
 
 const ADDR = process.env.VAULT_ADDR ?? envVal('VAULT_ADDR') ?? 'http://127.0.0.1:8200';
@@ -46,7 +57,8 @@ async function waitForVault() {
 async function rootToken() {
   if (process.env.VAULT_ROOT_TOKEN) return process.env.VAULT_ROOT_TOKEN; // CI dev mode
   const init = await vault('GET', 'sys/init');
-  let keys = existsSync(keyFile) ? JSON.parse(readFileSync(keyFile, 'utf8')) : null;
+  const saved = readIfExists(keyFile);
+  let keys = saved === null ? null : JSON.parse(saved);
   if (!init.initialized) {
     const out = await vault('PUT', 'sys/init', { body: { secret_shares: 1, secret_threshold: 1 } });
     keys = { unsealKey: out.keys_base64[0], rootToken: out.root_token };

@@ -4,6 +4,7 @@
 // Without --expect, exits 1 when anything blocks. With --expect (the proofs), exits 0 only when the gate blocks AND
 // the expected finding is among the blockers: a gate that fails for another reason, or passes, is a failed proof.
 import { readFileSync } from 'node:fs';
+import { resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 /** One blocking or reported finding: its id, where, and what. */
@@ -50,8 +51,31 @@ export function checkovGate(report) {
   return { blocking, reported, scanned: null };
 }
 
-/** CodeQL SARIF: `error` and `warning` results block (security-extended), `note` is reported. A result's own level, else its rule's. */
-export function codeqlGate(sarif) {
+const CODEQL_SUPPRESS = /\bcodeql\[([^\]]*)\](.*)$/;
+const CODEQL_RULE = /^[a-z]+\/[\w./-]+$/;
+const MIN_REASON = 12;
+
+/**
+ * CodeQL's own inline form, `// codeql[<rule-id>]: <reason>`, on the line above the result it covers (spec 0024 G4).
+ * Null when the line has none; else its rule and reason, or its problem. The gate honours only a valid one, and
+ * tools/security/exceptions.mjs refuses an invalid one before any scan.
+ */
+export function codeqlSuppression(line) {
+  const m = CODEQL_SUPPRESS.exec(String(line ?? ''));
+  if (!m) return null;
+  const rule = m[1].trim();
+  const reason = m[2].replace(/^:\s*/, '').trim();
+  if (!CODEQL_RULE.test(rule)) return { problem: 'codeql[…] must name one query (codeql[js/rule-id]: <reason>)' };
+  if (!m[2].startsWith(':') || reason.length < MIN_REASON) return { problem: `codeql[${rule}] has no reason` };
+  return { rule, reason };
+}
+
+/**
+ * CodeQL SARIF: `error` and `warning` results block (security-extended), `note` is reported. A result's own level,
+ * else its rule's. `lineAbove(uri, line)` gives the source line above a result: a valid `codeql[<that rule>]`
+ * suppression there turns it into a reported exception, with its reason.
+ */
+export function codeqlGate(sarif, lineAbove = () => '') {
   const blocking = [];
   const reported = [];
   for (const run of sarif?.runs ?? []) {
@@ -61,8 +85,12 @@ export function codeqlGate(sarif) {
     for (const res of run.results ?? []) {
       const level = res.level ?? rules.get(res.ruleId)?.defaultConfiguration?.level ?? 'warning';
       const loc = res.locations?.[0]?.physicalLocation;
-      const x = f(res.ruleId, `${loc?.artifactLocation?.uri ?? '?'}:${String(loc?.region?.startLine ?? '?')}`, res.message?.text);
-      (level === 'error' || level === 'warning' ? blocking : reported).push(x);
+      const uri = loc?.artifactLocation?.uri;
+      const line = loc?.region?.startLine;
+      const where = `${uri ?? '?'}:${String(line ?? '?')}`;
+      const s = uri && line ? codeqlSuppression(lineAbove(uri, line)) : null;
+      if (s?.rule === res.ruleId) reported.push(f(`${res.ruleId} (suppressed)`, where, s.reason));
+      else (level === 'error' || level === 'warning' ? blocking : reported).push(f(res.ruleId, where, res.message?.text));
     }
   }
   return { blocking, reported, scanned: null };
@@ -100,7 +128,22 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
     console.error(`${kind}: the report ${file} can't be read (${e.message}): the scan did not complete`);
     process.exit(1);
   }
-  const d = decide(kind, gate(report), expect);
+  // CodeQL's URIs are relative to the checkout (the working directory); a line outside it is never read.
+  const root = resolve('.');
+  const files = new Map();
+  const lineAbove = (uri, line) => {
+    const p = resolve(root, decodeURIComponent(String(uri)));
+    if (p !== root && !p.startsWith(root + sep)) return '';
+    if (!files.has(p)) {
+      try {
+        files.set(p, readFileSync(p, 'utf8').split(/\r?\n/));
+      } catch {
+        files.set(p, []);
+      }
+    }
+    return files.get(p)[line - 2] ?? '';
+  };
+  const d = decide(kind, kind === 'codeql' ? codeqlGate(report, lineAbove) : gate(report), expect);
   for (const l of d.lines) (l.includes('BLOCK') || l.includes('FAILED') ? console.error : console.log)(l);
   process.exit(d.ok ? 0 : 1);
 }

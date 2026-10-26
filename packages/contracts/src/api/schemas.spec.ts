@@ -10,7 +10,7 @@ const read = (path: string) => readFileSync(new URL(path, root), 'utf8');
 describe('[OA1] one zod version across the workspace', () => {
   it('[OA1] the lockfile resolves exactly one zod, the catalog version', () => {
     const resolved = [...read('pnpm-lock.yaml').matchAll(/^ {2}zod@([^:(\s]+):/gm)].map((m) => m[1]);
-    const catalog = /^catalog:\s*\n(?:\s+.*\n)*?\s+zod:\s*(\S+)/m.exec(read('pnpm-workspace.yaml'))?.[1];
+    const catalog = /^catalog:[ \t]*\n(?:[ \t]+.*\n)*?[ \t]+zod:[ \t]*(\S+)/m.exec(read('pnpm-workspace.yaml'))?.[1];
     expect(new Set(resolved)).toEqual(new Set([catalog]));
   });
 

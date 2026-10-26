@@ -17,7 +17,12 @@ const WARN = 2;
 /** The `## API breaking changes` section's text, or null when the description has none. */
 export function ackSection(body) {
   // HTML comments don't count: the PR template's commented-out example must never acknowledge anything.
-  const visible = (body ?? '').replace(/<!--[\s\S]*?-->/g, '');
+  // Repeated until nothing changes, so a comment split around another (`<!-<!-- -->- -->`) can't survive one pass.
+  let visible = body ?? '';
+  for (let prev = ''; prev !== visible; ) {
+    prev = visible;
+    visible = visible.replace(/<!--[\s\S]*?-->/g, '');
+  }
   const lines = visible.replace(/\r\n/g, '\n').split('\n');
   const start = lines.findIndex((l) => /^##\s+API breaking changes\s*$/i.test(l.trim()));
   if (start === -1) return null;
@@ -52,7 +57,7 @@ export function evaluate(changes, body) {
 
 /** Markdown for the job summary: every breaking change and warning, then the verdict. */
 export function summary(result) {
-  const rows = (list) => list.map((c) => `| ${c.level >= ERR ? 'breaking' : 'warning'} | \`${opKey(c)}\` | ${c.text.replace(/\|/g, '\\|')} |`).join('\n');
+  const rows = (list) => list.map((c) => `| ${c.level >= ERR ? 'breaking' : 'warning'} | \`${opKey(c)}\` | ${c.text.replace(/\\/g, '\\\\').replace(/\|/g, '\\|')} |`).join('\n');
   const out = ['## API contract changes (oasdiff, against the PR base)', ''];
   if (result.breaking.length + result.warnings.length === 0) out.push('No breaking changes and no warnings.');
   else out.push('| Level | Operation | Change |', '|---|---|---|', rows([...result.breaking, ...result.warnings]));

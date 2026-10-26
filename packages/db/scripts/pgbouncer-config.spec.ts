@@ -499,10 +499,12 @@ describe("[PB9] the auth file is written fresh, owner-only, and swapped in atomi
             writeOwnerOnly(file, 'NEW-CONTENT\n');
           }).toThrow(/EPERM/);
           expect(readHeld(held)).toBe('OLD-CONTENT\n');
+          // codeql[js/file-system-race]: the race is the test: it proves a reader holding the old file never sees the new verifiers
           expect(readFileSync(file, 'utf8')).toBe('OLD-CONTENT\n'); // untouched: replaced only once nothing holds it
         } else {
           writeOwnerOnly(file, 'NEW-CONTENT\n');
           expect(readHeld(held)).toBe('OLD-CONTENT\n'); // the old inode, not the new verifiers
+          // codeql[js/file-system-race]: the race is the test: it proves a reader holding the old file never sees the new verifiers
           expect(readFileSync(file, 'utf8')).toBe('NEW-CONTENT\n');
         }
       } finally {
@@ -510,6 +512,7 @@ describe("[PB9] the auth file is written fresh, owner-only, and swapped in atomi
       }
       if (process.platform === 'win32') {
         writeOwnerOnly(file, 'NEW-CONTENT\n'); // with the reader gone, the swap goes through
+        // codeql[js/file-system-race]: the race is the test: it proves a reader holding the old file never sees the new verifiers
         expect(readFileSync(file, 'utf8')).toBe('NEW-CONTENT\n');
       }
       expect(ownerOnlyProblems(file)).toEqual([]);

@@ -67,7 +67,7 @@ flowchart LR
   - **Each gate blocks on the whole tree, not only on new findings.** An exception is one of three kinds, checked by `tools/security/exceptions.mjs` before any scan:
     - in `osv-scanner.toml`, expiring within 30 days;
     - in `infra/security/license-exceptions.yaml`, expiring within 365 days;
-    - inline, naming its rule and giving its reason.
+    - inline, naming its rule and giving its reason (`nosemgrep: <rule> -- <reason>`, `checkov:skip=<id>: <reason>`, and `codeql[<rule>]: <reason>` on the line above a CodeQL result).
   - **Every active exception is printed on every run.**
 - **CI security:**
   - Actions pinned by commit SHA

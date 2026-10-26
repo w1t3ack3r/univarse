@@ -19,6 +19,8 @@ export default tseslint.config(
       '**/next-env.d.ts',
       '**/playwright-report/**',
       '**/test-results/**',
+      // Spec 0024 G8: deliberately bad inputs for the security gates' proofs, never shipped or run.
+      'tools/security/fixtures/**',
     ],
   },
   {

@@ -2,8 +2,9 @@
 //   • osv-scanner.toml [[IgnoredVulns]]: an id, a reason (the evidence), and an ignoreUntil at most 30 days ahead;
 //   • infra/security/license-exceptions.yaml: an id, packages, licenses, a statement, an owner, and an expired_at at
 //     most 365 days ahead (a license doesn't change; it is still reviewed yearly);
-//   • inline, in the code it covers: `nosemgrep: <rule-id> -- <reason>` and `checkov:skip=<ID>: <reason>`. A bare
-//     `nosemgrep` (every rule) or a suppression without a reason is refused;
+//   • inline, in the code it covers: `nosemgrep: <rule-id> -- <reason>`, `checkov:skip=<ID>: <reason>` and, on the line
+//     above a CodeQL result, `codeql[<rule-id>]: <reason>`. A bare `nosemgrep` (every rule) or a suppression without
+//     a reason is refused;
 //   • the CodeQL config's query-filters: each `- exclude:` has a `# reason:` comment on the line above it.
 // A past expiry, one too far ahead, or a missing field fails. Every active exception is printed on every run, so an
 // exception is never silent.
@@ -14,6 +15,7 @@ import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import yaml from 'js-yaml';
+import { codeqlSuppression } from './gates.mjs';
 
 export const VULN_MAX_DAYS = 30;
 export const LICENSE_MAX_DAYS = 365;
@@ -101,6 +103,9 @@ export function inlineProblems(text, file) {
       else if (!c[2].startsWith(':') || reason.length < MIN_REASON) problems.push(`${at}: checkov:skip=${c[1]} has no reason`);
       else active.push(`checkov ${c[1]} at ${at}: ${reason}`);
     }
+    const q = codeqlSuppression(line);
+    if (q?.problem) problems.push(`${at}: ${q.problem}`);
+    else if (q) active.push(`codeql ${q.rule} at ${at}: ${q.reason}`);
   });
   return { problems, active };
 }

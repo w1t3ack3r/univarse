@@ -1,6 +1,6 @@
 # Spec 0024: CI security gates, and the local hooks
 
-**Status:** **Approved by the owner on 2026-10-25, all as written:** G1–G11 and H1–H3, with G12 decided (proprietary, stated by a `LICENSE`; CodeQL with no upload). **PR A built,** with 11 decisions made while building for the owner's approval (its implementation notes, below). PR B is next.
+**Status:** **Approved by the owner on 2026-10-25, all as written:** G1–G11 and H1–H3, with G12 decided (proprietary, stated by a `LICENSE`; CodeQL with no upload). **PR A built** (its implementation notes, below): decisions 1–11 made while building were approved by the owner on 2026-10-26, with the `LICENSE` holder's name confirmed; decision 12 awaits approval. PR B is next.
 **Phase:** 0. It closes the roadmap's rows "CI pipeline with all security scans" (🟡) and "lefthook, commitlint" (❌).
 **Builds on:**
 
@@ -130,7 +130,7 @@ Built as approved, G1 to G12's PR A part. It changes the API image (the GCM fix 
 | osv-scanner | 0 of 669 packages | — |
 | Licenses | 340 production packages; 4 outside the allowlist | **MIT-0** added to the allowlist; four exceptions (below).<br>**Dev-only, reported:** MPL-2.0 (`axe-core`, `lightningcss`), and `map-stream` with no license. |
 | Checkov | 8 Dockerfile findings; 416 workflow checks passed | `CKV_DOCKER_2` and `CKV_DOCKER_7` on the four Dockerfiles: inline skips, each with its reason. |
-| CodeQL | Not run here: CI's first run is the baseline | Recorded from that run, before the merge. |
+| CodeQL | 17 results in CI's first run (#115), all `security-extended` warnings and errors | **14 fixed:**<br>• `js/file-system-race` (7 of 10): a check, then a read or write of the same path, in `setup-local.ts`, `dev-secrets.mjs`, `vault-dev.mjs`, `deploy-deps.ts` (2), the backup's `readTree` and the route sweep. Each now reads directly and treats `ENOENT` as absent;<br>• `js/biased-cryptographic-random` (2, in tests): `randomInt`;<br>• `js/redos` (a test's regex): `[ \t]` for `\s`, so a newline can't be matched two ways;<br>• `js/incomplete-multi-character-sanitization`: the API-contract gate strips HTML comments until nothing changes, so `<!-<!-- -->- … -->` can't leave a hidden acknowledgement visible;<br>• `js/incomplete-sanitization` (2): the contract summary escapes backslashes before pipes, and the PgBouncer proof escapes every regex metacharacter of a version;<br>• `js/regex/missing-regexp-anchor`: only `_URL` is a suffix, now said plainly.<br>**3 suppressed inline** (decision 12): `js/file-system-race` in `pgbouncer-config.spec.ts`, where the race is what the test proves. |
 
 **After the fixes, run here:**
 - **Semgrep:** 0 blocking in 626 files. 4 reported: the three pnpm settings, and a Dependabot cooldown, now set (decision 10).
@@ -146,7 +146,7 @@ Without the option, Node accepts a tag as short as 4 bytes, so a forger has only
 - a genuine tag truncated to 4 bytes is refused, by the field cipher and by `LocalKeyProvider` (`crypto.spec.ts`);
 - a sealed private file with a truncated tag fails with `SealError` (`seal.spec.ts`).
 
-**Decisions made while building (for the owner's approval).**
+**Decisions made while building.** 1–11 were approved by the owner on 2026-10-26; 12 is for approval.
 
 1. **MIT-0 joins G6's allowlist.** It is MIT without the attribution clause, so it's more permissive than MIT.
 2. **Four license exceptions, each for 365 days** (`infra/security/license-exceptions.yaml`, not G6's `licenses.yaml`: the name says what it holds):
@@ -167,17 +167,19 @@ Without the option, Node accepts a tag as short as 4 bytes, so a forger has only
    - CodeQL proves `js/command-line-injection`;
    - osv proves `GHSA-35jh-r3h4-6jhm` (lodash 4.17.20).
 8. **The `codeql` job has `actions: read` beside `contents: read`:** `codeql-action` reads the workflow run to describe it. Both are read-only, and CS12 allows them.
-9. **The `LICENSE` names the holder as "Samuel Opemipo".** The owner confirms the name.
+9. **The `LICENSE` names the holder as "Samuel Opemipo".** Confirmed by the owner, 2026-10-26.
 10. **Dependabot waits 7 days** (`cooldown`) before proposing an action's new release, as Semgrep's baseline suggested. A compromised release is usually caught and pulled within days.
 11. **The Checkov gate also trusts the report's summary.** With `--quiet`, Checkov lists only the failed checks, so the gate blocks on a failure the summary counts but doesn't list, and on any file it couldn't parse. It reports the skips by count; the exceptions check lists each one with its reason.
+12. **CodeQL gets an inline suppression, like Semgrep's and Checkov's:** `// codeql[<rule-id>]: <reason>`, CodeQL's own syntax, on the line above the result. G4 gave CodeQL only `query-filters`, which drop a rule everywhere. The three results it covers are in a test that holds a file open while it's replaced, to prove a reader never sees the new verifiers: the race is the thing tested, and rewriting the test to dodge the rule would hide that. The gate honours only a valid suppression naming that result's rule; the exceptions check refuses one without a reason or without a single rule, and prints each (now 15 active). **For the owner's approval.**
 
 **Evidence.**
 
-- **`node --test tools/security/security.test.mjs`:** 16 of 16 pass. **25 of 25 mutations caught** (S1–S25): each threshold, each exception rule, the proofs' `--expect`, an unreadable report, the title's type, scope and separator, the Checkov summary's three counts, and `nosem` in either case.
+- **`node --test tools/security/security.test.mjs`:** 17 of 17 pass. **29 of 29 mutations caught** (S1–S29): each threshold, each exception rule, the proofs' `--expect`, an unreadable report, the title's type, scope and separator, the Checkov summary's three counts, `nosem` in either case, and the CodeQL suppression (its rule, its reason, and the gate honouring it).
 - **Each proof was run here** on its fixture, and fails for its finding: Semgrep, osv-scanner, Checkov (both), the licenses, and the four exceptions fixtures (an expired entry, a bare `nosemgrep`, a `checkov:skip` without a reason, a license exception without an owner).
 - **Each proof checks its failure's message,** not only its exit code: a crash also exits non-zero. Run here under CI's bash, with three wrong cases, each failing the proof: a missing fixture, the wrong fixture, and a clean tree.
 - **The osv fixture isn't named `pnpm-lock.yaml`,** so GitHub's dependency graph doesn't raise a real alert for its planted lodash. osv-scanner is told its format, and the proof passes here.
 - **The inline check reads `nosem` as well as `nosemgrep`, in any case,** as Semgrep does. A bare `// nosem` would otherwise have suppressed every rule unseen.
 - **The GCM tests:** 4 of 4 mutations caught (G1–G4).
 - **Unit, lint and typecheck:** `packages/crypto` 49 of 49, `tools/stack` 439 of 439 (1 skipped); `pnpm ci:policy` and its 9 tests pass.
-- **CI:** the PR's first run, recorded here before the merge.
+- **CodeQL's fixes:** `check-breaking.test.mjs` gains the split comment and the escaped backslash, each mutation-checked; the contracts, db, stack and tools tests pass, as do lint and typecheck.
+- **CI:** the PR's first run found CodeQL's 17 (above) and a lint error: the root `eslint tools` read the proof fixtures, which are now ignored.

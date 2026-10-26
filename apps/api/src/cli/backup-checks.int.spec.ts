@@ -3,7 +3,7 @@
  * drill's tenant, and the facts and checks a backup and a restore rehearsal run. The suites share one database, so
  * every assertion looks at this file's own tenants only.
  */
-import { randomBytes, randomUUID } from 'node:crypto';
+import { randomBytes, randomInt, randomUUID } from 'node:crypto';
 import type { INestApplicationContext } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { destroyTenantKeys, FieldCrypto, keyProviderFrom, provisionTenantKey, TenantKeyring, type KeyProvider } from '@univarse/crypto';
@@ -22,7 +22,7 @@ let shards: ShardRegistry;
 let provider: KeyProvider;
 let crypto: FieldCrypto;
 // A date no other run uses (the day field is random): each drill gets a fresh tenant.
-const drill = `shred-drill-2${String(randomBytes(4).readUInt32BE() % 10_000_000).padStart(7, '0')}`;
+const drill = `shred-drill-2${String(randomInt(10_000_000)).padStart(7, '0')}`;
 let drillId = '';
 let other: { id: string; slug: string; shardId: string };
 

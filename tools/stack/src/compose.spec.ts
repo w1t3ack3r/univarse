@@ -174,7 +174,7 @@ function secretShaped(text: string, known: readonly string[] = KNOWN_SETTING_NAM
 
 describe('[LS9] no secret in the compose file', () => {
   it('[LS9] with the env files empty, no service is given a secret-named variable, and the file holds no secret-shaped literal', () => {
-    const secretName = /PASSWORD|SECRET|TOKEN|PEPPER|VERIFIER|ACCESS_KEY|_URL$/;
+    const secretName = { test: (k: string) => /PASSWORD|SECRET|TOKEN|PEPPER|VERIFIER|ACCESS_KEY/.test(k) || k.endsWith('_URL') };
     for (const [name, s] of Object.entries(config.services as Record<string, { environment?: Record<string, string | null> }>))
       expect([name, Object.keys(s.environment ?? {}).filter((k) => secretName.test(k))]).toEqual([name, []]);
     // Image digests are the only long hex in the file; nothing base64-shaped at all.

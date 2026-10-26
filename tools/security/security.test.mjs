@@ -76,6 +76,11 @@ describe('[G4] exceptions', () => {
     assert.match(inlineProblems('# checkov:skip=CKV_DOCKER_2', 'Dockerfile').problems.join(), /has no reason/);
     assert.match(inlineProblems('# checkov:skip=all: everything at once please', 'Dockerfile').problems.join(), /must name one check/);
     assert.equal(inlineProblems('# checkov:skip=CKV_DOCKER_2: distroless, checked from outside', 'Dockerfile').active.length, 1);
+    assert.deepEqual(inlineProblems('// codeql[js/file-system-race]: the race is what this test proves', 'a.ts').problems, []);
+    assert.equal(inlineProblems('// codeql[js/file-system-race]: the race is what this test proves', 'a.ts').active.length, 1);
+    assert.match(inlineProblems('// codeql[js/file-system-race]', 'a.ts').problems.join(), /has no reason/);
+    assert.match(inlineProblems('// codeql[js/x]: short', 'a.ts').problems.join(), /has no reason/);
+    assert.match(inlineProblems('// codeql[]: every query, for a long enough reason', 'a.ts').problems.join(), /must name one query/);
   });
 
   it("a CodeQL query-filters exclude needs a reason on the line above", () => {
@@ -139,6 +144,16 @@ describe('[G3][G8] the gates', () => {
     const g = codeqlGate(sarif);
     assert.deepEqual(g.blocking.map((b) => b.id), ['js/command-line-injection', 'js/w']);
     assert.deepEqual(g.reported.map((r) => r.id), ['js/note']);
+  });
+
+  it('CodeQL: a valid codeql[<rule>] on the line above a result reports it instead; another rule, or no reason, does not', () => {
+    const at = (ruleId, startLine) => ({ ruleId, level: 'error', message: { text: 'm' }, locations: [{ physicalLocation: { artifactLocation: { uri: 't.ts' }, region: { startLine } } }] });
+    const lines = { 4: '  // codeql[js/file-system-race]: the race is what this test proves', 8: '  // codeql[js/other-rule]: a reason for another rule', 12: '  // codeql[js/file-system-race]' };
+    const sarif = { runs: [{ results: [at('js/file-system-race', 5), at('js/file-system-race', 9), at('js/file-system-race', 13), at('js/file-system-race', 20)] }] };
+    const g = codeqlGate(sarif, (uri, line) => (uri === 't.ts' ? (lines[line - 1] ?? '') : ''));
+    assert.deepEqual(g.reported.map((r) => `${r.id} ${r.where} ${r.what}`), ['js/file-system-race (suppressed) t.ts:5 the race is what this test proves']);
+    assert.deepEqual(g.blocking.map((b) => b.where), ['t.ts:9', 't.ts:13', 't.ts:20']);
+    assert.equal(codeqlGate(sarif).blocking.length, 4); // without the source, nothing is suppressed
   });
 
   it('a proof passes only when the gate blocks for the expected finding: not on a pass, not for another finding', () => {
