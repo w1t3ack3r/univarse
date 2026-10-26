@@ -1,23 +1,27 @@
-# Spec 0024 H1–H3: the local git hooks, installed by `pnpm install` (tools/hooks/install.mjs). They are a convenience:
-# `git commit --no-verify` still works, and CI is the gate. Prettier is left out until the repository is formatted (H3).
+# Spec 0024 H1–H3, as amended on 2026-10-26: the local git hooks, installed by `pnpm install` (tools/hooks/install.mjs).
+# They are a convenience: `--no-verify` still works, and CI is the gate. A commit stays within 10 seconds, so only the
+# fast checks run then, and the type-aware ones run before a push. Prettier is left out until the repository is
+# formatted (H3).
 pre-commit:
-  parallel: true
   commands:
-    # The staged files only, with the workspace's one ESLint config.
-    eslint:
-      glob: '*.{ts,tsx,mts,cts,js,mjs,cjs}'
-      run: pnpm exec eslint --no-warn-ignored {staged_files}
-    # The pinned, checksum-verified gitleaks from `pnpm tools:gitleaks`, as CI's.
+    # A secret is the one thing a later commit can't undo, so it's caught here. The pinned, checksum-verified gitleaks
+    # from `pnpm tools:gitleaks`, as CI's.
     gitleaks:
       run: node tools/hooks/gitleaks-staged.mjs
 
 commit-msg:
   commands:
-    commitlint:
-      run: pnpm exec commitlint --edit {1}
+    # G10, by the same code as CI's PR-title check.
+    conventional-commit:
+      run: node tools/hooks/commit-msg.mjs {1}
 
-# The type check moved here from pre-commit (H2): across the workspace it can't fit pre-commit's 10 seconds.
+# ESLint (typed) and the type check take 10 seconds or more each to start on the owner's machine, so they run here.
 pre-push:
+  parallel: true
   commands:
+    # The pushed files only, with the workspace's one ESLint config.
+    eslint:
+      glob: '*.{ts,tsx,mts,cts,js,mjs,cjs}'
+      run: node node_modules/eslint/bin/eslint.js --no-warn-ignored {push_files}
     typecheck:
       run: pnpm exec turbo run typecheck --affected

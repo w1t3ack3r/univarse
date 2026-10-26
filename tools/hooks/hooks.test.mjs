@@ -1,17 +1,10 @@
 // Spec 0024 H1–H2: the hooks' own logic (node --test tools/hooks/hooks.test.mjs). The hooks themselves are proved on a
 // fresh clone (the spec's implementation notes, GC8).
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
 import { describe, it } from 'node:test';
-import { fileURLToPath } from 'node:url';
-import { TYPES } from '../../commitlint.config.mjs';
+import { messageProblem } from './commit-msg.mjs';
 import { ASSETS, assetFor, VERSION, verified } from './gitleaks.mjs';
 import { skipReason } from './install.mjs';
-
-const ROOT = fileURLToPath(new URL('../../', import.meta.url));
-const CLI = fileURLToPath(new URL('../../node_modules/@commitlint/cli/cli.js', import.meta.url));
-/** commitlint's verdict on one message, as the commit-msg hook gives it. */
-const lint = (message) => spawnSync(process.execPath, [CLI], { cwd: ROOT, input: message, encoding: 'utf8' }).status;
 
 describe('[H1] installing the hooks', () => {
   const here = { env: {}, inGitCheckout: true, hasLefthook: true };
@@ -41,17 +34,17 @@ describe('[H2] the pinned gitleaks', () => {
   });
 });
 
-describe('[H2] the commit message (G10, as the PR title)', () => {
-  it("uses G10's types", () => {
-    assert.deepEqual(TYPES, ['feat', 'fix', 'docs', 'test', 'build', 'ci', 'chore', 'refactor', 'perf']);
-  });
-  it('accepts type(scope): description, a breaking-change mark, a long header and a body', () => {
-    assert.equal(lint('feat(results): amendments carry their reason\n'), 0);
-    assert.equal(lint('fix(api-client)!: the token moves to a cookie\n'), 0);
-    assert.equal(lint(`docs(stack): ${'a long subject, '.repeat(10).trimEnd()}\n\n${'a body line longer than a hundred characters, '.repeat(3)}\n`), 0);
+describe('[H2] the commit message, held to G10 by the PR-title check', () => {
+  it('accepts type(scope): description with a body, and skips git comment lines', () => {
+    assert.equal(messageProblem('feat(results): amendments carry their reason\n\nA body.\n'), null);
+    assert.equal(messageProblem('# Please enter the commit message\nfix(api-client)!: the token moves to a cookie\n'), null);
   });
   it('refuses no type, an unknown type, no scope, an uppercase scope, and no description', () => {
     for (const m of ['update stuff', 'wip(results): halfway', 'feat: no scope', 'feat(Results): upper', 'feat(results):'])
-      assert.notEqual(lint(`${m}\n`), 0, m);
+      assert.ok(messageProblem(`${m}\n`), m);
+  });
+  it("leaves git's own messages: merges, reverts and fixups", () => {
+    for (const m of ["Merge remote-tracking branch 'origin/main' into feat/x", "Merge branch 'main'", 'Revert "feat(x): y"', 'fixup! feat(x): y', 'squash! feat(x): y'])
+      assert.equal(messageProblem(`${m}\n`), null, m);
   });
 });
