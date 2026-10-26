@@ -232,7 +232,7 @@ Measured against that, `destroyTenantKeys` is the **first step** of erasure, not
 | Blind indexes for searchable encrypted fields (NIN) | The first searchable encrypted field (admissions/records) |
 | Two-person approval for crypto-shredding | Phase 1 console (offboarding workflow) |
 | Cross-instance key "forget" on shredding, so cached DEKs are dropped in seconds rather than ≤ 1 h | **Done: [spec 0015](0015-cache-isolation.md) CI5–CI7, CI9** |
-| Destruction ledger outside the platform DB, plus the restore runbook that re-applies it | Staging (backup and restore set-up), before any real-like data |
+| Destruction ledger outside the platform DB, plus the restore runbook that re-applies it | **Local stack: built** ([spec 0020](0020-local-backups-and-shred-ledger.md)): the ledger (PR A), and the rehearsed restore and the shred drill (B2b), whose record in `docs/ops/drills/` is the evidence. Staging and production: with their backup set-up, before any real-like data |
 | Shorter erasure boundary than 12 months (key DB with short retention, or per-tenant KEKs), or disclose it in the DPA | Before the first tenant offboarding, and before GA contracts |
 | Per-tenant export job excludes `tenant_data_key` (test) | With the per-tenant export job |
 | Host hardening against DEKs leaving memory (no core dumps, swap off or encrypted, no heap snapshots) | Staging (SG7) |
