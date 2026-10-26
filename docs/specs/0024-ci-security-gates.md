@@ -1,6 +1,6 @@
 # Spec 0024: CI security gates, and the local hooks
 
-**Status:** **Approved by the owner on 2026-10-25, all as written:** G1–G11 and H1–H3, with G12 decided (proprietary, stated by a `LICENSE`; CodeQL with no upload). Nothing built yet.
+**Status:** **Approved by the owner on 2026-10-25, all as written:** G1–G11 and H1–H3, with G12 decided (proprietary, stated by a `LICENSE`; CodeQL with no upload). **PR A built,** with 11 decisions made while building for the owner's approval (its implementation notes, below). PR B is next.
 **Phase:** 0. It closes the roadmap's rows "CI pipeline with all security scans" (🟡) and "lefthook, commitlint" (❌).
 **Builds on:**
 
@@ -41,7 +41,7 @@ Locally, no hook runs at all, and Conventional Commits are followed by hand. Squ
 | G3 | **Thresholds.** Below the threshold, findings are printed in the job summary, never hidden:<br>• **Semgrep:** `ERROR` severity blocks; `WARNING` is reported;<br>• **CodeQL:** `error` and `warning` results of the `security-extended` suite block; notes are reported;<br>• **osv-scanner:** any known vulnerability blocks, of any severity: OSV gives no reliable severity for every entry, and a vulnerable lockfile entry is cheap to fix or to except;<br>• **the license check:** a production dependency outside the allowlist blocks (G6); development-only dependencies are reported;<br>• **Checkov:** any failed check blocks. | Strict where it's cheap: osv and Checkov findings are usually a one-line bump or setting. Semgrep and CodeQL's lower severities are noisy by design. Alternative: block on high and critical only everywhere. Rejected for osv, because `pnpm audit` already does that. |
 | G4 | **Exceptions, one rule for all five, like CS7's:**<br>• each exception records its id, the finding, a statement (the evidence, not an opinion), an owner and an expiry at most 30 days ahead (365 for a license, which doesn't change);<br>• a check runs before the scans, and fails on a missing field or a past expiry;<br>• every active exception is printed on every run;<br>• the forms are each tool's own: `osv-scanner.toml` `[[IgnoredVulns]]` (with `ignoreUntil` and `reason`); `// nosemgrep: <rule> -- <reason>`; `# checkov:skip=<id>: <reason>`; a CodeQL `query-filters` entry with a comment; the license file below.<br>The check refuses an inline suppression without a reason, and a blanket one (a bare `nosemgrep`, a skipped framework). | One discipline, so an exception is always findable and always dies. Alternative: suppress freely in code. Rejected: that's how findings rot. |
 | G5 | **Supply chain of the scanners themselves:**<br>• **osv-scanner:** its release binary, checksum-verified, as gitleaks and Trivy are;<br>• **Semgrep and Checkov:** their official images, pinned by digest;<br>• **CodeQL:** `github/codeql-action`, pinned by SHA (it bundles its CLI);<br>• every version is recorded in the workflow, and bumped by PR.<br>Semgrep's registry rule packs (`p/typescript`, `p/nodejs`, `p/owasp-top-ten`, `p/github-actions`, `p/dockerfile`) are fetched fresh each run, with metrics off, as Trivy's database is. | Pinned engines, fresh rules: a gate that never learns new rules is false comfort, and a pinned engine keeps a run reproducible enough. Alternative: vendor the rules into the repository. Rejected: it's a snapshot that ages silently. |
-| G6 | **The license policy.** These licenses are **allowed for production dependencies:** MIT, ISC, BSD-2-Clause, BSD-3-Clause, Apache-2.0, 0BSD, Unlicense, CC0-1.0, BlueOak-1.0.0, Python-2.0 and Zlib.<br>**Refused:** GPL, AGPL, LGPL (for now), SSPL, BUSL, the Commons Clause, "UNLICENSED" and unknown.<br>The check reads `pnpm licenses list --prod --json` (pnpm's own command, no new dependency) for each app and package that ships. Its exceptions live in `infra/security/licenses.yaml`. | This is for **a proprietary, hosted product**: AGPL and SSPL would require releasing our own source, and GPL constrains distribution. **This depends on the owner's licensing intent: see G12.** Alternative: a third-party license checker. Rejected: pnpm's command already resolves the workspace's real graph. |
+| G6 | **The license policy.** These licenses are **allowed for production dependencies:** MIT, ISC, BSD-2-Clause, BSD-3-Clause, Apache-2.0, 0BSD, Unlicense, CC0-1.0, BlueOak-1.0.0, Python-2.0 and Zlib.<br>**Refused:** GPL, AGPL, LGPL (for now), SSPL, BUSL, the Commons Clause, "UNLICENSED" and unknown.<br>The check reads `pnpm licenses list --prod --json` (pnpm's own command, no new dependency) for each app and package that ships. Its exceptions live in `infra/security/license-exceptions.yaml`. | This is for **a proprietary, hosted product**: AGPL and SSPL would require releasing our own source, and GPL constrains distribution. **This depends on the owner's licensing intent: see G12.** Alternative: a third-party license checker. Rejected: pnpm's command already resolves the workspace's real graph. |
 | G7 | **CodeQL runs read-only, with no upload.** `github/codeql-action` with `upload: never`, and the SARIF it writes is checked by our script (G3), so the job keeps `contents: read`, as CS12 requires. The results are attached to the run as an artifact. | Uploading to GitHub's code scanning needs `security-events: write`, which CS12 bans where PR code runs, for good reason. Alternative: allow that one permission on that one job, and amend CS12. That brings the "Security" tab's UI, and can come later as the owner's decision. |
 | G8 | **Proofs, CS13's way.** Each gate must fail for its intended reason, with fixtures that never ship, in `tools/security/fixtures/`:<br>• **Semgrep:** a planted `eval` of request input;<br>• **osv-scanner:** a fixture lockfile with a known-vulnerable version;<br>• **the license check:** a fixture package with an AGPL license;<br>• **Checkov:** a Dockerfile running as root, and a workflow with `${{ github.event.pull_request.title }}` in `run:`;<br>• **CodeQL:** a tiny fixture database with a command injection;<br>• **the exceptions check:** an expired entry, and a reason missing.<br>The fast ones run every time; CodeQL's in its own job. | Without proofs, a misconfigured scanner looks exactly like a clean tree. Alternative: trust each tool's exit code. Rejected after CS13 found gates that passed for the wrong reason. |
 | G9 | **Jobs and required checks.** Two new jobs:<br>• **`security-scans`:** the exceptions check first, then Semgrep, osv-scanner, the license check, Checkov and their proofs, and the PR-title check. In parallel with `build-test`, target under 5 minutes;<br>• **`codeql`:** in parallel, target under 15 minutes.<br>The owner adds both to `main`'s required checks. | Parallel jobs keep CI's critical path unchanged. Alternative: steps inside `build-test`, which is already about 20 minutes. Rejected. |
@@ -92,3 +92,91 @@ Locally, no hook runs at all, and Conventional Commits are followed by hand. Squ
 - DAST (ZAP) and the nightly jobs in docs/13 §3's `main` lane. Those come with a staging-like target, later.
 - Mutation testing in CI. Mutation checks stay a review practice, done per change.
 - Reformatting the repository (H3's own PR, if the owner approves it).
+
+## Implementation notes (PR A: the CI security gates)
+
+Built as approved, G1 to G12's PR A part. It changes the API image (the GCM fix below), so a release follows.
+
+**What runs where.**
+
+- **`tools/security/`, plain Node, with no new dependency (js-yaml was already in the workspace):**
+  - `exceptions.mjs` (G4): the exceptions check, run before any scan. It reads:
+    - `osv-scanner.toml`;
+    - `infra/security/license-exceptions.yaml`;
+    - the CodeQL config's `query-filters`;
+    - every inline `nosemgrep` and `checkov:skip` in the tracked code and config.
+    It prints every active exception.
+  - `gates.mjs` (G3, G8): one decision per scanner report, at G3's threshold. With `--expect <finding>` it becomes a proof: it passes only when the gate blocks, and blocks for that finding. An unreadable report fails.
+  - `licenses.mjs` (G6): `pnpm licenses list --prod` and `--dev`, with SPDX `AND`/`OR` expressions parsed. Production blocks; dev-only is reported.
+  - `pr-title.mjs` (G10): the title is read from the environment, never interpolated into a shell command. All 80 recent titles on `main` pass.
+  - `security.test.mjs`: 15 tests, run by `node --test` in the job.
+  - `fixtures/`: the proofs' inputs. They are never shipped, and are excluded from the real scans.
+- **`.github/workflows/ci.yml`, two new jobs** (G9), in parallel with `build-test`, read-only:
+  - **`security-scans`:** the PR title, the tests, the exceptions check, then Semgrep, osv-scanner, the licenses and Checkov, each on the whole tree, then every proof.
+  - **`codeql`:** `security-extended`, with `build-mode: none` and `upload: never`, then the gate on the SARIF, then the proof on its own fixture database. The SARIF is kept as a run artifact.
+- **Pinned (G5):**
+  - Semgrep 1.180.0 and Checkov (the 3.3.28 tag, whose CLI reports 3.3.27), by image digest;
+  - osv-scanner 2.7.0's release binary, by SHA-256;
+  - `github/codeql-action` v4.38.3, by commit SHA.
+- **`.github/codeql/codeql-config.yml`**, **`osv-scanner.toml`** (no exceptions yet) and **`.github/dependabot.yml`** (G11: the actions, weekly).
+- **`LICENSE`** and `"license": "UNLICENSED"` (G12).
+- **The workflow policy (CS12)** checks every job of every workflow, so the two new jobs are covered without changing it. It passes.
+
+**The baseline (G2), on `main` before the fixes.**
+
+| Scanner | Found | Outcome |
+| --- | --- | --- |
+| Semgrep | 10 results, plus 8 partial-parse warnings | **5 ERROR, `gcm-no-tag-length`:** fixed (below).<br>**2 in `tools/ci-policy/fixtures`,** the workflow policy's own planted violations: excluded from the scan.<br>**3 MEDIUM pnpm-setting suggestions** (`trust-policy`, `block-exotic-sub-dependencies`, `minimum-release-age`): reported, not blocking.<br>**The partial parses:** reported. |
+| osv-scanner | 0 of 669 packages | — |
+| Licenses | 340 production packages; 4 outside the allowlist | **MIT-0** added to the allowlist; four exceptions (below).<br>**Dev-only, reported:** MPL-2.0 (`axe-core`, `lightningcss`), and `map-stream` with no license. |
+| Checkov | 8 Dockerfile findings; 416 workflow checks passed | `CKV_DOCKER_2` and `CKV_DOCKER_7` on the four Dockerfiles: inline skips, each with its reason. |
+| CodeQL | Not run here: CI's first run is the baseline | Recorded from that run, before the merge. |
+
+**After the fixes, run here:**
+- **Semgrep:** 0 blocking in 626 files. 4 reported: the three pnpm settings, and a Dependabot cooldown, now set (decision 10).
+- **Checkov:** 0 failed; 395 Dockerfile checks passed, 8 skipped inline, 496 workflow checks passed.
+- **The exceptions check:** 12 active, all valid.
+
+**The GCM fix.** Every AES-256-GCM decipher now passes `authTagLength: 16`:
+- `packages/crypto/src/cipher.ts`, which exports `TAG_BYTES`;
+- `providers.ts`, the `LocalKeyProvider`;
+- `tools/stack/src/backup/seal.ts`, at all three sites, where `setAuthTag` also moved inside the `try`, so a short tag fails as the same `SealError` as a wrong passphrase.
+
+Without the option, Node accepts a tag as short as 4 bytes, so a forger has only 2³² tries instead of 2¹²⁸. Tests, each mutation-checked:
+- a genuine tag truncated to 4 bytes is refused, by the field cipher and by `LocalKeyProvider` (`crypto.spec.ts`);
+- a sealed private file with a truncated tag fails with `SealError` (`seal.spec.ts`).
+
+**Decisions made while building (for the owner's approval).**
+
+1. **MIT-0 joins G6's allowlist.** It is MIT without the attribution clause, so it's more permissive than MIT.
+2. **Four license exceptions, each for 365 days** (`infra/security/license-exceptions.yaml`, not G6's `licenses.yaml`: the name says what it holds):
+   - **`LIC-sharp`:** libvips (`@img/sharp-*`), LGPL-3.0, inside Next.js's optional image optimiser. It's loaded dynamically and unmodified, and the LGPL's obligations attach to distribution, which a hosted product doesn't do;
+   - **`LIC-elkjs`:** EPL-2.0, in Prisma Studio, shipped only with the Prisma CLI in the migrate image. EPL is weak, file-level copyleft, and it's used unmodified;
+   - **`LIC-caniuse-lite`:** CC-BY-4.0, browser-support data through Next.js, not code; the attribution travels with the package;
+   - **`LIC-poppins`:** OFL-1.1, the brand font (`@fontsource/poppins`). The OFL allows embedding it in commercial software.
+3. **An inline suppression carries a reason but no expiry,** while a file-based exception must expire. An inline one sits beside the code it covers and is reviewed with every change to it; a file entry is far from its code and would rot. The check refuses a bare `nosemgrep` and a suppression without a reason (GC4).
+4. **Semgrep's partial-parse errors and its MEDIUM pnpm suggestions are reported, not blocking,** as G3 says for everything below `ERROR`. The three pnpm settings are worth a later look.
+5. **The GCM fix,** above, with `setAuthTag` inside the `try`.
+6. **The Checkov skips:**
+   - **`CKV_DOCKER_7`** (a base image without a tag): our base images are build `ARG`s, pinned by tag and digest, which Checkov can't resolve.
+   - **`CKV_DOCKER_2`** (no `HEALTHCHECK`): each image's reason is its own. The API, web and PgBouncer runtimes are distroless, with no shell or curl to run one; the API and the web app are probed from outside by `stack:smoke` after every deploy, and PgBouncer is proved by use. The migrate image is a one-shot job whose exit code is its health.
+   - **A gap found while writing them:** only PostgreSQL and Vault have a compose healthcheck. The API, the worker, the web app and PgBouncer have none. It's a separate change, for later.
+7. **The proofs' findings differ from G8's examples where a real rule was a better proof:**
+   - Semgrep proves on a GCM decipher without a tag length, the very rule that found the baseline's bugs, rather than an `eval`;
+   - Checkov proves `CKV_DOCKER_3` (no `USER`, so root) and `CKV_GHA_2` (a PR title in `run:`);
+   - CodeQL proves `js/command-line-injection`;
+   - osv proves `GHSA-35jh-r3h4-6jhm` (lodash 4.17.20).
+8. **The `codeql` job has `actions: read` beside `contents: read`:** `codeql-action` reads the workflow run to describe it. Both are read-only, and CS12 allows them.
+9. **The `LICENSE` names the holder as "Samuel Opemipo".** The owner confirms the name.
+10. **Dependabot waits 7 days** (`cooldown`) before proposing an action's new release, as Semgrep's baseline suggested. A compromised release is usually caught and pulled within days.
+11. **The Checkov gate also trusts the report's summary.** With `--quiet`, Checkov lists only the failed checks, so the gate blocks on a failure the summary counts but doesn't list, and on any file it couldn't parse. It reports the skips by count; the exceptions check lists each one with its reason.
+
+**Evidence.**
+
+- **`node --test tools/security/security.test.mjs`:** 16 of 16 pass. **25 of 25 mutations caught** (S1–S25): each threshold, each exception rule, the proofs' `--expect`, an unreadable report, the title's type, scope and separator, the Checkov summary's three counts, and `nosem` in either case.
+- **Each proof was run here** on its fixture, and fails for its finding: Semgrep, osv-scanner, Checkov (both), the licenses, and the four exceptions fixtures (an expired entry, a bare `nosemgrep`, a `checkov:skip` without a reason, a license exception without an owner).
+- **Each proof checks its failure's message,** not only its exit code: a crash also exits non-zero. Run here under CI's bash, with three wrong cases, each failing the proof: a missing fixture, the wrong fixture, and a clean tree.
+- **The inline check reads `nosem` as well as `nosemgrep`, in any case,** as Semgrep does. A bare `// nosem` would otherwise have suppressed every rule unseen.
+- **The GCM tests:** 4 of 4 mutations caught (G1–G4).
+- **Unit, lint and typecheck:** `packages/crypto` 49 of 49, `tools/stack` 439 of 439 (1 skipped); `pnpm ci:policy` and its 9 tests pass.
+- **CI:** the PR's first run, recorded here before the merge.

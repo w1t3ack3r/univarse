@@ -54,7 +54,21 @@ flowchart LR
   - **Signing and publication are local:** they happen through `pnpm images:release`, against a local registry, with the owner's key.
 - **Turborepo remote cache** keeps PR CI under ~10 min. Affected-only execution for lint/test on large changes.
 - **Workflow policy ([spec 0013](specs/0013-container-images-scan-sign.md) CS12):** `build-test` checks every workflow, read-only, with `pnpm ci:policy`. CI stays `contents: read`, and only allowlisted triggers are used; `pull_request_target` and `workflow_run` are banned. No credentials and no publish or sign commands are allowed where PR code runs, and actions are pinned by SHA. Fixtures prove each rule.
-- **Required checks** block merge: lint, typecheck, unit, integration, RLS, contract diff (unless labelled `breaking-approved`), security scans (no new high/critical), Trivy, E2E smoke.
+- **Required checks** block merge: lint, typecheck, unit, integration, RLS, contract diff (unless labelled `breaking-approved`), security scans, Trivy, E2E smoke.
+- **The security scans ([spec 0024](specs/0024-ci-security-gates.md))** are two jobs, beside `build-test`:
+  - **`security-scans`:**
+    - Semgrep, where `ERROR` blocks;
+    - osv-scanner, where any known vulnerability blocks;
+    - the license check, where a production dependency outside the allowlist blocks;
+    - Checkov, on the Dockerfiles and workflows, where any failed check blocks;
+    - the PR-title check;
+    - each gate's proof.
+  - **`codeql`:** `security-extended`, where errors and warnings block. It runs read-only, with no upload: the SARIF is kept as a run artifact.
+  - **Each gate blocks on the whole tree, not only on new findings.** An exception is one of three kinds, checked by `tools/security/exceptions.mjs` before any scan:
+    - in `osv-scanner.toml`, expiring within 30 days;
+    - in `infra/security/license-exceptions.yaml`, expiring within 365 days;
+    - inline, naming its rule and giving its reason.
+  - **Every active exception is printed on every run.**
 - **CI security:**
   - Actions pinned by commit SHA
   - `permissions: read-all` default, elevated per job
@@ -62,7 +76,7 @@ flowchart LR
   - environment protection rules for `staging`/`production`
   - secrets scoped to environments
   - no secrets exposed to fork PRs
-  - Dependabot/Renovate for action updates
+  - Dependabot for action updates (`.github/dependabot.yml`, weekly)
 
 ## 4. Versioning & releases
 

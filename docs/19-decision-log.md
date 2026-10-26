@@ -510,3 +510,31 @@ PR B2 (the rehearsed restore and the shred drill) remains. The evidence is in th
   - when no configured destination can be read, nothing restarts until the owner reconnects one, or explicitly waives the no-resurrection guarantee. A waiver is recorded and reported from then on.
 
 **Alternatives considered:** the spec's D1–D15 tables (a file-storage Vault copied while stopped; WAL written unsealed to the destination; a sealing sidecar; `pg_receivewal`; a ledger only in the object-locked bucket), each rejected there with its reason.
+
+## ADR-033 — Security scanning gates: five scanners blocking on the whole tree, with one exceptions discipline
+**Status:** Accepted (2026-10-25) with [spec 0024](specs/0024-ci-security-gates.md), G1–G12. **Implemented** by PR A: the jobs `security-scans` and `codeql`. The evidence is in the spec's implementation notes.
+
+**Context:**
+- docs/13 §3 asks for Semgrep, CodeQL, osv-scanner, a license check and Checkov, and none of them ran.
+- [Spec 0013](specs/0013-container-images-scan-sign.md) already set the stance for Trivy: zero findings, exceptions with evidence and an expiry (CS7), read-only CI (CS12), and a proof that each gate fails for its reason (CS13).
+
+**Decision:**
+- **Each scanner blocks on the whole tree, not only on new findings** (G2), from a triaged baseline. Thresholds (G3): Semgrep `ERROR`; CodeQL `security-extended` errors and warnings; any osv-scanner vulnerability; a production license outside the allowlist; any failed Checkov check. Everything below is printed, never hidden.
+- **One exceptions discipline** (G4), checked before any scan by `tools/security/exceptions.mjs`:
+  - file-based exceptions record their evidence and owner, and expire: 30 days for a vulnerability, 365 for a license;
+  - an inline suppression names its rule and gives its reason, beside the code it covers;
+  - a blanket suppression, or one without a reason, is refused;
+  - every active exception is printed on every run.
+- **Pinned engines, fresh rules** (G5): images by digest, the osv-scanner binary by checksum, `codeql-action` by SHA; Semgrep's rule packs are fetched each run.
+- **The license policy** (G6) is for a proprietary, hosted product (G12): copyleft and source-available licenses are refused in production.
+- **CodeQL runs read-only, with no upload** (G7): our script decides on its SARIF, and CS12 stays unchanged.
+- **Every gate has a proof** (G8): a fixture it must block, for the expected finding.
+- **The PR title is checked as a Conventional Commit** (G10), since the squash merge makes it `main`'s commit; Dependabot proposes the actions' updates (G11).
+
+**Consequences:**
+- **A new finding in an unchanged file can turn `main` red** when a rule pack or the vulnerability database learns something. It's fixed or excepted, with evidence, the same day; that's the point of fresh rules.
+- **Every exception dies:** a file entry at its expiry, an inline one with the code it's beside.
+- **No GitHub "Security" tab** for CodeQL's results; the SARIF is a run artifact. Uploading can come later, as an amendment to CS12.
+- **The owner makes `security-scans` and `codeql` required checks.**
+
+**Alternatives considered:** diff-only gating; free inline suppression; vendored rules; a third-party license checker; CodeQL with `security-events: write`; Renovate. Each is rejected in the spec's G table, with its reason.

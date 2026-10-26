@@ -1,0 +1,2 @@
+# osv-scanner configuration (spec 0024 G3, G4). Any [[IgnoredVulns]] entry needs an id, a reason (the evidence),
+# and an ignoreUntil at most 30 days ahead: tools/security/exceptions.mjs checks each before the scan. None today.

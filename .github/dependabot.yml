@@ -1,0 +1,11 @@
+# Spec 0024 G11: version updates for the GitHub Actions the workflows pin by SHA, weekly. npm security updates arrive
+# by Dependabot's security alerts already.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    # An action's new release waits 7 days before it's proposed, so a compromised release is likely caught first.
+    cooldown:
+      default-days: 7

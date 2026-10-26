@@ -1,0 +1,4 @@
+{
+  "MIT": [{ "name": "fine", "versions": ["1.0.0"] }],
+  "AGPL-3.0-only": [{ "name": "copyleft-server", "versions": ["2.0.0"] }]
+}

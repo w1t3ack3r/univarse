@@ -61,7 +61,7 @@ function newHeader(recipient: KeyObject): { header: Buffer; contentKey: Buffer }
   const contentKey = randomBytes(KEY);
   const iv = randomBytes(12);
   const fp = createHash('sha256').update(recipientRaw).digest();
-  const c = createCipheriv('aes-256-gcm', kek, iv);
+  const c = createCipheriv('aes-256-gcm', kek, iv, { authTagLength: TAG });
   c.setAAD(Buffer.concat([MAGIC, fp, ephRaw, salt]));
   const wrapped = Buffer.concat([c.update(contentKey), c.final(), c.getAuthTag()]);
   return { header: Buffer.concat([MAGIC, fp, ephRaw, salt, iv, wrapped]), contentKey };
@@ -81,10 +81,10 @@ function openHeader(header: Buffer, recipient: KeyObject): Buffer {
   const pub = createPublicKey(recipient);
   if (!fp.equals(fingerprint(pub))) throw new SealError('sealed to another backup key');
   const kek = wrapKey(diffieHellman({ privateKey: recipient, publicKey: publicFromRaw(Buffer.from(ephRaw)) }), salt, ephRaw, rawPublicKey(pub));
-  const d = createDecipheriv('aes-256-gcm', kek, iv);
+  const d = createDecipheriv('aes-256-gcm', kek, iv, { authTagLength: TAG });
   d.setAAD(Buffer.concat([MAGIC, fp, ephRaw, salt]));
-  d.setAuthTag(tag);
   try {
+    d.setAuthTag(tag);
     return Buffer.concat([d.update(wrapped), d.final()]);
   } catch {
     throw new SealError('the header does not authenticate');
@@ -99,7 +99,7 @@ export function sealStream(recipient: KeyObject): Transform {
   let pending: Buffer = Buffer.alloc(0);
   let started = false;
   const chunk = (plain: Buffer, final: boolean) => {
-    const c = createCipheriv('aes-256-gcm', contentKey, nonce(i));
+    const c = createCipheriv('aes-256-gcm', contentKey, nonce(i), { authTagLength: TAG });
     c.setAAD(aad(headerHash, final));
     i += 1n;
     return Buffer.concat([c.update(plain), c.final(), c.getAuthTag()]);
@@ -135,11 +135,11 @@ export function unsealStream(recipient: KeyObject): Transform {
   let i = 0n;
   let pending: Buffer = Buffer.alloc(0);
   const open = (sealed: Buffer, final: boolean) => {
-    const d = createDecipheriv('aes-256-gcm', contentKey as Buffer, nonce(i));
+    const d = createDecipheriv('aes-256-gcm', contentKey as Buffer, nonce(i), { authTagLength: TAG });
     d.setAAD(aad(headerHash as Buffer, final));
-    d.setAuthTag(sealed.subarray(sealed.length - TAG));
     i += 1n;
     try {
+      d.setAuthTag(sealed.subarray(sealed.length - TAG));
       return Buffer.concat([d.update(sealed.subarray(0, sealed.length - TAG)), d.final()]);
     } catch {
       throw new SealError(`chunk ${String(i - 1n)} does not authenticate (altered, reordered or truncated)`);
@@ -224,7 +224,7 @@ export function generateBackupKey(passphrase: string, kdf: { N: number; r: numbe
   const { publicKey, privateKey } = generateKeyPairSync('x25519');
   const salt = randomBytes(32);
   const iv = randomBytes(12);
-  const c = createCipheriv('aes-256-gcm', passKey(passphrase, salt, kdf), iv);
+  const c = createCipheriv('aes-256-gcm', passKey(passphrase, salt, kdf), iv, { authTagLength: TAG });
   const fp = fingerprint(publicKey).toString('hex');
   c.setAAD(Buffer.from(fp, 'ascii'));
   const der = privateKey.export({ type: 'pkcs8', format: 'der' });
@@ -247,11 +247,11 @@ export function generateBackupKey(passphrase: string, kdf: { N: number; r: numbe
 /** The private key from its file and the passphrase; a wrong passphrase or an edited file fails, naming neither. */
 export function loadPrivateKey(file: Readonly<Omit<PrivateKeyFile, 'format' | 'kdf'>> & { readonly format: string; readonly kdf: Readonly<Omit<PrivateKeyFile['kdf'], 'name'>> & { readonly name: string } }, passphrase: string): KeyObject {
   if (file.format !== 'univarse-backup-key-v1' || file.kdf.name !== 'scrypt') throw new SealError('not a UniVarse backup key file');
-  const d = createDecipheriv('aes-256-gcm', passKey(passphrase, Buffer.from(file.kdf.salt, 'base64'), file.kdf), Buffer.from(file.iv, 'base64'));
+  const d = createDecipheriv('aes-256-gcm', passKey(passphrase, Buffer.from(file.kdf.salt, 'base64'), file.kdf), Buffer.from(file.iv, 'base64'), { authTagLength: TAG });
   d.setAAD(Buffer.from(file.fingerprint, 'ascii'));
-  d.setAuthTag(Buffer.from(file.tag, 'base64'));
   let der: Buffer;
   try {
+    d.setAuthTag(Buffer.from(file.tag, 'base64'));
     der = Buffer.concat([d.update(Buffer.from(file.ciphertext, 'base64')), d.final()]);
   } catch {
     throw new SealError('the backup key does not open: wrong passphrase, or the file was changed');
