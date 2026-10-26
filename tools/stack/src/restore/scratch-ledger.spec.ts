@@ -2,7 +2,7 @@
 // was; a destination left unmapped can't be written, so it fails the recovery instead of reaching a real file.
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, win32 } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { readTree } from '../backup/ledger-snapshot.js';
 import type { Destination } from '../ledger/chain.js';
@@ -88,7 +88,7 @@ describe('[B2-10] mapping a path', () => {
 
   it('maps the root and everything under it, without case on Windows', () => {
     expect(mapPath('C:\\Users\\o\\.univarse\\ledger', map, 'win32')).toBe('C:\\tmp\\scratch\\primary');
-    expect(mapPath('c:\\users\\O\\.UNIVARSE\\Ledger\\abc\\gen-0001\\ledger.jsonl', map, 'win32')?.toLowerCase()).toBe(join('C:\\tmp\\scratch\\primary', 'abc', 'gen-0001', 'ledger.jsonl').toLowerCase());
+    expect(mapPath('c:\\users\\O\\.UNIVARSE\\Ledger\\abc\\gen-0001\\ledger.jsonl', map, 'win32')?.toLowerCase()).toBe(win32.join('C:\\tmp\\scratch\\primary', 'abc', 'gen-0001', 'ledger.jsonl').toLowerCase());
   });
 
   it('never maps a sibling that merely starts with the same name', () => {
