@@ -9,3 +9,8 @@ updates:
     # An action's new release waits 7 days before it's proposed, so a compromised release is likely caught first.
     cooldown:
       default-days: 7
+    # codeql-action's init and analyze are one release, pinned to the same SHA, so they move in one PR.
+    groups:
+      codeql-action:
+        patterns:
+          - 'github/codeql-action*'
