@@ -1,6 +1,7 @@
 // Spec 0020 D6, BK8, B2-2: `pnpm stack:backup status`, from what needs no private key: the clear indexes, the WAL
 // area's file names, the staging volume's listing, the scheduled tasks and the ledger. The report is a pure function
 // of those inputs, so every boundary is tested; status-deps.ts reads them. Nothing in it is secret.
+import { checkoutProblem, type CheckoutRecord } from './checkout.js';
 import type { SetOnDisk } from './set.js';
 import { tokenReport, type TokenState } from '../vault.js';
 
@@ -38,6 +39,8 @@ export interface StatusInputs {
   readonly waived: string | null | { readonly problem: string };
   /** Spec 0023 T5: the two Vault tokens' remaining life, or why it couldn't be read; absent where not asked. */
   readonly tokens?: readonly TokenState[] | { readonly problem: string };
+  /** B2-4: what the last scheduled run's checkout was; null before the first; absent where not asked. */
+  readonly checkout?: CheckoutRecord | null | { readonly problem: string };
 }
 
 export interface StatusReport {
@@ -141,6 +144,17 @@ export function statusReport(i: StatusInputs): StatusReport {
       const t = tokenReport(i.tokens);
       lines.push(...t.lines);
       for (const pr of t.problems) warn(pr);
+    }
+  }
+
+  // B2-4: shown until a later scheduled run finds a clean main; it names the branch, never a file.
+  if (i.checkout !== undefined && i.checkout !== null) {
+    if (failed(i.checkout)) {
+      ok = false;
+      warn(`the last scheduled run's checkout can't be read: ${i.checkout.problem}`);
+    } else {
+      const problem = checkoutProblem(i.checkout);
+      if (problem) warn(`${problem} (${age(since(new Date(i.checkout.at)))} ago)`);
     }
   }
 

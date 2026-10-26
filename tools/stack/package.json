@@ -22,7 +22,11 @@
     "test:ledger": "vitest run --config vitest.ledger.config.ts",
     "test:bucket": "vitest run --config vitest.bucket.config.ts",
     "backup": "tsx src/backup/cli.ts",
+    "restore-rehearsal": "tsx src/restore/cli.ts rehearsal",
+    "drill": "tsx src/restore/cli.ts drill",
+    "restore": "tsx src/restore/cli.ts restore",
     "test:backup": "vitest run --config vitest.backup.config.ts",
+    "test:restore": "vitest run --config vitest.restore.config.ts",
     "test:vault": "vitest run --config vitest.vault.config.ts"
   },
   "devDependencies": {

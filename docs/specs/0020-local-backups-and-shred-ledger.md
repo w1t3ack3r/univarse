@@ -1237,6 +1237,111 @@ Built as approved (B2-2 to B2-4), with B2-4's amendment (the backup waits for th
   - one on a Windows host that has the real command line split exactly as Task Scheduler's launch does (`windowsVerbatimArguments`), with a trailing backslash and spaces. Both fail without the fix.
 - **The owner re-registers once:** `pnpm stack:backup schedule --at 02:00 --apply` replaces both tasks (`/F`).
 
+## Implementation notes (PR B2b: the rehearsed restore, the shred drill, the real restore)
+
+Built as approved (B2-5 to B2-17), with B2-4's checkout warning and the backup destination's normalisation. **No image changes and no release:** everything is in `tools/stack`, the restore's compose file and the docs. The owner's drill (B2-17) is the last evidence.
+
+**What runs where** (`tools/stack/src/restore/`):
+- **`engine.ts`:** the one routine (B2-5, B2-6). It owns the order, every stop, and the teardown in a `finally`. Every side effect is an injected step.
+- **`checks.ts`:** the decisions on the keys job's reports:
+  - the row counts;
+  - the checkpoint;
+  - the control before recovery;
+  - decryption after it;
+  - which tenants the ledger says are destroyed.
+- **`artifact.ts`:** a set opened only after every sealed file matches its index. Each artifact is unsealed as a stream and refused at its end if its plaintext's hash or size differs from the manifest's.
+- **`wal-range.ts`:** the segments a target needs, a gap (stop now) told apart from a missing tail (wait), and a later timeline's history file (B2-7).
+- **`scratch-ledger.ts`:** B2-10's copy and remapping.
+- **`steps.ts`:** PostgreSQL's and Vault's restore and the files' path, each on the volume or container it's given. The rehearsal and CI's test run the same code.
+- **`files.ts`:** B2-8: the keys' encoding, the container's input and its report.
+- **`target.ts`:** the restore project's names, labelled volumes, compose and job runners.
+- **`real.ts`:** the real steps.
+- **`drill.ts`:** B2-11's four steps.
+- **`record.ts`:** the record and its BK9 scan.
+- **`real-restore.ts`:** B2-12's refusals and copies.
+- **`memory.ts`:** the peak-memory sampler.
+- **`cli.ts`:** the three commands.
+
+Outside that folder:
+- **`infra/stack/restore.compose.yml`:** the restore project (`univarse-restore`): no published port, everything labelled `univarse.restore`.
+- **`backup/checkout.ts`:** B2-4's checkout record and warning.
+- **`backup/config.ts`:** the destination normalised.
+- **`wal.ts`:** the shipper takes its staging volume as a parameter, for CI's test.
+
+**Decisions made while building.** All 14 were approved by the owner on 2026-10-26.
+1. **Valkey runs in the restore project too.** The keys job boots the worker's module, which connects to Valkey at start. That adds 128 MB: B2-14's figure becomes about 1.7 GB.
+2. **Every restore volume is external, created and labelled by the tool,** not by compose. The teardown then finds everything by its label, a crashed run's leftovers included. A real restore points the three data volumes at the stack's own, which carry no label, so a teardown can never remove them.
+3. **The restored Vault is always sealed (with the set's own root token) and opened with the set's own unseal key,** whatever state the snapshot's restore left it in. The set's key is then always what opens it (BK5's second half), never assumed.
+4. **`--to` is written with a numeric offset** (`2026-10-26 06:41:54.304+00`). PostgreSQL 18 checks `recovery_target_time` at start, before it loads time-zone abbreviations, and refuses ISO's `Z` as an invalid value. **Found by CI's restore test** on its first run: `--to` would have failed on the owner's machine.
+5. **The files' path:**
+   - The unsealed objects go into a labelled scratch volume, inside Docker, as numbered entries with an index of their encoded keys, so no key is ever a path on any file system.
+   - Each object is PUT through the filer, then read back over S3 with curl's own SigV4 and hashed in the container. Only positions and hashes return to the host.
+   - **B2-8's open question is answered:** an object written through SeaweedFS 4.48's filer reads back over S3 with its key and bytes unchanged, spaces, nested folders and non-ASCII names included. A probe here showed it on 2026-10-26, and CI's test holds it. The tunnel fallback, which would have bent D9, isn't needed.
+   - **Found by the probe:** SigV4 signs the path with unreserved characters literal, so encoding every byte made every signed read fail. `s3Path` encodes exactly what SigV4 does, and a test pins it.
+6. **A real restore ships the staged WAL too.** Shipping needs only the staging volume, not a running stack, and that WAL is what a restore to a later `--to` time needs.
+7. **A real restore keeps the restored Vault's `vault-init.json`** in the new stack directory, re-issued tokens included, for the deploy that follows.
+8. **The ledger's bucket copy is off in both modes.** The restored SeaweedFS has no ledger bucket (D2 leaves it out). Recovery's records aren't marked as copied, so the next deploy's recovery copies them.
+9. **The control's allowances:**
+   - `key_destroyed` before recovery is allowed only for a tenant whose destruction the set's own ledger head already records;
+   - a RETIRED destruction leaves its tenant decrypting, so it counts in neither check;
+   - a waiver's planned re-applications count as earlier destructions;
+   - a set from another ledger or generation counts every accepted destruction as earlier, the cautious reading.
+10. **The memory sampler is a child process.** The restore's steps block for minutes at a time, so a timer in the same process would miss its samples.
+11. **The records:**
+    - they are named `YYYY-MM-DD-restore-rehearsal.md` and `YYYY-MM-DD-restore-and-shred.md`, with `-2` on a repeat the same day;
+    - BK9's scan uses the stack's own secret values, plus Vault token, PEM block and key-file patterns;
+    - a record that fails the scan isn't written.
+12. **The checkout warning (B2-4):**
+    - it records the branch, and whether tracked files differ, in `backup-checkout.json`;
+    - untracked files don't count (an uncommitted drill record, say);
+    - both scheduled tasks record it.
+13. **The destination is normalised when saved and when read.** The doubled separators already stored (`D:\\univarse-backups`) read as the one directory they name, with no step from the owner.
+14. **The set's release** is found by matching its deployed digests against `releases/*.json`, then verified with that record's own commit. The restore starts the local registry for it, and stops it in the teardown.
+
+**Evidence.**
+- **Unit tests (`tools/stack`):**
+  - the engine's order, every stop, and the teardown on each failure: a wrong key, `--to` before the set, the release, the configuration, PostgreSQL, Vault, the tokens, the files, the migrations, the counts, recovery and a thrown step;
+  - the WAL wait, the gap and a time target;
+  - the drill's expectations;
+  - the real ledger's heads;
+  - the checks at their edges;
+  - the scratch ledger: recovery appends `reapplied` to the scratch copies, and the real files stay byte-identical;
+  - a real sealed set opened, streamed, tampered with and opened with the wrong key;
+  - the files' encoding and report;
+  - the drill's order;
+  - the real restore's refusals and copies;
+  - the commands' refusals;
+  - the record and its scan;
+  - the checkout warning;
+  - the destination's normalisation.
+
+  The restore modules have 82 tests; the backup's new ones (the checkout, the destination) 8 more.
+- **CodeQL's first run on the PR (#123) found two, both fixed and tested:**
+  - the record's table cells escaped pipes but not backslashes (`js/incomplete-sanitization`);
+  - the record's file was checked for, then written (`js/file-system-race`). It is now created exclusively, and the next name is taken when one exists, so an earlier record is never overwritten.
+- **Mutations: 25 of 25 caught,** two for those fixes. The other 23 cover B2-15's list for B2b:
+  - the drill passing without the re-application;
+  - the control not required to decrypt;
+  - teardown skipped on a failure;
+  - the real ledger written;
+  - a path not remapped;
+  - a count mismatch tolerated;
+  - the checkpoint not compared;
+  - an artifact's hash not checked;
+  - a WAL gap accepted;
+  - the release not verified;
+  - `stack:restore` without its confirmation, or without its copies.
+
+  It also covers: a running stack restored over, `--to` before the set, a wait that never ends, a file with another hash, the probe's failing encoding, a RETIRED destruction counted, an empty drill tenant, the destination un-normalised, a dirty `main` taken for clean, the record not scanned, and the drill out of order.
+- **CI's restore test (`test:restore`, B2-13), run here first on the real pinned images, 5 of 5:**
+  - **BK4:** PostgreSQL 18 recovered to a time from a sealed base backup and the WAL shipped by the real shipper. The row before is there, the row after isn't, and it promoted. A time past the WAL is refused in PostgreSQL's own words;
+  - **BK5's second half:** Vault restored from a sealed Raft snapshot and opened with the first Vault's key; a probe encrypted before decrypts after;
+  - **B2-8:** three objects with awkward names through the filer and back over S3;
+  - **BK6:** a crashed run's labelled containers and volumes all removed by their label.
+
+  Nothing was left behind.
+- **Not run here:** the full rehearsal and the drill. They need the owner's private key and a deployed release (B-16). Their record is BK6's and BK7's evidence (B2-17).
+
 ## Affected docs (in the implementation PRs)
 
 - **[10 §7](../10-infrastructure-and-deployment.md):** the local backup section: what, where, the schedule, the measured boundary, the owner's private key, the same-disk limit, the commands, the drill.

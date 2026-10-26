@@ -1,0 +1,164 @@
+# Spec 0020 B2-5, B2-6: a restore of one backup set, never the stack itself. Started ONLY by `pnpm stack:restore-rehearsal`,
+# `pnpm stack:drill` or `pnpm stack:restore` (tools/stack/src/restore/), which verify the set's release first and fill
+# the UNIVARSE_*_IMAGE variables with its verified digests, as the deploy does.
+#
+# Everything here is labelled `univarse.restore`, so a crashed run's leftovers are found and removed by that label.
+# No port is published (D9): the checks run as one-shot jobs inside the project, and the files go back through a
+# one-shot container on its own network (B2-8). Every volume is external: the tool creates each one, labelled, and
+# fills it. A rehearsal's are its own (`univarse-restore-*`), removed afterwards. A real restore points the three data
+# volumes at the stack's, after copying them aside (B2-12).
+#
+# The env files and rendered configuration come from ${UNIVARSE_RESTORE_DIR}: a temporary, owner-only directory
+# rendered from the set's own `stack.tar`, removed afterwards. Nothing secret is in this file.
+
+name: univarse-restore
+
+x-hardening: &hardening
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: ['no-new-privileges:true']
+  tmpfs: ['/tmp:rw,noexec,nosuid,size=64m']
+  restart: 'no'
+  labels: { univarse.restore: '1' }
+  logging: { driver: json-file, options: { max-size: '10m', max-file: '2' } }
+
+services:
+  # The set's base backup, recovering to its target from the set's WAL. archive_mode is off: a restored cluster never
+  # archives anywhere, least of all into the stack's staging volume.
+  postgres:
+    image: postgres:18@sha256:74935e72241653ca55e0414067e6d8763aceb8a810eb51b452253ec3dcfc4336
+    <<: *hardening
+    user: '999:999'
+    tmpfs: ['/tmp:rw,noexec,nosuid,size=64m', '/var/run/postgresql:rw,noexec,nosuid,size=4m']
+    env_file: ['${UNIVARSE_RESTORE_DIR:?set by the restore}/postgres.env']
+    command:
+      - postgres
+      - -c
+      - ssl=on
+      - -c
+      - ssl_cert_file=/certs/server.crt
+      - -c
+      - ssl_key_file=/certs/server.key
+      - -c
+      - password_encryption=scram-sha-256
+      - -c
+      - hba_file=/certs/pg_hba.conf
+      - -c
+      - archive_mode=off
+      - -c
+      - restore_command=cp /wal-restore/%f %p
+      # `recovery_target_lsn=<the facts' position>` by default, or `recovery_target_time=<time>` (B2-6 step 5).
+      - -c
+      - ${UNIVARSE_RESTORE_TARGET:?set by the restore}
+      - -c
+      - recovery_target_action=promote
+    volumes:
+      - pgdata:/var/lib/postgresql
+      - pg-certs:/certs:ro
+      - wal-restore:/wal-restore:ro
+    networks: [db]
+    mem_limit: 512m
+    healthcheck:
+      test: ['CMD', 'pg_isready', '-U', 'postgres', '-h', '127.0.0.1']
+      interval: 5s
+      timeout: 3s
+      retries: 120
+
+  pgbouncer:
+    image: ${UNIVARSE_PGBOUNCER_IMAGE:?set by the restore from the verified release}
+    <<: *hardening
+    volumes:
+      - pgbouncer-conf:/etc/pgbouncer:ro
+    networks: [app, db]
+    depends_on: { postgres: { condition: service_healthy } }
+    mem_limit: 64m
+
+  # The keys job's application module connects to Valkey at start (it holds nothing here).
+  valkey:
+    image: valkey/valkey:8-alpine@sha256:081c2f5cb575efc901aa80ff9cdbd1ec6a301682fd35e1ebb4b0990a4a4a8507
+    <<: *hardening
+    user: '999:1000'
+    command: ['valkey-server', '/etc/valkey/valkey.conf']
+    volumes:
+      - valkey-conf:/etc/valkey:ro
+    networks: [app]
+    mem_limit: 128m
+
+  seaweedfs:
+    image: chrislusf/seaweedfs:4.48@sha256:4e61d15fd35994cb1e43e1e553dff106794841fd9a99ade2fc8c8bfce4d7872d
+    <<: *hardening
+    user: '1000:1000'
+    entrypoint: ['/usr/bin/weed']
+    environment:
+      WEED_MASTER_VOLUME_GROWTH_COPY_1: '1'
+    command: ['server', '-dir=/data', '-ip.bind=0.0.0.0', '-s3', '-s3.port=8333', '-s3.config=/etc/seaweedfs/s3.json', '-master.volumeSizeLimitMB=128', '-volume.max=24']
+    volumes:
+      - seaweedfs-data:/data
+      - seaweedfs-conf:/etc/seaweedfs:ro
+    networks: [app]
+    mem_limit: 256m
+
+  vault:
+    image: hashicorp/vault:2.1.1@sha256:47f14a6acb98f48d798a07df7c83f23a6e636e1cf724c5f8ff165cb32667a1e2
+    <<: *hardening
+    user: '100:1000'
+    entrypoint: ['vault']
+    command: ['server', '-config=/vault/config/stack.hcl']
+    volumes:
+      - vault-raft:/vault/raft
+      # The stack's own configuration: the set's certificates name `vault`, which holds inside this project too.
+      - ./vault/stack.hcl:/vault/config/stack.hcl:ro
+      - vault-tls:/vault/tls:ro
+      - vault-audit:/vault/logs
+    networks: [app]
+    mem_limit: 256m
+    healthcheck:
+      test: ['CMD-SHELL', 'vault status -address=https://127.0.0.1:8200 -ca-cert=/vault/tls/ca.crt -tls-server-name=vault >/dev/null 2>&1; [ $$? -ne 1 ]']
+      interval: 2s
+      timeout: 3s
+      retries: 15
+
+  # B-14: `migrate --check-only`, the migration status and rls:check of the restored database. Changes nothing.
+  migrate:
+    image: ${UNIVARSE_MIGRATE_IMAGE:?set by the restore from the verified release}
+    <<: *hardening
+    profiles: [job]
+    env_file: ['${UNIVARSE_RESTORE_DIR:?set by the restore}/migrate.env']
+    volumes:
+      - stack-ca:/ca:ro
+    networks: [db, app]
+    mem_limit: 512m
+
+  # The keys job (backup-facts, verify-*, evidence, reapply…), one run per check, as in the stack.
+  keys:
+    image: ${UNIVARSE_API_IMAGE:?set by the restore from the verified release}
+    <<: *hardening
+    profiles: [job]
+    command: ['--enable-source-maps', 'dist/cli/keys.js', 'status']
+    env_file: ['${UNIVARSE_RESTORE_DIR:?set by the restore}/keys.env']
+    volumes:
+      - stack-ca:/ca:ro
+    networks: [app]
+    mem_limit: 512m
+
+networks:
+  app:
+    internal: true
+    labels: { univarse.restore: '1' }
+  db:
+    internal: true
+    labels: { univarse.restore: '1' }
+
+# Every volume is created, labelled and filled by the restore (restore/volumes.ts) before anything starts.
+volumes:
+  pgdata: { external: true, name: '${UNIVARSE_RESTORE_PGDATA:?set by the restore}' }
+  wal-restore: { external: true, name: univarse-restore-wal }
+  vault-raft: { external: true, name: '${UNIVARSE_RESTORE_VAULT_RAFT:?set by the restore}' }
+  vault-audit: { external: true, name: univarse-restore-vault-audit }
+  seaweedfs-data: { external: true, name: '${UNIVARSE_RESTORE_SEAWEEDFS_DATA:?set by the restore}' }
+  pg-certs: { external: true, name: univarse-restore-pg-certs }
+  pgbouncer-conf: { external: true, name: univarse-restore-pgbouncer-conf }
+  valkey-conf: { external: true, name: univarse-restore-valkey-conf }
+  seaweedfs-conf: { external: true, name: univarse-restore-seaweedfs-conf }
+  stack-ca: { external: true, name: univarse-restore-ca }
+  vault-tls: { external: true, name: univarse-restore-vault-tls }

@@ -212,10 +212,24 @@ pnpm stack:down                              # stop it; volumes are kept
     - a newest set over 26 hours old, or none;
     - WAL staged for over an hour;
     - a task not registered, or whose last run failed;
-    - the external rule not holding.
+    - the external rule not holding;
+    - the last scheduled run's checkout not being a clean `main` (its branch, and whether tracked files had changes; never a file's name). It keeps warning until a later scheduled run finds a clean `main`.
 
     It exits 1 only when something can't be read. Every deploy that passes prints the same warnings at its end; they never block it.
-  - **Restore:** the rehearsed restore and the shred drill come with PR B2b.
+  - **Restore** ([spec 0020](specs/0020-local-backups-and-shred-ledger.md) B2b). All three commands need the private key file (`--key <path>`) and its passphrase in `UNIVARSE_BACKUP_KEY_PASSPHRASE`, never as an argument. Stop the dev stack and the dev ClamAV first: a restore adds about 1.7 GB.
+    - **`pnpm stack:restore-rehearsal --key <path> [--set <id>] [--to <ISO time>]`** restores a set into a project of its own (`univarse-restore`), never the stack, with no published port, and checks it:
+      - every sealed file against its index, and every artifact against the manifest, as it streams;
+      - the set's own release, verified with its own commit;
+      - PostgreSQL recovered to the set's own position (or `--to`), from the shipped WAL. It ships what is staged and waits up to 6 minutes for the segment holding the target;
+      - Vault from its snapshot, opened with the set's own unseal key, its tokens made good;
+      - every file written back and read over S3 with its hash compared;
+      - the migrations and RLS, the audit chains at the checkpoint, the row counts, every data key, and decryption per tenant;
+      - the ledger's recovery, on a scratch copy of the ledger (the real one is checked unchanged), then decryption again: every destroyed tenant stays destroyed.
+
+      It is torn down afterwards, whatever happened, and writes its record to `docs/ops/drills/` for you to commit.
+    - **`pnpm stack:drill --key <path>`** is the shred drill (D11), as one command: a suspended `shred-drill-YYYYMMDD` tenant with a key and a few values, a backup, the tenant destroyed through the protocol, and the rehearsal of that set. The tenant must decrypt from the set before recovery and be destroyed after it. It leaves that tenant, suspended and destroyed, and one accepted destruction in the ledger, by design. Run it while nobody uses the app.
+    - **`pnpm stack:restore <set> --key <path> --confirm "replace the stack's data" [--to <ISO time>]`** is for a real disaster, never a drill. It refuses unless the stack is down (`pnpm stack:down`) and Docker's disk can hold a copy of its data. Before replacing anything, it copies the three data volumes to `<volume>-before-restore-<time>` and moves `~/.univarse/stack` to `stack.before-restore-<time>`; nothing is deleted. Recovery uses the real ledger. It ends by naming the deploy command for the set's release, which you run.
+    - **Measured** by the drill (its record holds the RTO, from the first unseal to the last check; the RPO reached; and the peak memory).
 - **Secrets** live only in `~/.univarse/stack/`: `secrets.json`, `vault-init.json` (Vault's unseal key and root token), `certs/` (the stack CA's key), `edge/` (the edge CA's key) and the rendered env files. `pnpm stack:init --rotate` replaces the secrets and internal certificates, and the next deploy applies them, restarting each service whose files changed. The edge CA changes only with `--rotate-edge`, after which it must be installed again. A PostgreSQL superuser password is fixed when the database volume is first created, so after rotating it, reset `univarse-stack_pgdata` (the stack's data is demo data).
 
 ## 5. Deployment process

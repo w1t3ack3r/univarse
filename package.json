@@ -48,7 +48,10 @@
     "stack:isolation": "pnpm --filter @univarse/stack run isolation",
     "stack:keys": "pnpm --filter @univarse/stack run keys",
     "stack:bucket-check": "pnpm --filter @univarse/stack run bucket-check",
-    "stack:backup": "pnpm --filter @univarse/stack run backup"
+    "stack:backup": "pnpm --filter @univarse/stack run backup",
+    "stack:restore-rehearsal": "pnpm --filter @univarse/stack run restore-rehearsal",
+    "stack:drill": "pnpm --filter @univarse/stack run drill",
+    "stack:restore": "pnpm --filter @univarse/stack run restore"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

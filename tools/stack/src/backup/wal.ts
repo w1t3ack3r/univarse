@@ -21,7 +21,7 @@ export const STAGED = /^(?:[0-9A-F]{24}(?:\.[0-9A-F]{8}\.backup)?|[0-9A-F]{8}\.h
 /** The same set as STAGED, in POSIX ERE for the container's grep (no `(?:`); wal.spec checks they agree. */
 export const STAGED_ERE = '^([0-9A-F]{24}(\\.[0-9A-F]{8}\\.backup)?|[0-9A-F]{8}\\.history)$';
 const PG_USER = '999:999';
-const tool = (rw: boolean) => ['run', '--rm', '--network', 'none', '--read-only', '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges:true', '--user', PG_USER, '-v', `${STAGING_VOLUME}:/w${rw ? '' : ':ro'}`];
+const tool = (rw: boolean, volume = STAGING_VOLUME) => ['run', '--rm', '--network', 'none', '--read-only', '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges:true', '--user', PG_USER, '-v', `${volume}:/w${rw ? '' : ':ro'}`];
 
 export interface WalDeps {
   /** The staged files that match STAGED, as a tar stream. */
@@ -32,14 +32,15 @@ export interface WalDeps {
   exists(path: string): boolean;
 }
 
-export function realWalDeps(run: Runner = docker, stream: StreamRunner = dockerStream): WalDeps {
+/** The shipper's real I/O, on the stack's staging volume (or, for CI's restore test, a volume of its own). */
+export function realWalDeps(run: Runner = docker, stream: StreamRunner = dockerStream, volume: string = STAGING_VOLUME): WalDeps {
   return {
     // The list is filtered inside the container, so a file still being copied (`.part`) is never read half-written.
     staged: () =>
-      stream([...tool(false), '--entrypoint', 'sh', THIRD_PARTY.postgres, '-c', `cd /w && ls -1 | grep -E '${STAGED_ERE}' | tar --format=ustar -cf - -T -`]),
+      stream([...tool(false, volume), '--entrypoint', 'sh', THIRD_PARTY.postgres, '-c', `cd /w && ls -1 | grep -E '${STAGED_ERE}' | tar --format=ustar -cf - -T -`]),
     remove: (names) => {
       for (const n of names) if (!STAGED.test(n)) throw new Error(`refusing to remove ${n}`);
-      if (names.length) run([...tool(true), '--entrypoint', 'rm', THIRD_PARTY.postgres, '--', ...names.map((n) => `/w/${n}`)]);
+      if (names.length) run([...tool(true, volume), '--entrypoint', 'rm', THIRD_PARTY.postgres, '--', ...names.map((n) => `/w/${n}`)]);
     },
     fs: realSetFs,
     exists: existsSync,

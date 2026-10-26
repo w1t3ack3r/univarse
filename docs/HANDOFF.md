@@ -38,7 +38,7 @@ Read this before doing anything. It covers where Phase 0 stands, what is left in
    - **B1 is done:** merged (#103, #104), released and deployed, Vault migrated, and the first set taken (above). Spec 0020's "Implementation notes (PR B1)" hold the evidence, including what the owner's run found.
    - **B2's plan was approved by the owner, all as written, on 2026-10-25** (spec 0020, "Plan (PR B2 …)", B2-1 to B2-17). It is two PRs, B2a first:
      - **B2a:** `stack:backup status`, the deploy's warnings and the schedule. **Merged** (#107; spec 0020, "Implementation notes (PR B2a)"), with 7 decisions made while building, and its amendment to B2-4, all approved by the owner on 2026-10-25; the owner then registers the schedule (B2-17);
-     - **B2b:** the restore engine, `stack:restore-rehearsal`, `stack:drill` and `stack:restore`.
+     - **B2b:** the restore engine, `stack:restore-rehearsal`, `stack:drill` and `stack:restore`. **Built, in review** (spec 0020, "Implementation notes (PR B2b)"), with 14 decisions made while building, approved by the owner on 2026-10-26. CI's restore test passes here on the pinned images, and found that PostgreSQL 18 refuses ISO's `Z` in `--to`. **Then the owner's drill:** stop the dev stack and ClamAV, set `UNIVARSE_BACKUP_KEY_PASSPHRASE`, run `pnpm stack:drill --key <path>`, and commit its record; that record closes the last exit criterion.
 
      No release is expected for either. B1 took four things from B2's original split: pruning, the backup's ledger snapshot (BK14), D7's external-drive rule, and every image subcommand B2 needs.
    The handoff's original split, for reference:
