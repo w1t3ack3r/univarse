@@ -192,9 +192,9 @@ Built as H1–H3, with H2 amended by the owner on 2026-10-26 (below). No release
 
 - **pre-commit:** `tools/hooks/gitleaks-staged.mjs` runs `gitleaks git --staged --redact` (gitleaks 8.30.1 replaced `protect --staged` with this). If `pnpm tools:gitleaks` hasn't been run, the commit is refused, saying so.
 - **commit-msg:** `tools/hooks/commit-msg.mjs` holds the first line to G10 with `titleProblem` from `tools/security/pr-title.mjs`, CI's own PR-title check, so the two can't drift. Git's own messages pass: merges, reverts, `fixup!`, `squash!` and `amend!`.
-- **pre-push**, in parallel:
-  - ESLint, with the workspace's one config, on the pushed files;
-  - `turbo run typecheck --affected`.
+- **pre-push**, in order, stopping at the first failure:
+  - `turbo run typecheck --affected`, which builds what the affected packages import;
+  - ESLint, with the workspace's one config, on the pushed files.
 - **`pnpm tools:gitleaks`** (`tools/hooks/gitleaks.mjs`):
   - it fetches CI's gitleaks 8.30.1 into `.tools/`, which is git-ignored and outside every image's build context;
   - it checks the archive against the SHA-256 pinned for each platform before unpacking anything. The pins come from the release's published checksum list, whose `linux_x64` line is the one CI already pins.
@@ -216,6 +216,14 @@ The owner chose:
 - **commit-msg:** G10's own code instead of commitlint, which also drops commitlint's 456 lockfile lines.
 - **pre-push:** ESLint on the pushed files, beside the typecheck.
 
+**Decisions made while building (for the owner's approval).**
+
+1. **The hooks install through a script, not a bare `lefthook install`** (H1 said `prepare` runs `lefthook install`). The image builds run `pnpm install` without `.git`, where `lefthook install` fails, so `tools/hooks/install.mjs` skips there, in CI, and without lefthook, saying which.
+2. **lefthook's postinstall is listed in `ignoredBuiltDependencies`:** the refusal H1 relies on is then written down, and pnpm stops warning about it on every install.
+3. **`gitleaks git --staged`**, H2's `protect --staged` under the name gitleaks 8.30.1 gives it.
+4. **The push checks run in order, typecheck first.** In parallel, ESLint's typed rules could run before the typecheck had built a package the file imports, and fail on unresolved types; this worktree showed exactly that, with 27 errors in `tools/stack/src/isolation.probe.ts` and `packages/db` unbuilt.
+5. **`.tools/` is git-ignored and in `.dockerignore`,** so the fetched binary never enters a commit or an image's build context.
+
 **Evidence.**
 
 - **`node --test tools/hooks/hooks.test.mjs`:** 8 of 8 pass. **8 of 8 mutations caught:**
@@ -235,6 +243,7 @@ The owner chose:
   | A push with `any` in a domain file | refused: `no-explicit-any`, `no-unsafe-return` |
   | A push with a type error | refused: `TS2322` |
   | A clean push | passes |
+| A push of a `tools/stack` file, with `packages/db`'s build removed | passes: the typecheck rebuilds it (4.7 s from turbo's cache), then ESLint lints the file (27 s) |
 
 - **A push takes 19 to 105 s.** On this branch every package counts as affected, because the root `package.json` and lockfile changed, so the typecheck builds and checks all 12. The 105 s was the first run, with no turbo cache. A branch touching one package checks only what depends on it.
 - **All 80 recent subjects on `main`** pass the commit-msg check, as they pass the PR-title check.
