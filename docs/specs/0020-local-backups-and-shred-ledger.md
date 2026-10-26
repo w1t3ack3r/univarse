@@ -1268,7 +1268,7 @@ Outside that folder:
 - **`backup/config.ts`:** the destination normalised.
 - **`wal.ts`:** the shipper takes its staging volume as a parameter, for CI's test.
 
-**Decisions made while building (for the owner's approval).**
+**Decisions made while building.** All 14 were approved by the owner on 2026-10-26.
 1. **Valkey runs in the restore project too.** The keys job boots the worker's module, which connects to Valkey at start. That adds 128 MB: B2-14's figure becomes about 1.7 GB.
 2. **Every restore volume is external, created and labelled by the tool,** not by compose. The teardown then finds everything by its label, a crashed run's leftovers included. A real restore points the three data volumes at the stack's own, which carry no label, so a teardown can never remove them.
 3. **The restored Vault is always sealed (with the set's own root token) and opened with the set's own unseal key,** whatever state the snapshot's restore left it in. The set's key is then always what opens it (BK5's second half), never assumed.
