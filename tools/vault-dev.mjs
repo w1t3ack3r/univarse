@@ -19,7 +19,6 @@ function readIfExists(p) {
   }
 }
 
-
 const envPath = new URL('../.env', import.meta.url);
 const keyFile = new URL('../.vault-dev.json', import.meta.url);
 const env = readIfExists(envPath) ?? '';
@@ -32,6 +31,7 @@ const POLICY = 'univarse-app';
 const ADMIN_POLICY = 'univarse-key-admin';
 
 async function vault(method, path, { token, body, ok = [200, 204] } = {}) {
+  // codeql[js/file-access-to-http]: by design: this dev-only script calls the dev Vault named in the git-ignored .env, with the token kept in the git-ignored .vault-dev.json
   const res = await fetch(`${ADDR}/v1/${path}`, {
     method,
     headers: { ...(token ? { 'x-vault-token': token } : {}), ...(body ? { 'content-type': 'application/json' } : {}) },
