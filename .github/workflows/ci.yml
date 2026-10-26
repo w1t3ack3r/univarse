@@ -97,7 +97,7 @@ jobs:
           F=tools/security/fixtures
           docker run --rm -v "$PWD/$F/semgrep:/src:ro" -w /src "$SEMGREP_IMAGE" semgrep scan --metrics=off --disable-version-check --config p/typescript --config p/nodejs --json --quiet . > proof-semgrep.json
           node tools/security/gates.mjs semgrep proof-semgrep.json --expect gcm-no-tag-length
-          status=0; ./osv-scanner scan source --lockfile "$F/osv/pnpm-lock.yaml" --format json > proof-osv.json || status=$?
+          status=0; ./osv-scanner scan source --lockfile "pnpm-lock.yaml:$F/osv/vulnerable-lockfile.yaml" --format json > proof-osv.json || status=$?
           if [ "$status" -gt 1 ]; then echo "osv-scanner failed (exit $status)"; exit "$status"; fi
           node tools/security/gates.mjs osv proof-osv.json --expect GHSA-35jh-r3h4-6jhm
           status=0; docker run --rm -v "$PWD/$F/checkov:/src:ro" "$CHECKOV_IMAGE" -d /src --framework dockerfile github_actions --skip-download --quiet --compact -o json > proof-checkov.json || status=$?

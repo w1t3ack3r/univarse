@@ -176,6 +176,7 @@ Without the option, Node accepts a tag as short as 4 bytes, so a forger has only
 - **`node --test tools/security/security.test.mjs`:** 16 of 16 pass. **25 of 25 mutations caught** (S1–S25): each threshold, each exception rule, the proofs' `--expect`, an unreadable report, the title's type, scope and separator, the Checkov summary's three counts, and `nosem` in either case.
 - **Each proof was run here** on its fixture, and fails for its finding: Semgrep, osv-scanner, Checkov (both), the licenses, and the four exceptions fixtures (an expired entry, a bare `nosemgrep`, a `checkov:skip` without a reason, a license exception without an owner).
 - **Each proof checks its failure's message,** not only its exit code: a crash also exits non-zero. Run here under CI's bash, with three wrong cases, each failing the proof: a missing fixture, the wrong fixture, and a clean tree.
+- **The osv fixture isn't named `pnpm-lock.yaml`,** so GitHub's dependency graph doesn't raise a real alert for its planted lodash. osv-scanner is told its format, and the proof passes here.
 - **The inline check reads `nosem` as well as `nosemgrep`, in any case,** as Semgrep does. A bare `// nosem` would otherwise have suppressed every rule unseen.
 - **The GCM tests:** 4 of 4 mutations caught (G1–G4).
 - **Unit, lint and typecheck:** `packages/crypto` 49 of 49, `tools/stack` 439 of 439 (1 skipped); `pnpm ci:policy` and its 9 tests pass.
