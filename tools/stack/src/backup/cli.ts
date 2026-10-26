@@ -15,6 +15,7 @@ import { RELEASES } from '../config.js';
 import { printer } from '../print.js';
 import { acquireRegistryLock } from '../release.js';
 import { takeBackup } from './backup.js';
+import { checkoutProblem, checkoutState, recordCheckout } from './checkout.js';
 import { loadSettings, saveSettings } from './config.js';
 import { externalRuleProblem } from './external.js';
 import { keygen } from './keygen.js';
@@ -35,6 +36,17 @@ const echo = (l: string) => {
 export async function main(argv: readonly string[], opts: { scheduled?: boolean; log?: (l: string) => void } = {}): Promise<{ ok: boolean; lines: string[] }> {
   const [cmd, ...rest] = argv;
   const print = opts.log ?? echo;
+  // B2-4: a scheduled run notes what this checkout holds, and warns when it isn't a clean main; it backs up regardless.
+  if (opts.scheduled) {
+    try {
+      const c = checkoutState();
+      recordCheckout(c, new Date());
+      const problem = checkoutProblem(c);
+      if (problem) print(`WARN ${problem}`);
+    } catch (e) {
+      print(`WARN ${(e as Error).message}`);
+    }
+  }
   if (cmd === undefined) {
     const p = printer(print);
     const deps = realBackupDeps();

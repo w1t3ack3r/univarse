@@ -19,12 +19,14 @@ export function loadSettings(dir = STACK_DIR): BackupSettings {
   if (!existsSync(f)) return { destination: DEFAULT_DESTINATION };
   const s = JSON.parse(readFileSync(f, 'utf8')) as Partial<BackupSettings>;
   if (typeof s.destination !== 'string' || !isAbsolute(s.destination)) throw new Error(`${f}: destination must be an absolute path`);
-  return { destination: s.destination };
+  // Normalised on reading too, so a path saved before saving normalised it (`D:\\univarse-backups`) reads as one.
+  return { destination: resolve(s.destination) };
 }
 
+/** Saved normalised: a doubled separator (a shell's escaping, say) or a trailing one never reaches the file. */
 export function saveSettings(settings: BackupSettings, dir = STACK_DIR): void {
   if (!isAbsolute(settings.destination)) throw new Error('the backup destination must be an absolute path');
-  writeOwnerOnly(settingsFile(dir), `${JSON.stringify(settings, null, 2)}\n`);
+  writeOwnerOnly(settingsFile(dir), `${JSON.stringify({ ...settings, destination: resolve(settings.destination) }, null, 2)}\n`);
 }
 
 /**

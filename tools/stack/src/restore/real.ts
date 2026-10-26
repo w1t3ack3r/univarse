@@ -11,7 +11,7 @@ import { loadSettings, PUBLIC_KEY_FILE } from '../backup/config.js';
 import { loadPrivateKey, loadPublicKey } from '../backup/seal.js';
 import { WAL } from '../backup/set.js';
 import { realWalDeps, shipWal } from '../backup/wal.js';
-import { RELEASES, THIRD_PARTY } from '../config.js';
+import { RELEASES, STACK_DIR, THIRD_PARTY } from '../config.js';
 import { imagesFrom } from '../deploy.js';
 import { registry } from '../deploy-deps.js';
 import { docker, hostPath } from '../docker.js';
@@ -157,7 +157,7 @@ export function realRestoreDeps(req: RestoreRequest, opts: RealOptions): Restore
     },
     shipWal: async () => {
       // The caller holds the registry lock, so the shipper is called directly (B2-7), as the backup calls it.
-      if (!rehearsal) return []; // a real restore runs with the stack down; what is staged ships at its next deploy
+      // Shipping needs only the staging volume, not a running stack: a real restore ships what was staged too.
       return (await shipWal(destination(), loadPublicKey(readFileSync(PUBLIC_KEY_FILE, 'utf8')), realWalDeps())).lines;
     },
     sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
@@ -239,6 +239,14 @@ export function realRestoreDeps(req: RestoreRequest, opts: RealOptions): Restore
         lines.push(...removeLabelled());
       } catch (e) {
         lines.push(`WARN teardown: ${(e as Error).message}: remove them with \`docker volume ls --filter label=univarse.restore\``);
+      }
+      // A real restore keeps the restored Vault's tokens (re-issued ones included) for the deploy that follows.
+      if (!rehearsal) {
+        try {
+          writeOwnerOnly(join(STACK_DIR, 'vault-init.json'), readFileSync(join(dir, 'vault-init.json'), 'utf8'));
+        } catch (e) {
+          lines.push(`WARN the restored Vault's tokens were not kept (${(e as Error).message}): the next deploy re-issues them`);
+        }
       }
       rmSync(dir, { recursive: true, force: true });
       stopRegistry();
