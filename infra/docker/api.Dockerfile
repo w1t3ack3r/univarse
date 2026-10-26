@@ -6,6 +6,9 @@
 ARG BUILD_IMAGE=node:24-trixie-slim@sha256:173f125896c3b47ddf056734c7ea789d04595a6a08769a8f78e0df642781fb66
 ARG RUNTIME_IMAGE=gcr.io/distroless/nodejs24-debian13:nonroot@sha256:9eeb7f5887d0e239e78264b06f7f11d2e14be534050481803a9e4728fcdd278e
 
+# Spec 0024: two Checkov checks, by design (tools/security/exceptions.mjs requires each reason).
+# checkov:skip=CKV_DOCKER_2: distroless runtime (no shell or curl). Liveness is checked from outside: stack:smoke probes /health/live through the edge after every deploy (spec 0019 LS6)
+# checkov:skip=CKV_DOCKER_7: the base images are ARGs pinned by tag and digest above, which Checkov cannot resolve
 FROM ${BUILD_IMAGE} AS build
 ENV PNPM_HOME=/pnpm PATH=/pnpm:$PATH CI=true
 RUN corepack enable

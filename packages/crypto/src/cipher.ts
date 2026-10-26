@@ -5,16 +5,22 @@ import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
 
 const b64u = (b: Buffer) => b.toString('base64url');
 
+/**
+ * GCM's tag, 128 bits, stated on both sides. Without `authTagLength`, a decipher accepts a truncated tag (down to
+ * 4 bytes), and a forgery then needs about 2^32 tries instead of 2^128 (spec 0024's Semgrep baseline found it).
+ */
+export const TAG_BYTES = 16;
+
 function seal(key: Uint8Array, plaintext: Uint8Array, aad: string): [string, string, string] {
   const iv = randomBytes(12);
-  const cipher = createCipheriv('aes-256-gcm', key, iv);
+  const cipher = createCipheriv('aes-256-gcm', key, iv, { authTagLength: TAG_BYTES });
   cipher.setAAD(Buffer.from(aad, 'utf8'));
   const ct = Buffer.concat([cipher.update(plaintext), cipher.final()]);
   return [b64u(iv), b64u(ct), b64u(cipher.getAuthTag())];
 }
 
 function open(key: Uint8Array, iv: string, ct: string, tag: string, aad: string): Buffer {
-  const decipher = createDecipheriv('aes-256-gcm', key, Buffer.from(iv, 'base64url'));
+  const decipher = createDecipheriv('aes-256-gcm', key, Buffer.from(iv, 'base64url'), { authTagLength: TAG_BYTES });
   decipher.setAAD(Buffer.from(aad, 'utf8'));
   decipher.setAuthTag(Buffer.from(tag, 'base64url'));
   return Buffer.concat([decipher.update(Buffer.from(ct, 'base64url')), decipher.final()]);

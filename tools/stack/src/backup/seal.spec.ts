@@ -136,6 +136,13 @@ describe('the backup key files', () => {
     expect(() => loadPrivateKey({ ...k.privateFile, fingerprint: '00'.repeat(32) }, PASS)).toThrow(SealError);
   });
 
+  it('[spec 0024] a private file with a truncated tag, even a genuine one, fails the same way, as a SealError', () => {
+    const k = generateBackupKey(PASS, FAST);
+    const short = Buffer.from(k.privateFile.tag, 'base64').subarray(0, 4).toString('base64');
+    expect(() => loadPrivateKey({ ...k.privateFile, tag: short }, PASS)).toThrow(SealError);
+    expect(() => loadPrivateKey({ ...k.privateFile, tag: short }, PASS)).toThrow(/wrong passphrase, or the file was changed/);
+  });
+
   it('the private file holds no key material in clear', () => {
     const k = generateBackupKey(PASS, FAST);
     const der = loadPrivateKey(k.privateFile, PASS).export({ type: 'pkcs8', format: 'der' });

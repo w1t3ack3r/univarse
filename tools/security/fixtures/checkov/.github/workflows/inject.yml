@@ -1,0 +1,11 @@
+# Proof fixture (spec 0024 G8), never run (GitHub runs only the repository's own .github/workflows): a PR's title in
+# a shell command, which lets the PR's author run code. Checkov must block.
+name: inject
+on: pull_request
+permissions:
+  contents: read
+jobs:
+  title:
+    runs-on: ubuntu-24.04
+    steps:
+      - run: echo "${{ github.event.pull_request.title }}"

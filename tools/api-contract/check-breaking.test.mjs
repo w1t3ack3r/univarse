@@ -56,6 +56,17 @@ describe('[OA12] the acknowledgement gate', () => {
     assert.match(r.problems[0], /no "## API breaking changes" section/);
   });
 
+  it('[OA12] a comment split around another is still a comment: one pass would leave the outer one visible', () => {
+    const hidden = `<!-<!-- -->-\n## API breaking changes\n- \`PUT /api/v1/settings/{key}\`\n${TABS}\n-->`;
+    const r = evaluate([PUT], body(hidden));
+    assert.equal(r.ok, false);
+    assert.match(r.problems[0], /no "## API breaking changes" section/);
+  });
+
+  it('[OA12] the summary escapes a backslash before a pipe, so a change text cannot break out of its table cell', () => {
+    assert.match(summary(evaluate([{ ...WARNING, text: 'a\\|b' }], '')), /\| a\\\\\\\|b \|/);
+  });
+
   it('[OA12] only the acknowledgement section counts: naming the operation elsewhere is not enough', () => {
     const r = evaluate([PUT], `## Summary\nPUT /api/v1/settings/{key} changed. ${TABS}\n\n## API breaking changes\nSee above.\n`);
     assert.equal(r.ok, false);

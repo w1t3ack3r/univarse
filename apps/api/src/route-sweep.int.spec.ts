@@ -5,7 +5,7 @@
  * (RS8 boots the compiled production build).
  */
 import { randomBytes, randomUUID } from 'node:crypto';
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import type { NestFastifyApplication } from '@nestjs/platform-fastify';
@@ -1117,10 +1117,10 @@ describe('[RS6][RS8] resources by id, and the negative controls', () => {
     // Static: no control path compiled anywhere into dist.
     const offenders: string[] = [];
     const walk = (dir: string) => {
-      for (const f of readdirSync(dir)) {
-        const p = join(dir, f);
-        if (statSync(p).isDirectory()) walk(p);
-        else if (/\.(js|mjs|cjs)$/.test(f) && readFileSync(p, 'utf8').includes('__test')) offenders.push(p);
+      for (const e of readdirSync(dir, { withFileTypes: true })) {
+        const p = join(dir, e.name);
+        if (e.isDirectory()) walk(p);
+        else if (/\.(js|mjs|cjs)$/.test(e.name) && readFileSync(p, 'utf8').includes('__test')) offenders.push(p);
       }
     };
     walk(dist);

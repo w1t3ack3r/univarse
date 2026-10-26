@@ -1,0 +1,5 @@
+- id: LIC-x
+  packages: ['x']
+  licenses: ['AGPL-3.0-only']
+  statement: a license exception with no owner, which must fail
+  expired_at: 2026-12-01

@@ -37,6 +37,16 @@ describe('[E4] v2 cipher format', () => {
     expect(decryptWith(dek, parseCipher(stored), 'aad').toString()).toBe('secret');
   });
 
+  it('[spec 0024] refuses a truncated tag, even a genuine one: only the full 16 bytes authenticate', () => {
+    const dek = randomBytes(32);
+    const parts = encryptV2(dek, 1, Buffer.from('secret'), 'aad').split(':');
+    const tag = Buffer.from(parts[4] ?? '', 'base64url');
+    expect(tag.length).toBe(16);
+    // The tag's own first 4 bytes: a decipher without authTagLength checks only those, and decrypts.
+    parts[4] = tag.subarray(0, 4).toString('base64url');
+    expect(() => decryptWith(dek, parseCipher(parts.join(':')), 'aad')).toThrow();
+  });
+
   it('binds the AAD and detects tampering', () => {
     const dek = randomBytes(32);
     const stored = encryptV2(dek, 1, Buffer.from('secret'), 'tenant-a:totp');
@@ -61,6 +71,13 @@ describe('[E2][E3] key providers', () => {
     expect((await p.unwrap(wrapped, wrapContext(A, 1))).equals(dek)).toBe(true);
     await expect(p.unwrap(wrapped, wrapContext(B, 1))).rejects.toBeInstanceOf(KeyUnavailableError);
     await expect(p.unwrap(wrapped, wrapContext(A, 2))).rejects.toBeInstanceOf(KeyUnavailableError);
+  });
+
+  it('[spec 0024] the local provider refuses a truncated tag, even a genuine one', async () => {
+    const p = new LocalKeyProvider('t', kek());
+    const parts = (await p.wrap(randomBytes(32), wrapContext(A, 1))).split(':');
+    parts[3] = Buffer.from(parts[3] ?? '', 'base64url').subarray(0, 4).toString('base64url');
+    await expect(p.unwrap(parts.join(':'), wrapContext(A, 1))).rejects.toBeInstanceOf(KeyUnavailableError);
   });
 
   it('the wrapped form never contains the DEK', async () => {

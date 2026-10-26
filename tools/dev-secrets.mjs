@@ -1,10 +1,20 @@
 // Adds missing local-dev secrets (not DB — see `pnpm db:setup`) to the git-ignored root .env.
 // Existing values are never overwritten.
 import { randomBytes } from 'node:crypto';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
+
+/** A file's text, or null when it doesn't exist: read directly, never checked first (no check-then-use race). */
+function readIfExists(p) {
+  try {
+    return readFileSync(p, 'utf8');
+  } catch (e) {
+    if (e.code === 'ENOENT') return null;
+    throw e;
+  }
+}
 
 const path = new URL('../.env', import.meta.url);
-const current = existsSync(path) ? readFileSync(path, 'utf8') : '';
+const current = readIfExists(path) ?? '';
 const wanted = {
   VALKEY_PASSWORD: () => randomBytes(24).toString('hex'),
   SESSION_PEPPER: () => randomBytes(32).toString('base64url'),
