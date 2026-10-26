@@ -299,6 +299,12 @@ jobs:
       # takes a snapshot and nothing else); PostgreSQL 18's archive_command and pg_basebackup's stream (B-2, B-3).
       - name: Backups' containers, Vault's migration to Raft and PostgreSQL's archiving (spec 0020 B1)
         run: pnpm --filter @univarse/stack test:backup
+      # Spec 0020 B2-13: the restore's own steps on the stack's pinned images, in containers and volumes of their own:
+      # PostgreSQL recovered to a time from a sealed base backup and the shipped WAL (BK4), a past-the-WAL time refused;
+      # Vault from a sealed Raft snapshot, opened with the first Vault's key (BK5); the files through the filer and back
+      # over S3 (B2-8); and everything labelled removed by its label (BK6). The full rehearsal and drill are the owner's.
+      - name: The restore's steps on the pinned images (spec 0020 B2-13)
+        run: pnpm --filter @univarse/stack test:restore
       # Spec 0023, on a throwaway Vault of the stack's pinned image: both tokens periodic at 768 h, renewal back to the
       # full period, the policies' self paths and nothing more, a dead token re-issued (and Vault's answers for a dead
       # token and a sealed Vault pinned), and the app's renewer keeping a short-period token alive.

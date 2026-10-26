@@ -144,7 +144,7 @@ describe('[BK6] every failure tears the rehearsal down', () => {
     expect(r.lines.at(-1)).toBe('torn down');
   });
 
-  it('the teardown is skipped when it is the mutation: this test would see the volumes left (BK10)', async () => {
+  it('the teardown runs exactly once on a failure, never twice', async () => {
     const { deps, calls } = scripted({ restorePostgres: () => Promise.resolve(['x']) });
     await restore(req, deps);
     expect(calls.filter((c) => c === 'teardown')).toHaveLength(1);
