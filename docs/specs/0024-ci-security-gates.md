@@ -224,6 +224,8 @@ The owner chose:
 4. **The push checks run in order, typecheck first.** In parallel, ESLint's typed rules could run before the typecheck had built a package the file imports, and fail on unresolved types; this worktree showed exactly that, with 27 errors in `tools/stack/src/isolation.probe.ts` and `packages/db` unbuilt.
 5. **`.tools/` is git-ignored and in `.dockerignore`,** so the fetched binary never enters a commit or an image's build context.
 
+**CodeQL** flagged the archive's write to disk (`js/http-to-file-access`). It's written only after its SHA-256 matched the pin, so it carries the approved inline suppression with that reason (17 active exceptions now).
+
 **Evidence.**
 
 - **`node --test tools/hooks/hooks.test.mjs`:** 8 of 8 pass. **8 of 8 mutations caught:**

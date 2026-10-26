@@ -58,6 +58,7 @@ async function fetchGitleaks() {
   const tmp = mkdtempSync(join(ROOT, '.tools', 'gitleaks-'));
   try {
     const archive = join(tmp, asset.name);
+    // codeql[js/http-to-file-access]: written only after its SHA-256 matched the pinned release above; tar needs a file
     writeFileSync(archive, bytes);
     // Windows' own tar (bsdtar, in Windows 10 and later) reads zip archives. It is named in full: under Git Bash, the
     // `tar` on PATH is GNU tar, which reads neither zips nor a path starting `C:`.
