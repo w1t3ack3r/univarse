@@ -1,6 +1,13 @@
 // Spec 0020 B2-6, B2-9, B2-11: the restore's decisions at their edges (BK10's mutations: a count mismatch tolerated,
 // the control not required to decrypt, the drill passing without the re-application).
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { init } from '../ledger/commands.js';
+import { FakeKeysDb } from '../ledger/fake-keys-db.js';
+import { establishAuthority } from '../ledger/ledger.js';
+import { destroy } from '../ledger/protocol.js';
 import { afterProblems, checkpointOf, controlProblems, countProblems, destroyedTenants, type DecryptReport, type Facts } from './checks.js';
 
 const facts = (over: Partial<Record<'platform' | 'tenant', Record<string, string>>> = {}): Facts => ({
@@ -90,13 +97,6 @@ describe('[D11] after recovery', () => {
 
 describe('[D11] which tenants the ledger says are destroyed', () => {
   it('TENANT destructions only; "before" holds those committed by the set\'s own ledger head', async () => {
-    const { mkdtempSync, rmSync } = await import('node:fs');
-    const { tmpdir } = await import('node:os');
-    const { join } = await import('node:path');
-    const { init } = await import('../ledger/commands.js');
-    const { FakeKeysDb } = await import('../ledger/fake-keys-db.js');
-    const { destroy } = await import('../ledger/protocol.js');
-    const { establishAuthority } = await import('../ledger/ledger.js');
     const root = mkdtempSync(join(tmpdir(), 'uv-destroyed-'));
     try {
       const primary = { id: 'primary', path: join(root, 'primary') };

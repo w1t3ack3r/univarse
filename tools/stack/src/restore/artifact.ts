@@ -43,7 +43,8 @@ export async function readAll(stream: AsyncIterable<Buffer>): Promise<Buffer> {
 }
 
 export interface Manifest {
-  readonly format: 'univarse-backup-manifest-v1';
+  /** Checked on opening: a manifest of another format is refused. */
+  readonly format: string;
   readonly setId: string;
   readonly createdAt: string;
   readonly versions: Readonly<Record<string, string>>;

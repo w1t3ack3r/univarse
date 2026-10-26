@@ -44,7 +44,7 @@ export type WalNeed =
  * `target`: the target's segment (the facts' position), or `newest` for a time target, whose segment can't be known
  * before recovery runs: then every segment from the start through the newest shipped one is needed, without a gap.
  */
-export function walNeed(startWal: string, timeline: number, target: string | 'newest', shipped: readonly string[]): WalNeed {
+export function walNeed(startWal: string, timeline: number, target: string, shipped: readonly string[]): WalNeed {
   const tl = timeline.toString(16).toUpperCase().padStart(8, '0');
   if (startWal.slice(0, 8) !== tl) throw new Error(`the set's start ${startWal} is not on its timeline ${String(timeline)}`);
   const have = new Set(shipped);
