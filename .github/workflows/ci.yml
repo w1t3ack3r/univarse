@@ -238,6 +238,8 @@ jobs:
         run: pnpm lint
       - name: Unit tests (domain coverage gates enforced)
         run: pnpm test
+      - name: The local hooks' own logic — install, the pinned gitleaks, the commit message (spec 0024 H1, H2)
+        run: node --test tools/hooks/hooks.test.mjs
 
       - name: Create roles + databases (least privilege)
         run: pnpm db:setup

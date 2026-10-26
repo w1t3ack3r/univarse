@@ -68,3 +68,6 @@ infra/compose/otel/out/
 
 # Local release records (spec 0013 LR7): an index, never proof; kept locally
 releases/
+
+# Pinned developer tools, fetched and checksum-verified (pnpm tools:gitleaks)
+.tools/

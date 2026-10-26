@@ -1,0 +1,29 @@
+# Spec 0024 H1–H3, as amended on 2026-10-26: the local git hooks, installed by `pnpm install` (tools/hooks/install.mjs).
+# They are a convenience: `--no-verify` still works, and CI is the gate. A commit stays within 10 seconds, so only the
+# fast checks run then, and the type-aware ones run before a push. Prettier is left out until the repository is
+# formatted (H3).
+pre-commit:
+  commands:
+    # A secret is the one thing a later commit can't undo, so it's caught here. The pinned, checksum-verified gitleaks
+    # from `pnpm tools:gitleaks`, as CI's.
+    gitleaks:
+      run: node tools/hooks/gitleaks-staged.mjs
+
+commit-msg:
+  commands:
+    # G10, by the same code as CI's PR-title check.
+    conventional-commit:
+      run: node tools/hooks/commit-msg.mjs {1}
+
+# ESLint (typed) and the type check take 10 seconds or more each to start on the owner's machine, so they run here.
+# In order, stopping at the first failure: the type check builds what the affected packages import (turbo's ^build),
+# so ESLint's typed rules then see those packages built, never an unresolved import.
+pre-push:
+  piped: true
+  jobs:
+    - name: typecheck
+      run: pnpm exec turbo run typecheck --affected
+    # The pushed files only, with the workspace's one ESLint config.
+    - name: eslint
+      glob: '*.{ts,tsx,mts,cts,js,mjs,cjs}'
+      run: node node_modules/eslint/bin/eslint.js --no-warn-ignored {push_files}
