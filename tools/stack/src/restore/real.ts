@@ -5,14 +5,11 @@
 import { mkdirSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { Readable } from 'node:stream';
-import { gunzipSync } from 'node:zlib';
 import { randomBytes, type KeyObject } from 'node:crypto';
 import { restrictDirToOwner, writeOwnerOnly } from '../../../../packages/db/scripts/pgbouncer-config.js';
 import { loadSettings, PUBLIC_KEY_FILE } from '../backup/config.js';
-import { loadPrivateKey, loadPublicKey, unsealStream } from '../backup/seal.js';
+import { loadPrivateKey, loadPublicKey } from '../backup/seal.js';
 import { WAL } from '../backup/set.js';
-import { tarStream, type TarEntry } from '../backup/tar.js';
 import { realWalDeps, shipWal } from '../backup/wal.js';
 import { RELEASES, THIRD_PARTY } from '../config.js';
 import { imagesFrom } from '../deploy.js';
@@ -27,23 +24,21 @@ import { acquireRegistryLock, verifyRelease, type ReleaseRecord } from '../relea
 import { envText, renderEnvFiles, renderPgBouncerIni, renderPgHba, renderS3Config, renderUserlist, renderValkeyConf } from '../render.js';
 import { loadSecrets } from '../secrets.js';
 import { BUCKETS } from '../deploy-deps.js';
-import { configure as configureVault, loadVaultInit, renewTokens, tokensOf, unseal, vaultCli, vaultState, type VaultTarget } from '../vault.js';
+import { configure as configureVault, loadVaultInit, renewTokens, tokensOf, type VaultTarget } from '../vault.js';
 import { fillScript } from '../volumes.js';
 import { openSet, type OpenedSet } from './artifact.js';
 import type { Facts } from './checks.js';
 import type { Job, RestoreDeps, RestoreRequest } from './engine.js';
-import { CONTAINER_SCRIPT, filesProblems, scratchTar } from './files.js';
 import { sampleMemory } from './memory.js';
+import { recovered, restoreFilesThrough, restoreSnapshot, targetSetting, unpackBase, unpackWal, walEntries } from './steps.js';
 import { copyToScratch, realHeads, remappedFs } from './scratch-ledger.js';
 import {
   APP_NETWORK,
   compose,
   CONFIG_VOLUMES,
   DATA_OWNERS,
-  FILES_SCRATCH,
   jobRunner,
   labelledVolume,
-  pipeInto,
   POSTGRES,
   REHEARSAL_DATA,
   removeLabelled,
@@ -57,7 +52,6 @@ import {
 /** The set's own parts the restore needs from `stack.tar` (D2). */
 const PARTS = ['secrets.json', 'vault-init.json'];
 const RESTORE_VAULT: VaultTarget = { container: VAULT, tls: true };
-const PGDATA = '/var/lib/postgresql/18/docker';
 
 export interface RealOptions {
   readonly keyFile: string;
@@ -176,66 +170,19 @@ export function realRestoreDeps(req: RestoreRequest, opts: RealOptions): Restore
       }
     },
     restorePostgres: async (set, wal, rt) => {
-      // The base backup straight into the data volume, as PostgreSQL's user; recovery.signal beside it.
-      const base = await pipeInto(
-        ['run', '-i', '--rm', '--network', 'none', '--label', 'univarse.restore=1', '--user', '999:999', '-v', `${data.pgdata}:/var/lib/postgresql`, '--entrypoint', 'sh', THIRD_PARTY.postgres, '-c', `mkdir -p ${PGDATA} && chmod 0700 ${PGDATA} && tar -x -f - -C ${PGDATA} && touch ${PGDATA}/recovery.signal`],
-        set.artifact('postgres.tar'),
-      );
-      if (base.status !== 0) return [`the base backup did not unpack into ${data.pgdata}: ${tail(base.stderr)}`];
-      // The WAL, unsealed and decompressed in memory, as a tar into its own volume (read-only to PostgreSQL).
+      const base = await unpackBase(data.pgdata, set.artifact('postgres.tar'));
+      if (base.length) return base;
       const key = loadPrivateKey(JSON.parse(readFileSync(opts.keyFile, 'utf8')) as Parameters<typeof loadPrivateKey>[0], opts.passphrase);
-      const tl = set.manifest.postgres.timeline;
-      async function* walEntries(): AsyncGenerator<TarEntry> {
-        for (const name of wal) {
-          const sealed = Readable.from([readFileSync(join(walDir(tl), `${name}.gz.seal`))]).pipe(unsealStream(key));
-          const parts: Buffer[] = [];
-          for await (const b of sealed as AsyncIterable<Buffer>) parts.push(b);
-          yield { name, data: gunzipSync(Buffer.concat(parts)), mode: 0o600 };
-        }
-      }
-      const w = await pipeInto(['run', '-i', '--rm', '--network', 'none', '--label', 'univarse.restore=1', '--user', '999:999', '-v', `${WAL_VOLUME}:/w`, '--entrypoint', 'tar', THIRD_PARTY.postgres, '-x', '-f', '-', '-C', '/w'], tarStream(walEntries()));
-      if (w.status !== 0) return [`the WAL did not unpack: ${tail(w.stderr)}`];
-      target = 'lsn' in rt ? `recovery_target_lsn=${rt.lsn}` : `recovery_target_time=${rt.time.toISOString()}`;
+      const w = await unpackWal(WAL_VOLUME, walEntries(walDir(set.manifest.postgres.timeline), wal, key));
+      if (w.length) return w;
+      target = targetSetting(rt);
       const up = compose(['up', '-d', '--wait', 'postgres'], env());
-      // A target past the WAL: PostgreSQL ends recovery short of it and stops, in its own words.
       const logs = docker(['logs', '--tail', '40', POSTGRES], { allowFail: true });
-      if (/recovery ended before configured recovery target was reached/.test(logs.stderr + logs.stdout))
-        return [`target not reached: PostgreSQL ran out of WAL before ${'lsn' in rt ? rt.lsn : rt.time.toISOString()} (the newest segment it had: ${wal.at(-1) ?? 'none'})`];
-      if (up.status !== 0) return [`PostgreSQL did not recover: ${tail(logs.stderr)}`];
-      for (let i = 0; i < 120; i++) {
-        if (psql('SELECT pg_is_in_recovery()').stdout.trim() === 'f') break;
-        await new Promise((r) => setTimeout(r, 2000));
-      }
-      if (psql('SELECT pg_is_in_recovery()').stdout.trim() !== 'f') return ['PostgreSQL is still in recovery after 4 minutes: it did not reach its target'];
-      if ('lsn' in rt) {
-        const reached = psql(`SELECT pg_last_wal_replay_lsn() >= '${rt.lsn.replace(/[^0-9A-Fa-f/]/g, '')}'::pg_lsn`).stdout.trim();
-        if (reached !== 't') return [`PostgreSQL promoted before replaying to ${rt.lsn}: target not reached`];
-      }
-      return [];
+      return recovered(rt, up.status === 0, logs.stderr + logs.stdout, (sql) => psql(sql).stdout.trim(), wal.at(-1));
     },
     restoreVault: async (set) => {
       if (compose(['up', '-d', '--wait', 'vault'], env()).status !== 0) return ['the restore\'s Vault did not start'];
-      // Initialised with throwaway keys, held in memory and never written, only to accept the snapshot.
-      const init = vaultCli(docker, ['operator', 'init', '-key-shares=1', '-key-threshold=1', '-format=json'], {}, undefined, RESTORE_VAULT);
-      if (init.status !== 0) return [`the restore's Vault did not initialise (exit ${String(init.status)})`];
-      const throwaway = JSON.parse(init.stdout) as { unseal_keys_b64: string[]; root_token: string };
-      if (vaultCli(docker, ['write', '-format=json', 'sys/unseal', 'key=-'], {}, throwaway.unseal_keys_b64[0] ?? '', RESTORE_VAULT).status !== 0) return ['the restore\'s Vault did not unseal with its throwaway key'];
-      const restored = await pipeInto(
-        ['exec', '-i', '-e', 'VAULT_ADDR=https://127.0.0.1:8200', '-e', 'VAULT_CACERT=/vault/tls/ca.crt', '-e', 'VAULT_TLS_SERVER_NAME=vault', '-e', 'VAULT_TOKEN', VAULT, 'vault', 'operator', 'raft', 'snapshot', 'restore', '-force', '/dev/stdin'],
-        set.artifact('vault.snap'),
-        { VAULT_TOKEN: throwaway.root_token },
-      );
-      if (restored.status !== 0) return [`the Vault snapshot did not restore: ${tail(restored.stderr)}`];
-      // BK5's second half: the restored Vault opens with the set's own unseal key. Whether the restore left it sealed or
-      // not, it is sealed now (with the set's own root token, valid again from the snapshot) and opened with that key,
-      // so the key is always what opens it.
-      const { rootToken } = loadVaultInit(dir);
-      if (vaultState(docker, RESTORE_VAULT) === 'ready' && vaultCli(docker, ['operator', 'seal'], { VAULT_TOKEN: rootToken }, undefined, RESTORE_VAULT).status !== 0)
-        return ["the restored Vault doesn't accept the set's root token (it couldn't be sealed with it): the snapshot isn't the set's"];
-      if (vaultState(docker, RESTORE_VAULT) !== 'sealed') return ['the restored Vault did not seal'];
-      unseal(docker, dir, RESTORE_VAULT);
-      const state = vaultState(docker, RESTORE_VAULT);
-      return state === 'ready' ? [] : [`the restored Vault is ${state} after unsealing with the set's key`];
+      return restoreSnapshot(RESTORE_VAULT, set.artifact('vault.snap'), dir);
     },
     vaultTokens: () => {
       // Spec 0023 T4 on the restored Vault: a token past its period is re-issued with the set's root token.
@@ -251,15 +198,7 @@ export function realRestoreDeps(req: RestoreRequest, opts: RealOptions): Restore
       const bucketProblem = createBuckets();
       if (bucketProblem) return { objects: 0, problems: [bucketProblem] };
       const s = loadSecrets(dir);
-      const { stream, sent } = scratchTar(set.artifact('files.tar'));
-      const r = await pipeInto(
-        ['run', '-i', '--rm', '--network', APP_NETWORK, '--label', 'univarse.restore=1', '--read-only', '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges:true', '--user', '1000:1000',
-          '--tmpfs', '/tmp:rw,noexec,nosuid,size=16m', '-e', 'S3_ACCESS_KEY', '-e', 'S3_SECRET_KEY', '-v', `${FILES_SCRATCH}:/scratch`, '--entrypoint', 'sh', THIRD_PARTY.seaweedfs, '-c', CONTAINER_SCRIPT],
-        Readable.from(stream as AsyncIterable<Buffer>),
-        { S3_ACCESS_KEY: s.s3AccessKey, S3_SECRET_KEY: s.s3SecretKey },
-      );
-      if (r.status !== 0) return { objects: sent.length, problems: [`the files' container failed: ${tail(r.stderr)}`] };
-      return { objects: sent.length, problems: filesProblems(sent, r.stdout) };
+      return restoreFilesThrough(APP_NETWORK, set.artifact('files.tar'), { accessKey: s.s3AccessKey, secretKey: s.s3SecretKey });
     },
     start: (services) => (compose(['up', '-d', '--wait', ...services], env()).status === 0 ? [] : [`${services.join(', ')} did not start healthy`]),
     migrateCheck: () => {

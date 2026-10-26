@@ -26,6 +26,7 @@
     "drill": "tsx src/restore/cli.ts drill",
     "restore": "tsx src/restore/cli.ts restore",
     "test:backup": "vitest run --config vitest.backup.config.ts",
+    "test:restore": "vitest run --config vitest.restore.config.ts",
     "test:vault": "vitest run --config vitest.vault.config.ts"
   },
   "devDependencies": {
