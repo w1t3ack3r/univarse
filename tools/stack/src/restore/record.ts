@@ -44,12 +44,15 @@ export function recordMarkdown(r: RestoreRecord, opts: { readonly date: string; 
       '',
     );
   out.push('## The checks (D10)', '', '| Check | Result | Detail |', '| --- | --- | --- |');
-  for (const c of r.checks) out.push(`| ${c.name} | ${c.ok ? 'PASS' : 'FAIL'} | ${c.detail.replace(/\|/g, '\\|')} |`);
+  for (const c of r.checks) out.push(`| ${c.name} | ${c.ok ? 'PASS' : 'FAIL'} | ${cell(c.detail)} |`);
   out.push('', '## Decryption, per tenant', '', '| Tenant | Before recovery | After recovery |', '| --- | --- | --- |');
   for (const slug of Object.keys(r.decryptBefore ?? {}).sort()) out.push(`| \`${slug}\` | ${statusOf(r.decryptBefore, slug)} | ${statusOf(r.decryptAfter, slug)} |`);
   out.push('');
   return out.join('\n');
 }
+
+/** A table cell's text: backslashes escaped first, then pipes, so neither can end the cell early. */
+export const cell = (s: string) => s.replace(/\\/g, '\\\\').replace(/\|/g, '\\|');
 
 const statusOf = (r: RestoreRecord['decryptBefore'], slug: string) => {
   const v = r?.[slug];

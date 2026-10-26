@@ -70,10 +70,24 @@ function writeRecord(r: RestoreRecord, kind: 'restore-and-shred' | 'restore-rehe
   if (found.length) throw new Error(`the record was not written: it would hold ${found.join(', ')} (BK9)`);
   const dir = join(REPO, 'docs', 'ops', 'drills');
   mkdirSync(dir, { recursive: true });
-  let file = join(dir, `${date}-${kind}.md`);
-  for (let n = 2; existsSync(file); n++) file = join(dir, `${date}-${kind}-${String(n)}.md`);
-  writeFileSync(file, md);
-  return file;
+  return writeNew(dir, `${date}-${kind}`, md);
+}
+
+/**
+ * `<dir>/<base>.md`, or `<base>-2.md` and on when that exists. Each is created exclusively ('wx'): never checked first,
+ * and an existing record is never overwritten.
+ */
+export function writeNew(dir: string, base: string, text: string): string {
+  for (let n = 1; n < 100; n++) {
+    const file = join(dir, n === 1 ? `${base}.md` : `${base}-${String(n)}.md`);
+    try {
+      writeFileSync(file, text, { flag: 'wx' });
+      return file;
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code !== 'EEXIST') throw e;
+    }
+  }
+  throw new Error(`the record was not written: 99 records named ${base} already in ${dir}`);
 }
 
 function passphrase(): string {

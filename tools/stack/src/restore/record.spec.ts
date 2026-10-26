@@ -1,7 +1,7 @@
 // Spec 0020 B2-11, BK9: the drill's record, and the scan it passes before it is written.
 import { describe, expect, it } from 'vitest';
 import type { RestoreRecord } from './engine.js';
-import { recordMarkdown, secretProblems } from './record.js';
+import { cell, recordMarkdown, secretProblems } from './record.js';
 
 const RECORD: RestoreRecord = {
   mode: 'rehearsal',
@@ -55,5 +55,14 @@ describe('[BK9] the scan', () => {
 
   it('ignores hashes, ids and short values', () => {
     expect(secretProblems(`sha ${'a'.repeat(64)} id 9f0c2f1e-0000-4000-8000-000000000001`, ['short'])).toEqual([]);
+  });
+});
+
+describe('[B2-11] a table cell', () => {
+  it('escapes backslashes before pipes, so a detail ending in a backslash can\'t end its cell', () => {
+    // In source: one backslash is written '\\'.
+    expect(cell('a | b')).toBe('a \\| b');
+    expect(cell('x\\')).toBe('x\\\\');
+    expect(cell('x\\|y')).toBe('x\\\\\\|y');
   });
 });

@@ -1,7 +1,10 @@
 // Spec 0020 B2-12: a real restore refuses before anything is read or created unless its confirmation is given word for
 // word (BK10: `stack:restore` without its confirmation); the commands refuse their usage errors the same way.
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { main } from './cli.js';
+import { main, writeNew } from './cli.js';
 import { CONFIRMATION } from './real-restore.js';
 
 describe('[B2-12] the restore commands\' refusals', () => {
@@ -21,6 +24,17 @@ describe('[B2-12] the restore commands\' refusals', () => {
     await expect(main('rehearsal', ['--key', 'k', '--key', 'k'], log)).rejects.toThrow(/usage/);
     await expect(main('rehearsal', ['--key', 'k', '--to', 'yesterday'], log)).rejects.toThrow(/--to takes an ISO time/);
     await expect(main('nothing', [], log)).rejects.toThrow(/usage/);
+  });
+
+  it('a record never overwrites another: the same day\'s second is -2, the first unchanged', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'uv-record-'));
+    try {
+      expect(writeNew(dir, '2026-10-26-restore-and-shred', 'first')).toBe(join(dir, '2026-10-26-restore-and-shred.md'));
+      expect(writeNew(dir, '2026-10-26-restore-and-shred', 'second')).toBe(join(dir, '2026-10-26-restore-and-shred-2.md'));
+      expect(readFileSync(join(dir, '2026-10-26-restore-and-shred.md'), 'utf8')).toBe('first');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it('without the passphrase in its variable, nothing starts', async () => {

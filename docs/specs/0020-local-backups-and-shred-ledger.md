@@ -1315,8 +1315,11 @@ Outside that folder:
   - the checkout warning;
   - the destination's normalisation.
 
-  The restore modules have 80 tests; the backup's new ones (the checkout, the destination) 8 more.
-- **Mutations: 23 of 23 caught.** That covers B2-15's list for B2b:
+  The restore modules have 82 tests; the backup's new ones (the checkout, the destination) 8 more.
+- **CodeQL's first run on the PR (#123) found two, both fixed and tested:**
+  - the record's table cells escaped pipes but not backslashes (`js/incomplete-sanitization`);
+  - the record's file was checked for, then written (`js/file-system-race`). It is now created exclusively, and the next name is taken when one exists, so an earlier record is never overwritten.
+- **Mutations: 25 of 25 caught,** two for those fixes. The other 23 cover B2-15's list for B2b:
   - the drill passing without the re-application;
   - the control not required to decrypt;
   - teardown skipped on a failure;
