@@ -1,6 +1,6 @@
 # Spec 0024: CI security gates, and the local hooks
 
-**Status:** **Approved by the owner on 2026-10-25, all as written:** G1–G11 and H1–H3, with G12 decided (proprietary, stated by a `LICENSE`; CodeQL with no upload). **PR A built** (its implementation notes, below): all 12 decisions made while building were approved by the owner on 2026-10-26, with the `LICENSE` holder's name confirmed; merged as #115. **PR B built** (its implementation notes, below), with H2 and GC8 amended by the owner on 2026-10-26.
+**Status:** **Approved by the owner on 2026-10-25, all as written:** G1–G11 and H1–H3, with G12 decided (proprietary, stated by a `LICENSE`; CodeQL with no upload). **PR A built** (its implementation notes, below): all 12 decisions made while building were approved by the owner on 2026-10-26, with the `LICENSE` holder's name confirmed; merged as #115. **PR B built** (its implementation notes, below), with H2 and GC8 amended by the owner on 2026-10-26, and its 5 decisions made while building approved the same day.
 **Phase:** 0. It closes the roadmap's rows "CI pipeline with all security scans" (🟡) and "lefthook, commitlint" (❌).
 **Builds on:**
 
@@ -216,7 +216,7 @@ The owner chose:
 - **commit-msg:** G10's own code instead of commitlint, which also drops commitlint's 456 lockfile lines.
 - **pre-push:** ESLint on the pushed files, beside the typecheck.
 
-**Decisions made while building (for the owner's approval).**
+**Decisions made while building.** All 5 were approved by the owner on 2026-10-26.
 
 1. **The hooks install through a script, not a bare `lefthook install`** (H1 said `prepare` runs `lefthook install`). The image builds run `pnpm install` without `.git`, where `lefthook install` fails, so `tools/hooks/install.mjs` skips there, in CI, and without lefthook, saying which.
 2. **lefthook's postinstall is listed in `ignoredBuiltDependencies`:** the refusal H1 relies on is then written down, and pnpm stops warning about it on every install.
