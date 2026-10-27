@@ -29,7 +29,11 @@ export async function drill(now: Date, deps: DrillDeps): Promise<{ ok: boolean; 
     lines.push(l);
     deps.log(l);
   };
-  const stop = (step: string, more: readonly string[]) => ({ ok: false, lines: [...lines, ...more, `STOP at ${step}: the drill did not complete`], result: null, facts: null });
+  // A step's reason has not been printed yet: the CLI prints only the last line of a failed drill.
+  const stop = (step: string, more: readonly string[]) => {
+    for (const l of more) say(l);
+    return { ok: false, lines: [...lines, `STOP at ${step}: the drill did not complete`], result: null, facts: null };
+  };
   const slug = drillSlug(now);
 
   say(`1/4: the drill tenant ${slug}`);
