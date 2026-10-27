@@ -1342,6 +1342,15 @@ Outside that folder:
   Nothing was left behind.
 - **Not run here:** the full rehearsal and the drill. They need the owner's private key and a deployed release (B-16). Their record is BK6's and BK7's evidence (B2-17).
 
+## The re-key (2026-10-27)
+
+The owner lost the passphrase of the first backup key (fingerprint `sha256:90c83219…a2571d84e`) before the first drill. Nothing was leaked: the key file still exists, encrypted, and is kept in case the passphrase is recovered.
+
+- **Every set and WAL segment before the re-key is unreadable** without that passphrase: sets `20261024T161305Z-e2bd` to `20261026T025212Z-d796`, and WAL through `00000001000000000000001B`, plus whatever the old checkout ships before this change reaches it. They are not restore points. Pruning removes them as the new sets replace them (the 7 newest, plus a weekly set for 4 weeks), so the old key file can go once the last of them is pruned.
+- **The new key** was made by `keygen` on 2026-10-27, fingerprint `sha256:808332a8904334c0bb3f063a6886cc66f404250a1f7e293fc7ffae33757b4154`. The old `infra/backup/backup.pub` was removed in the same change, since `keygen` never replaces one.
+- **The first restorable set** is the first one taken after this change is in the checkout the schedule runs from. The drill runs on it.
+- **Not built:** a `rotate` command. A rotation with the old key at hand would re-wrap each set's header to the new key (D5's wrapped random key allows it); with the old key lost there is nothing to re-wrap, so this re-key needs none.
+
 ## Affected docs (in the implementation PRs)
 
 - **[10 §7](../10-infrastructure-and-deployment.md):** the local backup section: what, where, the schedule, the measured boundary, the owner's private key, the same-disk limit, the commands, the drill.
