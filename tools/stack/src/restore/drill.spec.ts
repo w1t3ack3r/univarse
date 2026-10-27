@@ -38,6 +38,18 @@ describe('[B2-11] the drill', () => {
     expect(calls).toHaveLength(step - 1);
   });
 
+  it.each<[string, Partial<DrillDeps>, string]>([
+    ['the tenant', { createTenant: () => ({ ok: false, lines: ['shred-drill-20261026 exists: each drill gets a fresh tenant'] }) }, 'shred-drill-20261026 exists: each drill gets a fresh tenant'],
+    ['the backup', { backup: () => Promise.resolve({ ok: false, lines: ['no destination'] }) }, 'no destination'],
+    ['the destruction', { destroy: () => Promise.resolve({ ok: false, lines: ['not eligible'] }) }, 'not eligible'],
+  ])("a stop at %s prints the step's reason before the STOP line", async (_n, over, reason) => {
+    const printed: string[] = [];
+    const { deps } = scripted({ ...over, log: (l) => printed.push(l) });
+    const r = await drill(NOW, deps);
+    expect(printed.at(-1)).toBe(reason);
+    expect(r.lines.at(-2)).toBe(reason);
+  });
+
   it('a failed rehearsal fails the drill, and keeps its facts for the record', async () => {
     const { deps } = scripted({ rehearse: () => Promise.resolve({ ok: false, lines: ['FAIL decryption after recovery'], record: null }) });
     const r = await drill(NOW, deps);
