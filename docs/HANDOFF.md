@@ -18,7 +18,8 @@ Read this before doing anything. It covers where Phase 0 stands, what is left in
   - **mailpit v1.32.0:** healthy, using 7.8 MiB of its 64 MiB.
   - **Before it:** `2026-10-24-00baee7`, deployed on 2026-10-24 after Vault's migration to Raft. The KEK was identical, the probe decrypted, and 3 of 3 data keys unwrapped.
 - **Backups run.**
-  - The backup public key is `infra/backup/backup.pub`, fingerprint `sha256:90c83219d8d23b1598dd2b867ebb836ef158b3c47991e99d9ab0c66a2571d84e`. The owner keeps the private key offline.
+  - The backup public key is `infra/backup/backup.pub`, fingerprint `sha256:808332a8904334c0bb3f063a6886cc66f404250a1f7e293fc7ffae33757b4154`, made on 2026-10-27. The owner keeps the private key offline.
+  - **Re-keyed on 2026-10-27:** the first key's passphrase was lost, so every set and WAL segment sealed to it (fingerprint `sha256:90c83219…`) is unreadable and not a restore point ([spec 0020](specs/0020-local-backups-and-shred-ledger.md), "The re-key"). The sets listed below are among them.
   - **Two sets are kept:**
     - `20261024T161305Z-e2bd`, the first, needing WAL from `000000010000000000000006`;
     - `20261025T033359Z-02d9`, on the new release, needing WAL from `000000010000000000000011`. Its Vault snapshot is 26.3 KB, the stack's parts 20.5 KB, and the ledger 4.0 KB. Its files are 1.0 KB, an empty tar: the demo tenants have no uploads.
