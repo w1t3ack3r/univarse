@@ -1,6 +1,6 @@
 # Spec 0026: Phase 1's start: the console's threat model, and Storybook
 
-**Status:** **Draft, for the owner's approval.** Nothing is built from it until Phase 0 is signed off and these decisions are approved.
+**Status:** **Approved by the owner on 2026-10-28, all as written:** T-A to T-C (the rows T23 to T30) and SB1 to SB8. Nothing is built from it until Phase 0 is signed off.
 **Phase:** 1, slice **S0** of [spec 0025](0025-phase-1-control-plane.md).
 **Builds on:**
 
@@ -77,7 +77,7 @@ S0 is the ground the console is built on, before any console code exists.
 
 ## The owner's steps
 
-None beyond approving this spec and merging its PR. No image changes, so no release.
+None beyond merging its PRs (the spec approved on 2026-10-28). No image changes, so no release.
 
 ## Affected docs (in the implementation PR)
 
