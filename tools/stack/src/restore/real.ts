@@ -51,6 +51,36 @@ import {
 
 /** The set's own parts the restore needs from `stack.tar` (D2). */
 const PARTS = ['secrets.json', 'vault-init.json'];
+
+/**
+ * Writes the set's `stack.tar` parts under `dir`, each owner-only. A part in a folder (`certs/…`, `edge/…`) gets each
+ * folder on its way made and made owner-only, top down, before the part is written into it.
+ * Every name is checked before anything is written; the first unexpected one is returned, and nothing is written.
+ */
+export function writeParts(
+  dir: string,
+  parts: readonly { name: string; data: Buffer }[],
+  write = writeOwnerOnly,
+  restrict: (dir: string) => void = restrictDirToOwner,
+): string | null {
+  const bad = parts.find((p) => !/^[a-z0-9_./-]+$/.test(p.name) || p.name.includes('..') || p.name.startsWith('/'));
+  if (bad) return bad.name;
+  const made = new Set<string>();
+  for (const p of parts) {
+    const segments = p.name.split('/');
+    let folder = dir;
+    for (const s of segments.slice(0, -1)) {
+      folder = join(folder, s);
+      if (made.has(folder)) continue;
+      mkdirSync(folder, { recursive: true });
+      restrict(folder);
+      made.add(folder);
+    }
+    // Every part is text: JSON, PEM certificates and keys.
+    write(join(dir, ...segments), p.data.toString('utf8'));
+  }
+  return null;
+}
 const RESTORE_VAULT: VaultTarget = { container: VAULT, tls: true };
 
 export interface RealOptions {
@@ -141,11 +171,8 @@ export function realRestoreDeps(req: RestoreRequest, opts: RealOptions): Restore
     configure: async (set) => {
       const parts = await set.files('stack.tar');
       for (const name of PARTS) if (!parts.some((p) => p.name === name)) return [`set ${set.index.setId} has no ${name} in its stack.tar`];
-      for (const p of parts) {
-        if (!/^[a-z0-9_./-]+$/.test(p.name) || p.name.includes('..')) return [`set ${set.index.setId}: an unexpected part ${p.name}`];
-        // Every part is text: JSON, PEM certificates and keys.
-        writeOwnerOnly(join(dir, ...p.name.split('/')), p.data.toString('utf8'));
-      }
+      const unexpected = writeParts(dir, parts);
+      if (unexpected) return [`set ${set.index.setId}: an unexpected part ${unexpected}`];
       const problem = renderAll(dir);
       if (problem) return [problem];
       fillConfig(dir);
