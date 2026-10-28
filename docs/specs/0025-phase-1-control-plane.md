@@ -1,6 +1,6 @@
 # Spec 0025: Phase 1, the platform control plane: slices and decisions
 
-**Status:** **Draft, for the owner's approval.** Nothing is built from it until Phase 0 is signed off and the owner approves the decisions below. Each slice then gets its own spec (its detailed decisions, acceptance criteria and tests) before it's built, the same way Phase 0 went.
+**Status:** **Approved by the owner on 2026-10-28, all as written:** A1 to A14, the extras E1 to E12, and the recommended sizing: **Phase 1 closes at S0 to S8, and S9 to S11 are Phase 1b**, built before Phase 3. Nothing is built from it until Phase 0 is signed off. Each slice then gets its own spec (its detailed decisions, acceptance criteria and tests) before it's built, the same way Phase 0 went.
 **Phase:** 1 ([18](../18-roadmap.md)): "Platform control plane (~4 wks)".
 **Builds on:**
 
@@ -106,7 +106,7 @@ The roadmap's three, plus what the console's threat model needs:
 
 The roadmap says about 4 weeks. At Phase 0's pace (spec, review, mutation checks, the owner's release for each image change), S0 to S8 is closer to **6 to 8 weeks**, and S9 to S11 another 3 to 4. Two options for the owner:
 
-- **Recommended:** Phase 1 closes at **S0 to S8.** That meets the roadmap's exit criteria and covers the whole tenant lifecycle. **S9 to S11 become "Phase 1b"**, built before Phase 3 (Admissions and Bursary), when the first real institution would need support and compliance in place.
+- **Chosen (the owner, 2026-10-28):** Phase 1 closes at **S0 to S8.** That meets the roadmap's exit criteria and covers the whole tenant lifecycle. **S9 to S11 become "Phase 1b"**, built before Phase 3 (Admissions and Bursary), when the first real institution would need support and compliance in place.
 - **Alternative:** all of S0 to S11 in Phase 1, re-estimated at about 10 weeks.
 
 ## Deferred, with their triggers
@@ -120,7 +120,7 @@ The roadmap says about 4 weeks. At Phase 0's pace (spec, review, mutation checks
 
 ## The owner's steps
 
-- Approve or change A1 to A14, the extras E1 to E12, and the sizing option.
+- ~~Approve or change A1 to A14, the extras E1 to E12, and the sizing option.~~ Done: all approved on 2026-10-28, with Phase 1b.
 - In S1, S2 and every slice marked "release": run the release and the deploy.
 - In S2: run the bootstrap CLI once, to create the OWNER account (A4).
 - In S11 `[VERIFY with counsel]`: the NDPA points (registration category, the audit return's deadline, the DPA template).
