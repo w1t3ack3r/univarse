@@ -13,7 +13,7 @@ if (!name || !image) {
 const extra = Object.fromEntries(rest.filter((a) => a.includes('=')).map((a) => [a.slice(0, a.indexOf('=')), a.slice(a.indexOf('=') + 1)]));
 const cmd = rest.includes('--worker') ? WORKER_CMD : [];
 
-spawnSync('docker', ['rm', '-f', name], { stdio: 'ignore' }); // a leftover from an aborted run
+spawnSync('docker', ['rm', '-f', '-v', name], { stdio: 'ignore' }); // a leftover from an aborted run
 const { args, env } = dockerRun({ name, image, extra, cmd });
 const id = spawnSync('docker', ['image', 'inspect', '-f', '{{.Id}}', image], { encoding: 'utf8' }).stdout.trim();
 console.error(`[run-container] ${name}: ${image} (${id})`);
@@ -23,7 +23,7 @@ let stopping = false;
 const stop = () => {
   if (stopping) return;
   stopping = true;
-  spawnSync('docker', ['rm', '-f', name], { stdio: 'ignore' });
+  spawnSync('docker', ['rm', '-f', '-v', name], { stdio: 'ignore' });
   child.kill();
 };
 for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.on(sig, () => {
@@ -31,6 +31,6 @@ for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.on(sig, () => {
   process.exit(0);
 });
 child.on('exit', (code) => {
-  if (!stopping) spawnSync('docker', ['rm', '-f', name], { stdio: 'ignore' });
+  if (!stopping) spawnSync('docker', ['rm', '-f', '-v', name], { stdio: 'ignore' });
   process.exit(code ?? 1);
 });

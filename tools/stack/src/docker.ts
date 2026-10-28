@@ -28,3 +28,10 @@ export const docker: Runner = (args, { env = {}, input, allowFail = false } = {}
   }
   return out;
 };
+
+/**
+ * Taking a compose project down: first its containers and their anonymous volumes (`rm -s -f -v`: the paths an image
+ * declares as VOLUME that the file doesn't mount, which nothing can reach once the container is gone), then `down`.
+ * Never `down` with its volumes flag: on the stack's file that also removes `pgdata` and `seaweedfs-data`, the stack's data.
+ */
+export const downSteps = (down: readonly string[] = []): string[][] => [['rm', '-s', '-f', '-v'], ['down', ...down]];

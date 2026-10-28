@@ -41,7 +41,7 @@ chmodSync(conf, 0o755);
 for (const f of ['file.hcl', 'raft.hcl']) chmodSync(join(conf, f), 0o644);
 
 function start(config: 'file.hcl' | 'raft.hcl'): void {
-  docker(['rm', '-f', target.container], { allowFail: true });
+  docker(['rm', '-f', '-v', target.container], { allowFail: true });
   docker(['run', '-d', '--name', target.container, '--hostname', 'vault', '--user', '100:1000', '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges:true',
     '-v', `${volumes.file}:/vault/file${config === 'raft.hcl' ? ':ro' : ''}`, ...(config === 'raft.hcl' ? ['-v', `${volumes.raft}:/vault/raft`] : []),
     '-v', `${conf}:/vault/config:ro`, '-v', '/vault/logs', '--entrypoint', 'vault', THIRD_PARTY.vault, 'server', `-config=/vault/config/${config}`]);
@@ -79,7 +79,7 @@ const deps = (): MigrateDeps => ({
   dir,
   volumes,
   compose: (args) => {
-    if (args[0] === 'stop') docker(['rm', '-f', target.container], { allowFail: true });
+    if (args[0] === 'stop') docker(['rm', '-f', '-v', target.container], { allowFail: true });
     else start('raft.hcl');
     return { status: 0 };
   },
@@ -106,7 +106,7 @@ beforeAll(() => {
 }, 180_000);
 
 afterAll(() => {
-  docker(['rm', '-f', target.container], { allowFail: true });
+  docker(['rm', '-f', '-v', target.container], { allowFail: true });
   for (const v of [volumes.raft, volumes.file, `${volumes.raft}-source`]) docker(['volume', 'rm', '-f', v], { allowFail: true });
 });
 

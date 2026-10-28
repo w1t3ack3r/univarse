@@ -377,7 +377,7 @@ async function main() {
       control: controlPush,
     });
   } finally {
-    sh('docker', ['rm', '-f', regName], { allowFail: true });
+    sh('docker', ['rm', '-f', '-v', regName], { allowFail: true });
   }
 
   // ── The record.
@@ -443,7 +443,7 @@ try {
     .stdout.trim()
     .split(/\s+/)
     .filter(Boolean);
-  if (left.length) sh('docker', ['rm', '-f', ...left], { allowFail: true });
+  if (left.length) sh('docker', ['rm', '-f', '-v', ...left], { allowFail: true });
   sh('docker', ['volume', 'rm', '-f', CACHE, `${CACHE}-offline`], { allowFail: true });
   rmSync(WORK, { recursive: true, force: true });
 }
