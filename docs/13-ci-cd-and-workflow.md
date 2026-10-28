@@ -116,3 +116,35 @@ flowchart LR
 - Use `/code-review` before merging and `/security-review` on auth/payment/results/RLS changes.
 - Use a git worktree per parallel task to keep changes isolated.
 - Keep the docs in the loop: if the implementation reveals a rule is wrong, update [04](04-business-rules.md) and the fixtures in the same PR.
+
+### 8.1 The owner's standing rules
+
+Carried over from the Phase 0 handoff, which was retired when Phase 0 closed.
+
+- **Plan first.** Write the design and its decisions, with alternatives and why, in the spec, and review it adversarially before building. The owner approves decisions; they don't hunt bugs.
+- **Review after.** Review the diff adversarially and mutation-check every test: each mutation must turn a test red, and a survivor gets its own test. Report a short list of decisions made while building, for approval.
+- **Judge every run by its exit code,** not its pass count, and explain every error line before calling a run green.
+- **Evidence:** integration and E2E evidence comes from CI when the environment lacks the services. Say what ran where, and never claim a run that didn't happen.
+- **Merging:** only on the owner's explicit go-ahead, after green CI on the exact final head: `gh pr merge N --squash --match-head-commit <full sha>`. Re-verify the checks after any edit to the PR, since editing a PR body can re-run them.
+- **Cleanup:** after merging, read `gh pr view N --json state` in a separate step, and only once it says `MERGED` delete the branches and worktree. Never chain cleanup into the merge command: a chained cleanup once closed #89.
+- **Branches:** work on a branch in a worktree, never push to `main`, never force-push over others' work.
+- **Secrets:**
+  - never in code, logs, errors, URLs, fixtures or test output; test assertions never print credentials;
+  - never handle the owner's PostgreSQL superuser password, the signing key or its password, or the backup private key or its passphrase;
+  - `docs/brand-doc/` stays off GitHub.
+- **Never run:** `db:setup` in the owner's main checkout, `docker volume prune`, or `images:prune --apply` without the owner's go-ahead. Don't change repo visibility or billing; no cloud accounts.
+- **UI work:** load the design skills first (impeccable and the others in `.claude/skills`). Keep to the brand: deep green #485550; lime #C0EB6A, never as text on light surfaces; off-white #F4F6F0; Poppins. WCAG 2.2 AA, low-end Android on slow networks.
+
+### 8.2 What only the owner does
+
+Claude gives the exact commands; the owner runs them on their machine.
+
+- **Releases:** `pnpm images:release`, signed with the owner's key (the owner sets `COSIGN_PASSWORD`). Before a release on the 8 GB machine: `pnpm stack:down`, stop the dev ClamAV, and check the dev Vault is unsealed.
+- **The stack:** `pnpm stack:deploy releases/<record>.json`, `stack:keys …`, `stack:smoke`, `stack:bucket-check`, and unsealing Vault.
+- **Backups:**
+  - the backup key pair: the private half never leaves the owner and is never read;
+  - the backup destination and the ledger's destinations;
+  - the scheduled tasks;
+  - the restore rehearsal and the shred drill, whose records go in `docs/ops/drills/`;
+  - deleting old Vault storage or old key files.
+- **GitHub:** required checks and branch protection, repo settings, and Dependabot dismissals.
