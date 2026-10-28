@@ -53,11 +53,21 @@ export const DATA_OWNERS = (d: DataVolumes): Readonly<Record<string, string>> =>
   [FILES_SCRATCH]: '1000:1000',
 });
 
-/** A labelled volume, created if missing, its root owned to `owner`. */
-export function labelledVolume(name: string, owner: string, run: Runner = docker): void {
+/** A labelled volume, created if missing, its root owned to `owner` with `mode`. */
+export function labelledVolume(name: string, owner: string, mode: '0700' | '0755' = '0700', run: Runner = docker): void {
   if (!/^[a-z0-9_.-]+$/.test(name) || !/^\d+:\d+$/.test(owner)) throw new Error(`bad volume ${name} or owner ${owner}`);
   if (run(['volume', 'inspect', name], { allowFail: true }).status !== 0) run(['volume', 'create', '--label', `${LABEL}=1`, name]);
-  run(['run', '--rm', '--network', 'none', '--user', '0:0', '--label', `${LABEL}=1`, '--entrypoint', 'sh', '-v', `${name}:/v`, THIRD_PARTY.postgres, '-c', `chown ${owner} /v && chmod 0700 /v`]);
+  run(['run', '--rm', '--network', 'none', '--user', '0:0', '--label', `${LABEL}=1`, '--entrypoint', 'sh', '-v', `${name}:/v`, THIRD_PARTY.postgres, '-c', `chown ${owner} /v && chmod ${mode} /v`]);
+}
+
+/**
+ * This run's volumes. A data volume's root is its service's, 0700. A configuration volume's root is root's, 0755, as
+ * Docker makes the deploy's: its files belong to other users (postgres reads `/certs/server.crt` as 999), and each
+ * file and folder inside keeps the owner and mode `fillScript` gives it, keys 0600.
+ */
+export function prepareVolumes(data: DataVolumes, run: Runner = docker): void {
+  for (const [v, owner] of Object.entries(DATA_OWNERS(data))) labelledVolume(v, owner, '0700', run);
+  for (const v of Object.keys(CONFIG_VOLUMES)) labelledVolume(v, '0:0', '0755', run);
 }
 
 /** The environment compose reads the restore's file with. */

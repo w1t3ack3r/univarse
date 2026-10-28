@@ -36,9 +36,8 @@ import {
   APP_NETWORK,
   compose,
   CONFIG_VOLUMES,
-  DATA_OWNERS,
   jobRunner,
-  labelledVolume,
+  prepareVolumes,
   POSTGRES,
   REHEARSAL_DATA,
   removeLabelled,
@@ -142,8 +141,7 @@ export function realRestoreDeps(req: RestoreRequest, opts: RealOptions): Restore
       }
       mkdirSync(dir, { recursive: true });
       restrictDirToOwner(dir);
-      for (const [v, owner] of Object.entries(DATA_OWNERS(data))) labelledVolume(v, owner);
-      for (const v of Object.keys(CONFIG_VOLUMES)) labelledVolume(v, '0:0');
+      prepareVolumes(data);
       return [];
     },
     realHeads: () => realHeads(PRIMARY),

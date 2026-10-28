@@ -1351,10 +1351,11 @@ The owner lost the passphrase of the first backup key (fingerprint `sha256:90c83
 - **The first restorable set** is the first one taken after this change is in the checkout the schedule runs from. The drill runs on it.
 - **Not built:** a `rotate` command. A rotation with the old key at hand would re-wrap each set's header to the new key (D5's wrapped random key allows it); with the old key lost there is nothing to re-wrap, so this re-key needs none.
 
-## The owner's first drills (2026-10-27 and 28): two fixes
+## The owner's first drills (2026-10-27 and 28): three fixes
 
 - **A stop hid its reason** (#125). The CLI prints only a failed drill's last line, so a stop at steps 1 to 3 showed no cause. The first stop was `shred-drill-20261027 exists`: an earlier attempt, with the lost key, had passed steps 1 to 3 that day. The tenant is kept (suspended, its key destroyed, the destruction in the ledger), and the drill ran the next UTC day.
 - **The restore never made the set's folders.** Steps 1 to 3 passed on 2026-10-28; step 4 opened the set and verified the release, then stopped writing `stack.tar` back: `certs/` and `edge/` were never created, so making `certs` owner-only found no folder. `writeParts` now makes each folder on a part's path and makes it owner-only, top down, and checks every name before writing any. CI's `test:restore` runs the engine's lower steps, not this one, so only the owner's run could find it; `real.spec.ts` now covers it on both platforms (4 mutations caught).
+- **PostgreSQL could not reach its certificate.** The rehearsal after #126 unpacked the set and started PostgreSQL, which stopped: `could not load server certificate file "/certs/server.crt": Permission denied`. The restore prepared each configuration volume's root as root's, 0700, so no service user could enter it; the deploy's volumes keep Docker's 0755. `prepareVolumes` now gives a configuration volume's root `0:0 0755` and a data volume's its service's owner and 0700; each file inside keeps the owner and mode `fillScript` gives it, keys 0600. `target.spec.ts` covers it (4 mutations caught), and a real-Docker check showed postgres (999) refused at 0700 and reading the certificate at 0755, with the key still closed to another user.
 
 ## Affected docs (in the implementation PRs)
 
