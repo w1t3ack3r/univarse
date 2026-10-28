@@ -619,7 +619,7 @@ async function main(argv) {
     sh('docker', ['network', 'connect', '--alias', alias, RELEASE_NETWORK, name]);
     return ready(`http://127.0.0.1:${port}`);
   };
-  const stopPrivate = () => sh('docker', ['rm', '-f', name], { allowFail: true });
+  const stopPrivate = () => sh('docker', ['rm', '-f', '-v', name], { allowFail: true });
   try {
     if (!wasRunning) up(); // creates the release network the offline tools need
     stop(); // the public registry stays offline for the WHOLE apply

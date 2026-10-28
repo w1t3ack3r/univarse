@@ -14,7 +14,7 @@ import { realWalDeps, shipWal } from '../backup/wal.js';
 import { RELEASES, STACK_DIR, THIRD_PARTY } from '../config.js';
 import { imagesFrom } from '../deploy.js';
 import { registry } from '../deploy-deps.js';
-import { docker, hostPath } from '../docker.js';
+import { docker, downSteps, hostPath } from '../docker.js';
 import { PRIMARY, LEDGER_DIR } from '../keys.js';
 import { establishAuthority } from '../ledger/ledger.js';
 import { keysDbFrom } from '../ledger/job.js';
@@ -262,7 +262,7 @@ export function realRestoreDeps(req: RestoreRequest, opts: RealOptions): Restore
     },
     teardown: () => {
       const lines: string[] = [];
-      compose(['down', '--remove-orphans'], env());
+      for (const step of downSteps(['--remove-orphans'])) compose(step, env());
       try {
         lines.push(...removeLabelled());
       } catch (e) {

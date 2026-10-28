@@ -81,7 +81,7 @@ try {
     const name = `uv-smoke-plain-${what.toLowerCase()}${runSuffix()}`;
     const { args, env } = dockerRun({ name, image: API_IMAGE, extra: { PORT: '8091', HOST: '127.0.0.1', VAULT_ADDR: 'http://127.0.0.1:8200' }, cmd });
     const r = spawnSync('docker', args, { env, encoding: 'utf8', timeout: 60_000 });
-    spawnSync('docker', ['rm', '-f', name]); // only if it outlived the timeout
+    spawnSync('docker', ['rm', '-f', '-v', name]); // only if it outlived the timeout
     if (r.status === 0 || r.status === null) problems.push(`${what} with a plaintext VAULT_ADDR did not refuse to start (exit ${String(r.status)})`);
     else if (!`${r.stdout}${r.stderr}`.includes('VAULT_ADDR must be https://')) problems.push(`${what} with a plaintext VAULT_ADDR exited ${String(r.status)}, but not for the plaintext rule`);
   }
@@ -89,7 +89,7 @@ try {
   problems.push(String(e));
 } finally {
   if (problems.length > 0) for (const n of names) console.error(`--- ${n} logs (tail) ---\n${logs(n).split('\n').slice(-25).join('\n')}`);
-  for (const n of names) spawnSync('docker', ['rm', '-f', n]);
+  for (const n of names) spawnSync('docker', ['rm', '-f', '-v', n]);
 }
 
 if (problems.length > 0) {

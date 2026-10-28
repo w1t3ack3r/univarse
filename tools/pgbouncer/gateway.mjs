@@ -94,7 +94,7 @@ export function discoverGatewayIpv4({
   const r = run('docker', args, { encoding: 'utf8', timeout: timeoutMs, killSignal: 'SIGKILL' });
   if (r.error?.code === 'ETIMEDOUT' || r.signal) {
     // The client is gone; its container may not be. Remove it, by its run-owned name, within a bound.
-    const rm = run('docker', ['rm', '-f', name], {
+    const rm = run('docker', ['rm', '-f', '-v', name], {
       encoding: 'utf8',
       timeout: CLEANUP_TIMEOUT_MS,
       killSignal: 'SIGKILL',

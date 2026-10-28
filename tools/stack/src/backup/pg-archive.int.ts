@@ -59,7 +59,7 @@ beforeAll(() => {
 }, 180_000);
 
 afterAll(() => {
-  docker(['rm', '-f', container], { allowFail: true });
+  docker(['rm', '-f', '-v', container], { allowFail: true });
   docker(['volume', 'rm', '-f', volume], { allowFail: true });
 });
 

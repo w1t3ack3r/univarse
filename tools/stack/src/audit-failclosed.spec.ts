@@ -44,7 +44,7 @@ beforeAll(async () => {
 }, 120_000);
 
 afterAll(() => {
-  docker(['rm', '-f', NAME], { allowFail: true });
+  docker(['rm', '-f', '-v', NAME], { allowFail: true });
   docker(['volume', 'rm', NAME], { allowFail: true });
   rmSync(dir, { recursive: true, force: true });
 });
