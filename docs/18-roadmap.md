@@ -143,7 +143,7 @@ Each roadmap line checked against the repository, CI and the decision log.
   - libxml2 CVE-2026-6653 needs SQL access to XML functions the app doesn't use, on the internal `db` network, and Debian 13 has no fix yet;
   - Go's crypto/tls CVE-2025-68121 is in `gosu`, the entrypoint's privilege drop, which makes no TLS connection.
 
-  mailpit moved to v1.32.0, with 0 CRITICAL and 0 HIGH. **⏳ Owner's decision:** review the 86 HIGH one by one before sign-off, or carry that review into Phase 1 with a recheck when Debian ships the libxml2 fix.
+  mailpit moved to v1.32.0, with 0 CRITICAL and 0 HIGH. **Carried into Phase 1** (owner's decision, 2026-10-28): the 86 HIGH are reviewed one by one there, listed in its build list below, with a recheck when Debian ships the libxml2 fix.
 - **Owner housekeeping:**
   - delete the old backup key file once every set sealed to it is pruned, around 2026-12-01;
   - delete the old Vault file storage `univarse-stack_vault-data` when the owner chooses (B-4);
@@ -160,6 +160,7 @@ Each roadmap line checked against the repository, CI and the decision log.
 - Feature flags, platform announcements, migrations runner (per shard), platform audit
 - Basic plans/subscriptions (manual invoicing is acceptable)
 - **From Phase 0, deferred until needed (owner decision 2026-10-23):** BullMQ with the provisioning job ([ADR-019](19-decision-log.md)); Storybook for `packages/ui`, with stories for every component and accessibility checks in CI, before the console's first screen ([ADR-027](19-decision-log.md))
+- **From Phase 0, carried (owner decision 2026-10-28):** a one-by-one review of the pinned postgres image's 86 HIGH findings: each one reachable or not from how the stack runs PostgreSQL, and what follows. Recheck its 2 assessed CRITICALs, and move the pin when Debian ships the libxml2 fix
 
 **Exit:** J1 E2E green. A tenant can be created → provisioned → admin activated in < 10 min. Suspended tenant is blocked (423).
 
