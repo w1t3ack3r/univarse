@@ -10,9 +10,10 @@ gantt
   axisFormat  %s
   section Build
   P0 Foundations            :p0, 0, 6
-  P1 Platform control plane :p1, after p0, 4
+  P1 Platform control plane :p1, after p0, 8
   P2 Institution setup      :p2, after p1, 5
-  P3 Admissions + Bursary   :p3, after p2, 8
+  P1b Support + compliance  :p1b, after p2, 4
+  P3 Admissions + Bursary   :p3, after p1b, 8
   P4 Records + Registration :p4, after p3, 6
   P4b Teaching + CA CBT     :p4b, after p4, 7
   P4c UniVarse Live (media) :p4c, after p4b, 5
@@ -23,7 +24,7 @@ gantt
   P7 Hostel, Comms, Helpdesk, Reporting :p7, after p6, 6
   P8 Hardening + GA         :p8, after p7, 5
 ```
-*(Units are weeks. Total ≈ 61 weeks. Phases 6–8 overlap with pilot support. Because products are enabled independently (ADR-020), the pilot can go live on Core + Bursary + Academics even if Phase 4b slips. Results accept manually entered CA scores.)*
+*(Units are weeks. Total ≈ 69 weeks, after Phase 1's re-estimate and Phase 1b ([spec 0025](specs/0025-phase-1-control-plane.md), 2026-10-28). Phases 6–8 overlap with pilot support. Because products are enabled independently (ADR-020), the pilot can go live on Core + Bursary + Academics even if Phase 4b slips. Results accept manually entered CA scores.)*
 
 ---
 
@@ -152,17 +153,46 @@ Each roadmap line checked against the repository, CI and the decision log.
 
 **Separate follow-up, not an exit requirement:** a clean local E2E run. **Closed 2026-10-13 with containerised evidence:** the local release rehearsal of `12524dd` (spec 0013) ran the full browser suite locally against the containerised API, worker and web: **32 passed, no flakes**. The owner accepted that run as closing this follow-up. It is containerised evidence, not a run of `pnpm test:e2e` against the dev servers.
 
-## Phase 1 — Platform control plane (~4 wks)
+## Phase 1 — Platform control plane (~6–8 wks)
 
-- Console app (separate host, IP allowlist, mandatory MFA), platform identity
-- Tenant registry, **provisioning job** (idempotent/resumable), subdomains, custom-domain verification + on-demand TLS
-- Lifecycle: suspend/resume/offboard with warning emails, tenant export, purge (two-person rule)
-- Feature flags, platform announcements, migrations runner (per shard), platform audit
-- Basic plans/subscriptions (manual invoicing is acceptable)
-- **From Phase 0, deferred until needed (owner decision 2026-10-23):** BullMQ with the provisioning job ([ADR-019](19-decision-log.md)); Storybook for `packages/ui`, with stories for every component and accessibility checks in CI, before the console's first screen ([ADR-027](19-decision-log.md))
-- **From Phase 0, carried (owner decision 2026-10-28):** a one-by-one review of the pinned postgres image's 86 HIGH findings: each one reachable or not from how the stack runs PostgreSQL, and what follows. Recheck its 2 assessed CRITICALs, and move the pin when Debian ships the libxml2 fix
+**Plan:** [spec 0025](specs/0025-phase-1-control-plane.md), approved by the owner on 2026-10-28 (A1–A14, the extras E1–E12). Re-estimated from ~4 weeks: at Phase 0's pace, S0–S8 is 6 to 8 weeks. Each slice gets its own spec before it's built.
 
-**Exit:** J1 E2E green. A tenant can be created → provisioned → admin activated in < 10 min. Suspended tenant is blocked (423).
+| Slice | What it delivers | Spec |
+|---|---|---|
+| **S0** Phase start | The console's threat-model rows (T23–T30); **Storybook** for `packages/ui` with an accessibility gate in CI ([ADR-027](19-decision-log.md)) | [0026](specs/0026-phase-1-start-threat-model-and-storybook.md), approved |
+| **S1** The console's shell | `apps/console`; the platform API process; the console host with its allowlist; the `univarse_console` role; the fifth signed image | to write |
+| **S2** Platform identity | The OWNER bootstrap CLI; login with mandatory TOTP; sessions, step-up; staff invite and roles; `platform.*` permissions; every action audited | to write |
+| **S3** Seeing what happened | The platform audit viewer with chain verification; security events; the monthly access review | to write |
+| **S4** The tenant registry | Tenant list and detail; profile, branding and the regulatory profile; entitlements per tenant | to write |
+| **S5** Provisioning | **BullMQ** ([ADR-019](19-decision-log.md)); the resumable provisioning job; the first IT Admin invite; the go-live checklist | to write |
+| **S6** Approvals, suspension, notices | The two-person engine; suspend and resume; announcements and maintenance notices with a delivery log | to write |
+| **S7** Offboarding and purge | The export window and warnings; the encrypted tenant export; archive; purge as a crypto-shred, by two people | to write |
+| **S8** Shards and migrations | The shard view; migration runs per shard | to write |
+
+- **Carried from Phase 0 (owner decision 2026-10-28):** a one-by-one review of the pinned postgres image's 86 HIGH findings: each one reachable or not from how the stack runs PostgreSQL, and what follows. Recheck its 2 assessed CRITICALs, and move the pin when Debian ships the libxml2 fix.
+- **Out of Phase 1, with their triggers (spec 0025):** custom domains (TXT verification, on-demand TLS) wait for hosting (Phase 8); platform invoices and usage wait for students to count (Phase 4); the support channel, plans, and the compliance and operations features are Phase 1b; WebAuthn stays Phase 8.
+
+**Exit:**
+1. **J1 E2E green:** a tenant is created, provisioned, and its IT Admin activated with MFA, in under 10 minutes.
+2. **A suspended tenant is blocked with 423** (J10).
+3. The console host refuses a non-allowlisted address, at the edge and in the app.
+4. No console login without TOTP, and a deactivated staff member's sessions end at once.
+5. Every platform route declares a permission and audits its writes (the route sweep, extended).
+6. The console can't read tenant personal data: `univarse_console` has no grant on any tenant database.
+7. A two-person action can't be approved by its requester.
+8. Five signed images released, verified and deployed.
+
+## Phase 1b — Support, plans and compliance (~3–4 wks, before Phase 3)
+
+The rest of [spec 0025](specs/0025-phase-1-control-plane.md) (owner decision 2026-10-28): built after Phase 2 and before Phase 3, so the first real institution has support and compliance in place before admissions and payments.
+
+| Slice | What it delivers |
+|---|---|
+| **S9** Support and break-glass | Platform tickets from IT Admins with SLA timers ([14](14-observability-and-operations.md)), two-way messages and attachments; the break-glass decision (spec 0025 A14) |
+| **S10** Plans and subscriptions | Plans and subscriptions driving entitlements, prices in `bigint` kobo |
+| **S11** Compliance and operations | The NDPA registers (DPAs, sub-processors, the incident register with its clocks, the audit-return evidence pack) `[VERIFY with counsel]`; the peak-days calendar; the read-only operations snapshot; the key view |
+
+**Exit:** each slice's acceptance in spec 0025, plus: an IT Admin raises a ticket and gets a reply, with both sides logged; a plan change changes entitlements, audited; the operations snapshot holds nothing secret (a test).
 
 ## Phase 2 — Institution setup (~5 wks)
 
@@ -195,6 +225,7 @@ Each roadmap line checked against the repository, CI and the decision log.
 - Course offerings from curricula, lecturer allocation, class lists
 - Student course registration with all [04 §5](04-business-rules.md) rules, fee gate, adviser approval, add/drop, late registration, printable course form
 - **From Phase 0 (ADR-028):** `COURSE_OFFERING` and `COHORT` scope enforcement, checked against the loaded resource, with positive and negative tests
+- **From Phase 1 ([spec 0025](specs/0025-phase-1-control-plane.md) A13):** platform invoices and usage (active students), on the plans and subscriptions of Phase 1b
 
 **Exit:** J4 E2E green. The registration-opening load test passes. The pilot's legacy data imports with reconciliation reports (counts, CGPA re-computation match ≥ 99.9%, and every mismatch explained).
 
@@ -269,6 +300,7 @@ Private university, returning students first (fees → registration → results 
 - Kubernetes production topology with HPA/KEDA, multi-AZ, PDBs, pre-scaling automation
 - DR drill (full + single tenant) meeting RPO/RTO. Status page. On-call tooling
 - WebAuthn/passkeys, PWA shell, accessibility audit (WCAG 2.2 AA)
+- **From Phase 1 ([spec 0025](specs/0025-phase-1-control-plane.md) A10):** custom domains (TXT verification → on-demand TLS), once there's public DNS
 - Compliance pack complete ([16 §9](16-compliance-ndpa.md)), NDPC registration `[VERIFY]`
 - Tenant onboarding playbook, pricing, SLA document, customer documentation site
 
