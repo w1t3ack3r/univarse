@@ -1,6 +1,7 @@
 // Shared ESLint flat config for the whole workspace — docs/17-coding-standards.md §1, §8.
 // Each package runs `eslint .`; ESLint resolves this file by walking up from the linted files.
 import js from '@eslint/js';
+import storybook from 'eslint-plugin-storybook';
 import globals from 'globals';
 import tseslint from 'typescript-eslint';
 
@@ -19,6 +20,8 @@ export default tseslint.config(
       '**/next-env.d.ts',
       '**/playwright-report/**',
       '**/test-results/**',
+      // Spec 0026 SB7: Storybook's static build, a CI check only.
+      '**/storybook-static/**',
       // Spec 0024 G8: deliberately bad inputs for the security gates' proofs, never shipped or run.
       'tools/security/fixtures/**',
     ],
@@ -107,9 +110,9 @@ export default tseslint.config(
     files: ['**/*.js', '**/*.mjs'],
     extends: [tseslint.configs.disableTypeChecked],
   },
-  // Browser code: the web app and the UI kit (spec 0005).
+  // Browser code: the web app and the UI kit (spec 0005), with its stories and their proof (spec 0026).
   {
-    files: ['apps/web/src/**', 'packages/ui/src/**'],
+    files: ['apps/web/src/**', 'packages/ui/src/**', 'packages/ui/.storybook*/**', 'packages/ui/proof/**'],
     languageOptions: { globals: { ...globals.browser } },
   },
 
@@ -140,4 +143,7 @@ export default tseslint.config(
       ],
     },
   },
+
+  // Spec 0026 SB8: Storybook's recommended rules for stories and its config.
+  ...storybook.configs['flat/recommended'],
 );

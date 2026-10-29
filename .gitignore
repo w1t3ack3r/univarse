@@ -71,3 +71,4 @@ releases/
 
 # Pinned developer tools, fetched and checksum-verified (pnpm tools:gitleaks)
 .tools/
+storybook-static/

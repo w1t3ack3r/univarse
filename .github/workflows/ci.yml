@@ -327,6 +327,14 @@ jobs:
         run: pnpm --filter @univarse/web exec playwright install --with-deps chromium
       - name: E2E — edge → web → API → DB, desktop + mobile (spec 0005 W10)
         run: pnpm --filter @univarse/web test:e2e
+      # Spec 0026 SB3–SB6: every packages/ui story as a browser test with axe (the same Chromium build as the E2E),
+      # the proof that the gate fails broken stories for the right rules, and the static build.
+      - name: Storybook — every story a test, accessibility violations fail (spec 0026 SB3, SB4)
+        run: pnpm --filter @univarse/ui test:stories
+      - name: Storybook — the accessibility gate's proof (spec 0026 SB6)
+        run: pnpm --filter @univarse/ui test:a11y-proof
+      - name: Storybook — the static build (spec 0026 SB5)
+        run: pnpm --filter @univarse/ui storybook:build
 
       # Spec 0013: the images UniVarse builds (API/worker, web, and spec 0019's migrate job). Built once here; every check below runs
       # against that build. PR runs never push or sign (this job is contents: read only).
@@ -420,6 +428,8 @@ jobs:
           for img in api web migrate; do
             ./trivy image --skip-db-update --format spdx-json --output "sbom-${img}.spdx.json" "univarse-${img}:ci"
             echo "univarse-${img}:ci SBOM: $(node -e "console.log(JSON.parse(require('fs').readFileSync('sbom-${img}.spdx.json','utf8')).packages.length)") packages" | tee -a "$GITHUB_STEP_SUMMARY"
+            # Spec 0026 T30: no development-only package (Storybook) in an image.
+            node --input-type=module -e "import { readFileSync } from 'node:fs'; import { devOnlyPackages } from './tools/images/release-lib.mjs'; const d = devOnlyPackages(JSON.parse(readFileSync('sbom-${img}.spdx.json', 'utf8'))); if (d.length) { console.error('univarse-${img}:ci holds development-only packages: ' + d.join(', ')); process.exit(1); }"
           done
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:

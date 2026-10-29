@@ -60,6 +60,7 @@ flowchart LR
 - **Turborepo remote cache** keeps PR CI under ~10 min. Affected-only execution for lint/test on large changes.
 - **Workflow policy ([spec 0013](specs/0013-container-images-scan-sign.md) CS12):** `build-test` checks every workflow, read-only, with `pnpm ci:policy`. CI stays `contents: read`, and only allowlisted triggers are used; `pull_request_target` and `workflow_run` are banned. No credentials and no publish or sign commands are allowed where PR code runs, and actions are pinned by SHA. Fixtures prove each rule.
 - **Required checks** block merge: lint, typecheck, unit, integration, RLS, contract diff (unless labelled `breaking-approved`), security scans, Trivy, E2E smoke.
+- **Storybook ([spec 0026](specs/0026-phase-1-start-threat-model-and-storybook.md))** runs inside `build-test`, after the E2E's Chromium install: every `packages/ui` story as a browser test with axe, the accessibility gate's proof, and the static build. The image SBOM step also fails if an image holds a development-only package (Storybook; T30), as the release does.
 - **The security scans ([spec 0024](specs/0024-ci-security-gates.md))** are two jobs, beside `build-test`:
   - **`security-scans`:**
     - Semgrep, where `ERROR` blocks;

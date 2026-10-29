@@ -13,7 +13,7 @@ import { proveSecretCoverage } from './canary.mjs';
 import { configOf, makeGates, samePushed, sameImage, TRIVY_CACHE } from './gates.mjs';
 import { readFromTar } from './tar.mjs';
 import {
-  COMPOSE, COSIGN_IMAGE, cosign, DEFAULT_KEY, DEFAULT_PUB, HOST_REGISTRY, hostPath, IDENTITY, IDENTITY_ISSUER, PREDICATES, ROLES,
+  COMPOSE, COSIGN_IMAGE, cosign, DEFAULT_KEY, DEFAULT_PUB, devOnlyPackages, HOST_REGISTRY, hostPath, IDENTITY, IDENTITY_ISSUER, PREDICATES, ROLES,
   registryConfigDigest, registryDigest, REPO, runtimeBaseOf, sh, SIGN_FLAGS, signingKeyProblem, TOOL_REGISTRY, TRIVY_IMAGE, cleanTypedPassword,
 } from './release-lib.mjs';
 import { cleanupRun, ensureService as ensure, newRun, stopIfStarted as stopStarted } from './release-cleanup.mjs';
@@ -144,7 +144,11 @@ async function main() {
     must(gates.secret(tar), `secret gate for univarse-${name}`);
     must(gates.misconfiguration(tar), `misconfiguration gate for univarse-${name}`);
     must(gates.sbom(tar, `sbom-${name}.spdx.json`), `SBOM for univarse-${name}`);
-    record.images[name].sbomPackages = JSON.parse(readFileSync(join(WORK, `sbom-${name}.spdx.json`), 'utf8')).packages.length;
+    const sbom = JSON.parse(readFileSync(join(WORK, `sbom-${name}.spdx.json`), 'utf8'));
+    record.images[name].sbomPackages = sbom.packages.length;
+    // Spec 0026 T30: a development-only package (Storybook) in an image fails the release.
+    const devOnly = devOnlyPackages(sbom);
+    if (devOnly.length) throw new Error(`univarse-${name} holds development-only packages: ${devOnly.join(', ')}`);
   }
   must(gates.dockerfiles('infra/docker'), 'Dockerfile misconfiguration gate');
   record.gates.vulnerability = record.gates.secret = record.gates.misconfiguration = 'pass';

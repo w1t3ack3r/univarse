@@ -148,7 +148,8 @@ export function CodeField({
           inputMode="numeric"
           autoComplete="one-time-code"
           pattern={`[0-9]{${length}}`}
-          maxLength={length}
+          // No maxLength: the browser would cut a paste to its first N characters before onChange drops the
+          // non-digits, so "123 456" or "Your code: 123456" would lose digits. onChange keeps N digits instead.
           aria-invalid={error ? true : undefined}
           aria-describedby={describedBy}
           autoFocus={autoFocus}

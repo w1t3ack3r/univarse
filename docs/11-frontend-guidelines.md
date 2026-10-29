@@ -133,5 +133,8 @@ Tactics:
 ## 10. Frontend testing
 
 - Unit/component: Vitest + Testing Library (forms, tables, permission-gated nav).
-- Storybook for `packages/ui` with interaction tests + visual regression (Chromatic or Playwright snapshots).
+- **Storybook for `packages/ui`** ([spec 0026](specs/0026-phase-1-start-threat-model-and-storybook.md)): a story for every component in every state (default, pending, disabled, error, a long label, one word, non-Latin text, the 360 px phone width), an icons gallery, and a tokens page that measures each colour pair's contrast from the live CSS. `pnpm --filter @univarse/ui storybook` runs it locally.
+  - **Every story is a test** (`test:stories`): it runs in Chromium through Vitest, with axe; any violation fails it. Interaction tests (`play`) cover what the screens depend on: the password toggle, the code field's typing, pasting and backspace, copying, the expiry callback, the notice's roles.
+  - **The gate's proof** (`test:a11y-proof`): two deliberately broken stories in `packages/ui/proof/` must fail, each for its own rule (`color-contrast`, `button-name`).
+  - **Nothing is published:** telemetry is off, and the static build is a CI check only. Visual regression waits until the console has screens to compare (SB7).
 - E2E: Playwright per critical journey ([12](12-testing-strategy.md) §5), running on mobile viewport emulation too.
