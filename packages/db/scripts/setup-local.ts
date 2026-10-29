@@ -18,11 +18,11 @@
 import { randomBytes } from 'node:crypto';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { createInterface } from 'node:readline/promises';
 import { stdin, stdout } from 'node:process';
 import pg from 'pg';
 import { bootstrap, CONSOLE_ROLE, DATABASES, POOLED_ROLES, ROLES } from '../../db-ops/src/bootstrap.js';
 import { CONSOLE_ENV_PATH, REPO_ROOT, ROOT_ENV_PATH, WORKER_ENV_PATH } from './env.js';
+import { promptHidden } from './hidden-prompt.js';
 import {
   PGBOUNCER_ADMIN,
   PGBOUNCER_PORT,
@@ -39,19 +39,6 @@ const superUser = process.env.PGSUPERUSER ?? 'postgres';
 /** Only in .env.worker (IO17): removed from the root .env should an older setup have put them there. */
 const WORKER_ONLY_KEYS = ['PLATFORM_RELAY_URL', 'PGBOUNCER_PLATFORM_RELAY_URL'];
 
-async function promptHidden(question: string): Promise<string> {
-  if (process.env.PGSUPERPASSWORD) return process.env.PGSUPERPASSWORD;
-  const rl = createInterface({ input: stdin, output: stdout, terminal: true });
-  // Mute echo of typed characters.
-  (rl as unknown as { _writeToOutput: (s: string) => void })._writeToOutput = (s) => {
-    if (s.startsWith(question)) stdout.write(s);
-  };
-  const answer = await rl.question(question);
-  rl.close();
-  stdout.write('\n');
-  return answer;
-}
-
 const secret = () => randomBytes(24).toString('hex'); // [0-9a-f] only: safe to inline in SQL
 
 async function connect(database: string, password: string) {
@@ -65,7 +52,8 @@ async function main() {
     throw new Error(`Refusing to run against non-local host "${host}". This script is for local dev only.`);
   }
   console.log(`UniVarse local DB setup → ${superUser}@${host}:${port}`);
-  const superPassword = await promptHidden(`Password for PostgreSQL superuser "${superUser}": `);
+  const superPassword =
+    process.env.PGSUPERPASSWORD ?? (await promptHidden(`Password for PostgreSQL superuser "${superUser}": `, stdin, stdout));
 
   const admin = await connect('postgres', superPassword);
   const version = (await admin.query<{ server_version_num: string }>('SHOW server_version_num')).rows[0];
