@@ -1,7 +1,11 @@
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    "lib": ["dom", "es2024"],
+    "lib": [
+      "dom",
+      "dom.iterable",
+      "es2024"
+    ],
     "module": "esnext",
     "moduleResolution": "bundler",
     "jsx": "react-jsx",
@@ -9,5 +13,13 @@
     "declaration": false,
     "declarationMap": false
   },
-  "include": ["src/**/*.ts", "src/**/*.tsx"]
+  "include": [
+    "src/**/*.ts",
+    "src/**/*.tsx",
+    ".storybook/**/*.ts",
+    ".storybook/**/*.tsx",
+    ".storybook-proof/**/*.ts",
+    ".storybook-proof/**/*.tsx",
+    "proof/**/*.tsx"
+  ]
 }

@@ -95,3 +95,25 @@ The console itself (S1). Visual regression (SB7). Stories for `apps/web`'s own s
 
 - Storybook's [10.1 release notes](https://storybook.js.org/releases/10.1), and the [10.5.0 release](https://newreleases.io/project/github/storybookjs/storybook/release/v10.5.0) (Vitest addon and accessibility addon changes);
 - the npm registry, checked on 2026-10-28: `storybook`, `@storybook/react-vite`, `@storybook/addon-a11y` and `@storybook/addon-vitest` at 10.6.5 (10.6.3 released 2026-10-20); `@storybook/react-vite`'s peer range for Vite is `^5 || ^6 || ^7 || ^8`.
+
+## Implementation notes (2026-10-29)
+
+**Built:** the rows T23–T30 in 08 §2, with T12 pointing to them and two assets in §1; Storybook 10.6.3 in `packages/ui` (the release age chose it); 46 stories as browser tests with axe; the proof; the static build; the T30 SBOM check; the CI steps; the docs.
+
+**Evidence:**
+- `test:stories`: 46 of 46 pass, exit 0. `test:a11y-proof`: its own 5 unit tests pass, and the proof fails exactly as required (`LimeTextOnOffWhite` for `color-contrast`, `IconButtonWithoutName` for `button-name`). `storybook:build` passes. Typecheck and the repo's lint are clean; `pnpm audit` finds nothing; the web app's unit tests pass (41 of 41).
+- **16 mutations, all caught:** the password toggle never showing or not pressed; the code field keeping non-digits, or `maxLength` back; the copy button copying the wrong text or not announcing; `onExpire` never firing; a danger notice that isn't an alert, or loses its request id; the steps losing the current step; a pending button still pressable; icons no longer decorative; a field's error not described; muted text below 4.5:1; and the accessibility gate set to warn, or off (both caught by the proof).
+- **The T30 check on real output:** a Trivy SBOM of the owner's `univarse-web:release` (36 packages, 20 npm, scoped names as `%40scope/name` in the purl) has no development-only package; the same SBOM with one Storybook package added fails, by name and by purl, in the release's check and in CI's.
+
+**Decisions made while building, for approval:**
+
+| # | Decision | Why |
+| --- | --- | --- |
+| SB-B1 | **A real bug fixed in `CodeField`: no `maxLength`.** The browser cut a paste to its first six characters before the digit filter ran, so a code pasted as "123 456", or from "Your code: 123456", lost digits or vanished. `onChange` already keeps six digits. Found by the paste story; a story now covers the spaced code. | It's in the sign-in screens the owner's users see. The change is three lines; nothing in the web app relied on `maxLength`, and the web app's tests pass. |
+| SB-B2 | **The SBOM check runs in CI too,** on the images CI builds on every PR, not only at release (the spec said the release). | It finds a leak at the PR, not days later at the owner's release. |
+| SB-B3 | **The proof's judgement is tested:** `a11y-proof-lib.mjs` decides "failed for the right rule", and 5 unit tests cover a proof that passed, one that failed for another reason, swapped rules, a missing story and an unexpected one. | A bug in the judge could hide a gate that stopped working. |
+| SB-B4 | **The stories live in `src/stories/`,** not beside each component (SB1 said beside them). | The components share three files (`index.tsx`, `client.tsx`, `icons.tsx`); one story file per component is clearer than three crowded files. |
+| SB-B5 | **`eslint-plugin-storybook` is a root dev dependency,** not `packages/ui`'s. | ESLint loads plugins from the root config, which can't resolve a package-only dependency under pnpm. |
+| SB-B6 | **Storybook's telemetry is off** in both configurations. | Nothing leaves the machine (ADR-030, SB7). |
+| SB-B7 | **The tokens page draws a non-text pair as an outline,** with its words in body text. | Drawn as text, the field outline (3.1:1, a non-text contrast) failed axe's text rule: the gate's first catch was the page itself. |
+| SB-B8 | **`packages/ui`'s TypeScript gains `dom.iterable`** and covers the Storybook and proof files. | The stories iterate over DOM lists; the configuration files are checked like the rest. |

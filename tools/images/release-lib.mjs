@@ -164,3 +164,26 @@ export function cleanTypedPassword(raw) {
   /* eslint-enable no-control-regex */
   return cleaned;
 }
+
+/**
+ * Spec 0026 T30: development-only packages that must never reach an image. Storybook and its addons are dev
+ * dependencies of `packages/ui`; an image holding one means the build pulled in the development tree.
+ */
+const DEV_ONLY = [/^storybook$/, /^@storybook\//, /^eslint-plugin-storybook$/];
+
+/** The development-only packages in an SPDX SBOM, by name or by npm purl (Trivy writes both). */
+export function devOnlyPackages(spdx) {
+  const names = new Set();
+  for (const p of spdx?.packages ?? []) {
+    const candidates = [p.name];
+    for (const ref of p.externalRefs ?? []) {
+      const purl = decodeURIComponent(String(ref.referenceLocator ?? ''));
+      if (!purl.startsWith('pkg:npm/')) continue;
+      const rest = purl.slice('pkg:npm/'.length).split(/[?#]/)[0] ?? '';
+      const at = rest.lastIndexOf('@');
+      candidates.push(at > 0 ? rest.slice(0, at) : rest); // the last `@` starts the version; a scope's `@` is first
+    }
+    for (const n of candidates) if (typeof n === 'string' && DEV_ONLY.some((r) => r.test(n))) names.add(n);
+  }
+  return [...names].sort();
+}

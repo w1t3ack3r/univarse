@@ -318,7 +318,7 @@ Alternatives considered: option — why not.
 - The local figures come from a CPU-starved laptop. Repeat the load test on staging hardware before pilot, and revisit `max` and `maxWait` only with such a measurement and an update to this ADR.
 
 ## ADR-027 — Defer Storybook until before Phase 2's UI expands
-**Status:** Accepted (2026-10-11, owner decision). Defers one Phase 0 build line ([18](18-roadmap.md)); it does **not** satisfy it. **Owner decision (2026-10-23):** stays deferred; Phase 0 closes without it. Built at the start of **Phase 1**, before the console's first screen: the console is the second app on `packages/ui`, earlier than this ADR's "before Phase 2".
+**Status:** Accepted (2026-10-11, owner decision). Defers one Phase 0 build line ([18](18-roadmap.md)); it does **not** satisfy it. **Owner decision (2026-10-23):** stays deferred; Phase 0 closes without it. Built at the start of **Phase 1**, before the console's first screen: the console is the second app on `packages/ui`, earlier than this ADR's "before Phase 2". **Built** (2026-10-29) by [spec 0026](specs/0026-phase-1-start-threat-model-and-storybook.md): Storybook 10.6 in `packages/ui`, every story a browser test with axe in `build-test`, and the gate's proof.
 
 **Context:** Phase 0 lists "design system in `packages/ui` with brand tokens, Storybook". `packages/ui` exists (tokens, components, icons), and the screens built so far are covered by E2E on desktop and mobile. Storybook adds dependencies and a build of its own, and pays off once there are many components and screens to review in isolation.
 
