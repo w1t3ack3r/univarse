@@ -151,7 +151,7 @@ export function CodeFlow({ kind, institution }: { kind: Kind; institution: strin
               {copy.title0}
             </h1>
             <p className="auth__sub">{copy.sub0}</p>
-            <form className="auth__form" onSubmit={onAccount} noValidate>
+            <form method="post" className="auth__form" onSubmit={onAccount} noValidate>
               <TextField
                 label={kind === 'activation' ? 'Matric or staff number' : 'Matric number, staff number or email'}
                 name="username"
@@ -181,7 +181,7 @@ export function CodeFlow({ kind, institution }: { kind: Kind; institution: strin
               Check your email
             </h1>
             <p className="auth__sub">{copy.sent}</p>
-            <form className="auth__form" onSubmit={onCode} noValidate>
+            <form method="post" className="auth__form" onSubmit={onCode} noValidate>
               <CodeField
                 label="6-digit code"
                 value={code}
@@ -235,7 +235,7 @@ export function CodeFlow({ kind, institution }: { kind: Kind; institution: strin
               {copy.title2}
             </h1>
             <p className="auth__sub">{copy.sub2}</p>
-            <form className="auth__form" onSubmit={onPassword} noValidate>
+            <form method="post" className="auth__form" onSubmit={onPassword} noValidate>
               <PasswordField
                 label={kind === 'activation' ? 'Password' : 'New password'}
                 name="password"

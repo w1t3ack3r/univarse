@@ -114,7 +114,7 @@ export function MfaSetup({ required, leaveLater }: { required: boolean; leaveLat
               ? 'Your role can approve or change important records, so your account needs a second step: a code from an app on your phone.'
               : 'Add a second step to signing in: a code from an app on your phone. Even if someone learns your password, they can’t get in.'}
           </p>
-          <form className="auth__form" onSubmit={onPassword} noValidate>
+          <form method="post" className="auth__form" onSubmit={onPassword} noValidate>
             <PasswordField label="Confirm your password" name="password" autoComplete="current-password" required error={fieldError} />
             <div className="auth__actions">
               <Button type="submit" block pending={pending}>
@@ -168,7 +168,7 @@ export function MfaSetup({ required, leaveLater }: { required: boolean; leaveLat
             Enter the code your app shows
           </h1>
           <p className="auth__sub">It changes every 30 seconds. Any current code works.</p>
-          <form
+          <form method="post"
             className="auth__form"
             onSubmit={(e) => {
               e.preventDefault();

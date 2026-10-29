@@ -62,7 +62,7 @@ export function StepUpProvider({ hasMfa, children }: { hasMfa: boolean; children
     <StepUpContext.Provider value={ask}>
       {children}
       <dialog ref={dialog} className="dialog" aria-labelledby="stepup-title" onCancel={() => close(false)}>
-        <form className="dialog__body" onSubmit={onSubmit} noValidate>
+        <form method="post" className="dialog__body" onSubmit={onSubmit} noValidate>
           <span className="uv-icon-tile">
             <ShieldCheck />
           </span>

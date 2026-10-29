@@ -57,7 +57,7 @@ export function VerifyForm() {
             : 'Type one of the recovery codes you saved when you set up two-step sign-in. Each code works once.'}
         </p>
         {error ? <Notice requestId={error.requestId}>{error.message}</Notice> : null}
-        <form onSubmit={onSubmit} className="auth__form" noValidate>
+        <form method="post" onSubmit={onSubmit} className="auth__form" noValidate>
           {mode === 'code' ? (
             <CodeField label="6-digit code" value={code} onChange={onCodeChange} autoFocus />
           ) : (

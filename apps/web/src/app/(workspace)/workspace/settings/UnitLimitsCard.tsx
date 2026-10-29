@@ -172,7 +172,7 @@ export function UnitLimitsCard({ initial }: { initial: View }) {
       {failure ? <Notice requestId={failure.requestId}>{failure.message}</Notice> : null}
 
       {view.canManage ? (
-        <form className="setting__form" noValidate onSubmit={onSubmit}>
+        <form method="post" className="setting__form" noValidate onSubmit={onSubmit}>
           <div className="setting__fields">
             <TextField
               ref={minRef}
