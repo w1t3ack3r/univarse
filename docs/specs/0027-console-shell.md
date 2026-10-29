@@ -1,6 +1,6 @@
 # Spec 0027: Phase 1's S1, the console's shell
 
-**Status:** **Draft, for the owner's approval.** Nothing is built until P1 to P10 are approved.
+**Status:** **Approved by the owner on 2026-10-29, all as written:** P1 to P10.
 **Phase:** 1, slice **S1** of [spec 0025](0025-phase-1-control-plane.md) (A1, A2, A6, A11).
 **Builds on:**
 
@@ -51,7 +51,7 @@ So an edge allowlist of `127.0.0.1`, as the earlier draft proposed, would refuse
 
 ## The owner's steps
 
-- Approve P1 to P10.
+- ~~Approve P1 to P10.~~ Done on 2026-10-29.
 - After PR B merges: `pnpm images:release`, then `pnpm stack:deploy` (the usual preparation: the stack down, the dev ClamAV stopped, the dev Vault unsealed). Then open `https://console.stack.univarse.localhost` once, to see the frame.
 
 ## Affected docs (in the implementation PRs)
