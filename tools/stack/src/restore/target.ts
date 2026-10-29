@@ -108,7 +108,7 @@ export function jobRunner(service: 'keys' | 'migrate', e: ComposeEnv, entry: rea
       ...(opts.input === undefined ? {} : { input: opts.input }),
       env: env(e),
     });
-    if (r.status !== 0 && r.status !== 3) docker(['rm', '-f', name], { allowFail: true });
+    if (r.status !== 0 && r.status !== 3) docker(['rm', '-f', '-v', name], { allowFail: true });
     return { status: r.error ? null : r.status, stdout: r.stdout, stderr: r.stderr };
   };
 }
@@ -138,7 +138,7 @@ export function pipeInto(args: readonly string[], source: Readable, extraEnv: Re
 export function removeLabelled(run: Runner = docker): string[] {
   const ids = (args: string[]) => run(args, { allowFail: true }).stdout.split('\n').map((s) => s.trim()).filter(Boolean);
   const containers = ids(['ps', '-aq', '--filter', `label=${LABEL}`]);
-  if (containers.length) run(['rm', '-f', ...containers], { allowFail: true });
+  if (containers.length) run(['rm', '-f', '-v', ...containers], { allowFail: true });
   const networks = ids(['network', 'ls', '-q', '--filter', `label=${LABEL}`]);
   if (networks.length) run(['network', 'rm', ...networks], { allowFail: true });
   const volumes = ids(['volume', 'ls', '-q', '--filter', `label=${LABEL}`]);

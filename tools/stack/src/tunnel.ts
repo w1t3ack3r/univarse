@@ -28,7 +28,7 @@ export function tunnelRunArgs(): string[] {
 
 /** Removes the tunnel and its network, whether or not they exist. */
 export function removeTunnel(run: Runner = docker): void {
-  run(['rm', '-f', TUNNEL_CONTAINER], { allowFail: true });
+  run(['rm', '-f', '-v', TUNNEL_CONTAINER], { allowFail: true });
   run(['network', 'rm', TUNNEL_NETWORK], { allowFail: true });
 }
 

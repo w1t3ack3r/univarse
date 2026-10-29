@@ -40,7 +40,7 @@ beforeAll(() => {
   root = mkdtempSync(join(tmpdir(), 'uv-restore-int-'));
 });
 afterAll(() => {
-  if (made.containers.length) docker(['rm', '-f', ...made.containers], { allowFail: true });
+  if (made.containers.length) docker(['rm', '-f', '-v', ...made.containers], { allowFail: true });
   if (made.networks.length) docker(['network', 'rm', ...made.networks], { allowFail: true });
   if (made.volumes.length) docker(['volume', 'rm', '-f', ...made.volumes], { allowFail: true });
   rmSync(root, { recursive: true, force: true });
@@ -206,7 +206,7 @@ describe('[B2-8] files back through the filer, each read back over S3', () => {
 describe('[BK6] a crashed run leaves nothing its label doesn\'t find', () => {
   it('labelled containers, networks and volumes are all removed', () => {
     // The earlier tests' own containers hold some labelled volumes: gone first, as a crashed run's would be by now.
-    if (made.containers.length) docker(['rm', '-f', ...made.containers], { allowFail: true });
+    if (made.containers.length) docker(['rm', '-f', '-v', ...made.containers], { allowFail: true });
     labelledVolume(`uv-restore-left-${id}`, '0:0');
     docker(['run', '-d', '--name', `uv-restore-left-${id}`, '--label', `${LABEL}=1`, '--entrypoint', 'sleep', THIRD_PARTY.postgres, '600']);
     removeLabelled();

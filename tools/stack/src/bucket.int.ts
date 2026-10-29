@@ -115,7 +115,7 @@ function startDocker(data: string, settings: Settings): Weed {
       return `${now}${/^\d+$/.test(peak) ? `, peak ${(Number(peak) / 1024 / 1024).toFixed(0)}MiB` : ''}`;
     },
     stop: () => {
-      docker(['rm', '-f', name]);
+      docker(['rm', '-f', '-v', name]);
       return Promise.resolve();
     },
   };

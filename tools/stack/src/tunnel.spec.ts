@@ -36,21 +36,21 @@ describe('[LS1] the E2E tunnel (B4)', () => {
   it('[LS1] a stale tunnel is removed before a new one opens', async () => {
     const d = fakeDocker();
     await withTunnel(() => Promise.resolve('ok'), d);
-    expect(d.calls[0]).toBe(`rm -f ${TUNNEL_CONTAINER}`);
+    expect(d.calls[0]).toBe(`rm -f -v ${TUNNEL_CONTAINER}`);
     expect(d.calls.findIndex((c) => c.startsWith('run '))).toBeGreaterThan(0);
   });
 
   it('[LS1] after a passing run the tunnel is removed and checked gone', async () => {
     const d = fakeDocker();
     expect(await withTunnel(() => Promise.resolve(42), d)).toBe(42);
-    expect(d.calls.at(-3)).toBe(`rm -f ${TUNNEL_CONTAINER}`);
+    expect(d.calls.at(-3)).toBe(`rm -f -v ${TUNNEL_CONTAINER}`);
     expect(d.calls.at(-1)).toMatch(/^ps -a -q --filter/);
   });
 
   it('[LS1] after a FAILED run the tunnel is still removed, checked gone, and the failure is what is reported', async () => {
     const d = fakeDocker();
     await expect(withTunnel(() => Promise.reject(new Error('3 tests failed')), d)).rejects.toThrow('3 tests failed');
-    expect(d.calls.filter((c) => c === `rm -f ${TUNNEL_CONTAINER}`)).toHaveLength(2); // before opening, and after
+    expect(d.calls.filter((c) => c === `rm -f -v ${TUNNEL_CONTAINER}`)).toHaveLength(2); // before opening, and after
     expect(d.calls.at(-1)).toMatch(/^ps -a -q --filter/);
     expect(await d.open()).toBe(false);
   });

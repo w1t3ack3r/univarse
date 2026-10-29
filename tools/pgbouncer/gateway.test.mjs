@@ -147,7 +147,7 @@ test("a timed-out discovery removes its own named probe container, bounded too (
     '--name',
     'uv-gateway-probe-abcd1234',
   ]);
-  assert.deepEqual(calls[1].args, ['rm', '-f', 'uv-gateway-probe-abcd1234']); // its own, by name
+  assert.deepEqual(calls[1].args, ['rm', '-f', '-v', 'uv-gateway-probe-abcd1234']); // its own, by name
   assert.equal(calls[1].opts.killSignal, 'SIGKILL');
   assert.ok(calls[1].opts.timeout > 0);
   // a failed removal is reported, not hidden

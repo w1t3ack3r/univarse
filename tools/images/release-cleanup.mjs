@@ -38,5 +38,5 @@ export function cleanupRun(run, { sh, compose }) {
   const ids = sh('docker', ['ps', '-aq', '--filter', `label=${RUN_LABEL}=${run.runId}`], { allowFail: true })
     .stdout.split(/\s+/)
     .filter(Boolean);
-  if (ids.length > 0) sh('docker', ['rm', '-f', ...ids], { allowFail: true });
+  if (ids.length > 0) sh('docker', ['rm', '-f', '-v', ...ids], { allowFail: true });
 }

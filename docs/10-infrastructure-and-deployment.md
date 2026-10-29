@@ -166,7 +166,7 @@ pnpm stack:backup wal                        # ship the WAL staged since the las
 pnpm stack:backup status                     # the newest set, the erasure boundary, WAL, the schedule (no key needed)
 pnpm stack:backup schedule --at 13:30        # prints the two scheduled tasks; again with --apply registers them (Windows)
 pnpm stack:backup schedule --remove          # unregisters them
-pnpm stack:down                              # stop it; volumes are kept
+pnpm stack:down                              # stop it; named volumes are kept, the containers' anonymous ones removed
 ```
 
 - **The address:** `https://demo-uni.stack.univarse.localhost` (Caddy on `127.0.0.1:443`; `:80` only redirects). Mailpit is at `https://mail.stack.univarse.localhost`.

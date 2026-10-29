@@ -46,7 +46,7 @@ function runJob(images: Readonly<Record<string, string>>, args: readonly string[
       env: { ...process.env, MSYS_NO_PATHCONV: '1', UNIVARSE_STACK_DIR: STACK_DIR, ...images },
     },
   );
-  if (r.status !== 0 && r.status !== 3) docker(['rm', '-f', name], { allowFail: true }); // A2-8: never left running
+  if (r.status !== 0 && r.status !== 3) docker(['rm', '-f', '-v', name], { allowFail: true }); // A2-8: never left running
   return { status: r.error ? null : r.status, stdout: r.stdout, stderr: r.stderr };
 }
 

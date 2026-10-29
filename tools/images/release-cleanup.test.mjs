@@ -34,7 +34,7 @@ test('[LR10] fix 3: cleanup removes exactly the containers labelled with this ru
   const { sh, calls } = fakeSh({ owned: ['c0ffee', 'beef01'] });
   cleanupRun(run, { sh, compose });
   assert.ok(calls.includes(`ps -aq --filter label=${RUN_LABEL}=r2`));
-  assert.ok(calls.includes('rm -f c0ffee beef01'));
+  assert.ok(calls.includes('rm -f -v c0ffee beef01'));
   assert.ok(!calls.some((c) => /rm -f .*uv-/.test(c)), 'no removal by fixed name');
 });
 
@@ -57,7 +57,7 @@ test('[LR10] fix 3: a service whose startup FAILS is still stopped by cleanup', 
 
 test('[LR10] fix 3: the release source no longer removes containers by fixed name', () => {
   const src = readFileSync(new URL('./release.mjs', import.meta.url), 'utf8');
-  assert.doesNotMatch(src, /'rm', '-f', 'uv-/);
+  assert.doesNotMatch(src, /'rm', '-f', (?:'-v', )?'uv-/);
   assert.match(src, /cleanupRun\(RUN/);
 });
 

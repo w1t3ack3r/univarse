@@ -79,7 +79,7 @@ export function migrateSmoke(image) {
     if (domains.length !== 3 || !domains.every((d) => d.endsWith(`.${DOMAIN}`))) problems.push(`seeded domains are not the three on ${DOMAIN}: ${domains.join(', ')}`);
     return { ok: problems.length === 0, problems, first, second };
   } finally {
-    sh('docker', ['rm', '-f', pg], { allowFail: true });
+    sh('docker', ['rm', '-f', '-v', pg], { allowFail: true });
     sh('docker', ['network', 'rm', net], { allowFail: true });
   }
 }
