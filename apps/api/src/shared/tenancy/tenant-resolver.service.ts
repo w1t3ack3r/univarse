@@ -1,5 +1,6 @@
 import { Inject, Injectable, type OnModuleInit } from '@nestjs/common';
 import type { PlatformClient } from '@univarse/db';
+import { hasReservedFirstLabel, isReservedName } from '@univarse/domain';
 import { APP_CONFIG, type AppConfig } from '../../config/config.js';
 import { PLATFORM_DB } from '../db/db.module.js';
 import { CHANNELS, InvalidationBus } from '../infra/invalidation-bus.js';
@@ -63,9 +64,11 @@ export class TenantResolver implements OnModuleInit {
       where: { hostname: host },
       include: { tenant: true },
     });
-    // Custom domains only count once verified; subdomains are created verified by provisioning.
+    // Custom domains only count once verified; subdomains are created verified by provisioning. Spec 0027 P2: a reserved
+    // name (the console's own, say) never resolves to a tenant, whether it's the tenant's slug or the subdomain's label.
+    const reserved = domain !== null && (isReservedName(domain.tenant.slug) || (domain.kind === 'SUBDOMAIN' && hasReservedFirstLabel(host)));
     const value: TenantContext | null =
-      domain && domain.verifiedAt
+      domain && domain.verifiedAt && !reserved
         ? {
             tenantId: domain.tenant.id,
             shardId: domain.tenant.shardId,

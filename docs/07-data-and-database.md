@@ -15,6 +15,7 @@
 | `univarse_migrator` | Owner of schema objects. Runs DDL | Migration job only (CI/CD), never the running app |
 | `univarse_app` | `SELECT/INSERT/UPDATE/DELETE` on tables, `USAGE` on sequences. **`NOBYPASSRLS`, not owner** | API + worker |
 | `univarse_app_platform` | CRUD on platform DB only; **nothing** on `cache_invalidation_event` | API/worker platform modules |
+| `univarse_console` | `CONNECT` on the platform DB only; no table yet, each Phase 1 slice grants its own; **no `CONNECT` on any tenant DB** | The platform API ([spec 0027](specs/0027-console-shell.md) P5) |
 | `univarse_relay_platform` | Platform DB only: `USAGE` on the schema, `SELECT` and `UPDATE (attempts, next_attempt_at, status, last_error)` on `cache_invalidation_event`, `EXECUTE` on `cache_invalidation_max_ttl()` and `purge_settled_invalidation_events(integer)`. No `INSERT`, `DELETE`, `TRUNCATE` or `TEMPORARY`, nothing on any other table. Role settings: `transaction_timeout`, `statement_timeout` and `idle_in_transaction_session_timeout` of 5 s | The worker's invalidation relay only ([§6.1](#61-platform-invalidation-capture-spec-0016-adr-031)); its URL is in `.env.worker`, never the root `.env` |
 | `univarse_readonly` | `SELECT` on a curated set of reporting views. RLS still applies | Reporting, read replica |
 | `univarse_audit_writer` (optional) | `INSERT` only on `audit_event` | Audit writer path |

@@ -51,6 +51,15 @@ Any failure here is a release blocker.
 
 **Authorization ([spec 0018](specs/0018-policy-service.md)):** the policy's matrix covers every permission × scope type × MFA × step-up (`modules/identity/policy.spec.ts`); each of the five resource scopes is refused end to end, with an institution control and a cross-tenant case (`modules/identity/policy.int.spec.ts`); a static guard keeps grant reads inside the policy (`modules/identity/policy-guard.spec.ts`).
 
+### 3.1a The console and the tenants ([spec 0027](specs/0027-console-shell.md))
+
+The platform console is walled off from the tenants at three places, each tested on its own:
+- **The edge** (the dev edge's routing, `tools/dev-edge/route.test.mjs`; Caddy's in spec 0027 PR B): only the console's host reaches the platform API.
+- **The tenant API** refuses `/api/platform/*` with 404 before tenant resolution (`platform-refusal.spec.ts`, and `app.int.spec.ts` in the full app).
+- **The platform API** serves only `/api/platform/v1/*` and `/health/*`, and only to its allowlist, answering 404 otherwise, in the same shape as an unknown route (`platform-walls.spec.ts`, `platform.int.spec.ts`).
+
+The platform API's role, `univarse_console`, is checked in the real database: `CONNECT` on the platform database only, read from the catalogue for every UniVarse database, and a real connection to a tenant database refused. A reserved name (`console`, `api`…) never resolves to a tenant.
+
 ### 3.2 Through PgBouncer, in transaction mode ([spec 0017](specs/0017-pgbouncer-isolation.md))
 
 Every layer above also holds through the intended pooling mode. Two CI jobs, both meant to be required on `main`, prove it:

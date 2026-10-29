@@ -90,7 +90,7 @@ flowchart TB
 ```
 
 - **Same-origin API.** The browser always talks to `https://<tenant-host>/api/v1/...`. The edge routes by path prefix to the right runtime role, and everything else to Next.js. There's no CORS and cookies stay first-party.
-- **One codebase, one image, several runtime roles** (ADR-020). Each process starts with `PRODUCTS=…` and mounts only those products. `worker` and `realtime` are separate entrypoints. Roles scale and fail independently. In dev, `PRODUCTS=all` runs everything in one process.
+- **One codebase, one image, several runtime roles** (ADR-020). Each process starts with `PRODUCTS=…` and mounts only those products. `worker` and `realtime` are separate entrypoints, and so is `platform` ([spec 0027](specs/0027-console-shell.md) P1): the platform API, served only behind the console's host, mounting no tenant module and holding no tenant credential. Roles scale and fail independently. In dev, `PRODUCTS=all` runs everything in one process.
 - The console is a separate app on a separate host with its own session cookie. Platform identities never exist in tenant databases.
 
 ## 5. Repository layout
@@ -100,7 +100,7 @@ univarse/
 ├── apps/
 │   ├── web/                 # Next.js — public site, /apply, /student, /staff, /verify
 │   ├── console/             # Next.js — platform console (UniVarse staff only)
-│   └── api/                 # NestJS — src/main.ts (HTTP) and src/worker.ts (jobs)
+│   └── api/                 # NestJS — src/main.ts (HTTP), src/worker.ts (jobs), src/platform.ts (the platform API)
 │       └── src/
 │           ├── platform/    # control-plane modules (tenants, provisioning, billing…)
 │           ├── modules/     # tenant modules — one folder per bounded context

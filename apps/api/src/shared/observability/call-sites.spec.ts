@@ -73,6 +73,7 @@ describe('[OB7] the security stream', () => {
         'files.scan.malware_detected',
         'http.csrf_rejected',
         'products.route_undeclared',
+        'platform.allowlist_refused',
       ].sort(),
     );
   });

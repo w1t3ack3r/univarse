@@ -4,3 +4,4 @@ export * from './results/grading.js';
 export * from './results/gpa.js';
 export * from './results/standing.js';
 export * from './results/defaults.js';
+export * from './platform/reserved-names.js';

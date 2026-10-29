@@ -5,15 +5,12 @@
  */
 import { EVERY_ROLE_PERMISSIONS, SYSTEM_ROLE_PERMISSIONS, type ProductKey } from '@univarse/contracts';
 import { createPlatformClient, createTenantShardClient, withTenantTx } from '@univarse/db';
+import { TENANTS } from './seed-tenants.js';
 
 /** The development domain; the stack seeds `stack.univarse.localhost` (spec 0019 D6). */
 export const DEV_DOMAIN = 'univarse.localhost';
 
-const TENANTS = [
-  { slug: 'demo-uni', legalName: 'Demo University, Lagos', shortName: 'DEMO-UNI', type: 'UNIVERSITY', ownership: 'PRIVATE', status: 'ACTIVE' },
-  { slug: 'test-poly', legalName: 'Test State Polytechnic', shortName: 'TESTPOLY', type: 'POLYTECHNIC', ownership: 'STATE', status: 'ACTIVE' },
-  { slug: 'paused-uni', legalName: 'Paused University', shortName: 'PAUSED', type: 'UNIVERSITY', ownership: 'FEDERAL', status: 'SUSPENDED' },
-] as const;
+export { TENANTS };
 
 // Demo plans (spec 0003): demo-uni has a broader plan than test-poly, so product gating is visible locally.
 const PLANS: Record<(typeof TENANTS)[number]['slug'], Partial<Record<ProductKey, boolean>>> = {

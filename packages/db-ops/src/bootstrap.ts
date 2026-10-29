@@ -28,6 +28,13 @@ export const DATABASES = Object.freeze([
  */
 export const BACKUP_ROLE = 'univarse_backup';
 
+/**
+ * Spec 0027 P5: the platform API's own role (spec 0025 A2). CONNECT to the platform database only; no table, no
+ * schema, and no tenant database (CONNECT on those is revoked from PUBLIC below and never granted to it). Each later
+ * slice grants exactly the platform tables it needs, in its own migration. Created only when given its password.
+ */
+export const CONSOLE_ROLE = 'univarse_console';
+
 /** The roles the app connects as: the only ones PgBouncer authenticates (the migrator always connects directly). */
 export const APP_ROLES: readonly string[] = [ROLES.app, ROLES.appPlatform];
 /** The roles PgBouncer authenticates: the app's, and the relay's (its own pool). */
@@ -42,6 +49,8 @@ export interface BootstrapOptions {
   readonly migratorCreatedb: boolean;
   /** Spec 0020 B-3: the backup role's password or SCRAM verifier; without it the role is neither created nor changed. */
   readonly backupPassword?: string | undefined;
+  /** Spec 0027 P5: the console role's password or SCRAM verifier; without it the role is neither created nor changed. */
+  readonly consolePassword?: string | undefined;
   readonly log?: (line: string) => void;
 }
 
@@ -49,9 +58,10 @@ const ident = (s: string) => `"${s.replace(/"/g, '""')}"`;
 /** Generated hex passwords or SCRAM verifiers only: nothing that could close the literal. */
 const SAFE_SECRET = /^[A-Za-z0-9+/=$:-]{16,512}$/;
 
-export async function bootstrap({ connect, passwords, migratorCreatedb, backupPassword, log = () => undefined }: BootstrapOptions): Promise<void> {
+export async function bootstrap({ connect, passwords, migratorCreatedb, backupPassword, consolePassword, log = () => undefined }: BootstrapOptions): Promise<void> {
   for (const [key, value] of Object.entries(passwords)) if (!SAFE_SECRET.test(value)) throw new Error(`the ${key} password has an unexpected shape`);
   if (backupPassword !== undefined && !SAFE_SECRET.test(backupPassword)) throw new Error('the backup password has an unexpected shape');
+  if (consolePassword !== undefined && !SAFE_SECRET.test(consolePassword)) throw new Error('the console password has an unexpected shape');
   const admin = await connect('postgres');
   try {
     for (const [key, role] of Object.entries(ROLES) as [RoleKey, string][]) {
@@ -65,6 +75,12 @@ export async function bootstrap({ connect, passwords, migratorCreatedb, backupPa
       const exists = (await admin.query('SELECT 1 FROM pg_roles WHERE rolname = $1', [BACKUP_ROLE])).rowCount;
       await admin.query(`${exists ? 'ALTER' : 'CREATE'} ROLE ${BACKUP_ROLE} WITH LOGIN REPLICATION NOSUPERUSER NOCREATEROLE NOCREATEDB NOBYPASSRLS PASSWORD '${backupPassword}'`);
       log(`  ✓ role ${BACKUP_ROLE} ${exists ? '(password set)' : '(created)'}: REPLICATION only`);
+    }
+    if (consolePassword !== undefined) {
+      const exists = (await admin.query('SELECT 1 FROM pg_roles WHERE rolname = $1', [CONSOLE_ROLE])).rowCount;
+      await admin.query(`${exists ? 'ALTER' : 'CREATE'} ROLE ${CONSOLE_ROLE} WITH LOGIN NOSUPERUSER NOCREATEROLE NOCREATEDB NOBYPASSRLS NOREPLICATION PASSWORD '${consolePassword}'`);
+      await admin.query(`ALTER ROLE ${CONSOLE_ROLE} SET timezone = 'UTC'`);
+      log(`  ✓ role ${CONSOLE_ROLE} ${exists ? '(password set)' : '(created)'}`);
     }
     // Spec 0017 D6: a UTC default for app sessions that send no TimeZone. The client's startup option remains the setting.
     for (const role of APP_ROLES) await admin.query(`ALTER ROLE ${ident(role)} SET timezone = 'UTC'`);
@@ -80,6 +96,8 @@ export async function bootstrap({ connect, passwords, migratorCreatedb, backupPa
       await admin.query(`GRANT CONNECT ON DATABASE ${ident(db.name)} TO ${ident(db.appRole)}`);
       // The relay: CONNECT to the platform database only, and USAGE on its schema (below); no TEMPORARY, nothing else.
       if (db.name === 'univarse_platform') await admin.query(`GRANT CONNECT ON DATABASE ${ident(db.name)} TO ${ROLES.relayPlatform}`);
+      // Spec 0027 P5: the console role connects to the platform database, and to no other.
+      if (consolePassword !== undefined && db.name === 'univarse_platform') await admin.query(`GRANT CONNECT ON DATABASE ${ident(db.name)} TO ${CONSOLE_ROLE}`);
 
       const c = await connect(db.name);
       try {

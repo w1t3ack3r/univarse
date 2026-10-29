@@ -160,7 +160,7 @@ Each roadmap line checked against the repository, CI and the decision log.
 | Slice | What it delivers | Spec |
 |---|---|---|
 | **S0** Phase start | The console's threat-model rows (T23–T30); **Storybook** for `packages/ui` with an accessibility gate in CI ([ADR-027](19-decision-log.md)) | [0026](specs/0026-phase-1-start-threat-model-and-storybook.md), approved; **built** (in review) |
-| **S1** The console's shell | `apps/console`; the platform API process; the console host with its allowlist; the `univarse_console` role; the fifth signed image | to write |
+| **S1** The console's shell | `apps/console`; the platform API process; the console host with its allowlist; the `univarse_console` role; the fifth signed image | [0027](specs/0027-console-shell.md), approved; PR A **built** (in review), PR B next |
 | **S2** Platform identity | The OWNER bootstrap CLI; login with mandatory TOTP; sessions, step-up; staff invite and roles; `platform.*` permissions; every action audited | to write |
 | **S3** Seeing what happened | The platform audit viewer with chain verification; security events; the monthly access review | to write |
 | **S4** The tenant registry | Tenant list and detail; profile, branding and the regulatory profile; entitlements per tenant | to write |
