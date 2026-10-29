@@ -487,7 +487,7 @@ Alternatives considered: option — why not.
 - PR B2a, `status`, the deploy's warnings and the schedule (#107);
 - PR B2b, the rehearsed restore, the shred drill and the real restore, with CI's restore test on the pinned images.
 
-The owner's drill (`pnpm stack:drill`) is the last evidence; its record goes in `docs/ops/drills/`. The rest is in the spec's implementation notes.
+**Evidenced (2026-10-29):** the owner's rehearsal ([record](ops/drills/2026-10-28-restore-rehearsal.md)) and drill ([record](ops/drills/2026-10-29-restore-and-shred.md)) passed, after the fixes their first runs found (#125, #126, #127). The rest is in the spec's implementation notes.
 
 **Context:**
 - [ADR-030](#adr-030--fully-local-development-deployment-and-operation-stay-on-the-owners-machine) makes backups with a rehearsed restore a local Phase 0 requirement.

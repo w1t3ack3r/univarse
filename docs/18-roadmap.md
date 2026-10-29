@@ -49,7 +49,7 @@ gantt
 **Fully local ([ADR-030](19-decision-log.md), 2026-10-12, owner decision):**
 - **The change:** nothing is hosted or staged, and ADR-024's deferral of the staging criteria is superseded. There's **no deferred staging list**.
 - **The criteria now:** each former staging criterion is a local one, and Phase 0 closes only when they're all met on the developer machine: HTTPS with CSP and `Secure` cookies, a local deploy of verified digests, PgBouncer, Vault with TLS and its audit device, and backups with a rehearsed restore.
-- **Status:** Phase 0 **closes with the owner's sign-off** on the closure below (⏳ the drill of 2026-10-29 and the sign-off are the last two steps).
+- **Status:** Phase 0 is **closed** (2026-10-29), by the owner's sign-off on the closure below (#128).
 
 ### Phase 0 reconciliation (2026-10-11, `main` at `0fe02f9`; brought up to date at closure, 2026-10-28)
 
@@ -81,7 +81,7 @@ Each roadmap line checked against the repository, CI and the decision log.
 | Web: auth pages, workspace shell with permission-driven nav | ✅ | Spec 0005: login, MFA verify, activation, reset, MFA enrolment, the step-up dialog, and the workspace shell with gated nav (W6). E2E desktop and mobile in CI. A per-request nonce CSP is sent locally (`apps/web/src/proxy.ts`). |
 | Web: design system in `packages/ui` with brand tokens | ✅ | `packages/ui` (`tokens.css`, components, icons). |
 | Web: **Storybook** | ⏸ | Not installed. Deferred by [ADR-027](19-decision-log.md), to be revisited before Phase 2's UI expands. **Not met.** |
-| Staging environment → **local production-like stack** | ✅ ⏳ | ADR-030, [spec 0019](specs/0019-local-production-stack.md), [spec 0020](specs/0020-local-backups-and-shred-ledger.md). **Built and running:**<br>• PR A (2026-10-20): hardened compose running the verified images by digest, with PgBouncer over TLS;<br>• PR B (2026-10-21): the HTTPS edge with a name-constrained CA;<br>• PR C1 and C2 (2026-10-21/22): Vault on TLS with its audit device, failing closed; production refuses a plaintext Vault (ADR-018 closed);<br>• spec 0020: the shred ledger (PR A, on 2 destinations), Vault on Raft, WAL archiving and sealed sets (B1), `stack:backup status` and the daily schedule (B2a), and the rehearsed restore, the shred drill and the real restore (B2b, #123; fixes from the owner's runs: #125, #126, #127). Sets go to `D:\univarse-backups`; the backup key was replaced on 2026-10-27 (#124).<br>**The rehearsed restore passed** on the owner's machine (2026-10-28, [record](ops/drills/2026-10-28-restore-rehearsal.md)): set `20261028T034203Z-7f7e` on the release `c0c1cb0`, every check PASS, RTO 98 s, peak memory 111 MiB. The shred held: `shred-drill-20261028` read `ok` before recovery and `key_destroyed` after, and the real ledger was unchanged.<br>**⏳ The drill** (`pnpm stack:drill`, 2026-10-29): its record goes here. |
+| Staging environment → **local production-like stack** | ✅ | ADR-030, [spec 0019](specs/0019-local-production-stack.md), [spec 0020](specs/0020-local-backups-and-shred-ledger.md). **Built and running:**<br>• PR A (2026-10-20): hardened compose running the verified images by digest, with PgBouncer over TLS;<br>• PR B (2026-10-21): the HTTPS edge with a name-constrained CA;<br>• PR C1 and C2 (2026-10-21/22): Vault on TLS with its audit device, failing closed; production refuses a plaintext Vault (ADR-018 closed);<br>• spec 0020: the shred ledger (PR A, on 2 destinations), Vault on Raft, WAL archiving and sealed sets (B1), `stack:backup status` and the daily schedule (B2a), and the rehearsed restore, the shred drill and the real restore (B2b, #123; fixes from the owner's runs: #125, #126, #127). Sets go to `D:\univarse-backups`; the backup key was replaced on 2026-10-27 (#124).<br>**The rehearsed restore passed** on the owner's machine (2026-10-28, [record](ops/drills/2026-10-28-restore-rehearsal.md)): set `20261028T034203Z-7f7e` on the release `c0c1cb0`, every check PASS, RTO 98 s, peak memory 111 MiB. The shred held: `shred-drill-20261028` read `ok` before recovery and `key_destroyed` after, and the real ledger was unchanged.<br>**The drill passed** on the owner's machine (2026-10-29, [record](ops/drills/2026-10-29-restore-and-shred.md)): `shred-drill-20261029` was created, sealed into set `20261029T000435Z-956a`, destroyed through the protocol (op `d33c3da6-530c-4ddd-a8d1-87961e67e0e0`) after the set was taken, and the set restored. It read `ok` before recovery and `key_destroyed` after; every check PASS, RTO 84 s, peak memory 114 MiB; the real ledger unchanged; no unnamed volume left behind (#129). |
 
 **Exit criteria**
 
@@ -96,7 +96,7 @@ Each roadmap line checked against the repository, CI and the decision log.
 | ADRs 001–012 accepted | ✅ | All accepted on 2026-09-30 ([19](19-decision-log.md)). |
 
 **Formerly deferred to staging, now local requirements (ADR-030):**
-- backups with a rehearsed restore. **Done** (spec 0020; the rehearsal on 2026-10-28, ⏳ the drill on 2026-10-29);
+- backups with a rehearsed restore. **Done** (spec 0020; the rehearsal on 2026-10-28 and the drill on 2026-10-29);
 - ADR-018's closure, by running the `vault` provider with TLS in the local stack. **Done** (2026-10-22, [ADR-018](19-decision-log.md));
 - PgBouncer in the deployed path (ADR-015). **Done** (spec 0019 PR A2, 2026-10-20).
 
@@ -106,7 +106,7 @@ Each roadmap line checked against the repository, CI and the decision log.
 - ~~`GET /users` pagination.~~ **Done (2026-10-23, [spec 0021](specs/0021-users-pagination.md)):** cursor pages by username, and query parameters in the contract.
 - ~~**Renewing the stack's Vault tokens.**~~ **Done (2026-10-25, [spec 0023](specs/0023-vault-app-token-renewal.md), #110, deployed as `e6a0066`):** both tokens renew themselves (the API and worker every 6 hours, the backup at each run, every deploy), a dead one is re-issued, and the smoke check fails under 7 days left. Both now run to 2026-11-26, and keep being renewed.
 
-**Phase 0 status: ready to close, ⏳ on the drill (2026-10-29) and the owner's sign-off.** Three separate lists follow.
+**Phase 0 status: closed (2026-10-29),** by the owner's sign-off. Three separate lists follow.
 
 **Completed:** every ✅ row above.
 
@@ -131,7 +131,7 @@ Each roadmap line checked against the repository, CI and the decision log.
       - verifies the exact digests with `verifyRelease` before starting any container, against roles and Dockerfiles from trusted code and the commit from the deployment target;
       - runs only those digests;
       - starts nothing from a rejected record, shown by a test with an edited record;
-   5. local backups with a rehearsed restore, and the shred ledger. **The shred ledger is built** (spec 0020 PR A1, A2 and A3: the destruction protocol, recovery, and the waiver). **The backups are built and running** (PR B1, 2026-10-24: Vault on Raft, WAL archiving, sealed sets). **The rehearsed restore is built** (B2a #107; B2b: `stack:restore-rehearsal`, `stack:drill`, `stack:restore`, with CI's restore test on the pinned images). **The rehearsal passed** on the owner's machine (2026-10-28, [record](ops/drills/2026-10-28-restore-rehearsal.md)). **⏳ The owner's drill** (2026-10-29), whose record in `docs/ops/drills/` closes this item.
+   5. local backups with a rehearsed restore, and the shred ledger. **The shred ledger is built** (spec 0020 PR A1, A2 and A3: the destruction protocol, recovery, and the waiver). **The backups are built and running** (PR B1, 2026-10-24: Vault on Raft, WAL archiving, sealed sets). **The rehearsed restore is built** (B2a #107; B2b: `stack:restore-rehearsal`, `stack:drill`, `stack:restore`, with CI's restore test on the pinned images). **The rehearsal passed** on the owner's machine (2026-10-28, [record](ops/drills/2026-10-28-restore-rehearsal.md)). **The drill passed** (2026-10-29, [record](ops/drills/2026-10-29-restore-and-shred.md)), which closes this item.
 
 **Deferred requirements: not met, and not counted as done in Phase 0.** By the owner's decision (2026-10-23), **Phase 0 closes with these three formally deferred.** Each is built when the first feature that needs it is built, and it's listed in that phase's build list below, so it starts as work there, not as a footnote:
 - **BullMQ** ([ADR-019](19-decision-log.md)): **Phase 1**, with the provisioning job (the first job needing resumable steps, priorities or rate limits); results day (Phase 5) needs it regardless.
