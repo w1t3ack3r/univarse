@@ -1,0 +1,30 @@
+{
+  "name": "@univarse/console",
+  "version": "0.0.0",
+  "private": true,
+  "description": "UniVarse platform console (Next.js), for UniVarse staff only, on its own host (spec 0027 P6). Its API is the platform API (apps/api platform.ts).",
+  "type": "module",
+  "scripts": {
+    "dev": "next dev --port 3001 --hostname 127.0.0.1",
+    "build": "next build",
+    "start": "next start --port 3001 --hostname 127.0.0.1",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "test": "vitest run",
+    "test:e2e": "playwright test"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "^4.13.0",
+    "@playwright/test": "^1.63.0",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "vitest": "^4.1.12"
+  },
+  "dependencies": {
+    "@fontsource/poppins": "^5.3.0",
+    "@univarse/ui": "workspace:*",
+    "next": "^16.4.2",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0"
+  }
+}

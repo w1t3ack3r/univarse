@@ -240,6 +240,8 @@ jobs:
         run: pnpm test
       - name: The local hooks' own logic — install, the pinned gitleaks, the commit message (spec 0024 H1, H2)
         run: node --test tools/hooks/hooks.test.mjs
+      - name: The dev edge's routing — the console's host, and no tenant host reaching the platform API (spec 0027 P3, P9)
+        run: node --test tools/dev-edge/route.test.mjs
 
       - name: Create roles + databases (least privilege)
         run: pnpm db:setup
@@ -327,6 +329,8 @@ jobs:
         run: pnpm --filter @univarse/web exec playwright install --with-deps chromium
       - name: E2E — edge → web → API → DB, desktop + mobile (spec 0005 W10)
         run: pnpm --filter @univarse/web test:e2e
+      - name: E2E — the console's frame, desktop + mobile, axe and the CSP (spec 0027 P6)
+        run: pnpm --filter @univarse/console test:e2e
       # Spec 0026 SB3–SB6: every packages/ui story as a browser test with axe (the same Chromium build as the E2E),
       # the proof that the gate fails broken stories for the right rules, and the static build.
       - name: Storybook — every story a test, accessibility violations fail (spec 0026 SB3, SB4)

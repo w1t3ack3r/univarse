@@ -115,3 +115,27 @@ describe('[IO13] the subscriber and the global generation', () => {
     expect(reads).toEqual(['a.test', 'a.test']);
   });
 });
+
+describe('[P2] reserved names never resolve (spec 0027)', () => {
+  const withSlug = (slug: string, kind: 'SUBDOMAIN' | 'CUSTOM' = 'SUBDOMAIN') => {
+    const r = row(A);
+    return { ...r, kind, tenant: { ...r.tenant, slug } };
+  };
+
+  it('a subdomain whose first label is reserved: the console\'s own host is never a tenant', async () => {
+    const { resolver } = setup(() => Promise.resolve(withSlug('demo-uni')));
+    expect(await resolver.resolveHost('console.stack.univarse.localhost')).toBeNull();
+    expect(await resolver.resolveHost('API.univarse.ng')).toBeNull();
+  });
+
+  it('a tenant whose slug is reserved, on any host, custom domains included', async () => {
+    const { resolver } = setup(() => Promise.resolve(withSlug('console', 'CUSTOM')));
+    expect(await resolver.resolveHost('portal.example.edu.ng')).toBeNull();
+  });
+
+  it('an ordinary tenant still resolves, and a custom domain may start with a reserved word', async () => {
+    const { resolver } = setup((host) => Promise.resolve(host.startsWith('www.') ? withSlug('unilag', 'CUSTOM') : withSlug('demo-uni')));
+    expect((await resolver.resolveHost('demo-uni.univarse.ng'))?.slug).toBe('demo-uni');
+    expect((await resolver.resolveHost('www.unilag.edu.ng'))?.slug).toBe('unilag');
+  });
+});

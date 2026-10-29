@@ -1,0 +1,128 @@
+/* Poppins, self-hosted from the package: no runtime request to Google (as in the web app, spec 0005 W3). */
+@import '@fontsource/poppins/400.css';
+@import '@fontsource/poppins/500.css';
+@import '@fontsource/poppins/600.css';
+@import '@univarse/ui/tokens.css';
+@import '@univarse/ui/components.css';
+
+html {
+  background: var(--uv-bg);
+  color: var(--uv-text);
+  font-family: var(--uv-font);
+  -webkit-text-size-adjust: 100%;
+}
+body {
+  min-height: 100dvh;
+  margin: 0;
+  font-size: var(--uv-text-md);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+a {
+  color: inherit;
+  text-underline-offset: 4px;
+}
+h1,
+p {
+  margin: 0;
+}
+::selection {
+  background: var(--uv-lime-wash);
+  color: var(--uv-deep);
+}
+
+/*
+ * The platform bar (spec 0027 P6): the one thing that makes the console a different place from an institution's
+ * workspace. Deep green, the full width; lime only as the wordmark's mark and the environment's ground, never as text
+ * on a light surface.
+ */
+.pc-bar {
+  background: var(--uv-deep);
+  color: var(--uv-offwhite);
+  border-bottom: 1px solid var(--uv-deep-strong);
+}
+.pc-bar__inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--uv-space-4);
+  max-width: 1200px;
+  min-height: 56px;
+  margin: 0 auto;
+  padding: 0 var(--uv-space-4);
+}
+.pc-bar__brand {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--uv-space-3);
+  min-height: var(--uv-tap);
+  text-decoration: none;
+  border-radius: var(--uv-radius-sm);
+}
+.pc-bar__brand:focus-visible {
+  outline: 2px solid var(--uv-lime);
+  outline-offset: 3px;
+}
+.pc-bar__product {
+  padding-left: var(--uv-space-3);
+  border-left: 1px solid rgb(244 246 240 / 0.28);
+  font-size: var(--uv-text-sm);
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  color: #dfe5dc; /* on-deep-muted: 6.09:1 on deep */
+}
+.pc-bar__env {
+  padding: 4px 10px;
+  border-radius: var(--uv-radius-pill);
+  font-size: var(--uv-text-xs);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  background: var(--uv-lime);
+  color: var(--uv-deep); /* deep on lime: 4.84:1 at least */
+}
+/* Anything but LOCAL is unmistakable: a real environment is never the quiet one. */
+.pc-bar__env[data-env='staging'] {
+  background: var(--uv-warning-bg);
+  color: var(--uv-warning);
+}
+.pc-bar__env[data-env='production'] {
+  background: var(--uv-danger-bg);
+  color: var(--uv-danger);
+}
+
+.pc-main {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: var(--uv-space-12) var(--uv-space-4) var(--uv-space-10);
+}
+.pc-intro {
+  display: grid;
+  gap: var(--uv-space-4);
+  max-width: 34rem;
+}
+.pc-intro__title {
+  font-size: var(--uv-text-xl);
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: -0.015em;
+  text-wrap: balance;
+}
+.pc-intro__lead {
+  color: var(--uv-text-muted);
+  max-width: 60ch;
+  text-wrap: pretty;
+}
+.pc-intro .uv-btn {
+  justify-self: start;
+  margin-top: var(--uv-space-2);
+}
+
+@media (max-width: 480px) {
+  .pc-main {
+    padding-top: var(--uv-space-8);
+  }
+  .pc-bar__product {
+    padding-left: var(--uv-space-2);
+  }
+}

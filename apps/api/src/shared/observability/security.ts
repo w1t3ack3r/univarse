@@ -12,6 +12,8 @@ export const SECURITY_EVENTS = [
   'access.route_undeclared',
   'access.step_up_on_public_route',
   'products.route_undeclared',
+  // Spec 0027 P4: a platform API request from outside the console's allowlist (answered 404).
+  'platform.allowlist_refused',
 ] as const;
 
 export type SecurityEvent = (typeof SECURITY_EVENTS)[number];

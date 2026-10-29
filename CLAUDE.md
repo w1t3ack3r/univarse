@@ -12,7 +12,7 @@ TypeScript everywhere · pnpm + Turborepo · Next.js 16 (`apps/web`, `apps/conso
 pnpm dev:infra          # start local dependencies (compose)
 pnpm db:migrate         # apply platform + tenant migrations, RLS, grants
 pnpm db:seed            # demo tenants: demo-uni, test-poly
-pnpm dev                # web :3000, console :3001, api :8080, worker
+pnpm dev                # web :3000, console :3001, api :8080, worker, platform API :8081
 pnpm lint && pnpm typecheck
 pnpm test               # unit
 pnpm test:int           # integration (Testcontainers)

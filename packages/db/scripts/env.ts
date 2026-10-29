@@ -7,6 +7,8 @@ export const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..
 export const ROOT_ENV_PATH = resolve(REPO_ROOT, '.env');
 /** The worker-only env file (spec 0016 IO17): the relay's credentials. Git-ignored (.env.*). */
 export const WORKER_ENV_PATH = resolve(REPO_ROOT, '.env.worker');
+/** The platform API's env file (spec 0027 P5): the console role's URL, read by `platform.ts` only. Git-ignored (.env.*). */
+export const CONSOLE_ENV_PATH = resolve(REPO_ROOT, '.env.console');
 
 /** Loads the repo-root .env (git-ignored) if present. Real env vars win. */
 export function loadRootEnv(): void {

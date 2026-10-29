@@ -66,3 +66,54 @@ So an edge allowlist of `127.0.0.1`, as the earlier draft proposed, would refuse
 ## Out of scope
 
 Everything a staff member does: signing in, sessions, staff (S2). Any platform table grant beyond connecting (each later slice). Production's allowlist values (hosting).
+
+## Implementation notes (PR A, 2026-10-29)
+
+**Built:**
+- `platform-api` (`src/platform.ts` and `src/platform/`), with its own configuration, health and walls;
+- the tenant API's refusal of `/api/platform/*`;
+- the reserved names and the resolver's check;
+- the `univarse_console` role in the bootstrap, and `db:setup`'s `.env.console`;
+- `apps/console`: its frame, the platform bar, the nonce CSP and the reserved cookie;
+- development: `dev-run` and the dev edge's routing;
+- CI's two new steps, and the docs.
+
+PR B adds the stack: the image, the deploy, Caddy's console block and allowlist, and the smoke.
+
+**Evidence:**
+- **Unit:** all pass.
+  - The API: 388, plus the new walls, allowlist and configuration tests.
+  - The console: 5.
+  - The reserved names and the seed check.
+  - The role's SQL: 5, plus the backup role's 4.
+  - The dev edge's routing: 2.
+  - The whole repository's typecheck, and lint on every touched package.
+- **E2E, the console:** 8 of 8, desktop and mobile:
+  - the frame and LOCAL;
+  - axe at WCAG 2.2 AA, with no sideways scroll at 360 px;
+  - every script carrying the CSP's nonce, and `noindex`;
+  - its own 404.
+- **Design:** one screenshot round at desktop and phone widths, and the design detector clean.
+- **The integration tests run in CI only,** because they need the real database (`platform.int.spec.ts`, the `app.int.spec.ts` case):
+  - the allowlist through the edge;
+  - the prefix;
+  - health and readiness as the console role;
+  - the role's `CONNECT` on every UniVarse database, read from the catalogue;
+  - a refused real connection to the tenant database;
+  - no table privilege.
+- **Mutations: 19 tried, 18 caught.** The survivor (unwrapping `::ffff:` addresses by hand) showed the code was redundant, because Node's `BlockList` already does it. The code was removed and the test kept.
+
+**Decisions made while building, for approval:**
+
+| # | Decision | Why |
+| --- | --- | --- |
+| P-A1 | **The walls answer with the filter's own `resource.not_found`,** not a new code. | A refused request is then identical to any unknown address, body and all. That's P4's intent, and the integration test compares the two. |
+| P-A2 | **The platform API has its own configuration,** and refuses to start if it's given any tenant or app credential, named and never shown (every `*_DATABASE_URL` but its own, the migrator's and relay's URLs, the session pepper, Vault's token, the field keys, the S3 secrets). | P5 enforced in the process, not only in the database. In development it loads `.env.console` only, never the root `.env`. |
+| P-A3 | **The console role follows the backup role's pattern:** optional in the bootstrap, created only when its password is given, and not in `ROLES`. | Adding it to `ROLES` would change every caller, the stack's `secrets.json` included, in this PR. PR B gives the stack its secret. |
+| P-A4 | **`/health/*` on the platform API is outside the allowlist,** and the edge never routes it. | Health is for the container network (compose and the deploy). The edge sends only `/api/platform/*` there. |
+| P-A5 | **`dev-run` starts the platform API only once `.env.console` exists,** and says how to create it. | `dev-run` stops every process when one exits. Without this, an older local setup would lose its tenant API and worker. |
+| P-A6 | **The reserved check:** a reserved **slug** never resolves on any host, and a reserved **first label** only on our own subdomains. | An institution's own domain may start with `www` (`www.unilag.edu.ng`), and that stays theirs. |
+| P-A7 | **The seed's tenants moved into `seed-tenants.ts`,** with no imports. | A test checks them for reserved names without loading the database client. `packages/domain` stays free of `db-ops`. |
+| P-A8 | **The environment label comes from `UNIVARSE_ENVIRONMENT`;** anything unknown or missing shows as LOCAL, never PRODUCTION. STAGING and PRODUCTION get their own warning colours. | Mistaking a test console for the real one is the safe error. |
+| P-A9 | **The console's CSP is stricter than the tenant app's:** `connect-src 'self'` only, no storage origin, and `noindex` on every response. | The console uploads nothing yet, and should never be indexed. |
+| P-A10 | **`packages/ui`'s design world is reused as is,** without a new `PRODUCT.md`. | The approved P6 pins the console's look; the design skill's context loader found no product file, and the brand and components already exist. |

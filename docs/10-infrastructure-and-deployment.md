@@ -74,7 +74,7 @@ pnpm i
 pnpm dev:infra        # docker compose -f infra/compose/compose.dev.yml up -d
 pnpm db:migrate       # platform + tenant schemas, RLS, grants
 pnpm db:seed          # demo tenants: demo-uni, test-poly
-pnpm dev              # turbo: web :3000, console :3001, api :8080, worker
+pnpm dev              # turbo: web :3000, console :3001, api :8080, worker, platform API :8081 (once db:setup wrote .env.console)
 ```
 Browse `http://demo-uni.univarse.localhost:3000`. `*.localhost` resolves to loopback in modern browsers, so no hosts-file edits are needed. Ports are bound to `127.0.0.1` only.
 

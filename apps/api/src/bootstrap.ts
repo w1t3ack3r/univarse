@@ -5,7 +5,7 @@ import { LogController, type FastifyInstance } from 'fastify';
 import { AppModule, type AppOverrides } from './app.module.js';
 import type { AppConfig } from './config/config.js';
 import type { DestinationStream } from 'pino';
-import { genRequestId, registerCsrfGuard, registerSecurityHeaders } from './shared/http/fastify-hooks.js';
+import { genRequestId, registerCsrfGuard, registerPlatformRefusal, registerSecurityHeaders } from './shared/http/fastify-hooks.js';
 import { registerRequestContext, registerRequestSummary } from './shared/observability/http-logging.js';
 import { createLogger, NestPinoLogger } from './shared/observability/logger.js';
 
@@ -39,6 +39,7 @@ export async function createApp(config: AppConfig, overrides: CreateAppOptions =
   });
   const fastify = app.getHttpAdapter().getInstance();
   registerRequestContext(fastify); // first: every later hook, guard and handler runs inside it
+  registerPlatformRefusal(fastify); // spec 0027 P3: before tenant resolution and every route
   overrides.beforeInit?.(fastify);
   registerRequestSummary(fastify, log);
   registerCsrfGuard(fastify);

@@ -5,7 +5,7 @@ import { pino, type DestinationStream, type Logger as Pino } from 'pino';
 import { currentLogContext } from './context.js';
 import { scrub, scrubForeign } from './scrub.js';
 
-export type Service = 'api' | 'worker';
+export type Service = 'api' | 'worker' | 'platform-api';
 
 export interface LoggerOptions {
   readonly service: Service;

@@ -46,6 +46,24 @@ export function registerCsrfGuard(app: FastifyInstance): void {
   });
 }
 
+/**
+ * Spec 0027 P3: the tenant API never serves the platform's paths, whatever its routes: `/api/platform` and below are
+ * 404 before tenant resolution or any guard runs. The platform API is a separate process (platform.ts).
+ */
+export function registerPlatformRefusal(app: FastifyInstance): void {
+  app.addHook('onRequest', async (req, reply) => {
+    const path = (req.url.split('?')[0] ?? '').toLowerCase();
+    if (path !== '/api/platform' && !path.startsWith('/api/platform/')) return;
+    return reply.status(404).header('content-type', 'application/problem+json').send({
+      type: problemType('resource.not_found'),
+      title: 'Not found',
+      status: 404,
+      code: 'resource.not_found',
+      requestId: req.id,
+    });
+  });
+}
+
 /** API security headers (docs/08-security.md §6). The web app sets its own CSP with nonces. */
 export function registerSecurityHeaders(app: FastifyInstance, opts: { production: boolean }): void {
   app.addHook('onSend', async (req, reply, payload) => {

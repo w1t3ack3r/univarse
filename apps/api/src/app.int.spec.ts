@@ -92,3 +92,13 @@ describe('http hygiene', () => {
     expect(res.json()).toMatchObject({ status: 404, requestId: expect.any(String) });
   });
 });
+
+describe('[P3] the tenant API never serves the platform (spec 0027)', () => {
+  it('/api/platform/* is 404 on a tenant host, before tenant resolution', async () => {
+    for (const host of ['demo-uni.univarse.localhost', 'console.univarse.localhost', 'unknown.example']) {
+      const res = await get('/api/platform/v1/staff', host);
+      expect(res.statusCode, host).toBe(404);
+      expect(res.json<{ code: string }>().code).toBe('resource.not_found');
+    }
+  });
+});

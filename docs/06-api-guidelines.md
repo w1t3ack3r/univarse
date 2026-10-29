@@ -7,7 +7,7 @@ Applies to every HTTP endpoint in `apps/api`. Contracts live in `packages/contra
 - **Style:** resource-oriented REST over HTTPS, JSON (`application/json; charset=utf-8`).
 - **Base paths:**
   - Tenant API: `https://{tenant-host}/api/v1/...` (tenant from Host)
-  - Platform API: `https://console.univarse.ng/api/platform/v1/...`
+  - Platform API: `https://console.univarse.ng/api/platform/v1/...`; locally `https://console.stack.univarse.localhost/api/platform/v1/...` on the stack and `http://console.univarse.localhost:4180/api/platform/v1/...` in development ([spec 0027](specs/0027-console-shell.md)). Only the console's host routes there; every tenant host, and the tenant API itself, answers 404 for `/api/platform/*`
   - Webhooks: `https://api.univarse.ng/webhooks/{gateway}/{tenantWebhookId}`, a dedicated host with no cookies, where the tenant is resolved from the path ID
   - Public verification: `https://{tenant-host}/api/v1/public/verify/{code}`
 - **Versioning:** major version in the path. Additive changes don't bump it. Breaking changes need `/v2` for the affected resources, with a ≥ 6-month deprecation window (`Deprecation` + `Sunset` headers).
