@@ -1,6 +1,6 @@
 # Spec 0026: Phase 1's start: the console's threat model, and Storybook
 
-**Status:** **Approved by the owner on 2026-10-28, all as written:** T-A to T-C (the rows T23 to T30) and SB1 to SB8. Nothing is built from it until Phase 0 is signed off.
+**Status:** **Approved by the owner on 2026-10-28, all as written:** T-A to T-C (the rows T23 to T30) and SB1 to SB8. **Built** (#133, merged as `90b4c1e` on 2026-10-29); the decisions made while building, SB-B1 to SB-B8, **approved by the owner on 2026-10-29**.
 **Phase:** 1, slice **S0** of [spec 0025](0025-phase-1-control-plane.md).
 **Builds on:**
 
