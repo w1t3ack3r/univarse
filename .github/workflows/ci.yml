@@ -240,8 +240,8 @@ jobs:
         run: pnpm test
       - name: The local hooks' own logic — install, the pinned gitleaks, the commit message (spec 0024 H1, H2)
         run: node --test tools/hooks/hooks.test.mjs
-      - name: The dev edge's routing — the console's host, and no tenant host reaching the platform API (spec 0027 P3, P9)
-        run: node --test tools/dev-edge/route.test.mjs
+      - name: The dev edge — its routing (spec 0027 P3, P9), and WebSockets to the two Next.js apps only
+        run: node --test tools/dev-edge/route.test.mjs tools/dev-edge/upgrade.test.mjs
 
       - name: Create roles + databases (least privilege)
         run: pnpm db:setup

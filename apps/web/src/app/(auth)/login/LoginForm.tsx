@@ -40,7 +40,7 @@ export function LoginForm() {
         </h1>
         <p className="auth__sub">Sign in with your matric number, staff number or email.</p>
         {error ? <Notice requestId={error.requestId}>{error.message}</Notice> : null}
-        <form onSubmit={(e) => void onSubmit(e)} className="auth__form" noValidate>
+        <form method="post" onSubmit={(e) => void onSubmit(e)} className="auth__form" noValidate>
           <TextField label="Matric number, staff number or email" name="username" autoComplete="username" required autoCapitalize="none" spellCheck={false} />
           <PasswordField label="Password" name="password" autoComplete="current-password" required />
           <div className="auth__actions">
