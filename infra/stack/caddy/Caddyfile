@@ -32,13 +32,33 @@ https://files.stack.univarse.localhost:8443 {
 	reverse_proxy seaweedfs:8333
 }
 
+# Spec 0027 P3, P4: the platform console, on its own name (more specific than the tenants' wildcard, so it wins). Only
+# the allowlist reaches it: the edge network's gateway, where a browser on this machine arrives from (measured; never
+# 127.0.0.1). Anything else gets an empty 404 and reaches neither upstream. Inside, /api/platform/* goes to the platform
+# API and everything else to the console app; the platform API checks the client address again (X-Forwarded-For,
+# trusted from Caddy only). `route` keeps this order exactly as written. tools/stack/src/config.ts EDGE_GATEWAY.
+https://console.stack.univarse.localhost:8443 {
+	import edge
+	@outside not remote_ip 172.31.218.1
+	route {
+		respond @outside 404
+		reverse_proxy /api/platform/* platform-api:8081
+		reverse_proxy console:3001
+	}
+}
+
 # Every tenant: /api/* and /health/* to the API, everything else to the web app, as the dev edge routes (spec 0005 W2).
 # Caddy sets X-Forwarded-For/-Host/-Proto itself, ignoring a client's own; the API trusts them only from Caddy and web.
+# Spec 0027 P3: a tenant host never reaches the platform API; its paths are refused here, before the API refuses them too.
 https://*.stack.univarse.localhost:8443 {
 	import edge
+	@platform path /api/platform /api/platform/*
 	@api path /api/* /health/*
-	reverse_proxy @api api:8080
-	reverse_proxy web:3000
+	route {
+		respond @platform 404
+		reverse_proxy @api api:8080
+		reverse_proxy web:3000
+	}
 }
 
 # Plain HTTP only redirects, keeping the host and path (308 keeps the method).

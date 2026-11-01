@@ -21,6 +21,7 @@ export function smokeProblems(first, second, secrets) {
   const needs = [
     [first, 'first', /\[migrate\] bootstrap: roles, databases, privileges/],
     [first, 'first', /role univarse_relay_platform \(created\)/],
+    [first, 'first', /role univarse_console \(created\)/],
     [first, 'first', /rls:check passed: \d+ tenant tables isolated/],
     [first, 'first', /created data key v1 for demo-uni/],
     [first, 'first', /\[migrate\] done/],
@@ -33,6 +34,10 @@ export function smokeProblems(first, second, secrets) {
     if (first.output.includes(value) || second.output.includes(value)) problems.push(`the output contains ${name}`);
   return problems;
 }
+
+/** The UniVarse databases the console role may connect to, from the catalogue. */
+export const CONSOLE_REACH =
+  "SELECT string_agg(datname, ',' ORDER BY datname) FROM pg_database WHERE datname LIKE 'univarse%' AND has_database_privilege('univarse_console', datname, 'CONNECT')";
 
 export function migrateSmoke(image) {
   const id = randomBytes(4).toString('hex');
@@ -49,6 +54,7 @@ export function migrateSmoke(image) {
     ROLE_VERIFIER_APP: secrets.roles,
     ROLE_VERIFIER_APP_PLATFORM: secrets.roles,
     ROLE_VERIFIER_RELAY_PLATFORM: secrets.roles,
+    ROLE_VERIFIER_CONSOLE: secrets.roles, // spec 0027 P5
     PLATFORM_MIGRATOR_URL: at('univarse_migrator', 'univarse_platform'),
     TENANT_POOL_01_MIGRATOR_URL: at('univarse_migrator', 'univarse_pool_01'),
     PLATFORM_DATABASE_URL: at('univarse_app_platform', 'univarse_platform'),
@@ -77,6 +83,9 @@ export function migrateSmoke(image) {
     const domains = sh('docker', ['exec', pg, 'psql', '-U', 'postgres', '-d', 'univarse_platform', '-Atc', 'SELECT hostname FROM tenant_domain ORDER BY 1'], { allowFail: true }).stdout.trim().split('\n');
     const problems = smokeProblems(first, second, secrets);
     if (domains.length !== 3 || !domains.every((d) => d.endsWith(`.${DOMAIN}`))) problems.push(`seeded domains are not the three on ${DOMAIN}: ${domains.join(', ')}`);
+    // Spec 0027 P5: of UniVarse's databases, the console role can connect to the platform database only.
+    const reach = sh('docker', ['exec', pg, 'psql', '-U', 'postgres', '-d', 'postgres', '-Atc', CONSOLE_REACH], { allowFail: true }).stdout.trim();
+    if (reach !== 'univarse_platform') problems.push(`the console role can connect to: ${reach || 'nothing'} (expected univarse_platform only)`);
     return { ok: problems.length === 0, problems, first, second };
   } finally {
     sh('docker', ['rm', '-f', '-v', pg], { allowFail: true });

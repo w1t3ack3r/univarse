@@ -50,6 +50,7 @@ await runJob(process.env, {
       },
       migratorCreatedb: false, // production shape: no shadow databases
       backupPassword: env.ROLE_VERIFIER_BACKUP, // spec 0020 B-3: the stack's base backups
+      consolePassword: env.ROLE_VERIFIER_CONSOLE, // spec 0027 P5: the platform API's role
       log: (l) => console.log(l),
     }),
   migrate: (which) => prisma('deploy', which),

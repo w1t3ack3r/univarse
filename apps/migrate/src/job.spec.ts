@@ -127,8 +127,14 @@ describe('[LS4] the migrate job', () => {
   });
 
   it('[B-3] the backup verifier is optional with the bootstrap, and refused without it', () => {
-    expect(BOOTSTRAP_OPTIONAL).toEqual(['ROLE_VERIFIER_BACKUP']);
+    expect(BOOTSTRAP_OPTIONAL).toEqual(['ROLE_VERIFIER_BACKUP', 'ROLE_VERIFIER_CONSOLE']);
     expect(envProblems({ ...WITH_BOOTSTRAP, ROLE_VERIFIER_BACKUP: 'v' })).toEqual([]);
     expect(envProblems({ ...ENV, ROLE_VERIFIER_BACKUP: 'v' })).toEqual(['ROLE_VERIFIER_BACKUP is given without the bootstrap']);
+  });
+
+  it('[spec 0027 P5] the console verifier is optional with the bootstrap, and refused without it', () => {
+    expect(BOOTSTRAP_OPTIONAL).toContain('ROLE_VERIFIER_CONSOLE');
+    expect(envProblems({ ...WITH_BOOTSTRAP, ROLE_VERIFIER_CONSOLE: 'v' })).toEqual([]);
+    expect(envProblems({ ...ENV, ROLE_VERIFIER_CONSOLE: 'v' })).toEqual(['ROLE_VERIFIER_CONSOLE is given without the bootstrap']);
   });
 });

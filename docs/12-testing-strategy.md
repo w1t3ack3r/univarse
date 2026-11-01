@@ -54,9 +54,11 @@ Any failure here is a release blocker.
 ### 3.1a The console and the tenants ([spec 0027](specs/0027-console-shell.md))
 
 The platform console is walled off from the tenants at three places, each tested on its own:
-- **The edge** (the dev edge's routing, `tools/dev-edge/route.test.mjs`; Caddy's in spec 0027 PR B): only the console's host reaches the platform API.
+- **The edge:** only the console's host reaches the platform API. The dev edge's routing is unit-tested (`tools/dev-edge/route.test.mjs`), and Caddy's on the stack by `stack:smoke` after every deploy: a tenant host's `/api/platform/*` gets 404, and the allowlist is proved at both layers with two throwaway containers (one on the `edge` network refused by Caddy, one on the `app` network claiming the allowed address refused by the platform API, which logs it).
 - **The tenant API** refuses `/api/platform/*` with 404 before tenant resolution (`platform-refusal.spec.ts`, and `app.int.spec.ts` in the full app).
 - **The platform API** serves only `/api/platform/v1/*` and `/health/*`, and only to its allowlist, answering 404 otherwise, in the same shape as an unknown route (`platform-walls.spec.ts`, `platform.int.spec.ts`).
+
+The images carry the same walls: the image smoke runs the platform API from the API image with the console role's URL only (ready, its 404s, and a refusal to start when handed a tenant credential), and the console image's frame; the console's E2E runs against its image in CI and in every release. The migrate image creates the role, and the smoke reads from the catalogue that it can connect to the platform database only.
 
 The platform API's role, `univarse_console`, is checked in the real database: `CONNECT` on the platform database only, read from the catalogue for every UniVarse database, and a real connection to a tenant database refused. A reserved name (`console`, `api`…) never resolves to a tenant.
 

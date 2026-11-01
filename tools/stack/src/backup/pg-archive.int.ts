@@ -8,7 +8,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { COMPOSE_FILE, PROJECT, THIRD_PARTY } from '../config.js';
+import { COMPOSE_FILE, PROJECT, ROLE_VARS, THIRD_PARTY } from '../config.js';
 import { docker } from '../docker.js';
 import { BASEBACKUP_ARGS, startOf } from './pgbase.js';
 import { dockerStream } from './stream.js';
@@ -25,8 +25,8 @@ const container = `uv-pgarch-${id}`;
 function resolved(): { user?: string; command: string[] } {
   const dir = mkdtempSync(join(tmpdir(), 'uv-pgarch-compose-'));
   try {
-    for (const f of ['postgres.env', 'migrate.env', 'api.env', 'worker.env', 'web.env', 'keys.env', 'backup.env']) writeFileSync(join(dir, f), '');
-    const stand = Object.fromEntries(['UNIVARSE_API_IMAGE', 'UNIVARSE_WEB_IMAGE', 'UNIVARSE_MIGRATE_IMAGE', 'UNIVARSE_PGBOUNCER_IMAGE'].map((v) => [v, `localhost:5000/x@sha256:${'1'.repeat(64)}`]));
+    for (const f of ['postgres.env', 'migrate.env', 'api.env', 'worker.env', 'web.env', 'keys.env', 'backup.env', 'platform-api.env', 'console.env']) writeFileSync(join(dir, f), '');
+    const stand = Object.fromEntries(Object.values(ROLE_VARS).map((v) => [v, `localhost:5000/x@sha256:${'1'.repeat(64)}`]));
     const r = spawnSync('docker', ['compose', '-p', PROJECT, '-f', COMPOSE_FILE, 'config', '--format', 'json'], { encoding: 'utf8', env: { ...process.env, UNIVARSE_STACK_DIR: dir, ...stand } });
     if (r.status !== 0) throw new Error(`docker compose config failed: ${r.stderr}`);
     const s = (JSON.parse(r.stdout) as { services: Record<string, { user?: string; command: string[] }> }).services.postgres;

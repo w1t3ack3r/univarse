@@ -10,7 +10,11 @@ const entries = ['dist/main.js', 'dist/worker.js'];
 if (existsSync(consoleEnv)) entries.push('dist/platform.js');
 else console.log('[dev] the platform API is not started: no .env.console yet. Run `pnpm db:setup` to create the console role (spec 0027).');
 
-const children = entries.map((entry) => spawn(process.execPath, ['--enable-source-maps', entry], { stdio: 'inherit' }));
+// The tenant API sits behind the dev edge (:4180), as on the stack: on :8099, where the edge and the web app's server
+// components send it, trusting forwarding headers from 127.0.0.1 only (tools/dev-edge/start-api.mjs does the same).
+const behindEdge = { PORT: process.env.PORT ?? '8099', TRUSTED_PROXIES: process.env.TRUSTED_PROXIES ?? '127.0.0.1' };
+const envOf = (entry) => (entry === 'dist/main.js' ? { ...process.env, ...behindEdge } : process.env);
+const children = entries.map((entry) => spawn(process.execPath, ['--enable-source-maps', entry], { stdio: 'inherit', env: envOf(entry) }));
 const stop = () => {
   for (const c of children) if (c.exitCode === null) c.kill('SIGTERM');
 };

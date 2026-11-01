@@ -7,7 +7,10 @@
 //   • the worker started, and its relay published the smoke's own test invalidation (LS6);
 //   • the API's and worker's stdout is JSON lines only;
 //   • LS1, inspected on the running containers: only Caddy publishes ports (127.0.0.1), the API/worker/web have no
-//     route to the database network, every UniVarse container is read-only, non-root, capability-free, limited.
+//     route to the database network, every UniVarse container is read-only, non-root, capability-free, limited;
+//   • spec 0027: the console's frame from this machine (nonce CSP, noindex, HSTS once); its allowlist proved both ways:
+//     a container on the edge network gets Caddy's 404, and one on the app network claiming the allowed address in
+//     X-Forwarded-For gets the platform API's 404 and its refusal is logged; a tenant host never reaches the platform API.
 // Returns problems (empty: passed). Prints nothing secret: responses and log lines are only matched, not shown.
 import { randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
@@ -16,7 +19,7 @@ import { request as httpsRequest } from 'node:https';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { edgeDir } from './certs.js';
-import { PROJECT, STACK_DOMAIN } from './config.js';
+import { CONSOLE_HOST, EDGE_GATEWAY, PROJECT, STACK_DOMAIN } from './config.js';
 import { docker } from './docker.js';
 import { PRIMARY } from './keys.js';
 import type { Entry } from './ledger/chain.js';
@@ -177,7 +180,7 @@ export function inspectProblems(all: readonly Inspect[]): string[] {
     if (!(c.HostConfig.SecurityOpt ?? []).some((o) => o.startsWith('no-new-privileges'))) problems.push(`${name}: no-new-privileges not set`);
     if (!c.HostConfig.Memory) problems.push(`${name}: no memory limit`);
   }
-  for (const s of ['api', 'worker', 'web']) {
+  for (const s of ['api', 'worker', 'web', 'platform-api', 'console']) {
     const c = byService(s);
     if (!c) {
       problems.push(`${s} is not running`);
@@ -187,6 +190,83 @@ export function inspectProblems(all: readonly Inspect[]): string[] {
     if (c.Config.User === '' || c.Config.User.startsWith('0')) problems.push(`${s} runs as root`);
   }
   if (!byService('caddy')) problems.push('caddy is not running');
+  return problems;
+}
+
+/**
+ * Spec 0027 P4's two probes, each a one-off container from the running platform API's own image (node, nothing else),
+ * hardened and on one network only. Each prints the status it got, or 0.
+ *   • edge: joined to the edge network, so its address is its own, never the gateway: Caddy must answer 404 for the
+ *     console's frame, which this machine's browser gets as 200.
+ *   • app: on the app network, straight to the platform API, claiming the allowed address in X-Forwarded-For: the
+ *     header isn't trusted from it (only from Caddy), so the platform API must answer 404 and log the refusal.
+ */
+export const PROBES = {
+  edge: (host: string) =>
+    `const ca=process.env.EDGE_CA;require('node:https').get({host:'caddy',port:8443,servername:'${host}',ca,path:'/',headers:{host:'${host}'},timeout:8000},(r)=>{console.log(r.statusCode);r.resume()}).on('error',()=>console.log(0))`,
+  app: (claimed: string) =>
+    `require('node:http').get({host:'platform-api',port:8081,path:'/api/platform/v1/smoke',headers:{'x-forwarded-for':'${claimed}'},timeout:8000},(r)=>{console.log(r.statusCode);r.resume()}).on('error',()=>console.log(0))`,
+} as const;
+
+export interface AllowlistFacts {
+  /** The console's frame, fetched by this machine through the edge (allowed). */
+  readonly frame: number;
+  /** What a container on the edge network got for the same frame. */
+  readonly fromEdge: number;
+  /** What a container on the app network got from the platform API, claiming the allowed address. */
+  readonly fromApp: number;
+  /** Whether the platform API logged `platform.allowlist_refused` during this run. */
+  readonly refusalLogged: boolean;
+}
+
+/** P4, both layers: allowed from here, refused from the edge network by Caddy, refused from elsewhere by the platform API. */
+export function allowlistProblems(f: AllowlistFacts): string[] {
+  const problems: string[] = [];
+  if (f.frame !== 200) problems.push(`the console from this machine: HTTP ${String(f.frame)}, not 200`);
+  if (f.fromEdge !== 404) problems.push(`the console from a container on the edge network: HTTP ${String(f.fromEdge)}, not Caddy's 404`);
+  if (f.fromApp !== 404) problems.push(`the platform API from the app network, claiming ${EDGE_GATEWAY}: HTTP ${String(f.fromApp)}, not 404`);
+  else if (!f.refusalLogged) problems.push('the platform API answered 404 but logged no platform.allowlist_refused: the refusal was not its allowlist');
+  return problems;
+}
+
+/** Runs one probe container; returns the status it printed, or 0. */
+function runProbe(network: 'edge' | 'app', script: string, env: Record<string, string> = {}): number {
+  const image = docker(['inspect', '-f', '{{.Image}}', container('platform-api')], { allowFail: true }).stdout.trim();
+  if (!image) return 0;
+  const hardened = ['--read-only', '--user', '65532:65532', '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges', '--memory', '128m'];
+  // The image's entrypoint is node (distroless): `-e` runs the script, and nothing else is in the image to run.
+  const r = docker(['run', '--rm', '--network', `${PROJECT}_${network}`, ...hardened, ...Object.keys(env).flatMap((k) => ['-e', k]), image, '-e', script], { env, allowFail: true });
+  return Number(r.stdout.trim().split('\n').at(-1)) || 0;
+}
+
+/** Spec 0027: the console through the edge, and its allowlist proved at both layers. */
+async function consoleProblems(since: string): Promise<string[]> {
+  const problems: string[] = [];
+  let frame = 0;
+  try {
+    const r = await get(CONSOLE_HOST, '/');
+    frame = r.status;
+    if (r.status === 200) {
+      if (!r.body.includes('Platform console')) problems.push('the console: its frame is not served');
+      if (!/script-src 'self' 'nonce-[A-Za-z0-9+/=]+'/.test(String(r.headers['content-security-policy'] ?? ''))) problems.push('the console has no nonce CSP');
+      if (r.headers['x-robots-tag'] !== 'noindex, nofollow') problems.push('the console is not marked noindex');
+      for (const p of hstsProblems(r.raw)) problems.push(`the console: ${p}`);
+    }
+  } catch (e) {
+    problems.push(`the console: ${(e as Error).message}`);
+  }
+  // P3: a tenant host never reaches the platform API (the edge refuses its paths).
+  try {
+    const r = await get(`demo-uni.${STACK_DOMAIN}`, '/api/platform/v1/smoke');
+    if (r.status !== 404) problems.push(`a tenant host's /api/platform/*: HTTP ${String(r.status)}, not 404`);
+  } catch (e) {
+    problems.push(`a tenant host's /api/platform/*: ${(e as Error).message}`);
+  }
+  const edgeCa = readFileSync(join(edgeDir(), 'edge-ca.crt'), 'utf8');
+  const fromEdge = runProbe('edge', PROBES.edge(CONSOLE_HOST), { EDGE_CA: edgeCa });
+  const fromApp = runProbe('app', PROBES.app(EDGE_GATEWAY));
+  const refusalLogged = logsOf('platform-api', since).stdout.includes('"event":"platform.allowlist_refused"');
+  problems.push(...allowlistProblems({ frame, fromEdge, fromApp, refusalLogged }));
   return problems;
 }
 
@@ -238,6 +318,7 @@ export function waiverNotice(read: () => { ok: true; entries: readonly Entry[] }
 }
 
 const SETTLE_MS = 90_000;
+const CONSOLE_SETTLE_MS = 30_000;
 
 export async function smoke(): Promise<string[]> {
   // Spec 0023 T9: a sealed Vault first, by name. Otherwise every check below fails on it for 90 s without saying why.
@@ -251,7 +332,15 @@ export async function smoke(): Promise<string[]> {
     await new Promise((r) => setTimeout(r, 3000));
     problems = await probe(since);
   }
-  for (const s of ['api', 'worker']) if (!jsonLinesOnly(logsOf(s).stdout)) problems.push(`${s}: stdout is not JSON lines only`);
+  // Spec 0027: once the rest is up. The console has no healthcheck (distroless), so it gets its own short window.
+  const consoleDeadline = Date.now() + CONSOLE_SETTLE_MS;
+  let consoleFound = await consoleProblems(since);
+  while (consoleFound.length && Date.now() < consoleDeadline) {
+    await new Promise((r) => setTimeout(r, 3000));
+    consoleFound = await consoleProblems(since);
+  }
+  problems.push(...consoleFound);
+  for (const s of ['api', 'worker', 'platform-api']) if (!jsonLinesOnly(logsOf(s).stdout)) problems.push(`${s}: stdout is not JSON lines only`);
   // C3: Vault's audit device records a wrap and an unwrap, HMAC'd, never in clear.
   problems.push(...auditCheck());
   // Spec 0023 T5: neither token is near its end.
@@ -272,5 +361,5 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     for (const p of problems) console.error(`[stack:smoke] FAIL ${p}`);
     process.exit(1);
   }
-  console.log('[stack:smoke] PASS: HTTPS (verified), the redirect and HSTS, Vault audit (HMACs only), the life left in both Vault tokens, health, tenant, /login, worker and relay, JSON logs, and the hardened shape (LS1, LS6, LS7)');
+  console.log('[stack:smoke] PASS: HTTPS (verified), the redirect and HSTS, Vault audit (HMACs only), the life left in both Vault tokens, health, tenant, /login, worker and relay, the console and its allowlist at both layers, JSON logs, and the hardened shape (LS1, LS6, LS7, spec 0027)');
 }

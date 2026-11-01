@@ -2,8 +2,8 @@
 // re-verifies everything against the trusted public key, offline, on the exact digests named.
 //   node tools/images/verify-release.mjs <record.json> [--pub path] [--commit sha]
 // Exits non-zero (naming each failure) unless:
-//   • the record names EXACTLY the roles in ROLES (api, web, migrate, pgbouncer; or `roles`, for prune's legacy
-//     re-verification) — no more, no fewer — each with its trusted repository;
+//   • the record names EXACTLY the roles in ROLES (api, web, migrate, pgbouncer, console; or `roles`, for an older
+//     release re-verified as it was signed) — no more, no fewer — each with its trusted repository;
 //   • for each image, the signature, the SBOM attestation and the provenance attestation verify against the key;
 //   • the signed provenance names that role, its trusted Dockerfile (from ROLES, never the record), the expected
 //     commit (--commit, else the repository's HEAD; never the record's own value), and `rehearsal: false`.
@@ -11,7 +11,7 @@
 // the rehearsal flag is bound into the signed provenance, so editing the record's JSON changes nothing.
 import { readFileSync } from 'node:fs';
 import { basename, dirname } from 'node:path';
-import { cosign as realCosign, DEFAULT_PUB, LEGACY_ROLE_NAMES, PREDICATES, predicatesFrom, ROLES, rolesOf, sh, TOOL_REGISTRY, VERIFY_FLAGS } from './release-lib.mjs';
+import { cosign as realCosign, DEFAULT_PUB, olderRoleSet, PREDICATES, predicatesFrom, ROLES, rolesOf, sh, TOOL_REGISTRY, VERIFY_FLAGS } from './release-lib.mjs';
 
 const gitHead = () => sh('git', ['rev-parse', 'HEAD']).stdout.trim();
 
@@ -83,15 +83,20 @@ if (process.argv[1]?.endsWith('verify-release.mjs')) {
   }
   const record = JSON.parse(readFileSync(file, 'utf8'));
   // The deploy's check: never the record's own commit (it is editable), never a rehearsal; every role in ROLES.
-  // --legacy re-checks a release from before spec 0019 (api and web) as it was signed. It says nothing about
-  // deployability: the deploy never passes it.
+  // --legacy re-checks an older release as it was signed: the older role set its record names exactly (spec 0019's
+  // four roles, or api and web before it). It says nothing about deployability: the deploy never passes it.
   const legacy = rest.includes('--legacy');
+  const older = legacy ? olderRoleSet(Object.keys(record.images ?? {})) : undefined;
+  if (legacy && !older) {
+    console.error('[verify-release] REJECT --legacy: the record names no older release role set');
+    process.exit(1);
+  }
   const { ok, problems, results } = verifyRelease(record, {
     pub: arg('pub') ?? DEFAULT_PUB,
     commit: arg('commit'),
-    ...(legacy ? { roles: rolesOf(LEGACY_ROLE_NAMES) } : {}),
+    ...(older ? { roles: rolesOf(older) } : {}),
   });
-  if (legacy && ok) console.log('[verify-release] --legacy: verified as signed (api, web); NOT deployable (the stack needs every role)');
+  if (older && ok) console.log(`[verify-release] --legacy: verified as signed (${older.join(', ')}); NOT deployable (the stack needs every role)`);
   if (!ok) {
     for (const p of problems) console.error(`[verify-release] REJECT ${p}`);
     process.exit(1);

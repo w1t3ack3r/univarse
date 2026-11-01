@@ -4,7 +4,7 @@ import { spawnSync } from 'node:child_process';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { writeOwnerOnly } from '../../../packages/db/scripts/pgbouncer-config.js';
-import { COMPOSE_FILE, PROJECT, RELEASES, STACK_DIR, THIRD_PARTY, TUNNEL_IMAGE } from './config.js';
+import { COMPOSE_FILE, PROJECT, RELEASES, ROLE_VARS, STACK_DIR, THIRD_PARTY, TUNNEL_IMAGE } from './config.js';
 import type { DeployDeps } from './deploy.js';
 import { nextState } from './state.js';
 import { docker } from './docker.js';
@@ -118,7 +118,7 @@ function buckets(): string[] {
 function logs(): string {
   const r = spawnSync('docker', ['compose', '-p', PROJECT, '-f', COMPOSE_FILE, 'logs', '--no-color', '--tail', '30'], {
     encoding: 'utf8',
-    env: { ...process.env, MSYS_NO_PATHCONV: '1', UNIVARSE_STACK_DIR: STACK_DIR, UNIVARSE_API_IMAGE: 'x', UNIVARSE_WEB_IMAGE: 'x', UNIVARSE_MIGRATE_IMAGE: 'x', UNIVARSE_PGBOUNCER_IMAGE: 'x' },
+    env: { ...process.env, MSYS_NO_PATHCONV: '1', UNIVARSE_STACK_DIR: STACK_DIR, ...Object.fromEntries(Object.values(ROLE_VARS).map((v) => [v, 'x'])) },
   });
   return r.stdout;
 }

@@ -28,7 +28,17 @@ export function generateSecrets(): StackSecrets {
     s3SecretKey: randomBytes(30).toString('base64url'),
     ...ledgerBucketSecrets(),
     ...backupRoleSecrets(),
+    ...consoleRoleSecrets(),
   };
+}
+
+/**
+ * Spec 0027 P5: the console role's password (the platform API's URL, through PgBouncer) and the verifier the migrate job
+ * and PgBouncer store. Optional in a secrets file: a backup set taken before spec 0027 has none, and restores without it.
+ */
+function consoleRoleSecrets(): Pick<StackSecrets, 'consolePassword' | 'consoleVerifier'> {
+  const consolePassword = hex(24);
+  return { consolePassword, consoleVerifier: scramVerifier(consolePassword) };
 }
 
 /** Spec 0020 B-3: the backup role's password (backup.env) and the verifier the migrate job stores. */
@@ -50,6 +60,7 @@ const ADDITIONS: readonly { readonly has: keyof StackSecrets; readonly make: () 
   { has: 'pgbouncerAdminPassword', make: adminSecrets }, // spec 0019 PR B
   { has: 'ledgerS3AccessKey', make: ledgerBucketSecrets }, // spec 0020 A2
   { has: 'backupPassword', make: backupRoleSecrets }, // spec 0020 B-3
+  { has: 'consolePassword', make: consoleRoleSecrets }, // spec 0027 P5
 ];
 
 /** B5: PgBouncer's admin console, for `pnpm stack:pools` and the isolation probe only (never an app role). */
@@ -100,5 +111,5 @@ export function saveSecrets(s: StackSecrets, { dir = STACK_DIR, rotate = false }
 
 /** Every secret value, for the leak checks (LS9): nothing written outside STACK_DIR, or printed, may contain one. */
 export function secretValues(s: StackSecrets): string[] {
-  return [s.postgresSuperuser, ...Object.values(s.roles), ...Object.values(s.verifiers), s.pgbouncerAdminPassword, s.pgbouncerAdminVerifier, s.sessionPepper, s.valkeyPassword, s.s3SecretKey, s.ledgerS3SecretKey, s.backupPassword, s.backupVerifier];
+  return [s.postgresSuperuser, ...Object.values(s.roles), ...Object.values(s.verifiers), s.pgbouncerAdminPassword, s.pgbouncerAdminVerifier, s.sessionPepper, s.valkeyPassword, s.s3SecretKey, s.ledgerS3SecretKey, s.backupPassword, s.backupVerifier, ...(s.consolePassword ? [s.consolePassword] : []), ...(s.consoleVerifier ? [s.consoleVerifier] : [])];
 }

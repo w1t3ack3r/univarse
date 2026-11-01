@@ -1,7 +1,7 @@
 // Spec 0019: what each container is given (render.ts). LS5 (the database path through PgBouncer, TLS), LS9 (each
 // secret only where it's needed), spec 0016 IO17 (the relay role in the worker's env only).
 import { describe, expect, it } from 'vitest';
-import { CADDY_IP, STACK_DOMAIN, WEB_IP } from './config.js';
+import { CADDY_IP, EDGE_GATEWAY, STACK_DOMAIN, WEB_IP } from './config.js';
 import { envText, renderEnvFiles, renderPgBouncerIni, renderPgHba, renderS3Config, renderUserlist, renderValkeyConf } from './render.js';
 import { generateSecrets, secretValues } from './secrets.js';
 
@@ -128,5 +128,49 @@ describe('the edge and the containers', () => {
     expect(env('migrate.env').SEED_DOMAIN).toBe(STACK_DOMAIN);
     // LS8 (C2): every process that reaches Vault does so over TLS, verified against the stack CA.
     for (const f of ['api.env', 'worker.env', 'migrate.env']) expect([f, env(f).VAULT_ADDR, env(f).NODE_EXTRA_CA_CERTS]).toEqual([f, 'https://vault:8200', '/ca/ca.crt']);
+  });
+});
+
+describe('[spec 0027] the platform API and the console', () => {
+  const p = env('platform-api.env');
+  it('[P5] the platform API reaches the platform database through PgBouncer as the console role, verifying TLS', () => {
+    expect(masked(p.CONSOLE_DATABASE_URL)).toBe('postgresql://univarse_console:***@pgbouncer:6432/univarse_platform?sslmode=verify-full');
+    expect(p.NODE_EXTRA_CA_CERTS).toBe('/ca/ca.crt');
+  });
+
+  it('[P-A2] it holds nothing of the tenant API: no other database URL, no pepper, no Vault token, no storage key', () => {
+    const names = Object.keys(p);
+    expect(names.filter((k) => k.endsWith('_DATABASE_URL'))).toEqual(['CONSOLE_DATABASE_URL']);
+    for (const k of ['SESSION_PEPPER', 'VAULT_TOKEN', 'S3_SECRET_KEY', 'LEDGER_S3_SECRET_KEY', 'PLATFORM_RELAY_URL', 'DATA_ENCRYPTION_KEY']) expect([k, names.includes(k)]).toEqual([k, false]);
+    const others = secretValues(s).filter((x) => x !== s.consolePassword);
+    for (const x of others) expect(envText(p).includes(x)).toBe(false);
+  });
+
+  it('[P4] it trusts forwarding from Caddy only, and allows only the edge network\'s gateway', () => {
+    expect(p.TRUSTED_PROXIES).toBe(CADDY_IP);
+    expect(p.CONSOLE_ALLOWLIST).toBe(EDGE_GATEWAY);
+    expect([p.HOST, p.PORT]).toEqual(['0.0.0.0', '8081']);
+  });
+
+  it('[P6] the console app holds no secret at all, and says LOCAL', () => {
+    const c = env('console.env');
+    expect(c).toEqual({ NODE_ENV: 'production', HOSTNAME: '0.0.0.0', PORT: '3001', UNIVARSE_ENVIRONMENT: 'LOCAL' });
+  });
+
+  it('[P5] the console password reaches platform-api.env only; the migrate job and PgBouncer get its verifier', () => {
+    const pw = s.consolePassword ?? '';
+    for (const [f, e] of Object.entries(files)) if (f !== 'platform-api.env') expect([f, envText(e).includes(pw)]).toEqual([f, false]);
+    expect(env('migrate.env').ROLE_VERIFIER_CONSOLE).toBe(s.consoleVerifier);
+    expect(renderUserlist(s)).toContain(`"univarse_console" "${s.consoleVerifier ?? ''}"`);
+    expect(renderUserlist(s)).not.toContain(pw);
+  });
+
+  it('[P7] a secrets file without the console role (a backup set from before spec 0027) renders without it', () => {
+    const { consolePassword: _p, consoleVerifier: _v, ...older } = s;
+    const out = renderEnvFiles(older, v);
+    expect(Object.keys(out)).not.toContain('platform-api.env');
+    expect(Object.keys(out)).not.toContain('console.env');
+    expect(out['migrate.env']?.ROLE_VERIFIER_CONSOLE).toBeUndefined();
+    expect(renderUserlist(older)).not.toContain('univarse_console');
   });
 });

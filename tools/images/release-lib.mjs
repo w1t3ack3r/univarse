@@ -25,14 +25,20 @@ export const ROLES = Object.freeze({
   // Spec 0019 D3/D4: the stack's migrate job, and the source-built PgBouncer (spec 0017).
   migrate: Object.freeze({ repo: 'univarse-migrate', dockerfile: 'infra/docker/migrate.Dockerfile' }),
   pgbouncer: Object.freeze({ repo: 'univarse-pgbouncer', dockerfile: 'infra/docker/pgbouncer.Dockerfile' }),
+  // Spec 0027 P7: the platform console (apps/console). The platform API is a runtime role of the api image (P1).
+  console: Object.freeze({ repo: 'univarse-console', dockerfile: 'infra/docker/console.Dockerfile' }),
 });
 /**
  * Releases signed before spec 0019 hold only api and web. `pnpm images:prune` re-verifies such a kept release as it
  * was signed; the deploy requires every role in ROLES, so it never accepts one.
  */
 export const LEGACY_ROLE_NAMES = Object.freeze(['api', 'web']);
-/** The role sets a release may have: all of ROLES (every release from spec 0019 on), or the legacy pair. */
-export const ROLE_SETS = Object.freeze([Object.freeze(Object.keys(ROLES)), LEGACY_ROLE_NAMES]);
+/** Releases from spec 0019 until spec 0027: no console image. Kept releases still verify as they were signed. */
+export const FOUR_ROLE_NAMES = Object.freeze(['api', 'web', 'migrate', 'pgbouncer']);
+/** The role sets a release may have: all of ROLES (from spec 0027 on), the four roles before it, or the legacy pair. */
+export const ROLE_SETS = Object.freeze([Object.freeze(Object.keys(ROLES)), FOUR_ROLE_NAMES, LEGACY_ROLE_NAMES]);
+/** The older role set `names` is exactly, for re-verifying a kept release as it was signed; undefined for the current set. */
+export const olderRoleSet = (names) => ROLE_SETS.slice(1).find((set) => set.length === names.length && names.every((n) => set.includes(n)));
 /** The ROLES entries for `names`, as a trusted table for verifyRelease. */
 export const rolesOf = (names) => Object.freeze(Object.fromEntries(names.map((n) => [n, ROLES[n]])));
 /** Every container a release starts carries this label with the run's ID; cleanup removes only those (LR10). */

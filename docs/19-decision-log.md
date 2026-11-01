@@ -540,3 +540,23 @@ Alternatives considered: option — why not.
 - **The owner makes `security-scans` and `codeql` required checks.**
 
 **Alternatives considered:** diff-only gating; free inline suppression; vendored rules; a third-party license checker; CodeQL with `security-events: write`; Renovate. Each is rejected in the spec's G table, with its reason.
+
+## ADR-034 — The platform console: its own API process from the API image, and an allowlist measured, not assumed
+**Status:** Accepted (2026-10-29) with [spec 0027](specs/0027-console-shell.md) P1 and P4. **Implemented** by its PR A (the process, the walls, the role) and PR B (the stack, the edge, the fifth image).
+
+**Context:**
+- The console administers every tenant, so a mistake in it, or a weakness in a tenant, must not reach the other side ([spec 0026](specs/0026-phase-1-start-threat-model-and-storybook.md) T28).
+- The first draft allowlisted `127.0.0.1` at the edge. On the owner's machine, a connection to a port Docker publishes on `127.0.0.1` reaches the container from Docker's gateway address, not from `127.0.0.1` (measured 2026-10-29), so that allowlist would have refused the owner.
+
+**Decision:**
+- **The platform API is a runtime role of the verified API image** (`dist/platform.js`), run as its own container. It mounts no tenant module, holds only the `univarse_console` role's URL, and refuses to start when given a tenant or app credential. The tenant API's controller list never holds a platform controller.
+- **Walls at three places,** each tested on its own: the edge routes only the console's host to the platform API and refuses `/api/platform/*` on tenant hosts; the tenant API answers 404 for `/api/platform/*`; the platform API answers 404 for anything but `/api/platform/v1/*` and `/health/*`.
+- **The allowlist is checked twice, answering 404 like an unknown address:** Caddy's `remote_ip` on the console's site, and the platform API again, trusting `X-Forwarded-For` from Caddy only. **Locally it is the `edge` network's gateway,** fixed by giving that network a fixed subnet. The binding of Caddy's ports to `127.0.0.1` is what keeps the console private on this machine; production relies on the allowlist.
+- **The console is the fifth signed image,** treated like the others by the release, verification, the deploy and the smoke. Older four-role releases still verify as they were signed.
+
+**Consequences:**
+- One more container per side to run and measure on an 8 GB machine (spec 0027 P8).
+- A change to the edge network's subnet needs `pnpm stack:down` first.
+- Every later console slice is built inside these walls; its grants arrive slice by slice in its own migrations.
+
+**Alternatives considered:** platform routes inside the tenant API behind a guard (one forgotten guard away from T28); a separate API image (a second build and signature of the same code); `127.0.0.1` as the allowlist (refuses the owner, measured). Each is rejected in spec 0027's P table.

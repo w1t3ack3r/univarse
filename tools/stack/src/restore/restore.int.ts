@@ -18,7 +18,7 @@ import { writeSealed } from '../backup/set.js';
 import { dockerStream } from '../backup/stream.js';
 import { tarStream } from '../backup/tar.js';
 import { realWalDeps, shipWal } from '../backup/wal.js';
-import { COMPOSE_FILE, PROJECT, THIRD_PARTY } from '../config.js';
+import { COMPOSE_FILE, PROJECT, ROLE_VARS, THIRD_PARTY } from '../config.js';
 import { docker, hostPath } from '../docker.js';
 import { cliEnv, initialise, loadVaultInit, vaultCli, vaultState, type VaultTarget } from '../vault.js';
 import { openArtifact } from './artifact.js';
@@ -50,8 +50,8 @@ afterAll(() => {
 function archiveSettings(): string[] {
   const d = mkdtempSync(join(tmpdir(), 'uv-restore-compose-'));
   try {
-    for (const f of ['postgres.env', 'migrate.env', 'api.env', 'worker.env', 'web.env', 'keys.env', 'backup.env']) writeFileSync(join(d, f), '');
-    const stand = Object.fromEntries(['UNIVARSE_API_IMAGE', 'UNIVARSE_WEB_IMAGE', 'UNIVARSE_MIGRATE_IMAGE', 'UNIVARSE_PGBOUNCER_IMAGE'].map((v) => [v, `localhost:5000/x@sha256:${'1'.repeat(64)}`]));
+    for (const f of ['postgres.env', 'migrate.env', 'api.env', 'worker.env', 'web.env', 'keys.env', 'backup.env', 'platform-api.env', 'console.env']) writeFileSync(join(d, f), '');
+    const stand = Object.fromEntries(Object.values(ROLE_VARS).map((v) => [v, `localhost:5000/x@sha256:${'1'.repeat(64)}`]));
     const r = spawnSync('docker', ['compose', '-p', PROJECT, '-f', COMPOSE_FILE, 'config', '--format', 'json'], { encoding: 'utf8', env: { ...process.env, UNIVARSE_STACK_DIR: d, ...stand } });
     const cmd = (JSON.parse(r.stdout) as { services: { postgres: { command: string[] } } }).services.postgres.command;
     const out: string[] = [];

@@ -103,7 +103,7 @@ PR B adds the stack: the image, the deploy, Caddy's console block and allowlist,
   - no table privilege.
 - **Mutations: 19 tried, 18 caught.** The survivor (unwrapping `::ffff:` addresses by hand) showed the code was redundant, because Node's `BlockList` already does it. The code was removed and the test kept.
 
-**Decisions made while building, for approval:**
+**Decisions made while building:** **approved by the owner on 2026-10-29, all as written** (P-A1 to P-A10).
 
 | # | Decision | Why |
 | --- | --- | --- |
@@ -117,3 +117,34 @@ PR B adds the stack: the image, the deploy, Caddy's console block and allowlist,
 | P-A8 | **The environment label comes from `UNIVARSE_ENVIRONMENT`;** anything unknown or missing shows as LOCAL, never PRODUCTION. STAGING and PRODUCTION get their own warning colours. | Mistaking a test console for the real one is the safe error. |
 | P-A9 | **The console's CSP is stricter than the tenant app's:** `connect-src 'self'` only, no storage origin, and `noindex` on every response. | The console uploads nothing yet, and should never be indexed. |
 | P-A10 | **`packages/ui`'s design world is reused as is,** without a new `PRODUCT.md`. | The approved P6 pins the console's look; the design skill's context loader found no product file, and the brand and components already exist. |
+
+## Implementation notes (PR B, 2026-10-30)
+
+**Built:**
+- **The fifth image:** `infra/docker/console.Dockerfile`, built like the web image on the same pinned base. Role `console` in the release's role table; the release inspects it, gates it, attests its SBOM, runs it in the hardened smoke and runs the console's E2E against it, then signs and verifies it with the others. CI does the same for every PR.
+- **Older releases:** the role sets gain the four-role set. `verify-release --legacy` and `images:prune` re-verify a kept four-role release as it was signed; the deploy still requires all five.
+- **The stack:** the console role's secret (added to an existing `secrets.json` by the deploy), its verifier for the migrate job and PgBouncer, `platform-api.env` and `console.env`, the `platform-api` and `console` services, and the `edge` network's fixed subnet.
+- **The edge:** Caddy's console site (the allowlist first, then `/api/platform/*` to the platform API, then the console), and every tenant host refusing `/api/platform/*`.
+- **The smoke:** the console's frame through the edge (nonce CSP, `noindex`, HSTS once), a tenant host's `/api/platform/*` refused, and the allowlist proved at both layers with two throwaway containers.
+- **Development:** `pnpm dev` builds the packages first, starts the dev edge, and runs the tenant API on :8099 behind it, so both apps work at `*.univarse.localhost:4180` (found while checking PR A: sign-in failed behind the edge).
+
+**Evidence:**
+- **Unit:** all pass. The API 394; migrate 16; the console 5; the stack 569 (with the new Caddy and role-set specs); the release tools (the role table and sets, verification with five roles and four, prune with five and four, the container runner, the migrate smoke); the dev edge 5. The whole repository typechecks, and every touched package is lint-clean.
+- **Caddy's configuration** is tested as the pinned Caddy adapts it (`caddy.spec.ts`): the console's site is matched before the tenants' wildcard, the allowlist's 404 comes first in it, and no tenant route reaches the platform API.
+- **Mutations: 21 tried, 21 caught.** Each wall removed fails a test: Caddy's allowlist (removed, or widened to the subnet), the tenant hosts' refusal, the edge subnet, the platform API's env file, its trusted proxies, a tenant secret handed to it, the console role in PgBouncer, the secret's upgrade, the optional rendering, the smoke's two allowlist checks, the restore's role set, the console image variable, the four-role set, the console role in the release, the runner's own mode, the migrate job's optional verifier, the migrate smoke's role check, and the tracing preload's two rules.
+- **Not run locally:** the image build, the image smoke and the console's E2E against the image. The owner's stack was running on this 8 GB machine; CI runs all three, and the release runs them again.
+- **The stack itself** is proved by the owner's release and deploy: the smoke's console checks and the memory measurement (P8) need the running stack.
+
+**Decisions made while building, for approval:**
+
+| # | Decision | Why |
+| --- | --- | --- |
+| P-B1 | **The console and the platform API run with their own settings only,** in CI, the release and the stack: the image runner's `own` mode passes nothing inherited. | Before, every container in the image smoke got the tenant API's environment. The console needs none of it, and the platform API refuses it. |
+| P-B2 | **The tracing preload names the platform API `platform-api`, and never loads the repo-root `.env` for it.** | The preload loaded that file in development before any entrypoint ran, which would have handed the platform API the tenant API's secrets, and it labelled the process `api`. |
+| P-B3 | **The console role's secret is optional in a secrets file,** rendered only when present. The deploy always adds it; **a restore verifies a release with the role set it was signed with.** | Found by review: without this, restoring a backup set taken under today's four-role release would have failed, on the missing secret and on the missing console image. |
+| P-B4 | **The memory budget is 4,352 MiB until measured:** 3,584 plus 384 for each new container (P8). | The limits are caps, not use. The first deploy measures both containers, and the limits and the budget are then set from it. |
+| P-B5 | **Caddy refuses with an empty 404,** and **tenant hosts refuse `/api/platform/*` at the edge too**, before the tenant API would. | The allowlist's refusal reaches neither upstream. The dev edge already refused tenant hosts' platform paths; the stack's edge now matches it. |
+| P-B6 | **The allowlist's proof uses the platform API's own image as the probe,** hardened, one network each, and **counts the refusal only when the platform API logs `platform.allowlist_refused`.** | No new image to pin and scan. A 404 alone can't tell a refusal from an unknown route, which is the point of the 404. |
+| P-B7 | **`pnpm dev` starts the dev edge and runs the tenant API on :8099** (CLAUDE.md said :8080), trusting forwarding from `127.0.0.1` only. | The web app's server components and the edge already used :8099; with `pnpm dev` alone, the tenant app couldn't load. |
+| P-B8 | **The image variables for compose stand-ins come from `ROLE_VARS`,** not hand-kept lists. | Five lists had to change for the fifth image; `stack:down` would have failed on the one missed. |
+

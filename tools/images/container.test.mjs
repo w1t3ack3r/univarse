@@ -24,6 +24,19 @@ for (const [what, cmd] of [['the API', []], ['the worker', WORKER_CMD]])
     assert.ok(!args.some((a) => a.includes('http://127.0.0.1:8200')), 'the plain listener is never on the command line');
   });
 
+test('[spec 0027] own settings only: the console and the platform API get no app setting, no Vault, nothing inherited', () => {
+  process.env.SESSION_PEPPER = 'inherited-secret-value';
+  process.env.PLATFORM_DATABASE_URL = 'postgresql://inherited';
+  const { args } = dockerRun({ name: 'x', image: 'univarse-console:ci', extra: { PORT: '3001', EMPTY: '' }, own: true, caFile: join(dir, 'missing.crt') });
+  const passed = args.flatMap((a, i) => (args[i - 1] === '-e' ? [a] : []));
+  assert.deepEqual(passed, ['PORT']);
+  assert.ok(!args.some((a) => a.startsWith('-v') || a.includes('vault-ca')), 'no Vault CA mount');
+  assert.ok(!args.join(' ').includes('inherited'), 'no value on the command line');
+  for (const flag of ['--read-only', '--cap-drop', 'no-new-privileges']) assert.ok(args.includes(flag), flag);
+  delete process.env.SESSION_PEPPER;
+  delete process.env.PLATFORM_DATABASE_URL;
+});
+
 test('[LS8] without the dev CA the run stops, naming the step that makes it', () => {
   assert.throws(() => dockerRun({ name: 'x', image: 'i', caFile: join(dir, 'missing.crt') }), /no dev Vault CA .*pnpm dev:infra/);
 });

@@ -65,6 +65,27 @@ describe('[LS9] the secrets', () => {
     expect(scramVerifier(backupPassword, Buffer.from(salt ?? '', 'base64'), Number(iter))).toBe(backupVerifier);
   });
 
+  it('[spec 0027 P5] a file from before spec 0027 gains only the console role’s password and its matching verifier; every other secret is kept', async () => {
+    const { consolePassword: _p, consoleVerifier: _v, ...before } = generateSecrets();
+    const { writeOwnerOnly, scramVerifier } = await import('../../../packages/db/scripts/pgbouncer-config.js');
+    writeOwnerOnly(secretsFile(dir), `${JSON.stringify(before)}
+`);
+    expect(saveSecrets(generateSecrets(), { dir })).toBe('upgraded');
+    const { consolePassword = '', consoleVerifier = '', ...rest } = loadSecrets(dir);
+    expect(rest).toEqual(before);
+    expect(consolePassword).toMatch(/^[0-9a-f]{48}$/);
+    const [, iter, salt] = /^SCRAM-SHA-256\$(\d+):([^$]+)\$/.exec(consoleVerifier) ?? [];
+    expect(scramVerifier(consolePassword, Buffer.from(salt ?? '', 'base64'), Number(iter))).toBe(consoleVerifier);
+  });
+
+  it('[spec 0027 P7] a secrets file without the console role still loads (a backup set from before spec 0027 restores)', async () => {
+    const { consolePassword: _p, consoleVerifier: _v, ...before } = generateSecrets();
+    const { writeOwnerOnly } = await import('../../../packages/db/scripts/pgbouncer-config.js');
+    writeOwnerOnly(secretsFile(dir), `${JSON.stringify(before)}
+`);
+    expect(loadSecrets(dir).consolePassword).toBeUndefined();
+  });
+
   it('[LS9] the stack directory itself is owner-only', async () => {
     const { ownerOnlyDirProblems } = await import('../../../packages/db/scripts/pgbouncer-config.js');
     expect(ownerOnlyDirProblems(dir)).toEqual([]);

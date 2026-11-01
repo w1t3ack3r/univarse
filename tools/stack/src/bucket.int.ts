@@ -19,7 +19,7 @@ import { GetObjectRetentionCommand, PutObjectCommand, PutObjectRetentionCommand,
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { copyToBucket } from '../../../apps/api/src/cli/ledger-copy.js';
 import { bucketCheck } from './bucket-check.js';
-import { COMPOSE_FILE, PROJECT } from './config.js';
+import { COMPOSE_FILE, PROJECT, ROLE_VARS } from './config.js';
 import { BUCKETS } from './deploy-deps.js';
 import { canonical, nextEntry, type Entry } from './ledger/chain.js';
 import { renderS3Config } from './render.js';
@@ -48,8 +48,8 @@ interface Settings {
 function resolveService(): Service {
   const dir = mkdtempSync(join(tmpdir(), 'uv-bucket-compose-'));
   try {
-    for (const f of ['postgres.env', 'migrate.env', 'api.env', 'worker.env', 'web.env', 'keys.env', 'backup.env']) writeFileSync(join(dir, f), '');
-    const stand = Object.fromEntries(['UNIVARSE_API_IMAGE', 'UNIVARSE_WEB_IMAGE', 'UNIVARSE_MIGRATE_IMAGE', 'UNIVARSE_PGBOUNCER_IMAGE'].map((v) => [v, `localhost:5000/x@sha256:${'1'.repeat(64)}`]));
+    for (const f of ['postgres.env', 'migrate.env', 'api.env', 'worker.env', 'web.env', 'keys.env', 'backup.env', 'platform-api.env', 'console.env']) writeFileSync(join(dir, f), '');
+    const stand = Object.fromEntries(Object.values(ROLE_VARS).map((v) => [v, `localhost:5000/x@sha256:${'1'.repeat(64)}`]));
     const r = spawnSync('docker', ['compose', '-p', PROJECT, '-f', COMPOSE_FILE, 'config', '--format', 'json'], { encoding: 'utf8', env: { ...process.env, UNIVARSE_STACK_DIR: dir, ...stand } });
     if (r.status !== 0) throw new Error(`docker compose config failed: ${r.stderr}`);
     const s = (JSON.parse(r.stdout) as { services: Record<string, Service> }).services.seaweedfs;

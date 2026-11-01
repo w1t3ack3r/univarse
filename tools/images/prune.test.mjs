@@ -707,3 +707,28 @@ test('[LS3] a kept legacy release (api, web) is verified as the legacy set', () 
   assert.deepEqual(problems, []);
   assert.deepEqual(targets.map((t) => t.roles.join()), ['api,web']);
 });
+
+// Spec 0027 P7: releases from now on carry five roles; four-role releases stay kept and verifiable as signed.
+const FIVE = [...FOUR, 'console'];
+const repoOf5 = { ...repoOf, console: 'univarse-console' };
+
+test('[P7] a five-role record nominates its five images; a four-role one still nominates its four', () => {
+  const base = `sha-${A.slice(0, 7)}-rehearsal`;
+  const images = Object.fromEntries(FIVE.map((r, i) => [r, { repo: repoOf5[r], tag: base, digest: dg(500 + i) }]));
+  const repos = nominations({ commit: A, rehearsal: true, images }).map((n) => `${n.repo}:${n.tag}`);
+  for (const r of FIVE) assert.ok(repos.includes(`${repoOf5[r]}:${base}`), `${r} nominated`);
+  const { console: _c, ...four } = images;
+  assert.ok(nominations({ commit: A, rehearsal: true, images: four }).length > 0);
+});
+
+test('[P7] a kept five-role release is verified as the five-role set; one signed for four roles, as the four-role set', () => {
+  const trust = {};
+  FIVE.forEach((role, i) => (trust[`${repoOf5[role]}@${dg(600 + i)}`] = { kind: 'release', commit: A, role, startedOn: 'T' }));
+  const five = verificationTargets(trust, [A]);
+  assert.deepEqual(five.problems, []);
+  assert.ok(five.targets.every((t) => t.roles.join() === FIVE.join()));
+  delete trust[`univarse-console@${dg(604)}`];
+  const four = verificationTargets(trust, [A]);
+  assert.deepEqual(four.problems, []);
+  assert.ok(four.targets.every((t) => t.roles.join() === FOUR.join()));
+});

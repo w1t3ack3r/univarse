@@ -20,7 +20,7 @@ import { establishAuthority } from '../ledger/ledger.js';
 import { keysDbFrom } from '../ledger/job.js';
 import { acquireLedgerLock } from '../ledger/lock.js';
 import { recover as recoverLedger } from '../ledger/protocol.js';
-import { acquireRegistryLock, verifyRelease, type ReleaseRecord } from '../release.js';
+import { acquireRegistryLock, roleSetOf, verifyRelease, type ReleaseRecord } from '../release.js';
 import { envText, renderEnvFiles, renderPgBouncerIni, renderPgHba, renderS3Config, renderUserlist, renderValkeyConf } from '../render.js';
 import { loadSecrets } from '../secrets.js';
 import { BUCKETS } from '../deploy-deps.js';
@@ -159,9 +159,11 @@ export function realRestoreDeps(req: RestoreRequest, opts: RealOptions): Restore
       if (!match) return { ok: false, problems: [`no release record in releases/ names the images this set ran (${Object.keys(deployed).join(', ')}): \`images:prune\` may have removed it`] };
       const record = JSON.parse(readFileSync(join(RELEASES, match), 'utf8')) as ReleaseRecord;
       stopRegistry = registry();
-      const v = verifyRelease(record, { commit: record.commit });
+      // As it was signed: a set taken under a four-role release (before spec 0027) restores with that release.
+      const roles = roleSetOf(record);
+      const v = verifyRelease(record, { commit: record.commit, roles });
       if (!v.ok) return { ok: false, problems: [`release ${match} does not verify:`, ...v.problems, 'an image that is no longer in the registry was probably pruned (`images:prune`)'] };
-      const got = imagesFrom(v);
+      const got = imagesFrom(v, roles);
       if (got.problems.length) return { ok: false, problems: got.problems };
       images = got.images;
       return { ok: true, images, record: `releases/${match}` };

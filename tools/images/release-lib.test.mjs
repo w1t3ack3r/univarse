@@ -3,17 +3,27 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { devOnlyPackages, LEGACY_ROLE_NAMES, REPO, ROLE_SETS, ROLES, rolesOf, runtimeBaseOf } from './release-lib.mjs';
+import { devOnlyPackages, FOUR_ROLE_NAMES, LEGACY_ROLE_NAMES, olderRoleSet, REPO, ROLE_SETS, ROLES, rolesOf, runtimeBaseOf } from './release-lib.mjs';
 
 const PIN = `gcr.io/distroless/base-debian13:nonroot@sha256:${'a'.repeat(64)}`;
 const df = (body) => `ARG BUILD_IMAGE=x\n${body}\nFROM \${BUILD_IMAGE} AS build\nRUN true\nFROM \${RUNTIME_IMAGE} AS runtime\n`;
 
-test('[LS2] four release roles, each with its own repository and Dockerfile; the legacy set is api and web', () => {
-  assert.deepEqual(Object.keys(ROLES), ['api', 'web', 'migrate', 'pgbouncer']);
-  assert.equal(new Set(Object.values(ROLES).map((r) => r.repo)).size, 4);
+test('[P7] five release roles, each with its own repository and Dockerfile; the four-role and legacy sets still verify', () => {
+  assert.deepEqual(Object.keys(ROLES), ['api', 'web', 'migrate', 'pgbouncer', 'console']);
+  assert.equal(new Set(Object.values(ROLES).map((r) => r.repo)).size, 5);
+  assert.equal(new Set(Object.values(ROLES).map((r) => r.dockerfile)).size, 5);
   assert.deepEqual([...LEGACY_ROLE_NAMES], ['api', 'web']);
-  assert.deepEqual(ROLE_SETS.map((s) => s.join()), ['api,web,migrate,pgbouncer', 'api,web']);
+  assert.deepEqual([...FOUR_ROLE_NAMES], ['api', 'web', 'migrate', 'pgbouncer']);
+  assert.deepEqual(ROLE_SETS.map((s) => s.join()), ['api,web,migrate,pgbouncer,console', 'api,web,migrate,pgbouncer', 'api,web']);
   assert.deepEqual(Object.keys(rolesOf(LEGACY_ROLE_NAMES)), ['api', 'web']);
+});
+
+test('[P7] an older role set is found only by its exact names, never the current set', () => {
+  assert.deepEqual(olderRoleSet(['pgbouncer', 'api', 'migrate', 'web']), FOUR_ROLE_NAMES);
+  assert.deepEqual(olderRoleSet(['web', 'api']), LEGACY_ROLE_NAMES);
+  assert.equal(olderRoleSet(Object.keys(ROLES)), undefined);
+  assert.equal(olderRoleSet(['api', 'web', 'migrate']), undefined);
+  assert.equal(olderRoleSet(['api', 'web', 'console']), undefined);
 });
 
 test('[LS2] every role\'s Dockerfile passes the CS3 base check', () => {
