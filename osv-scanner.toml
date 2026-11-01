@@ -1,2 +1,9 @@
 # osv-scanner configuration (spec 0024 G3, G4). Any [[IgnoredVulns]] entry needs an id, a reason (the evidence),
-# and an ignoreUntil at most 30 days ahead: tools/security/exceptions.mjs checks each before the scan. None today.
+# and an ignoreUntil at most 30 days ahead: tools/security/exceptions.mjs checks each before the scan.
+
+# minimatch < 11.0.1, globparts amplification (DoS). minimatch 10 is overridden to 11 (package.json); the one copy left
+# is 5.1.9, which the fix can't reach: the 11 line removed the callable default export it is used through.
+[[IgnoredVulns]]
+id = "GHSA-g3hv-75wg-m249"
+ignoreUntil = 2026-12-01T00:00:00Z
+reason = "Only minimatch 5.1.9 remains, in @redocly/openapi-core (openapi-typescript, @univarse/api-client's devDependency: the contract generator), which calls minimatch(url, pattern) as a function, a shape minimatch 11 removed. It matches our own OpenAPI config's patterns, never request input, and ships in no image. Remove when openapi-typescript moves off minimatch 5."
