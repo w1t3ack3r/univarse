@@ -65,13 +65,16 @@ export interface DeployDeps {
 }
 
 /** The long-running services, in the order compose may start them (it resolves dependencies itself). */
-export const SERVICES = ['postgres', 'pgbouncer', 'valkey', 'seaweedfs', 'mailpit', 'vault', 'api', 'worker', 'web', 'caddy'] as const;
+export const SERVICES = ['postgres', 'pgbouncer', 'valkey', 'seaweedfs', 'mailpit', 'vault', 'api', 'worker', 'web', 'platform-api', 'console', 'caddy'] as const;
 
-/** LS2: the compose variables from the verified results, each a digest reference the host's Docker can pull. */
-export function imagesFrom(v: Verification): { images: Record<string, string>; problems: string[] } {
+/**
+ * LS2: the compose variables from the verified results, each a digest reference the host's Docker can pull. Every
+ * role must have verified: all of them for the deploy, or the older set a restored release was signed with.
+ */
+export function imagesFrom(v: Verification, roles: readonly string[] = RELEASE_ROLES): { images: Record<string, string>; problems: string[] } {
   const images: Record<string, string> = {};
   const problems: string[] = [];
-  for (const role of RELEASE_ROLES) {
+  for (const role of roles) {
     const ref = v.results[role];
     const name = ROLE_VARS[role as Role] as string | undefined;
     if (!name) problems.push(`no compose variable for the ${role} role`);

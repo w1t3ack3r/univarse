@@ -27,8 +27,11 @@ export const BOOTSTRAP = [
   'ROLE_VERIFIER_RELAY_PLATFORM',
 ] as const;
 
-/** Optional with the bootstrap: spec 0020 B-3's backup role, created only when its verifier is given. */
-export const BOOTSTRAP_OPTIONAL = ['ROLE_VERIFIER_BACKUP'] as const;
+/**
+ * Optional with the bootstrap, each role created only when its verifier is given: spec 0020 B-3's backup role, and
+ * spec 0027 P5's console role (the platform API's; CONNECT on the platform database only).
+ */
+export const BOOTSTRAP_OPTIONAL = ['ROLE_VERIFIER_BACKUP', 'ROLE_VERIFIER_CONSOLE'] as const;
 
 const DOMAIN = /^(?=.{1,200}$)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/;
 

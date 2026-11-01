@@ -1,5 +1,5 @@
 // Spec 0019 LS1 (the shape), LS2 (only digests), LS9 (no secret in the file) and LS10 (memory), on the compose file as compose itself resolves
-// it (`docker compose config`: anchors merged, defaults applied), with the four image variables set to stand-in
+// it (`docker compose config`: anchors merged, defaults applied), with the five image variables set to stand-in
 // digests. Needs the Docker CLI (not a running stack).
 import { spawnSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -8,7 +8,7 @@ import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { envText } from './render.js';
 import { generateSecrets } from './secrets.js';
-import { CADDY_IP, COMPOSE_FILE, isDigestRef, MEMORY_BUDGET_MB, PROJECT, ROLE_VARS, THIRD_PARTY, WEB_IP } from './config.js';
+import { CADDY_IP, COMPOSE_FILE, EDGE_GATEWAY, EDGE_SUBNET, isDigestRef, MEMORY_BUDGET_MB, PROJECT, ROLE_VARS, THIRD_PARTY, WEB_IP } from './config.js';
 
 interface Service {
   image: string;
@@ -26,7 +26,7 @@ interface Service {
 }
 interface Config {
   services: Record<string, Service>;
-  networks: Record<string, { internal?: boolean }>;
+  networks: Record<string, { internal?: boolean; ipam?: { config?: { subnet?: string; gateway?: string }[] } }>;
 }
 
 const STAND_IN = Object.fromEntries(Object.entries(ROLE_VARS).map(([role, v], i) => [v, `localhost:5000/univarse-${role}@sha256:${String(i + 1).repeat(64)}`]));
@@ -35,7 +35,7 @@ let config: Config;
 let stackDir: string;
 beforeAll(() => {
   stackDir = mkdtempSync(join(tmpdir(), 'uv-stack-compose-'));
-  for (const f of ['postgres.env', 'migrate.env', 'api.env', 'worker.env', 'web.env', 'keys.env', 'backup.env']) writeFileSync(join(stackDir, f), '');
+  for (const f of ['postgres.env', 'migrate.env', 'api.env', 'worker.env', 'web.env', 'keys.env', 'backup.env', 'platform-api.env', 'console.env']) writeFileSync(join(stackDir, f), '');
   const r = spawnSync('docker', ['compose', '-p', PROJECT, '-f', COMPOSE_FILE, '--profile', 'scan', '--profile', 'job', 'config', '--format', 'json'], {
     encoding: 'utf8',
     env: { ...process.env, UNIVARSE_STACK_DIR: stackDir, ...STAND_IN },
@@ -50,7 +50,7 @@ const svc = (name: string) => {
   if (!s) throw new Error(`no ${name} service`);
   return s;
 };
-const UNIVARSE = ['pgbouncer', 'migrate', 'api', 'worker', 'web'];
+const UNIVARSE = ['pgbouncer', 'migrate', 'api', 'worker', 'web', 'platform-api', 'console'];
 /** compose resolves `512m` to bytes (a number, or a numeric string). */
 const mb = (m: string | number | undefined) => Number(m) / 1024 / 1024;
 
@@ -76,7 +76,20 @@ describe('[LS1] the shape', () => {
     const onDb = Object.entries(config.services).filter(([, s]) => 'db' in (s.networks ?? {})).map(([n]) => n).sort();
     expect(onDb).toEqual(['migrate', 'pgbackup', 'pgbouncer', 'postgres']);
     expect(Object.keys(svc('pgbackup').networks ?? {})).toEqual(['db']);
-    for (const s of ['api', 'worker', 'web']) expect(Object.keys(svc(s).networks ?? {})).toEqual(['app']);
+    for (const s of ['api', 'worker', 'web', 'platform-api', 'console']) expect(Object.keys(svc(s).networks ?? {})).toEqual(['app']);
+  });
+
+  it('[spec 0027 P4] the edge network has the fixed subnet whose gateway is the console\'s allowlist', () => {
+    expect(config.networks.edge?.ipam?.config).toEqual([{ subnet: EDGE_SUBNET, gateway: EDGE_GATEWAY }]);
+  });
+
+  it('[spec 0027 P1, P5] the platform API runs platform.js from the API image, with its own env file only', () => {
+    const p = svc('platform-api') as Service & { command?: string[] };
+    expect(p.command).toEqual(['--enable-source-maps', '--import', './dist/otel.js', 'dist/platform.js']);
+    // compose config merges env files into `environment`, so the file itself is read: its own env file, no other.
+    const text = readFileSync(COMPOSE_FILE, 'utf8');
+    const block = text.slice(text.indexOf('\n  platform-api:'), text.indexOf('\n  console:'));
+    expect([...block.matchAll(/\/([a-z-]+\.env)'/g)].map((m) => m[1])).toEqual(['platform-api.env']);
   });
 
   it('[LS1] Caddy and the web app hold the fixed addresses the API trusts for forwarding headers', () => {
@@ -122,9 +135,11 @@ describe('[LS2] only digests', () => {
     for (const [name, ref] of Object.entries(THIRD_PARTY)) expect([name, svc(name).image]).toEqual([name, ref]);
   });
 
-  it('[LS2] the compose file names no UniVarse image: the four come from the deploy\'s variables', () => {
+  it('[LS2] the compose file names no UniVarse image: the five come from the deploy\'s variables', () => {
     expect(svc('api').image).toBe(STAND_IN.UNIVARSE_API_IMAGE);
     expect(svc('worker').image).toBe(STAND_IN.UNIVARSE_API_IMAGE);
+    expect(svc('platform-api').image).toBe(STAND_IN.UNIVARSE_API_IMAGE);
+    expect(svc('console').image).toBe(STAND_IN.UNIVARSE_CONSOLE_IMAGE);
     expect(svc('web').image).toBe(STAND_IN.UNIVARSE_WEB_IMAGE);
     expect(svc('migrate').image).toBe(STAND_IN.UNIVARSE_MIGRATE_IMAGE);
     expect(svc('pgbouncer').image).toBe(STAND_IN.UNIVARSE_PGBOUNCER_IMAGE);
@@ -200,7 +215,7 @@ describe('[LS3] env files reach the containers exactly as written', () => {
     try {
       // Not a real verifier: the same characters, in the same places.
       const value = 'SCRAM-SHA-256$4096:c2FsdA==$c3RvcmVkS2V5$c2VydmVyS2V5$$x${y}$';
-      for (const f of ['postgres.env', 'api.env', 'worker.env', 'web.env', 'keys.env', 'backup.env']) writeFileSync(join(dir, f), '');
+      for (const f of ['postgres.env', 'api.env', 'worker.env', 'web.env', 'keys.env', 'backup.env', 'platform-api.env', 'console.env']) writeFileSync(join(dir, f), '');
       writeFileSync(join(dir, 'migrate.env'), envText({ ROLE_VERIFIER_PROBE: value }));
       const r = spawnSync('docker', ['compose', '-p', PROJECT, '-f', COMPOSE_FILE, '--profile', 'job', 'config', '--format', 'json', 'migrate'], {
         encoding: 'utf8',

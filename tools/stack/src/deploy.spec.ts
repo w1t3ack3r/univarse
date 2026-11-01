@@ -347,6 +347,7 @@ describe('[LS2] only digests', () => {
       UNIVARSE_WEB_IMAGE: `localhost:5000/univarse-web@${D.web ?? ''}`,
       UNIVARSE_MIGRATE_IMAGE: `localhost:5000/univarse-migrate@${D.migrate ?? ''}`,
       UNIVARSE_PGBOUNCER_IMAGE: `localhost:5000/univarse-pgbouncer@${D.pgbouncer ?? ''}`,
+      UNIVARSE_CONSOLE_IMAGE: `localhost:5000/univarse-console@${D.console ?? ''}`,
     });
   });
 

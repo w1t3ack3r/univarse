@@ -4,10 +4,12 @@
 import { existsSync } from 'node:fs';
 import { register } from 'node:module';
 import { createAddHookMessageChannel } from 'import-in-the-middle';
+import { loadsRootEnv, serviceOf } from './shared/observability/entrypoint.js';
 
-// Local dev convenience, as in main.ts/worker.ts: the repo-root .env (never in production).
+const service = serviceOf(process.argv[1]);
+// Local dev convenience, as in main.ts/worker.ts: the repo-root .env (never in production, never for the platform API).
 const rootEnv = new URL('../../../.env', import.meta.url);
-if (process.env.NODE_ENV !== 'production' && existsSync(rootEnv)) process.loadEnvFile(rootEnv);
+if (loadsRootEnv(service, process.env.NODE_ENV) && existsSync(rootEnv)) process.loadEnvFile(rootEnv);
 
 const { registerOptions } = createAddHookMessageChannel();
 // eslint-disable-next-line @typescript-eslint/no-deprecated -- import-in-the-middle's hook is an async loader; it needs `register`
@@ -16,7 +18,6 @@ register('import-in-the-middle/hook.mjs', import.meta.url, registerOptions);
 const { exportBoundsFromEnv, startTracing } = await import('./shared/observability/tracing.js');
 const { createLogger } = await import('./shared/observability/logger.js');
 const env = process.env.NODE_ENV ?? 'development';
-const service = /worker\.js$/.test(process.argv[1] ?? '') ? 'worker' : 'api';
 const version = process.env.UNIVARSE_VERSION ?? 'dev';
 // OB11: export trouble is reported on the process's own JSON log stream, at most once a minute.
 const log = createLogger({ service, env, version, level: process.env.LOG_LEVEL ?? 'info' });

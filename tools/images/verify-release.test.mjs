@@ -2,7 +2,7 @@
 // Run with `node --test tools/images/verify-release.test.mjs`.
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { LEGACY_ROLE_NAMES, ROLES, rolesOf } from './release-lib.mjs';
+import { FOUR_ROLE_NAMES, LEGACY_ROLE_NAMES, ROLES, rolesOf } from './release-lib.mjs';
 import { verifyRelease } from './verify-release.mjs';
 
 const COMMIT = 'a'.repeat(40);
@@ -12,6 +12,7 @@ const D = {
   unsigned: `sha256:${'3'.repeat(64)}`,
   migrate: `sha256:${'4'.repeat(64)}`,
   pgbouncer: `sha256:${'5'.repeat(64)}`,
+  console: `sha256:${'6'.repeat(64)}`,
 };
 
 /** A fake registry of signed images: digest → the externalParameters of its signed provenance. */
@@ -40,13 +41,14 @@ const record = (over = {}) => ({
     web: { repo: ROLES.web.repo, dockerfile: ROLES.web.dockerfile, digest: D.web },
     migrate: { repo: ROLES.migrate.repo, dockerfile: ROLES.migrate.dockerfile, digest: D.migrate },
     pgbouncer: { repo: ROLES.pgbouncer.repo, dockerfile: ROLES.pgbouncer.dockerfile, digest: D.pgbouncer },
+    console: { repo: ROLES.console.repo, dockerfile: ROLES.console.dockerfile, digest: D.console },
   },
   ...over,
 });
 const verify = (rec, signed, opts = {}) => verifyRelease(rec, { pub: '/keys/cosign.pub', commit: COMMIT, cosign: fakeCosign(signed).cosign, ...opts });
-const real = { [D.api]: prov('api'), [D.web]: prov('web'), [D.migrate]: prov('migrate'), [D.pgbouncer]: prov('pgbouncer') };
+const real = { [D.api]: prov('api'), [D.web]: prov('web'), [D.migrate]: prov('migrate'), [D.pgbouncer]: prov('pgbouncer'), [D.console]: prov('console') };
 
-test('[LR9] a real release with exactly api, web, migrate and pgbouncer, signed provenance matching the trusted roles, verifies', () => {
+test('[LR9] a real release with exactly api, web, migrate, pgbouncer and console, signed provenance matching the trusted roles, verifies', () => {
   const r = verify(record(), real);
   assert.deepEqual(r.problems, []);
   assert.equal(r.ok, true);
@@ -115,6 +117,7 @@ test('[LS3] a legacy release (api and web, from before spec 0019) is not deploya
   const legacy = record();
   delete legacy.images.migrate;
   delete legacy.images.pgbouncer;
+  delete legacy.images.console;
   const signed = { [D.api]: prov('api'), [D.web]: prov('web') };
   const asDeploy = verify(legacy, signed);
   assert.equal(asDeploy.ok, false);
@@ -134,8 +137,25 @@ test('[LS3] a migrate image in the pgbouncer slot (both signed) is rejected by t
 test('[LS3] verified as the legacy set, a record naming any other role is refused (the set is exact, both ways)', () => {
   const rec = record();
   delete rec.images.pgbouncer; // api, web, migrate: not the legacy pair
+  delete rec.images.console;
   const signed = { [D.api]: prov('api'), [D.web]: prov('web'), [D.migrate]: prov('migrate') };
   const r = verify(rec, signed, { roles: rolesOf(LEGACY_ROLE_NAMES) });
   assert.equal(r.ok, false);
   assert.match(r.problems.join('\n'), /unknown image role "migrate"/);
+});
+
+test('[P7] a four-role release (before spec 0027) is not deployable, but verifies as signed', () => {
+  const four = record();
+  delete four.images.console;
+  const signed = { [D.api]: prov('api'), [D.web]: prov('web'), [D.migrate]: prov('migrate'), [D.pgbouncer]: prov('pgbouncer') };
+  const asDeploy = verify(four, signed);
+  assert.equal(asDeploy.ok, false);
+  assert.match(asDeploy.problems.join('\n'), /no console image/);
+  assert.deepEqual(verify(four, signed, { roles: rolesOf(FOUR_ROLE_NAMES) }).problems, []);
+});
+
+test('[P7] a pgbouncer image in the console slot (both signed) is rejected by the signed role', () => {
+  const rec = record();
+  rec.images.console = { ...rec.images.console, digest: D.pgbouncer };
+  assert.match(verify(rec, real).problems.join('\n'), /console: signed provenance does not name role console/);
 });

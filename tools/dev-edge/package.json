@@ -1,0 +1,10 @@
+{
+  "name": "@univarse/dev-edge",
+  "version": "0.0.0",
+  "private": true,
+  "description": "DEV ONLY: the local stand-in for the production edge (spec 0005 W2, spec 0027 P9). `pnpm dev` starts it on :4180.",
+  "type": "module",
+  "scripts": {
+    "dev": "node server.mjs"
+  }
+}

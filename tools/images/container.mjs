@@ -45,9 +45,18 @@ const VAULT_CA_IN = '/etc/univarse/vault-ca.crt';
 
 /**
  * The `docker run` arguments and the environment to spawn it with. `extra` values override the inherited ones;
- * only names that have a value are passed.
+ * only names that have a value are passed. `own: true` passes `extra` alone: no app setting, no Vault, nothing
+ * inherited, for the containers that must hold none of the tenant API's secrets (spec 0027: the console, the
+ * platform API).
  */
-export function dockerRun({ name, image, extra = {}, cmd = [], detach = false, caFile = VAULT_CA }) {
+export function dockerRun({ name, image, extra = {}, cmd = [], detach = false, caFile = VAULT_CA, own = false }) {
+  const owner = process.env.UV_RELEASE_RUN ? ['--label', `univarse.release.run=${process.env.UV_RELEASE_RUN}`] : [];
+  if (own) {
+    const passed = Object.keys(extra).filter((k) => extra[k] !== undefined && extra[k] !== '');
+    const args = ['run', ...(detach ? ['-d'] : ['--rm']), '--name', name, ...owner, ...HARDENED, ...passed.flatMap((k) => ['-e', k]), image, ...cmd];
+    // The docker CLI gets this process's environment (it needs its own settings); the container gets `passed` only.
+    return { args, env: { ...process.env, ...extra, MSYS_NO_PATHCONV: '1' } };
+  }
   if (!existsSync(caFile)) throw new Error(`no dev Vault CA at ${caFile}: run pnpm dev:infra (it makes the TLS listener's certificate)`);
   const isWorker = cmd === WORKER_CMD;
   const { PLATFORM_RELAY_URL: _never, ...inherited } = process.env;
@@ -64,10 +73,11 @@ export function dockerRun({ name, image, extra = {}, cmd = [], detach = false, c
   ].filter((k) => isWorker || k !== 'PLATFORM_RELAY_URL');
   const passed = names.filter((k) => env[k] !== undefined && env[k] !== '');
   // Inside a release run, every container is labelled with the run's ID so cleanup removes only what this run owns.
-  const owner = process.env.UV_RELEASE_RUN ? ['--label', `univarse.release.run=${process.env.UV_RELEASE_RUN}`] : [];
   const ca = ['-v', `${caFile}:${VAULT_CA_IN}:ro`];
   const args = ['run', ...(detach ? ['-d'] : ['--rm']), '--name', name, ...owner, ...HARDENED, ...ca, ...passed.flatMap((k) => ['-e', k]), image, ...cmd];
   return { args, env };
 }
 
 export const WORKER_CMD = ['--enable-source-maps', '--import', './dist/otel.js', 'dist/worker.js'];
+/** Spec 0027 P1: the platform API, a runtime role of the api image. */
+export const PLATFORM_CMD = ['--enable-source-maps', '--import', './dist/otel.js', 'dist/platform.js'];

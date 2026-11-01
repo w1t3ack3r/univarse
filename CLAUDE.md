@@ -12,7 +12,7 @@ TypeScript everywhere · pnpm + Turborepo · Next.js 16 (`apps/web`, `apps/conso
 pnpm dev:infra          # start local dependencies (compose)
 pnpm db:migrate         # apply platform + tenant migrations, RLS, grants
 pnpm db:seed            # demo tenants: demo-uni, test-poly
-pnpm dev                # web :3000, console :3001, api :8080, worker, platform API :8081
+pnpm dev                # builds the packages, then: dev edge :4180, web :3000, console :3001, api :8099, worker, platform API :8081
 pnpm lint && pnpm typecheck
 pnpm test               # unit
 pnpm test:int           # integration (Testcontainers)
@@ -22,7 +22,7 @@ pnpm contracts:gen      # regenerate packages/api-client/openapi.json after cont
 pnpm dev:traces         # optional: local OTel Collector (spans → infra/compose/otel/out); set OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:14318
 pnpm --filter @univarse/api test:ob12   # compiled API + worker traced through the collector (needs build + dev:traces)
 ```
-Local tenant URL: `http://demo-uni.univarse.localhost:3000`
+Local URLs (through the dev edge): tenant `http://demo-uni.univarse.localhost:4180`, console `http://console.univarse.localhost:4180`
 
 ## Invariants — never violate
 1. **Tenant isolation:** tenant data only via `ShardRegistry.forTenant` / `ShardRegistry.tx`. Never import the raw tenant PrismaClient. Every new tenant table gets `tenant_id` + forced RLS (run `pnpm rls:check`). Tenant comes from the Host, never from request input.

@@ -2,7 +2,7 @@
 // (`stack:vault`). Pure, so the content is unit-tested; the deploy writes the results into STACK_DIR, owner-only,
 // right before it starts anything. Nothing here is ever printed.
 import { renderAuthFile } from '../../../packages/db/scripts/pgbouncer-config.js';
-import { CADDY_IP, STACK_DOMAIN, WEB_IP } from './config.js';
+import { CADDY_IP, EDGE_GATEWAY, STACK_DOMAIN, WEB_IP } from './config.js';
 
 export interface StackSecrets {
   readonly postgresSuperuser: string;
@@ -22,6 +22,12 @@ export interface StackSecrets {
   /** Spec 0020 B-3: the REPLICATION-only role the base backup connects as, and its SCRAM verifier (the migrate job's). */
   readonly backupPassword: string;
   readonly backupVerifier: string;
+  /**
+   * Spec 0027 P5: the console role (the platform API), and its verifier (the migrate job's, PgBouncer's). Optional: a
+   * backup set from before spec 0027 has none; the deploy always adds it (secrets.ts ADDITIONS) before rendering.
+   */
+  readonly consolePassword?: string;
+  readonly consoleVerifier?: string;
 }
 
 export interface VaultTokens {
@@ -99,6 +105,8 @@ export function renderEnvFiles(s: StackSecrets, v: VaultTokens): Readonly<Record
       API_INTERNAL_URL: 'http://api:8080',
       STORAGE_UPLOAD_ORIGIN: `https://files.${STACK_DOMAIN}`,
     },
+    // Spec 0027: the platform API and the console, when the console role exists (always, on a deploy).
+    ...(s.consolePassword ? consoleEnvFiles(s.consolePassword) : {}),
     // Spec 0020 B-3: the base backup job (libpq's own variables), direct to PostgreSQL over TLS, verified against the
     // stack CA under the name `postgres`, as the REPLICATION-only role. It holds no other secret.
     'backup.env': {
@@ -120,6 +128,7 @@ export function renderEnvFiles(s: StackSecrets, v: VaultTokens): Readonly<Record
       ROLE_VERIFIER_APP_PLATFORM: s.verifiers.appPlatform,
       ROLE_VERIFIER_RELAY_PLATFORM: s.verifiers.relayPlatform,
       ROLE_VERIFIER_BACKUP: s.backupVerifier,
+      ...(s.consoleVerifier ? { ROLE_VERIFIER_CONSOLE: s.consoleVerifier } : {}),
       PLATFORM_MIGRATOR_URL: direct('univarse_migrator', s.roles.migrator, 'univarse_platform'),
       TENANT_POOL_01_MIGRATOR_URL: direct('univarse_migrator', s.roles.migrator, 'univarse_pool_01'),
       PLATFORM_DATABASE_URL: direct('univarse_app_platform', s.roles.appPlatform, 'univarse_platform'),
@@ -128,6 +137,33 @@ export function renderEnvFiles(s: StackSecrets, v: VaultTokens): Readonly<Record
       KEY_PROVIDER: 'vault',
       VAULT_ADDR: 'https://vault:8200', // C2: TLS only, verified against the stack CA (NODE_EXTRA_CA_CERTS)
       VAULT_TOKEN: v.appToken,
+    },
+  };
+}
+
+/**
+ * Spec 0027 P1, P4, P5: the platform API holds the console role's URL (through PgBouncer, like the API) and nothing of the
+ * tenant API's: no tenant database, no pepper, no Vault token, no storage key (it refuses to start with any). It trusts
+ * forwarding only from Caddy, and allows only the edge network's gateway, where a browser on this machine arrives
+ * from. The console app holds no secret at all.
+ */
+function consoleEnvFiles(password: string): Readonly<Record<string, EnvFile>> {
+  return {
+    'platform-api.env': {
+      NODE_ENV: 'production',
+      LOG_LEVEL: 'info',
+      NODE_EXTRA_CA_CERTS: '/ca/ca.crt',
+      HOST: '0.0.0.0',
+      PORT: '8081',
+      CONSOLE_DATABASE_URL: url('univarse_console', password, BOUNCER, 'univarse_platform'),
+      TRUSTED_PROXIES: CADDY_IP,
+      CONSOLE_ALLOWLIST: EDGE_GATEWAY,
+    },
+    'console.env': {
+      NODE_ENV: 'production',
+      HOSTNAME: '0.0.0.0',
+      PORT: '3001',
+      UNIVARSE_ENVIRONMENT: 'LOCAL',
     },
   };
 }
@@ -225,6 +261,8 @@ export function renderUserlist(s: StackSecrets): string {
     { user: 'univarse_app', verifier: s.verifiers.app },
     { user: 'univarse_app_platform', verifier: s.verifiers.appPlatform },
     { user: 'univarse_relay_platform', verifier: s.verifiers.relayPlatform },
+    // Spec 0027 P5: the platform API connects through PgBouncer, as the console role.
+    ...(s.consoleVerifier ? [{ user: 'univarse_console', verifier: s.consoleVerifier }] : []),
     { user: 'pgbouncer_admin', verifier: s.pgbouncerAdminVerifier },
   ]);
 }

@@ -74,7 +74,8 @@ pnpm i
 pnpm dev:infra        # docker compose -f infra/compose/compose.dev.yml up -d
 pnpm db:migrate       # platform + tenant schemas, RLS, grants
 pnpm db:seed          # demo tenants: demo-uni, test-poly
-pnpm dev              # turbo: web :3000, console :3001, api :8080, worker, platform API :8081 (once db:setup wrote .env.console)
+pnpm dev              # turbo: builds the packages first, then the dev edge :4180, web :3000, console :3001, api :8099 (behind the edge),
+                      # worker, platform API :8081 (once db:setup wrote .env.console). Open demo-uni.univarse.localhost:4180 and console.univarse.localhost:4180
 ```
 Browse `http://demo-uni.univarse.localhost:3000`. `*.localhost` resolves to loopback in modern browsers, so no hosts-file edits are needed. Ports are bound to `127.0.0.1` only.
 
@@ -169,7 +170,7 @@ pnpm stack:backup schedule --remove          # unregisters them
 pnpm stack:down                              # stop it; named volumes are kept, the containers' anonymous ones removed
 ```
 
-- **The address:** `https://demo-uni.stack.univarse.localhost` (Caddy on `127.0.0.1:443`; `:80` only redirects). Mailpit is at `https://mail.stack.univarse.localhost`.
+- **The address:** `https://demo-uni.stack.univarse.localhost` (Caddy on `127.0.0.1:443`; `:80` only redirects). Mailpit is at `https://mail.stack.univarse.localhost`, and the platform console at `https://console.stack.univarse.localhost`.
 - **Trust:** the certificate comes from UniVarse's own edge CA, which can vouch only for `stack.univarse.localhost` and its subdomains. Install it in your user's trust store after checking its fingerprint (`pnpm stack:trust` prints the commands, including removal). Chrome and Edge use that store; Firefox keeps its own. Verification is never disabled.
 - **Tests against the stack:** `stack:e2e` and `stack:isolation` open a temporary tunnel that publishes PgBouncer (never PostgreSQL) on `127.0.0.1:16432` for the run only, with TLS and passwords still required. It is removed afterwards, even after a failure, and checked gone. Their settings come from `~/.univarse/stack`, never the root `.env`.
 - **The deploy only runs verified digests.** It holds the registry lock throughout, and it verifies the record with the committed public key before anything is created. A rejected record starts nothing.
@@ -177,8 +178,15 @@ pnpm stack:down                              # stop it; named volumes are kept, 
   - only Caddy publishes a port;
   - `app` and `db` are internal;
   - PostgreSQL is on `db` with only PgBouncer and the migrate job;
-  - the API and worker reach the database only through PgBouncer, over TLS verified against the stack CA.
-- **Memory:** the limits sum to at most 3.5 GB without ClamAV (`--profile scan`). Idle it uses about 0.6 GB (spec 0019's notes).
+  - the API, worker and platform API reach the database only through PgBouncer, over TLS verified against the stack CA;
+  - `edge` has a fixed subnet, `172.31.218.0/24`, so its gateway `172.31.218.1` is known ([spec 0027](specs/0027-console-shell.md) P4).
+- **The console** ([spec 0027](specs/0027-console-shell.md)):
+  - **Two containers:** `platform-api` (the API image running `dist/platform.js`, holding only the console role's URL) and `console` (the fifth signed image, holding no secret).
+  - **Its allowlist is the edge network's gateway.** A browser on this machine reaches Caddy from that address, never from `127.0.0.1` (measured). Caddy answers anything else with an empty 404, and the platform API checks the address again, trusting `X-Forwarded-For` from Caddy only. What really keeps it private here is that Caddy's ports are bound to `127.0.0.1`; production relies on the allowlist.
+  - **A tenant host never reaches the platform API:** Caddy refuses `/api/platform/*` on every tenant host, and the tenant API refuses it again.
+  - **The smoke check proves the allowlist at both layers** after every deploy, with two throwaway containers: one on the `edge` network gets Caddy's 404; one on the `app` network, claiming the allowed address, gets the platform API's 404 and its refusal is logged.
+  - **Changing the edge subnet needs `pnpm stack:down` first**, which removes the old network; it's already part of the preparation for a release.
+- **Memory:** the limits sum to at most 4.25 GB without ClamAV (`--profile scan`): 3.5 GB before spec 0027, plus a starting 384 MiB each for `platform-api` and `console` (P8), which the first deploy measures and the limits are then set from. Idle the stack used about 0.6 GB before the console (spec 0019's notes).
 - **Vault** listens only with TLS (the stack CA's certificate) and logs every request to its audit volume, values HMAC'd. If the audit log can't be written, Vault refuses requests and the app fails closed. A changed Vault certificate (after `stack:init --rotate`) restarts Vault, which comes back sealed: the deploy then asks for `pnpm stack:vault unseal`. So does a reboot of this machine. The smoke check names a sealed Vault first.
 - **Vault's two tokens** ([spec 0023](specs/0023-vault-app-token-renewal.md)):
   - the app's, for Transit, and the backup's, for Raft snapshots;

@@ -31,7 +31,7 @@ const WORK = join(tmpdir(), `univarse-release-${Date.now()}`);
 // The images and Dockerfiles come from the trusted ROLES table (release-lib), the same one verification uses.
 const IMAGES = Object.fromEntries(Object.entries(ROLES).map(([role, r]) => [role, r.dockerfile]));
 /** CS1: where each image's own files live, for the inspection (pgbouncer ships one binary under usr/bin). */
-const INSPECT_ROOT = { api: 'app', web: 'app', migrate: 'app', pgbouncer: 'usr/bin' };
+const INSPECT_ROOT = { api: 'app', web: 'app', migrate: 'app', pgbouncer: 'usr/bin', console: 'app' };
 // This run's ID: every container it starts is labelled with it, and cleanup removes only those (LR10). Children
 // (smoke, journeys, run-container) read it from the environment for their labels and container names.
 const RUN = newRun(`${Date.now().toString(36)}${randomBytes(3).toString('hex')}`);
@@ -179,7 +179,7 @@ async function main() {
 
   step('hardened smoke run (CS4)');
   await recheck();
-  sh('node', ['tools/images/smoke.mjs', '--api', 'univarse-api:release', '--web', 'univarse-web:release'], { stdio: 'inherit' });
+  sh('node', ['tools/images/smoke.mjs', '--api', 'univarse-api:release', '--web', 'univarse-web:release', '--console', 'univarse-console:release'], { stdio: 'inherit' });
   record.gates.smoke = 'pass';
 
   step('migrate job smoke (spec 0019 LS4): bootstrap, migrations, rls:check, seed and keys on a fresh database, then again with no change');
@@ -196,6 +196,11 @@ async function main() {
   });
   record.gates.journeys = 'pass';
   await stopIfStarted('clamav');
+
+  step('the console frame against its image, desktop and mobile (spec 0027 P6, P7)');
+  await recheck();
+  sh('pnpm', ['--filter', '@univarse/console', 'test:e2e'], { stdio: 'inherit', env: { E2E_CONSOLE_IMAGE: 'univarse-console:release', CI: '1' } });
+  record.gates.consoleFrame = 'pass';
 
   // ── LR3/LR4: the local registry; push by digest without rebuilding
   step('publish to the local registry (LR3, LR4)');

@@ -1,0 +1,42 @@
+# syntax=docker/dockerfile:1.10@sha256:865e5dd094beca432e8c0a1d5e1c465db5f998dca4e439981029b3b81fb39ed5
+# Spec 0027 P7: the platform console as Next.js standalone output, built exactly as the web image is (spec 0013 CS2),
+# on the same pinned Debian 13 distroless base. Both bases are pinned by digest; the runtime's upstream signature is
+# verified in CI and by the release (CS3).
+ARG BUILD_IMAGE=node:24-trixie-slim@sha256:173f125896c3b47ddf056734c7ea789d04595a6a08769a8f78e0df642781fb66
+ARG RUNTIME_IMAGE=gcr.io/distroless/nodejs24-debian13:nonroot@sha256:9eeb7f5887d0e239e78264b06f7f11d2e14be534050481803a9e4728fcdd278e
+
+# Spec 0024: two Checkov checks, by design (tools/security/exceptions.mjs requires each reason).
+# checkov:skip=CKV_DOCKER_2: distroless runtime (no shell or curl). Liveness is checked from outside: stack:smoke loads the console's frame through the edge after every deploy (spec 0027)
+# checkov:skip=CKV_DOCKER_7: the base images are ARGs pinned by tag and digest above, which Checkov cannot resolve
+FROM ${BUILD_IMAGE} AS build
+ENV PNPM_HOME=/pnpm PATH=/pnpm:$PATH CI=true NEXT_TELEMETRY_DISABLED=1 NEXT_STANDALONE=1
+RUN corepack enable
+WORKDIR /repo
+COPY pnpm-lock.yaml pnpm-workspace.yaml package.json ./
+RUN --mount=type=cache,id=pnpm,target=/pnpm/store pnpm fetch --frozen-lockfile
+COPY . .
+RUN --mount=type=cache,id=pnpm,target=/pnpm/store \
+    pnpm install --frozen-lockfile --offline \
+ && pnpm turbo run build --filter=@univarse/console... \
+ && chmod -R go-w apps/console/.next apps/console/public
+# chmod: Next.js writes some build files 664; nothing may be writable but by root (docs/09 §2.1 rule 7).
+
+FROM ${RUNTIME_IMAGE} AS runtime
+ARG REVISION=unknown
+ARG CREATED=unknown
+ARG VERSION=dev
+LABEL org.opencontainers.image.source="https://github.com/w1t3ack3r/univarse" \
+      org.opencontainers.image.revision="${REVISION}" \
+      org.opencontainers.image.created="${CREATED}" \
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.title="univarse-console"
+ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1 PORT=3001 HOSTNAME=127.0.0.1
+# As the web image: /app created and filled as root, then 65532 runs it and can't write its own code.
+USER 0:0
+WORKDIR /app
+COPY --from=build --chown=0:0 /repo/apps/console/.next/standalone /app
+COPY --from=build --chown=0:0 /repo/apps/console/.next/static /app/apps/console/.next/static
+COPY --from=build --chown=0:0 /repo/apps/console/public /app/apps/console/public
+USER 65532:65532
+EXPOSE 3001
+CMD ["apps/console/server.js"]

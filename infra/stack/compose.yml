@@ -1,5 +1,5 @@
 # Spec 0019 (ADR-030): the local production-like stack. Started ONLY by `pnpm stack:deploy <record>`, which verifies
-# the release first and fills the four UNIVARSE_*_IMAGE variables with the verified digests (LS2, LS3). It names no
+# the release first and fills the five UNIVARSE_*_IMAGE variables with the verified digests (LS2, LS3). It names no
 # UniVarse image itself; every other image is pinned by digest (tools/stack/src/config.ts keeps the same pins).
 #
 # Networks (LS1): only Caddy is on `edge` and publishes ports, on 127.0.0.1. `app` and `db` are internal. PostgreSQL is on `db`
@@ -235,6 +235,27 @@ services:
       app: { ipv4_address: 172.31.219.11 }
     mem_limit: 512m
 
+  # Spec 0027 P1: the platform API, a runtime role of the verified API image. Its env file holds the console role's URL
+  # and nothing of the API's (it refuses to start with a tenant credential); only Caddy's console site routes to it.
+  platform-api:
+    image: ${UNIVARSE_API_IMAGE:?pnpm stack:deploy sets the verified image}
+    <<: *hardening
+    command: ['--enable-source-maps', '--import', './dist/otel.js', 'dist/platform.js']
+    env_file: ['${UNIVARSE_STACK_DIR:?run pnpm stack:init}/platform-api.env']
+    volumes:
+      - stack-ca:/ca:ro
+    networks: [app]
+    # P8: a starting limit; the owner's deploy measures it, and the limit is set from that.
+    mem_limit: 384m
+
+  # Spec 0027 P6, P7: the platform console, its own signed image. It holds no secret.
+  console:
+    image: ${UNIVARSE_CONSOLE_IMAGE:?pnpm stack:deploy sets the verified image}
+    <<: *hardening
+    env_file: ['${UNIVARSE_STACK_DIR:?run pnpm stack:init}/console.env']
+    networks: [app]
+    mem_limit: 384m
+
   caddy:
     image: caddy:2.11.7@sha256:685ae3d7c34d9b5f8caeddc5d14051db7bbd88ff1f5a2fa0c16bd8ca328fb7af
     <<: *hardening
@@ -259,7 +280,10 @@ services:
     mem_limit: 128m
 
 networks:
-  edge: {}
+  # Spec 0027 P4: a fixed subnet, so its gateway (where a browser on this machine reaches Caddy from) is known: the
+  # console's allowlist. tools/stack/src/config.ts EDGE_SUBNET and EDGE_GATEWAY hold the same values.
+  edge:
+    ipam: { config: [{ subnet: 172.31.218.0/24, gateway: 172.31.218.1 }] }
   app:
     internal: true
     ipam: { config: [{ subnet: 172.31.219.0/24 }] }

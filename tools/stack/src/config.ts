@@ -42,6 +42,7 @@ export const ROLE_VARS = Object.freeze({
   web: 'UNIVARSE_WEB_IMAGE',
   migrate: 'UNIVARSE_MIGRATE_IMAGE',
   pgbouncer: 'UNIVARSE_PGBOUNCER_IMAGE',
+  console: 'UNIVARSE_CONSOLE_IMAGE',
 });
 export type Role = keyof typeof ROLE_VARS;
 
@@ -54,8 +55,23 @@ export const APP_SUBNET = '172.31.219.0/24';
 export const CADDY_IP = '172.31.219.10';
 export const WEB_IP = '172.31.219.11';
 
-/** D10: the sum of the long-running containers' memory limits, without ClamAV (a profile), must stay within this. */
-export const MEMORY_BUDGET_MB = 3584;
+/**
+ * Spec 0027 P4: the `edge` network's fixed address plan. Docker publishes Caddy's ports on 127.0.0.1, and a browser on
+ * this machine reaches Caddy from the network's gateway (measured on the owner's machine: the gateway, never
+ * 127.0.0.1). So the console's allowlist is that one address, at the edge and in the platform API; a container joined
+ * to `edge` gets an address of its own and is refused.
+ */
+export const EDGE_SUBNET = '172.31.218.0/24';
+export const EDGE_GATEWAY = '172.31.218.1';
+/** The console's host on the stack (P2). */
+export const CONSOLE_HOST = `console.${STACK_DOMAIN}`;
+
+/**
+ * D10: the sum of the long-running containers' memory limits, without ClamAV (a profile), must stay within this.
+ * Spec 0027 P8: 3584 plus the platform API's and the console's starting limits (384 each), until the owner's deploy
+ * measures them and their limits, and this, are set from it.
+ */
+export const MEMORY_BUDGET_MB = 4352;
 
 const DIGEST_REF = /^[a-z0-9][a-z0-9._/:-]*@sha256:[0-9a-f]{64}$/;
 /** LS2: an image reference the stack may run: a repository pinned by digest (a tag alone never). */

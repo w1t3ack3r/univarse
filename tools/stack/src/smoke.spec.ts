@@ -2,7 +2,7 @@
 // runs after every deploy (smoke.ts); this pins what it refuses.
 import { describe, expect, it } from 'vitest';
 import { nextEntry, WAIVER_STATEMENT } from './ledger/chain.js';
-import { auditProblems, HSTS, hstsProblems, tokenReport, waiverNotice } from './smoke.js';
+import { allowlistProblems, auditProblems, HSTS, hstsProblems, PROBES, tokenReport, waiverNotice } from './smoke.js';
 
 describe('[LS7] HSTS at the edge (B1)', () => {
   it('[LS7] one header with the stack value passes', () => {
@@ -94,5 +94,31 @@ describe('[0023 T5] the tokens in the smoke check', () => {
       'the backup token is missing from vault-init.json: deploy once (its Vault step creates it)',
     ]);
     expect(tokenReport([{ name: 'app', failure: { kind: 'sealed' } }]).problems[0]).toMatch(/Vault is sealed: run `pnpm stack:vault unseal`/);
+  });
+});
+
+describe('[spec 0027 P4] the console allowlist, both layers', () => {
+  const ok = { frame: 200, fromEdge: 404, fromApp: 404, refusalLogged: true };
+  it('allowed from this machine, refused by Caddy on the edge network and by the platform API elsewhere: passes', () => {
+    expect(allowlistProblems(ok)).toEqual([]);
+  });
+
+  it('a console this machine cannot reach, or one the edge network can, fails', () => {
+    expect(allowlistProblems({ ...ok, frame: 404 }).join()).toMatch(/from this machine: HTTP 404/);
+    expect(allowlistProblems({ ...ok, fromEdge: 200 }).join()).toMatch(/edge network: HTTP 200/);
+    expect(allowlistProblems({ ...ok, fromEdge: 0 }).join()).toMatch(/edge network: HTTP 0/);
+  });
+
+  it('the platform API reached with a claimed address fails; a 404 that was not its refusal fails too', () => {
+    expect(allowlistProblems({ ...ok, fromApp: 200 }).join()).toMatch(/claiming 172\.31\.218\.1: HTTP 200/);
+    expect(allowlistProblems({ ...ok, refusalLogged: false }).join()).toMatch(/logged no platform\.allowlist_refused/);
+  });
+
+  it('the probes ask for the console by name over TLS through Caddy, and claim the allowed address to the platform API', () => {
+    const edge = PROBES.edge('console.stack.univarse.localhost');
+    expect(edge).toMatch(/host:'caddy',port:8443,servername:'console\.stack\.univarse\.localhost'/);
+    expect(edge).toMatch(/ca\b/);
+    expect(edge).not.toMatch(/rejectUnauthorized/);
+    expect(PROBES.app('172.31.218.1')).toMatch(/host:'platform-api',port:8081.*'x-forwarded-for':'172\.31\.218\.1'/);
   });
 });

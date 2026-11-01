@@ -243,7 +243,7 @@ export class SanitizingSpanProcessor implements SpanProcessor {
 }
 
 export interface TracingOptions {
-  readonly service: 'api' | 'worker';
+  readonly service: 'api' | 'worker' | 'platform-api';
   readonly env: string;
   readonly version: string;
   /** OTLP/HTTP endpoint; with none and no `exporter`, nothing is exported (OB11). */
