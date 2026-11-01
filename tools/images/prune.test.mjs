@@ -727,8 +727,8 @@ test('[P7] a kept five-role release is verified as the five-role set; one signed
   const five = verificationTargets(trust, [A]);
   assert.deepEqual(five.problems, []);
   assert.ok(five.targets.every((t) => t.roles.join() === FIVE.join()));
-  delete trust[`univarse-console@${dg(604)}`];
-  const four = verificationTargets(trust, [A]);
+  const withoutConsole = Object.fromEntries(Object.entries(trust).filter(([, t]) => t.role !== 'console'));
+  const four = verificationTargets(withoutConsole, [A]);
   assert.deepEqual(four.problems, []);
   assert.ok(four.targets.every((t) => t.roles.join() === FOUR.join()));
 });
