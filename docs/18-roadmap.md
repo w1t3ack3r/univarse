@@ -153,9 +153,9 @@ Each roadmap line checked against the repository, CI and the decision log.
 
 **Separate follow-up, not an exit requirement:** a clean local E2E run. **Closed 2026-10-13 with containerised evidence:** the local release rehearsal of `12524dd` (spec 0013) ran the full browser suite locally against the containerised API, worker and web: **32 passed, no flakes**. The owner accepted that run as closing this follow-up. It is containerised evidence, not a run of `pnpm test:e2e` against the dev servers.
 
-## Phase 1 — Platform control plane (~6–8 wks)
+## Phase 1 — Platform control plane (~7–9 wks)
 
-**Plan:** [spec 0025](specs/0025-phase-1-control-plane.md), approved by the owner on 2026-10-28 (A1–A14, the extras E1–E12). Re-estimated from ~4 weeks: at Phase 0's pace, S0–S8 is 6 to 8 weeks. Each slice gets its own spec before it's built.
+**Plan:** [spec 0025](specs/0025-phase-1-control-plane.md), approved by the owner on 2026-10-28 (A1–A14, the extras E1–E12). Re-estimated from ~4 weeks: at Phase 0's pace, S0–S8 is 6 to 8 weeks, and **7 to 9 with the extras E13 to E27** (spec 0025's amendment of 2026-11-02), mostly in S6. Each slice gets its own spec before it's built.
 
 | Slice | What it delivers | Spec |
 |---|---|---|
@@ -163,14 +163,14 @@ Each roadmap line checked against the repository, CI and the decision log.
 | **S1** The console's shell | `apps/console`; the platform API process; the console host with its allowlist; the `univarse_console` role; the fifth signed image | [0027](specs/0027-console-shell.md): **done** (2026-11-02). PR A (#135) and PR B (#138) merged; released and deployed as `a4d0266`, five images; the smoke proves the allowlist at both layers |
 | **S2** Platform identity | The OWNER bootstrap CLI; login with mandatory TOTP; sessions, step-up; staff invite and roles; `platform.*` permissions; every action audited | [0028](specs/0028-console-identity.md), approved; PR A (the backend) and PR B (the screens and the E2E) **merged**; PR C (the stack's console key, token and secrets, `stack:console owner`) **built** (in review); then the release, the deploy and the owner's first sign-in |
 | **S3** Seeing what happened | The platform audit viewer with chain verification; security events; the monthly access review | to write |
-| **S4** The tenant registry | Tenant list and detail; profile, branding and the regulatory profile; entitlements per tenant | to write |
-| **S5** Provisioning | **BullMQ** ([ADR-019](19-decision-log.md)); the resumable provisioning job; the first IT Admin invite; the go-live checklist | to write |
-| **S6** Approvals, suspension, notices | The two-person engine; suspend and resume; announcements and maintenance notices with a delivery log | to write |
+| **S4** The tenant registry | Tenant list and detail; profile, branding and the regulatory profile; entitlements per tenant; global search | to write |
+| **S5** Provisioning | **BullMQ** ([ADR-019](19-decision-log.md)); the resumable provisioning job, from an institution template (university, polytechnic, college of education); the first IT Admin invite; the go-live checklist | to write |
+| **S6** Approvals, suspension, notices | The two-person engine; suspend and resume; announcements and maintenance notices with a delivery log; release rings and release notes; incident records with their status for institutions; the console inbox | to write |
 | **S7** Offboarding and purge | The export window and warnings; the encrypted tenant export; archive; purge as a crypto-shred, by two people | to write |
 | **S8** Shards and migrations | The shard view; migration runs per shard | to write |
 
 - **Carried from Phase 0 (owner decision 2026-10-28):** a one-by-one review of the pinned postgres image's 86 HIGH findings: each one reachable or not from how the stack runs PostgreSQL, and what follows. Recheck its 2 assessed CRITICALs, and move the pin when Debian ships the libxml2 fix.
-- **Out of Phase 1, with their triggers (spec 0025):** custom domains (TXT verification, on-demand TLS) wait for hosting (Phase 8); platform invoices and usage wait for students to count (Phase 4); the support channel, plans, and the compliance and operations features are Phase 1b; WebAuthn stays Phase 8.
+- **Out of Phase 1, with their triggers (spec 0025):** custom domains (TXT verification, on-demand TLS) wait for hosting (Phase 8); platform invoices and usage wait for students to count (Phase 4); the support channel, plans, and the compliance and operations features are Phase 1b; WebAuthn stays Phase 8. Console screens that watch something built later arrive with it: Phase 2 (the training sandbox, the import monitor), Phase 3 (messaging delivery, integration status) and Phase 6 (the verification monitor).
 
 **Exit:**
 1. **J1 E2E green:** a tenant is created, provisioned, and its IT Admin activated with MFA, in under 10 minutes.
@@ -182,19 +182,19 @@ Each roadmap line checked against the repository, CI and the decision log.
 7. A two-person action can't be approved by its requester.
 8. Five signed images released, verified and deployed.
 
-## Phase 1b — Support, plans and compliance (~3–4 wks, before Phase 3)
+## Phase 1b — Support, plans and compliance (~4–5 wks, before Phase 3)
 
 The rest of [spec 0025](specs/0025-phase-1-control-plane.md) (owner decision 2026-10-28): built after Phase 2 and before Phase 3, so the first real institution has support and compliance in place before admissions and payments.
 
 | Slice | What it delivers |
 |---|---|
-| **S9** Support and break-glass | Platform tickets from IT Admins with SLA timers ([14](14-observability-and-operations.md)), two-way messages and attachments; the break-glass decision (spec 0025 A14) |
-| **S10** Plans and subscriptions | Plans and subscriptions driving entitlements, prices in `bigint` kobo |
-| **S11** Compliance and operations | The NDPA registers (DPAs, sub-processors, the incident register with its clocks, the audit-return evidence pack) `[VERIFY with counsel]`; the peak-days calendar; the read-only operations snapshot; the key view |
+| **S9** Support and break-glass | Platform tickets from IT Admins with SLA timers ([14](14-observability-and-operations.md)), two-way messages and attachments; the break-glass decision (spec 0025 A14); the help centre |
+| **S10** Plans and subscriptions | Plans and subscriptions driving entitlements, prices in `bigint` kobo; contracts, renewals and key contacts; the onboarding pipeline |
+| **S11** Compliance and operations | The NDPA registers (DPAs, sub-processors, the incident register with its clocks, the audit-return evidence pack) `[VERIFY with counsel]`; the peak-days calendar; the read-only operations snapshot; the key view; adoption and health per institution; peak-load planning and per-institution limits; the data requests register |
 
 **Exit:** each slice's acceptance in spec 0025, plus: an IT Admin raises a ticket and gets a reply, with both sides logged; a plan change changes entitlements, audited; the operations snapshot holds nothing secret (a test).
 
-## Phase 2 — Institution setup (~5 wks)
+## Phase 2 — Institution setup (~6 wks)
 
 - Org units tree, staff profiles, bulk user/staff import with activation invites
 - Programmes, courses, curriculum versions (items, electives, prerequisites), approval
@@ -202,15 +202,17 @@ The rest of [spec 0025](specs/0025-phase-1-control-plane.md) (owner decision 202
 - Settings UI for all `[CONFIG]` keys (grading scheme, approval stages, registration limits, matric template…), branding, integrations screen (gateway keys, write-only)
 - **From Phase 0 (ADR-028):** `ORG_UNIT` and `PROGRAMME` scope enforcement, checked against the loaded resource, with positive and negative tests
 - Generic import framework (upload → validate → preview → commit) used by all modules
+- **The console (spec 0025 E17, E21):** a training sandbox per institution (its configuration in a tenant of its own, with made-up data; on the go-live checklist), and the import monitor (each import's progress and error counts, never its rows)
 
 **Exit:** J2 E2E green. A pilot institution's structure, programmes and curricula are imported from its real spreadsheets (anonymised) without code changes.
 
-## Phase 3 — Admissions & Bursary core (~8 wks)
+## Phase 3 — Admissions & Bursary core (~9 wks)
 
 - Finance: fee items, fee schedules (rule matching, instalments, approval), invoices, **ledger**, **Paystack + Remita adapters** (Flutterwave next), webhooks, verify sweeps, receipts with QR, statements, waivers, reconciliation (daily + CSV upload), bursary reports
 - Admissions: cycles, applicant portal, O'level/DE entry, uploads, form fee, JAMB imports, Post-UTME score import, aggregate & merit lists with quotas, CAPS export/re-import, offers + letters, acceptance fee, document verification, **enrolment → student + matric number**
 - Document generation pipeline (Gotenberg) + `/verify/{code}`
 - Email + SMS adapters, templates, notifications center (basic)
+- **The console (spec 0025 E15, E16):** messaging delivery per institution (sent, delivered, failed; spend; sender-ID approval; the email domain's SPF and DKIM), and integration status per institution (payments, JAMB CAPS, result and identity checks where integrated: connected, last success, failures, webhook health)
 
 **Exit:**
 - J3 E2E green
@@ -279,6 +281,7 @@ Private university, returning students first (fees → registration → results 
 - Clearance templates/cases with auto-checks, officer queues
 - Degree audit, graduation lists with approvals and class of degree, `GRADUATED` status
 - Transcript requests (payment, processing, generation, dispatch tracking), certificates data, public verification hardening (rate limits, anti-enumeration)
+- **The console (spec 0025 E23):** the verification monitor (verifications per institution, and suspicious patterns)
 - NYSC list export
 
 **Exit:** J8 E2E green. The pilot registry issues 20 transcripts matching historical ones.

@@ -1,6 +1,6 @@
 # Spec 0025: Phase 1, the platform control plane: slices and decisions
 
-**Status:** **Approved by the owner on 2026-10-28, all as written:** A1 to A14, the extras E1 to E12, and the recommended sizing: **Phase 1 closes at S0 to S8, and S9 to S11 are Phase 1b**, built before Phase 3. Nothing is built from it until Phase 0 is signed off. Each slice then gets its own spec (its detailed decisions, acceptance criteria and tests) before it's built, the same way Phase 0 went.
+**Status:** **Approved by the owner on 2026-10-28, all as written:** A1 to A14, the extras E1 to E12, and the recommended sizing. **Amended on 2026-11-02 at the owner's request:** the extras E13 to E27 ([below](#amendment-2026-11-02-the-extras-e13-to-e27)). The sizing: **Phase 1 closes at S0 to S8, and S9 to S11 are Phase 1b**, built before Phase 3. Nothing is built from it until Phase 0 is signed off. Each slice then gets its own spec (its detailed decisions, acceptance criteria and tests) before it's built, the same way Phase 0 went.
 **Phase:** 1 ([18](../18-roadmap.md)): "Platform control plane (~4 wks)".
 **Builds on:**
 
@@ -68,6 +68,34 @@ The docs cover the console's core well. The research below ([sources](#sources))
 | A13 | **Plans and subscriptions now; invoices and usage later.** A plan names its products and a price per student in kobo (`bigint`); a subscription ties a tenant to a plan and drives its entitlements. Platform invoices wait until there are students to count (Phase 4). | Entitlements need plans now; invoicing an institution with no students has nothing to bill. |
 | A14 | **Break-glass is built last in the phase, or deferred.** It's S-priority (05 §1), and a read-only, time-boxed session into a tenant that the tenant can see is a design of its own (its own spec). | It must not be rushed. The owner decides in S9 whether it lands in Phase 1. |
 
+## Amendment, 2026-11-02: the extras E13 to E27
+
+**Added at the owner's request on 2026-11-02:** fifteen more console features, from what running many Nigerian institutions on one platform needs beyond the research above. Each keeps the console's rules: it never reads tenant personal data (counts, statuses and configuration only, written into the platform database by a tenant-side job where needed, as E10 does), and never impersonates anyone (E5). A console screen that watches something arrives with that thing, so some land in later phases. Each is specified in its slice's own spec before it's built.
+
+| # | Extra | Why UniVarse needs it | Where |
+| --- | --- | --- | --- |
+| E13 | **Institution templates** | A university (NUC: 5-point CGPA), a polytechnic (NBTE: ND/HND, its own grading and classes) and a college of education (NCCE) differ from day one. A template seeds the grading scheme, the session and semester structure, carry-over rules and default roles in one choice; the regulatory profile (E7) proposes it. Fewer onboarding mistakes, and the "second tenant in 10 working days" goal (18, Phase 8). | S5 |
+| E14 | **Adoption and health per institution** | Counts only: active users by role, sign-ins, products in use, storage, failed jobs, error rate. An institution struggling quietly shows up before it complains, and renewals have evidence. Written as aggregates by a tenant-side job, like E10. | S11 |
+| E15 | **Messaging delivery per institution** | SMS is costly here and fails in its own ways: DND blocking, and sender IDs that need approval. Messages sent, delivered and failed; spend or credits; sender-ID status; the institution's email domain set up (SPF, DKIM). The first screen to look at when OTPs don't arrive. With Phase 7's cost tracking and caps. | Phase 3 |
+| E16 | **Integration status per institution** | Payments (Paystack; Remita, which federal institutions use under the TSA), JAMB CAPS, and whatever result or identity checks are integrated (WAEC, NECO, NIN: each `[VERIFY]` that an API exists and its terms). Connected or not, last success, recent failures, webhook health. The institution enters its own credentials (write-only, 18 Phase 2); the console sees status only. | Phase 3 |
+| E17 | **A training sandbox per institution** | Its configuration copied into a tenant of its own, filled with made-up data, where staff practise before go-live and before each new process. Never a copy of real data. Provisioned by S5's job; "staff trained in the sandbox" joins the go-live checklist (E6). | Phase 2 |
+| E18 | **Release rings and release notes** | Features reach a pilot ring of institutions first, then the rest (per-tenant flags on S4's entitlements); plain-language release notes go to IT Admins through S6's announcements; the console shows which ring each institution is in. With E9, nothing risky lands on a result day. | S6 |
+| E19 | **Incident records, and status for institutions** | An incident's timeline (started, updates, resolved) and its follow-up, linked to the incident register (E8). Affected institutions see its status in the app, with S6's notices. The public status page still waits for hosting. | S6 |
+| E20 | **Contracts and the onboarding pipeline** | Each institution's contract dates and renewal reminders, and its key contacts (the VC's office, Registrar, Bursar, ICT Director): UniVarse's own business records, not tenant data. A pipeline from prospect to signed, provisioning and live. | S10 |
+| E21 | **The import monitor** | Onboarding imports thousands of students and staff. Each import's progress and its error counts, never its rows. On Phase 2's import framework. | Phase 2 |
+| E22 | **Peak-load planning and per-institution limits** | Before admissions or a results release, the expected load per institution (with E9's calendar), so capacity is checked ahead; per-institution rate limits and abuse blocks during rushes. | S11 |
+| E23 | **The verification monitor** | Public certificate and transcript verifications per institution, and the suspicious patterns (many lookups of one document, enumeration). With Phase 6's verification hardening. | Phase 6 |
+| E24 | **The data requests register** | Under the NDPA a student's request for their data, or its erasure, goes to the institution (the controller), which decides. The platform records the requests it's asked to help with, and their deadlines. With E8 `[VERIFY with counsel]`. | S11 |
+| E25 | **The console inbox** | Approvals waiting for you (E4), SLA timers near breach, failed provisioning steps, security alerts: one place, instead of checking each screen. Grows with each later slice. | S6 |
+| E26 | **Global search** | Any institution by name, short code or subdomain; later tickets and provisioning runs. | S4 |
+| E27 | **The help centre** | Articles and short guides for institutions' users, managed in one place and linked from tickets, so the same question isn't answered fifty times. | S9 |
+
+**What changes:**
+- **Phase 1's slices grow:** S4 (E26), S5 (E13), S6 (E18, E19, E25). Phase 1b's grow: S9 (E27), S10 (E20), S11 (E14, E22, E24).
+- **Later phases gain console screens:** Phase 2 (E17, E21), Phase 3 (E15, E16), Phase 6 (E23).
+- **Sizing:** Phase 1 (S0 to S8) moves from 6 to 8 weeks to **7 to 9**, mostly S6. Phase 1b moves from 3 to 4 weeks to **4 to 5**. Phase 2 moves from about 5 weeks to about 6, and Phase 3 from about 8 to about 9. Each slice's spec re-estimates its own.
+- **Phase 1's exit criteria are unchanged:** these extras are in the slices' own acceptance.
+
 ## The slices, in order
 
 Each slice is a vertical slice (contract → migration → domain → use case → controller → UI → tests → docs), gets its own spec first, and closes with green CI, an owner-run release and deploy where an image changes, and the docs updated. "Release" below means a new signed release is needed.
@@ -78,14 +106,14 @@ Each slice is a vertical slice (contract → migration → domain → use case �
 | **S1. The console's shell** | `apps/console` (Next.js 16, its own CSP with nonces, cookie and environment banner "LOCAL"); the platform API process with `/health`; the edge host `console.stack.univarse.localhost` with the allowlist; the `univarse_console` role; the console image in the release | S0 | **yes** | The host answers from loopback and refuses from elsewhere (a test from a non-allowlisted network); 5 images signed and verified; the smoke covers the console |
 | **S2. Platform identity** | The owner bootstrap CLI; activation; login; mandatory TOTP enrolment with recovery codes shown once; sessions (list, revoke), lockout, new-device email; step-up; staff invite, deactivate and role change (OWNER only); `platform.*` permissions; every action audited | S1 | **yes** | E2E: login without TOTP is impossible; a deactivated member's sessions die at once; the route sweep covers every platform route; unauthorised → 404 |
 | **S3. Seeing what happened** | E1 audit viewer and chain verification; E2 security events; E3 the monthly access review | S2 | yes | Viewing the audit log is audited; a tampered row is detected by the viewer; the review records its attestation |
-| **S4. The tenant registry** | Tenant list and detail (status, shard, domains, products, keys read-only); edit the profile; branding (logo through the files module, colours checked for contrast); E7 the regulatory profile; entitlements per tenant (spec 0003's platform side) | S2 | yes | Changing an entitlement makes the product's routes 404 for that tenant within the cache bound (60 s); every change audited |
-| **S5. Provisioning** | BullMQ in the worker (A8); `ProvisioningJob` and its steps (A9); create a tenant from the console; watch its steps; resume a failed one; E6 the go-live checklist gating ONBOARDING → ACTIVE | S4 | yes | **J1 E2E:** create → provisioned → the IT Admin activated with MFA in under 10 minutes; a step killed halfway resumes without duplicates; cross-tenant: provisioning tenant B never touches tenant A |
-| **S6. Approvals, suspension and notices** | E4 the two-person engine; suspend (with a reason) and resume; platform announcements and maintenance notices to IT Admins (banner and email), targeted or to all; E12 the delivery log | S5 | yes | A suspended tenant's logins get 423 (J10); an approval can't be self-approved, can't be replayed, and executes exactly what was approved; delivery is logged |
+| **S4. The tenant registry** | Tenant list and detail (status, shard, domains, products, keys read-only); edit the profile; branding (logo through the files module, colours checked for contrast); E7 the regulatory profile; entitlements per tenant (spec 0003's platform side); E26 global search | S2 | yes | Changing an entitlement makes the product's routes 404 for that tenant within the cache bound (60 s); every change audited |
+| **S5. Provisioning** | BullMQ in the worker (A8); `ProvisioningJob` and its steps (A9); create a tenant from the console, from an E13 institution template; watch its steps; resume a failed one; E6 the go-live checklist gating ONBOARDING → ACTIVE | S4 | yes | **J1 E2E:** create → provisioned → the IT Admin activated with MFA in under 10 minutes; a step killed halfway resumes without duplicates; cross-tenant: provisioning tenant B never touches tenant A |
+| **S6. Approvals, suspension and notices** | E4 the two-person engine; suspend (with a reason) and resume; platform announcements and maintenance notices to IT Admins (banner and email), targeted or to all; E12 the delivery log; E18 release rings and release notes; E19 incident records and their status for institutions; E25 the console inbox | S5 | yes | A suspended tenant's logins get 423 (J10); an approval can't be self-approved, can't be replayed, and executes exactly what was approved; delivery is logged |
 | **S7. Offboarding and purge** | Offboarding with the 60-day export window and warning emails at 45/30/14/7/1 days; the full tenant export (an encrypted archive, a short-lived link); archive; purge (A12, two people, A7) | S6 | yes | The export opens and matches the tenant's row counts; a purge leaves the tenant `key_destroyed` after a restore (the drill's check, reused); a purge without two approvals is refused |
 | **S8. Shards and migrations** | The shard view; `MigrationRun` per shard with its status; the migrations runner's dashboard | S5 | yes | A failed migration on one shard shows there and blocks nothing else |
-| **S9. Support and break-glass** | Platform tickets from IT Admins with SLA timers (14: P1 1 h, P2 4 business hours, P3 1 business day), two-way messages and attachments; the break-glass decision (A14) | S6 | yes | Only IT Admins (and roles they delegate) raise tickets; every message logged on both sides |
-| **S10. Plans and subscriptions** | A13: plans, subscriptions, entitlements driven by the plan | S4 | yes | Changing a plan changes entitlements, audited; prices are `bigint` kobo end to end |
-| **S11. Compliance and operations** | E8 the NDPA registers; E9 the peak-days calendar; E10 the operations snapshot; E11 the key view | S6 | yes | The incident register shows its clocks; the ops snapshot holds nothing secret (a test); a deploy during a peak day warns |
+| **S9. Support and break-glass** | Platform tickets from IT Admins with SLA timers (14: P1 1 h, P2 4 business hours, P3 1 business day), two-way messages and attachments; the break-glass decision (A14); E27 the help centre | S6 | yes | Only IT Admins (and roles they delegate) raise tickets; every message logged on both sides |
+| **S10. Plans and subscriptions** | A13: plans, subscriptions, entitlements driven by the plan; E20 contracts and the onboarding pipeline | S4 | yes | Changing a plan changes entitlements, audited; prices are `bigint` kobo end to end |
+| **S11. Compliance and operations** | E8 the NDPA registers; E9 the peak-days calendar; E10 the operations snapshot; E11 the key view; E14 adoption and health per institution; E22 peak-load planning and per-institution limits; E24 the data requests register | S6 | yes | The incident register shows its clocks; the ops snapshot holds nothing secret (a test); a deploy during a peak day warns |
 
 **Dependencies:** S0 → S1 → S2 → (S3, S4) → S5 → (S6, S8) → (S7, S9, S11); S10 needs only S4.
 
@@ -115,7 +143,7 @@ The roadmap says about 4 weeks. At Phase 0's pace (spec, review, mutation checks
 - **WebAuthn:** Phase 8 (08 §3.2).
 - **Platform invoices and usage:** Phase 4, when there are students to count (A13).
 - **A per-staff IP allowlist:** a second platform staff member (A6).
-- **Status page** (14): hosting.
+- **The public status page** (14): hosting. Incident status inside the app for institutions is E19, in S6.
 - **Break-glass:** decided in S9 (A14).
 
 ## The owner's steps
@@ -128,7 +156,7 @@ The roadmap says about 4 weeks. At Phase 0's pace (spec, review, mutation checks
 ## Affected docs (in the slices' PRs)
 
 - [18](../18-roadmap.md): Phase 1's build list and exit criteria, and Phase 1b if approved;
-- [05 §1](../05-modules-and-features.md): the extras accepted;
+- [05 §1](../05-modules-and-features.md): the extras accepted (E13 to E27 added with the amendment);
 - [08](../08-security.md): the threat model rows (S0), and A6 and A7;
 - [03 §1](../03-domain-model.md): the new entities and the tenant lifecycle's state machine;
 - [02](../02-architecture.md): the platform API process (A1);
