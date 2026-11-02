@@ -42,12 +42,14 @@ export const RECOVERY_CODE_COUNT = 10;
 export const UNCONFIRMED_FACTOR_TTL_MS = 15 * 60_000;
 export const DEVICE_COOKIE_MAX_AGE_SEC = 365 * 24 * 3600;
 
-const cookie = (name: string, value: string, maxAgeSec: number) => `${name}=${value}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=${String(maxAgeSec)}`;
-export const sessionCookie = (token: string) => cookie(SESSION_COOKIE, token, ABSOLUTE_MS / 1000);
-export const clearedSessionCookie = () => cookie(SESSION_COOKIE, '', 0);
-export const challengeCookie = (token: string) => cookie(CHALLENGE_COOKIE, token, CHALLENGE_TTL_MS / 1000);
-export const clearedChallengeCookie = () => cookie(CHALLENGE_COOKIE, '', 0);
-export const deviceCookie = (id: string) => cookie(DEVICE_COOKIE, id, DEVICE_COOKIE_MAX_AGE_SEC);
+// Each written out in full, as the tenant API's are (session.service.ts): every one host-only, Secure, HttpOnly and
+// SameSite=Strict (a test reads the header).
+const ATTRS = 'Path=/; HttpOnly; Secure; SameSite=Strict';
+export const sessionCookie = (token: string) => `${SESSION_COOKIE}=${token}; ${ATTRS}; Max-Age=${String(ABSOLUTE_MS / 1000)}`;
+export const clearedSessionCookie = () => `${SESSION_COOKIE}=; ${ATTRS}; Max-Age=0`;
+export const challengeCookie = (token: string) => `${CHALLENGE_COOKIE}=${token}; ${ATTRS}; Max-Age=${String(CHALLENGE_TTL_MS / 1000)}`;
+export const clearedChallengeCookie = () => `${CHALLENGE_COOKIE}=; ${ATTRS}; Max-Age=0`;
+export const deviceCookie = (id: string) => `${DEVICE_COOKIE}=${id}; ${ATTRS}; Max-Age=${String(DEVICE_COOKIE_MAX_AGE_SEC)}`;
 
 /** A cookie's value from the header, only in the shape this console issues (43 base64url characters). */
 export function readCookie(header: string | undefined, name: string): string | null {
