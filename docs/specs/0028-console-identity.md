@@ -1,6 +1,6 @@
 # Spec 0028: Phase 1's S2, platform identity
 
-**Status:** Draft, for the owner's approval: Q1 to Q18.
+**Status:** **Approved by the owner on 2026-11-02, all as written:** Q1 to Q18. PR A built; PR B and PR C next.
 **Phase:** 1, slice **S2** of [spec 0025](0025-phase-1-control-plane.md) (A3, A4, A5; E5 as a rule).
 **Builds on:**
 
@@ -65,7 +65,7 @@ The console is the platform's highest-value target (T12). Its sign-in is therefo
 
 ## The owner's steps
 
-- Approve Q1 to Q18.
+- ~~Approve Q1 to Q18.~~ Done on 2026-11-02.
 - After PR C: the release and the deploy, then `pnpm stack:console owner --email <your address> --name "<your name>"`, the activation code from Mailpit (`https://mail.stack.univarse.localhost`), your password, your authenticator app, and your recovery codes, kept offline.
 
 ## Affected docs (in the implementation PRs)
@@ -82,3 +82,57 @@ The console is the platform's highest-value target (T12). Its sign-in is therefo
 - **No "log in as user", ever** (E5); break-glass is Phase 1b's S9.
 - Viewing the audit log and security events (S3); the access review (S3); anything about tenants (S4 on).
 - Per-member address allowlists (A6: once there's more than one member); passkeys (Q17).
+
+## Implementation notes (PR A, 2026-11-02)
+
+**Built:**
+- **The migration** (`20261102120000_platform_identity`): the staff identity tables, the lockout and session columns, and the console role's grants, column by column for `UPDATE`. It also revokes the tenant API's platform role from every staff identity table.
+- **`packages/domain`:** the `platform.*` catalogue, the roles' grants and `evaluatePlatform()`.
+- **`packages/contracts`:** the platform API's request and response shapes, and three problem codes (`staff.email_taken`, `staff.own_account`, `staff.last_owner`).
+- **`apps/api/src/platform/identity/`:**
+  - sessions, credentials (codes, lockout, TOTP under the console key, recovery codes, the sign-in challenge, known devices);
+  - the identity and staff services, the mail outbox and its relay;
+  - the guard, with its decorators and per-address limit;
+  - the routes, and the owner's command (`src/cli/platform-owner.ts`).
+- **Development:** `db:setup` writes the console's pepper, a local key and the SMTP address to `.env.console`, keeping the pepper and key if they exist. `dev-run` starts the platform API only once that file has them. `pnpm console:owner` runs the owner's command.
+- **Docs:** 03, 06, 07, 08, 10, 12 and 18, CLAUDE.md, and ADR-035.
+
+**Evidence:**
+- **Integration** (`platform-identity.int.spec.ts`, 19 tests, and `platform.int.spec.ts`, 10, the role's exact grants and the tenant API's role holding none), against the real platform database as the console role, through the platform API's own HTTP stack. The tests cover:
+  - activation, then enrolment, then the recovery codes;
+  - a password alone opening nothing, and a TOTP step never used twice;
+  - the cookie's attributes, the session cap, and a tenant or forged token opening nothing;
+  - lockout, without revealing whether an account exists;
+  - new-browser mail;
+  - 404 for a missing permission, the same as an unknown route;
+  - step-up before an invite; deactivation ending sessions at once; nobody changing their own role or access; role change and MFA reset;
+  - recovery codes, and password reset;
+  - the first-OWNER refusal, CSRF, and no email in any audit metadata.
+- **Unit:** the role × permission matrix (11), the platform route sweep (6), the per-address limit, the owner's command against a fake transaction (5), the last-OWNER rule (3), the configuration's key rules (4). The API's 412 unit tests pass; the repository typechecks; every touched package is lint-clean.
+- **Mutations: 24 tried, 24 caught:**
+  - the policy (enrolment, role grants, the step-up flag);
+  - the guard (permission, explicit step-up);
+  - sessions (a deactivated member, the cap) and the cookie's `SameSite`;
+  - the TOTP replay guard, single-use recovery and one-time codes, and the lockout;
+  - a password alone giving a session, and a full session before the recovery codes;
+  - a known browser emailed again, and sessions surviving a reset or a deactivation;
+  - one's own account, the last OWNER, an email in audit, a sent mail's body kept;
+  - a second first OWNER, the limiter, and the tenant `VAULT_TOKEN` accepted.
+- **Run locally against the development database,** with the migration applied there. The owner reruns `pnpm db:setup` after merge, to add the console's settings to `.env.console`.
+
+**Decisions made while building, for approval:**
+
+| # | Decision | Why |
+| --- | --- | --- |
+| Q-A1 | **A sign-in challenge table, `platform_mfa_challenge`,** between the password and the second factor (5 minutes, 5 attempts, single use), and `platform_user` gains `failed_login_count` and `locked_until`, `platform_session` `revoke_reason`. | Q2's list missed them; they mirror spec 0001's proven tables, so a password alone is never a session. |
+| Q-A2 | **No `DELETE` for the console role at all:** factors, recovery codes, challenges and sessions are retired by a timestamp, and `UPDATE` is granted column by column. | Q2 allowed deleting expired codes; nothing needs it, and the narrower grant is checked by a test. |
+| Q-A3 | **The tenant API's platform role loses every staff identity table,** `platform_user` and `platform_session` included, which the migrator's default privileges had given it in full. | Found while writing the grants: the tenant API could have read staff password hashes and sessions. Nothing in it used them. |
+| Q-A4 | **The recovery codes' acknowledgement is enforced by the server:** after enrolment the session can only acknowledge them, and only then is it full. | Q7 says "the member confirms they've saved them before the session becomes a full one"; a UI-only step could be skipped. |
+| Q-A5 | **Step-up accepts a recovery code too,** and emails the member when one is used. | The same as the tenant side; a member whose phone is gone can still confirm, and is told. |
+| Q-A6 | **Development uses a local console key,** written by `db:setup` and kept across reruns with the pepper; the stack uses Vault (PR C). | A new key on every `db:setup` would make every development authenticator stop working. Production refuses a local key. |
+| Q-A7 | **Self-service password reset** by an emailed code: it ends every session, and TOTP is still needed to sign in. | Q2 named the purpose; without it, a forgotten password needs an OWNER. |
+| Q-A8 | **The refusals:** 404 `resource.not_found` for a missing permission; 401 with no valid session; 403 `auth.mfa_enrolment_required` and 428 `auth.step_up_required` only to a member who holds the permission. **20 requests a minute per address** on each sign-in route. | Q12's 404, and the tenant API's codes for what to do next. |
+| Q-A9 | **The platform contracts live in `packages/contracts`, outside the tenant API's OpenAPI document.** | The console (PR B) shares them; the tenant API's published contract doesn't describe the platform API. |
+| Q-A10 | **The owner's command prints the member's id, never the email.** | Invariant 8. |
+| Q-A11 | **`dev-run` starts the platform API only when `.env.console` has the console's pepper.** | A file from before S2 would make it refuse to start and, as one child's exit stops them all, take `pnpm dev` down. |
+

@@ -123,15 +123,127 @@ model PlatformUser {
   displayName  String       @map("display_name")
   passwordHash String?      @map("password_hash")
   role         PlatformRole
+  /// Never used; superseded by PlatformMfaFactor (spec 0028 Q2). Dropped in a later release (expand, then contract).
   totpSecretEnc String?     @map("totp_secret_enc")
   isActive     Boolean      @default(true) @map("is_active")
   lastLoginAt  DateTime?    @map("last_login_at") @db.Timestamptz(3)
+  /// Spec 0028 Q9: failed passwords and TOTP codes since the last success; 10 lock the account for 15 minutes.
+  failedLoginCount Int       @default(0) @map("failed_login_count")
+  lockedUntil  DateTime?    @map("locked_until") @db.Timestamptz(3)
   createdAt    DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt    DateTime     @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  sessions PlatformSession[]
+  sessions       PlatformSession[]
+  mfaFactors     PlatformMfaFactor[]
+  recoveryCodes  PlatformRecoveryCode[]
+  mfaChallenges  PlatformMfaChallenge[]
+  oneTimeCodes   PlatformOneTimeCode[]
+  knownDevices   PlatformKnownDevice[]
 
   @@map("platform_user")
+}
+
+/// Spec 0028 Q2, Q3: a member's TOTP factor. The secret is encrypted with the console's own Transit key.
+model PlatformMfaFactor {
+  id           String    @id @default(dbgenerated("uuidv7()")) @db.Uuid
+  userId       String    @map("user_id") @db.Uuid
+  secretEnc    String    @map("secret_enc")
+  confirmedAt  DateTime? @map("confirmed_at") @db.Timestamptz(3)
+  /// Highest accepted TOTP time step: a code for this step or an earlier one is a replay.
+  lastUsedStep BigInt?   @map("last_used_step")
+  lastUsedAt   DateTime? @map("last_used_at") @db.Timestamptz(3)
+  /// Set when replaced or reset; the console role has no DELETE (spec 0028 Q2).
+  revokedAt    DateTime? @map("revoked_at") @db.Timestamptz(3)
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  user PlatformUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("platform_mfa_factor")
+}
+
+/// Spec 0028 Q7: ten single-use recovery codes, hashed with the console's pepper.
+model PlatformRecoveryCode {
+  id        String    @id @default(dbgenerated("uuidv7()")) @db.Uuid
+  userId    String    @map("user_id") @db.Uuid
+  codeHash  Bytes     @unique @map("code_hash")
+  usedAt    DateTime? @map("used_at") @db.Timestamptz(3)
+  revokedAt DateTime? @map("revoked_at") @db.Timestamptz(3)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  user PlatformUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("platform_recovery_code")
+}
+
+/// Spec 0028 Q7: after a correct password, 5 minutes and 5 attempts to give a TOTP or recovery code. Not a session.
+model PlatformMfaChallenge {
+  id        String    @id @default(dbgenerated("uuidv7()")) @db.Uuid
+  userId    String    @map("user_id") @db.Uuid
+  tokenHash Bytes     @unique @map("token_hash")
+  expiresAt DateTime  @map("expires_at") @db.Timestamptz(3)
+  attempts  Int       @default(0)
+  usedAt    DateTime? @map("used_at") @db.Timestamptz(3)
+  revokedAt DateTime? @map("revoked_at") @db.Timestamptz(3)
+  ip        String?
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  user PlatformUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("platform_mfa_challenge")
+}
+
+/// Spec 0028 Q6: emailed 6-digit codes, peppered, 15 minutes, 5 attempts, single use.
+model PlatformOneTimeCode {
+  id        String    @id @default(dbgenerated("uuidv7()")) @db.Uuid
+  userId    String    @map("user_id") @db.Uuid
+  /// ACTIVATION or PASSWORD_RESET (a CHECK constraint).
+  purpose   String
+  codeHash  Bytes     @map("code_hash")
+  attempts  Int       @default(0)
+  expiresAt DateTime  @map("expires_at") @db.Timestamptz(3)
+  usedAt    DateTime? @map("used_at") @db.Timestamptz(3)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  user PlatformUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, purpose])
+  @@map("platform_one_time_code")
+}
+
+/// Spec 0028 Q10: browsers a member has signed in from, by the hash of a random id this console set in a cookie.
+model PlatformKnownDevice {
+  id          String   @id @default(dbgenerated("uuidv7()")) @db.Uuid
+  userId      String   @map("user_id") @db.Uuid
+  deviceHash  Bytes    @map("device_hash")
+  firstSeenAt DateTime @default(now()) @map("first_seen_at") @db.Timestamptz(3)
+  lastSeenAt  DateTime @default(now()) @map("last_seen_at") @db.Timestamptz(3)
+
+  user PlatformUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, deviceHash])
+  @@map("platform_known_device")
+}
+
+/// Spec 0028 Q4: the console's mail, written in the transaction of the action it reports and sent by the platform
+/// API's own relay. The body is cleared once sent: it may hold a one-time code.
+model PlatformMailOutbox {
+  id            String    @id @default(dbgenerated("uuidv7()")) @db.Uuid
+  toAddress     String    @map("to_address")
+  subject       String
+  body          String
+  /// PENDING, SENT or FAILED (a CHECK constraint).
+  status        String    @default("PENDING")
+  attempts      Int       @default(0)
+  nextAttemptAt DateTime  @default(now()) @map("next_attempt_at") @db.Timestamptz(3)
+  sentAt        DateTime? @map("sent_at") @db.Timestamptz(3)
+  lastError     String?   @map("last_error")
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  @@index([status, nextAttemptAt])
+  @@map("platform_mail_outbox")
 }
 
 model PlatformSession {
@@ -143,9 +255,14 @@ model PlatformSession {
   idleExpiresAt     DateTime  @map("idle_expires_at") @db.Timestamptz(3)
   absoluteExpiresAt DateTime  @map("absolute_expires_at") @db.Timestamptz(3)
   mfaAt             DateTime? @map("mfa_at") @db.Timestamptz(3)
+  /// Spec 0028 Q7: enrolment-only, for a member without a confirmed TOTP factor.
+  restricted        Boolean   @default(false)
+  /// Spec 0028 Q11: the last step-up on this session.
+  stepUpAt          DateTime? @map("step_up_at") @db.Timestamptz(3)
   ip                String?
   userAgent         String?   @map("user_agent")
   revokedAt         DateTime? @map("revoked_at") @db.Timestamptz(3)
+  revokeReason      String?   @map("revoke_reason")
 
   user PlatformUser @relation(fields: [userId], references: [id], onDelete: Cascade)
 

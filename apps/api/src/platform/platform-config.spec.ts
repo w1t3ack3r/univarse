@@ -3,7 +3,13 @@ import { API_CONTROLLERS } from '../app.module.js';
 import { allowlist, foreignCredentials, loadPlatformConfig } from './platform-config.js';
 import { PLATFORM_CONTROLLERS } from './platform.module.js';
 
-const OWN = { CONSOLE_DATABASE_URL: 'postgresql://univarse_console:x@127.0.0.1:5432/univarse_platform' };
+const OWN = {
+  CONSOLE_DATABASE_URL: 'postgresql://univarse_console:x@127.0.0.1:5432/univarse_platform',
+  CONSOLE_CODE_PEPPER: 'p'.repeat(43),
+  CONSOLE_VAULT_TOKEN: 'hvs.console-test-token',
+  VAULT_ADDR: 'https://vault:8200',
+  SMTP_URL: 'smtp://mailpit:1025',
+};
 
 describe('[P5] the platform API holds no tenant or app credential', () => {
   it('starts with its own URL alone, and defaults the allowlist to loopback outside production', () => {
@@ -68,5 +74,31 @@ describe('[P1] the tenant API and the platform API share no controller', () => {
       const path = String(Reflect.getMetadata('path', c) ?? '');
       expect(path.replace(/^\/+/, '').startsWith('api/platform')).toBe(false);
     }
+  });
+});
+
+describe('[spec 0028 Q3, Q6] the console key and pepper', () => {
+  it('needs its own pepper; the tenant API\'s SESSION_PEPPER is refused', () => {
+    const { CONSOLE_CODE_PEPPER: _p, ...noPepper } = OWN;
+    expect(() => loadPlatformConfig({ ...noPepper, NODE_ENV: 'development' })).toThrow(/CONSOLE_CODE_PEPPER/);
+    expect(() => loadPlatformConfig({ ...OWN, NODE_ENV: 'development', SESSION_PEPPER: 'x'.repeat(40) })).toThrow(/SESSION_PEPPER: set, but the platform API holds no tenant/);
+  });
+
+  it('Vault needs its own token and address; the tenant API\'s VAULT_TOKEN is refused', () => {
+    const { CONSOLE_VAULT_TOKEN: _t, ...noToken } = OWN;
+    expect(() => loadPlatformConfig({ ...noToken, NODE_ENV: 'development' })).toThrow(/CONSOLE_VAULT_TOKEN: required/);
+    expect(() => loadPlatformConfig({ ...OWN, NODE_ENV: 'development', VAULT_TOKEN: 'hvs.tenant-token' })).toThrow(/VAULT_TOKEN: set, but/);
+  });
+
+  it('in production: no local key, and no plaintext Vault', () => {
+    const prod = { ...OWN, NODE_ENV: 'production', CONSOLE_ALLOWLIST: '172.31.218.1' };
+    expect(loadPlatformConfig(prod).CONSOLE_KEY_PROVIDER).toBe('vault');
+    expect(() => loadPlatformConfig({ ...prod, CONSOLE_KEY_PROVIDER: 'local', CONSOLE_LOCAL_KEK: 'k'.repeat(44) })).toThrow(/local is refused in production/);
+    expect(() => loadPlatformConfig({ ...prod, VAULT_ADDR: 'http://vault:8200' })).toThrow(/VAULT_ADDR: .*https/);
+  });
+
+  it('a local key outside production needs the key itself', () => {
+    expect(() => loadPlatformConfig({ ...OWN, NODE_ENV: 'development', CONSOLE_KEY_PROVIDER: 'local' })).toThrow(/CONSOLE_LOCAL_KEK: required/);
+    expect(loadPlatformConfig({ ...OWN, NODE_ENV: 'development', CONSOLE_KEY_PROVIDER: 'local', CONSOLE_LOCAL_KEK: 'k'.repeat(44) }).CONSOLE_KEY_PROVIDER).toBe('local');
   });
 });

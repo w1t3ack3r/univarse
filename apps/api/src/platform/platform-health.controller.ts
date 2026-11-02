@@ -1,6 +1,7 @@
 import { Controller, Get, HttpCode, Inject, Logger } from '@nestjs/common';
 import type { PlatformClient } from '@univarse/db';
 import { ProblemError } from '../shared/errors/problem.js';
+import { PlatformPublic } from './identity/access.js';
 import { CONSOLE_DB } from './platform-config.js';
 
 const withTimeout = <T>(p: Promise<T>, ms: number) =>
@@ -8,6 +9,7 @@ const withTimeout = <T>(p: Promise<T>, ms: number) =>
 
 /** The platform API's health (docs/14 §7): ready means the platform database answers as the console role. */
 @Controller('health')
+@PlatformPublic() // outside the allowlist too (spec 0027 P-A4); the edge never routes it
 export class PlatformHealthController {
   private readonly logger = new Logger('PlatformHealth');
 

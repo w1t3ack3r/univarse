@@ -74,6 +74,13 @@ describe('[OB7] the security stream', () => {
         'http.csrf_rejected',
         'products.route_undeclared',
         'platform.allowlist_refused',
+        'platform.account.locked',
+        'platform.session.invalid_token',
+        'platform.step_up.failed',
+        'platform.rate_limited',
+        'platform.mail.failed',
+        'platform.route_undeclared',
+        'platform.staff.changed',
       ].sort(),
     );
   });

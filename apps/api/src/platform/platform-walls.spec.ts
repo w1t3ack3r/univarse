@@ -10,7 +10,7 @@ const GATEWAY = '172.31.218.1';
 
 async function app() {
   const f = Fastify({ trustProxy: [EDGE] });
-  registerPlatformWalls(f, loadPlatformConfig({ NODE_ENV: 'test', CONSOLE_DATABASE_URL: 'postgresql://x', CONSOLE_ALLOWLIST: GATEWAY }));
+  registerPlatformWalls(f, loadPlatformConfig({ NODE_ENV: 'test', CONSOLE_DATABASE_URL: 'postgresql://x', CONSOLE_ALLOWLIST: GATEWAY, CONSOLE_CODE_PEPPER: 'p'.repeat(43), CONSOLE_KEY_PROVIDER: 'local', CONSOLE_LOCAL_KEK: 'k'.repeat(44), SMTP_URL: 'smtp://mailpit:1025' }));
   f.get('/api/platform/v1/staff', () => ({ reached: 'platform' }));
   f.get('/api/v1/auth/me', () => ({ reached: 'tenant-shaped' }));
   f.get('/health/live', () => ({ status: 'ok' }));

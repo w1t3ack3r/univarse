@@ -560,3 +560,21 @@ Alternatives considered: option — why not.
 - Every later console slice is built inside these walls; its grants arrive slice by slice in its own migrations.
 
 **Alternatives considered:** platform routes inside the tenant API behind a guard (one forgotten guard away from T28); a separate API image (a second build and signature of the same code); `127.0.0.1` as the allowlist (refuses the owner, measured). Each is rejected in spec 0027's P table.
+
+## ADR-035 — The console's own key and its own mail
+**Status:** Accepted (2026-11-02) with [spec 0028](specs/0028-console-identity.md) Q3 and Q4. **Implemented** in its PR A (development and tests); the stack's Vault key and token arrive with its PR C.
+
+**Context:**
+- Platform staff need TOTP from their first sign-in, and a TOTP secret must be encrypted at rest (docs/07 §8). The tenant API's secrets are encrypted under the tenant KEK, through a token the platform API refuses to hold (spec 0027 P-A2).
+- Staff sign-in sends mail (activation codes, lockouts, new browsers, staff changes), and invariant 6 puts each message in the transaction of its action. The tenant API's mail goes through the tenant outbox and the tenant worker.
+
+**Decision:**
+- **Staff TOTP secrets are encrypted with the console's own Vault Transit key, `univarse-console-kek`,** through the platform API's own token, whose policy allows encrypt and decrypt on that key only. The Transit context binds each secret to its member. Production refuses a local key and a plaintext Vault, as for the tenant KEK.
+- **The console's mail goes through its own outbox,** `platform_mail_outbox`, written in the action's transaction, and **its own relay inside the platform API process** sends it, at least once, each message with a stable id. A sent message's body is cleared: it may have held a one-time code.
+
+**Consequences:**
+- The console can't decrypt tenant data, the tenant API can't decrypt staff factors, and neither process can be used to reach the other's secrets.
+- Staff sign-in works while the tenant worker is down, and the tenant worker never holds platform rows (spec 0026 T28).
+- One more Vault key and token to provision, renew (spec 0023) and back up with the stack.
+
+**Alternatives considered:** the tenant KEK (it would hand the platform API the tenant API's most powerful secret); a key in the platform API's env file (on disk, outside Vault's audit); the tenant worker sending console mail (it would couple the two, and read platform rows). Each is rejected in spec 0028's Q table.

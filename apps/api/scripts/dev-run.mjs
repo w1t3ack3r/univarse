@@ -3,12 +3,16 @@
 // older setup keeps working: one child's exit stops them all.
 // tsc-watch restarts this script after each successful build; the children stop with it.
 import { spawn } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
+import { parseEnv } from 'node:util';
 
 const consoleEnv = new URL('../../../.env.console', import.meta.url);
 const entries = ['dist/main.js', 'dist/worker.js'];
-if (existsSync(consoleEnv)) entries.push('dist/platform.js');
-else console.log('[dev] the platform API is not started: no .env.console yet. Run `pnpm db:setup` to create the console role (spec 0027).');
+// Spec 0028: a file from before S2 lacks the console's pepper, and the platform API would refuse to start and, as one
+// child's exit stops them all, take the tenant API and worker down with it.
+const consoleReady = existsSync(consoleEnv) && Boolean(parseEnv(readFileSync(consoleEnv, 'utf8')).CONSOLE_CODE_PEPPER);
+if (consoleReady) entries.push('dist/platform.js');
+else console.log('[dev] the platform API is not started: .env.console is missing or from before spec 0028. Run `pnpm db:setup` (it keeps the console\'s keys if they exist).');
 
 // The tenant API sits behind the dev edge (:4180), as on the stack: on :8099, where the edge and the web app's server
 // components send it, trusting forwarding headers from 127.0.0.1 only (tools/dev-edge/start-api.mjs does the same).
