@@ -10,6 +10,8 @@ import {
   APP_POLICY_HCL,
   classifyVaultFailure,
   configure,
+  CONSOLE_KEK,
+  CONSOLE_POLICY_HCL,
   ensureVault,
   envTokens,
   initialise,
@@ -91,7 +93,7 @@ function fakeVault(o: { sealed?: boolean; initialized?: boolean; lookupError?: s
   return { run, calls, live, policies };
 }
 const TARGET = { container: 'v', tls: false };
-function stackDir(tokens: { appToken?: string; backupToken?: string; appTokenAccessor?: string } = {}) {
+function stackDir(tokens: Partial<Record<'appToken' | 'backupToken' | 'consoleToken' | 'appTokenAccessor' | 'backupTokenAccessor', string>> = {}) {
   const dir = mkdtempSync(join(tmpdir(), 'uv-vault-'));
   writeFileSync(join(dir, 'vault-init.json'), JSON.stringify({ unsealKey: 'UNSEAL', rootToken: ROOT, appToken: '', ...tokens }));
   return dir;
@@ -104,6 +106,7 @@ const noTokenInArguments = (v: ReturnType<typeof fakeVault>, extra: string[] = [
 };
 const APP = 'hvs.APPAPPAPPAPPAPPAPP';
 const BACKUP = 'hvs.BACKUPBACKUPBACKUP';
+const CONSOLE = 'hvs.CONSOLECONSOLECONS';
 const DEAD = 'hvs.DEADDEADDEADDEAD';
 
 describe('[0023 T1] the policies', () => {
@@ -114,23 +117,34 @@ describe('[0023 T1] the policies', () => {
     );
   });
 
-  it('configure writes both policies on every run, so existing tokens gain the new paths', () => {
+  it('configure writes every policy on every run, so existing tokens gain the new paths', () => {
     const v = fakeVault();
     configure(v.run, stackDir(), TARGET);
     expect(v.policies['univarse-app']).toBe(APP_POLICY_HCL);
     expect(v.policies['univarse-backup']).toContain('auth/token/renew-self');
+    expect(v.policies['univarse-console']).toBe(CONSOLE_POLICY_HCL);
+  });
+
+  it("[0028 Q3] the console policy is Transit's encrypt and decrypt on the console's own key, and its own renewal and lookup; never the tenant KEK", () => {
+    expect(CONSOLE_POLICY_HCL).toBe(
+      'path "transit/encrypt/univarse-console-kek" { capabilities = ["update"] }\npath "transit/decrypt/univarse-console-kek" { capabilities = ["update"] }\n' +
+        'path "auth/token/renew-self" { capabilities = ["update"] }\npath "auth/token/lookup-self" { capabilities = ["read"] }\n',
+    );
+    expect(APP_POLICY_HCL).not.toContain(CONSOLE_KEK);
   });
 });
 
 describe('[0023 T4][T6] configure: create, keep, backfill, re-issue', () => {
-  it('first use: both tokens are created, periodic and orphan, each saved with its accessor', () => {
+  it('first use: every token is created, periodic and orphan, each saved with its accessor', () => {
     const v = fakeVault({ initialized: false });
     const dir = mkdtempSync(join(tmpdir(), 'uv-vault-'));
-    expect(initialise(v.run, dir, TARGET).reissued).toEqual([]);
+    const done = initialise(v.run, dir, TARGET);
+    expect([done.reissued, done.created]).toEqual([[], ['app', 'backup', 'console']]);
     const s = saved(dir);
     expect(s.appToken).toMatch(/^hvs\.NEWTOKEN/);
     expect(s.backupToken).toMatch(/^hvs\.NEWTOKEN/);
-    expect([s.appTokenAccessor, s.backupTokenAccessor]).toEqual(['accessor-1', 'accessor-2']);
+    expect(s.consoleToken).toMatch(/^hvs\.NEWTOKEN/);
+    expect([s.appTokenAccessor, s.backupTokenAccessor, s.consoleTokenAccessor]).toEqual(['accessor-1', 'accessor-2', 'accessor-3']);
     for (const c of v.calls.filter((x) => x.args.includes('create'))) expect(c.args).toEqual(expect.arrayContaining(['-no-default-policy', '-period', '768h', '-orphan']));
     noTokenInArguments(v);
   });
@@ -139,7 +153,7 @@ describe('[0023 T4][T6] configure: create, keep, backfill, re-issue', () => {
     const v = fakeVault({ initialized: false });
     initialise(v.run, mkdtempSync(join(tmpdir(), 'uv-vault-')), TARGET, { period: '5s' });
     const creates = v.calls.filter((c) => c.args.includes('create'));
-    expect(creates.length).toBe(2);
+    expect(creates.length).toBe(3);
     expect(creates.every((c) => c.args.includes('5s'))).toBe(true);
   });
 
@@ -147,16 +161,31 @@ describe('[0023 T4][T6] configure: create, keep, backfill, re-issue', () => {
     const v = fakeVault();
     v.live.set(APP, 'accessor-app');
     v.live.set(BACKUP, 'accessor-backup');
-    const dir = stackDir({ appToken: APP, backupToken: BACKUP });
-    expect(configure(v.run, dir, TARGET).reissued).toEqual([]);
-    expect(saved(dir)).toMatchObject({ appToken: APP, appTokenAccessor: 'accessor-app', backupToken: BACKUP, backupTokenAccessor: 'accessor-backup' });
+    v.live.set(CONSOLE, 'accessor-console');
+    const dir = stackDir({ appToken: APP, backupToken: BACKUP, consoleToken: CONSOLE });
+    const done = configure(v.run, dir, TARGET);
+    expect([done.reissued, done.created]).toEqual([[], []]);
+    expect(saved(dir)).toMatchObject({ appToken: APP, appTokenAccessor: 'accessor-app', backupToken: BACKUP, backupTokenAccessor: 'accessor-backup', consoleToken: CONSOLE, consoleTokenAccessor: 'accessor-console' });
     expect(v.calls.filter((c) => c.args.includes('create'))).toEqual([]);
     // The lookup: the root token by environment name, the token itself on stdin.
     const lookups = v.calls.filter((c) => c.args.includes('auth/token/lookup'));
     expect(lookups.map((c) => [c.env, c.input])).toEqual([
       [['VAULT_TOKEN'], APP],
       [['VAULT_TOKEN'], BACKUP],
+      [['VAULT_TOKEN'], CONSOLE],
     ]);
+    noTokenInArguments(v, [APP, BACKUP, CONSOLE]);
+  });
+
+  it('[0028 Q3] a stack from before S2: the console token is created, and reported as created (the deploy recreates the platform API)', () => {
+    const v = fakeVault();
+    v.live.set(APP, 'accessor-app');
+    v.live.set(BACKUP, 'accessor-backup');
+    const dir = stackDir({ appToken: APP, appTokenAccessor: 'accessor-app', backupToken: BACKUP, backupTokenAccessor: 'accessor-backup' });
+    const done = configure(v.run, dir, TARGET);
+    expect([done.reissued, done.created]).toEqual([[], ['console']]);
+    expect(saved(dir).consoleToken).toMatch(/^hvs\.NEWTOKEN/);
+    expect(v.calls.filter((c) => c.args.includes('create')).map((c) => c.args[c.args.indexOf('-policy') + 1])).toEqual(['univarse-console']);
     noTokenInArguments(v, [APP, BACKUP]);
   });
 
@@ -191,10 +220,11 @@ describe('[0023 T3] renewal', () => {
     const v = fakeVault();
     v.live.set(APP, 'a');
     v.live.set(BACKUP, 'b');
-    const r = renewTokens(v.run, stackDir({ appToken: APP, backupToken: BACKUP }), TARGET);
-    expect(r).toEqual({ ok: true, lines: ['app token: renewed, 32.0 days', 'backup token: renewed, 32.0 days'] });
-    expect(v.calls.filter((c) => c.args.includes('renew')).map((c) => c.env)).toEqual([['VAULT_TOKEN'], ['VAULT_TOKEN']]);
-    noTokenInArguments(v, [APP, BACKUP]);
+    v.live.set(CONSOLE, 'c');
+    const r = renewTokens(v.run, stackDir({ appToken: APP, backupToken: BACKUP, consoleToken: CONSOLE }), TARGET);
+    expect(r).toEqual({ ok: true, lines: ['app token: renewed, 32.0 days', 'backup token: renewed, 32.0 days', 'console token: renewed, 32.0 days'] });
+    expect(v.calls.filter((c) => c.args.includes('renew')).map((c) => c.env)).toEqual([['VAULT_TOKEN'], ['VAULT_TOKEN'], ['VAULT_TOKEN']]);
+    noTokenInArguments(v, [APP, BACKUP, CONSOLE]);
   });
 
   it("a refused renewal is reported, never thrown, and doesn't stop the other token's", () => {

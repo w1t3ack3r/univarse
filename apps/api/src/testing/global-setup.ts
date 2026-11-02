@@ -5,10 +5,11 @@ import { existsSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { coverageReport } from './conformance.js';
+import { pruneRetiredTestStaff } from './staff-cleanup.js';
 import { createTenantShardClient } from '@univarse/db';
 import { Redis } from 'ioredis';
 
-export default async function setup(): Promise<() => void> {
+export default async function setup(): Promise<() => Promise<void>> {
   // Spec 0011 OA10: workers append each (operation, status) they see; teardown prints the coverage line.
   const seenFile = join(tmpdir(), `univarse-oa-seen-${String(process.pid)}.jsonl`);
   rmSync(seenFile, { force: true });
@@ -49,8 +50,10 @@ export default async function setup(): Promise<() => void> {
   if (problems.length > 0) {
     throw new Error(`Integration test prerequisites missing:\n  - ${problems.join('\n  - ')}`);
   }
-  return () => {
+  return async () => {
     process.stdout.write(`\n${coverageReport(seenFile)}\n`);
     rmSync(seenFile, { force: true });
+    // Spec 0028: the staff members the platform tests made (and retired in their afterAll), removed from the shared database.
+    await pruneRetiredTestStaff(process.env.PLATFORM_MIGRATOR_URL);
   };
 }

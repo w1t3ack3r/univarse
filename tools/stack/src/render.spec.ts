@@ -6,7 +6,7 @@ import { envText, renderEnvFiles, renderPgBouncerIni, renderPgHba, renderS3Confi
 import { generateSecrets, secretValues } from './secrets.js';
 
 const s = generateSecrets();
-const v = { appToken: 'hvs.test-app-token-0000000000' };
+const v = { appToken: 'hvs.test-app-token-0000000000', consoleToken: 'hvs.test-console-token-00000000' };
 const files = renderEnvFiles(s, v);
 const env = (name: string) => files[name] ?? {};
 /** A URL with its password masked: a failing assertion prints what it compared. */
@@ -142,8 +142,9 @@ describe('[spec 0027] the platform API and the console', () => {
     const names = Object.keys(p);
     expect(names.filter((k) => k.endsWith('_DATABASE_URL'))).toEqual(['CONSOLE_DATABASE_URL']);
     for (const k of ['SESSION_PEPPER', 'VAULT_TOKEN', 'S3_SECRET_KEY', 'LEDGER_S3_SECRET_KEY', 'PLATFORM_RELAY_URL', 'DATA_ENCRYPTION_KEY']) expect([k, names.includes(k)]).toEqual([k, false]);
-    const others = secretValues(s).filter((x) => x !== s.consolePassword);
+    const others = secretValues(s).filter((x) => x !== s.consolePassword && x !== s.consoleCodePepper);
     for (const x of others) expect(envText(p).includes(x)).toBe(false);
+    expect(envText(p).includes(v.appToken)).toBe(false);
   });
 
   it('[P4] it trusts forwarding from Caddy only, and allows only the edge network\'s gateway', () => {
@@ -163,6 +164,19 @@ describe('[spec 0027] the platform API and the console', () => {
     expect(env('migrate.env').ROLE_VERIFIER_CONSOLE).toBe(s.consoleVerifier);
     expect(renderUserlist(s)).toContain(`"univarse_console" "${s.consoleVerifier ?? ''}"`);
     expect(renderUserlist(s)).not.toContain(pw);
+  });
+
+  it('[0028 Q3, Q4, Q6] its own pepper, its own Vault token over TLS, and its own mail: each in platform-api.env only', () => {
+    expect(p).toMatchObject({ CONSOLE_KEY_PROVIDER: 'vault', VAULT_ADDR: 'https://vault:8200', CONSOLE_VAULT_TOKEN: v.consoleToken, CONSOLE_CODE_PEPPER: s.consoleCodePepper, SMTP_URL: 'smtp://mailpit:1025' });
+    expect(p.MAIL_FROM).toBe(`UniVarse Platform <no-reply@${STACK_DOMAIN}>`);
+    for (const [f, e] of Object.entries(files))
+      if (f !== 'platform-api.env') for (const x of [v.consoleToken, s.consoleCodePepper ?? '']) expect([f, envText(e).includes(x)]).toEqual([f, false]);
+  });
+
+  it('[0028 Q3] before Vault has made the console token, the file leaves it out (a blank one is refused by name)', () => {
+    const before = renderEnvFiles(s, { appToken: '' })['platform-api.env'] ?? {};
+    expect(Object.keys(before)).not.toContain('CONSOLE_VAULT_TOKEN');
+    expect(before.CONSOLE_KEY_PROVIDER).toBe('vault');
   });
 
   it('[P7] a secrets file without the console role (a backup set from before spec 0027) renders without it', () => {

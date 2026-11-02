@@ -192,7 +192,7 @@ export function realDeps(): DeployDeps {
     ensureVault: () => {
       const v = ensureVault();
       const lines = [...v.reissued.map((n) => `the ${n} token was invalid or expired: re-issued`), ...v.renewal.lines];
-      return { appTokenReissued: v.reissued.includes('app'), lines };
+      return { appTokenReissued: v.reissued.includes('app'), consoleTokenIssued: v.reissued.includes('console') || v.created.includes('console'), lines };
     },
     buckets,
     recover,

@@ -78,6 +78,19 @@ describe('[LS9] the secrets', () => {
     expect(scramVerifier(consolePassword, Buffer.from(salt ?? '', 'base64'), Number(iter))).toBe(consoleVerifier);
   });
 
+  it('[spec 0028 Q6] a file from before spec 0028 gains only the console’s code pepper, which is then kept; every other secret is kept', async () => {
+    const { consoleCodePepper: _c, ...before } = generateSecrets();
+    const { writeOwnerOnly } = await import('../../../packages/db/scripts/pgbouncer-config.js');
+    writeOwnerOnly(secretsFile(dir), `${JSON.stringify(before)}\n`);
+    expect(saveSecrets(generateSecrets(), { dir })).toBe('upgraded');
+    const { consoleCodePepper = '', ...rest } = loadSecrets(dir);
+    expect(rest).toEqual(before);
+    expect(Buffer.from(consoleCodePepper, 'base64url')).toHaveLength(32);
+    expect(saveSecrets(generateSecrets(), { dir })).toBe('kept');
+    expect(loadSecrets(dir).consoleCodePepper).toBe(consoleCodePepper);
+    expect(secretValues(loadSecrets(dir))).toContain(consoleCodePepper);
+  });
+
   it('[spec 0027 P7] a secrets file without the console role still loads (a backup set from before spec 0027 restores)', async () => {
     const { consolePassword: _p, consoleVerifier: _v, ...before } = generateSecrets();
     const { writeOwnerOnly } = await import('../../../packages/db/scripts/pgbouncer-config.js');

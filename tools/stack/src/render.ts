@@ -28,11 +28,19 @@ export interface StackSecrets {
    */
   readonly consolePassword?: string;
   readonly consoleVerifier?: string;
+  /**
+   * Spec 0028 Q6: the console's own pepper for one-time and recovery codes (never sessionPepper). Optional like the
+   * console role: added by the deploy (secrets.ts ADDITIONS). A new one makes every outstanding code and every saved
+   * recovery code stop working, so it is kept like the others.
+   */
+  readonly consoleCodePepper?: string;
 }
 
 export interface VaultTokens {
   /** Least privilege: encrypt and decrypt with the KEK only (spec 0006). */
   readonly appToken: string;
+  /** Spec 0028 Q3: the platform API's, for the console's Transit key only. Absent until Vault has made it. */
+  readonly consoleToken?: string;
 }
 
 export type EnvFile = Readonly<Record<string, string>>;
@@ -106,7 +114,7 @@ export function renderEnvFiles(s: StackSecrets, v: VaultTokens): Readonly<Record
       STORAGE_UPLOAD_ORIGIN: `https://files.${STACK_DOMAIN}`,
     },
     // Spec 0027: the platform API and the console, when the console role exists (always, on a deploy).
-    ...(s.consolePassword ? consoleEnvFiles(s.consolePassword) : {}),
+    ...(s.consolePassword ? consoleEnvFiles(s, v) : {}),
     // Spec 0020 B-3: the base backup job (libpq's own variables), direct to PostgreSQL over TLS, verified against the
     // stack CA under the name `postgres`, as the REPLICATION-only role. It holds no other secret.
     'backup.env': {
@@ -145,9 +153,10 @@ export function renderEnvFiles(s: StackSecrets, v: VaultTokens): Readonly<Record
  * Spec 0027 P1, P4, P5: the platform API holds the console role's URL (through PgBouncer, like the API) and nothing of the
  * tenant API's: no tenant database, no pepper, no Vault token, no storage key (it refuses to start with any). It trusts
  * forwarding only from Caddy, and allows only the edge network's gateway, where a browser on this machine arrives
- * from. The console app holds no secret at all.
+ * from. Spec 0028: its own code pepper, its own Vault token (the console key only, Q3) and its own mail (Q4), through
+ * the stack's Mailpit. The console app holds no secret at all.
  */
-function consoleEnvFiles(password: string): Readonly<Record<string, EnvFile>> {
+function consoleEnvFiles(s: StackSecrets, v: VaultTokens): Readonly<Record<string, EnvFile>> {
   return {
     'platform-api.env': {
       NODE_ENV: 'production',
@@ -155,9 +164,16 @@ function consoleEnvFiles(password: string): Readonly<Record<string, EnvFile>> {
       NODE_EXTRA_CA_CERTS: '/ca/ca.crt',
       HOST: '0.0.0.0',
       PORT: '8081',
-      CONSOLE_DATABASE_URL: url('univarse_console', password, BOUNCER, 'univarse_platform'),
+      CONSOLE_DATABASE_URL: url('univarse_console', s.consolePassword ?? '', BOUNCER, 'univarse_platform'),
       TRUSTED_PROXIES: CADDY_IP,
       CONSOLE_ALLOWLIST: EDGE_GATEWAY,
+      ...(s.consoleCodePepper ? { CONSOLE_CODE_PEPPER: s.consoleCodePepper } : {}),
+      CONSOLE_KEY_PROVIDER: 'vault',
+      VAULT_ADDR: 'https://vault:8200', // C2: TLS only, verified against the stack CA (NODE_EXTRA_CA_CERTS)
+      // Blank before Vault first made it, and left out then: the platform API refuses a blank token by name.
+      ...(v.consoleToken ? { CONSOLE_VAULT_TOKEN: v.consoleToken } : {}),
+      SMTP_URL: 'smtp://mailpit:1025',
+      MAIL_FROM: `UniVarse Platform <no-reply@${STACK_DOMAIN}>`,
     },
     'console.env': {
       NODE_ENV: 'production',

@@ -1,6 +1,6 @@
 # Spec 0028: Phase 1's S2, platform identity
 
-**Status:** **Approved by the owner on 2026-11-02, all as written:** Q1 to Q18, and PR A's Q-A1 to Q-A11 (with #144). PR A merged; PR B built; PR C next.
+**Status:** **Approved by the owner on 2026-11-02, all as written:** Q1 to Q18, and PR A's Q-A1 to Q-A11 (with #144). PR A and PR B merged (with PR B's Q-B1 to Q-B4); PR C built; then the release and the deploy.
 **Phase:** 1, slice **S2** of [spec 0025](0025-phase-1-control-plane.md) (A3, A4, A5; E5 as a rule).
 **Builds on:**
 
@@ -157,4 +157,26 @@ The console is the platform's highest-value target (T12). Its sign-in is therefo
 | Q-B2 | **The step-up dialog appears only when the API asks** (`auth.step_up_required`), and the change is retried once after it. | The 5-minute window lives on the server; the page never guesses it, so a second change inside the window asks nothing. |
 | Q-B3 | **The QR code is drawn in the browser,** from the URI the API returns, with `qrcode`, as the web app does. | The secret never goes to another service, and no image of it is stored or cached. |
 | Q-B4 | **The E2E makes its members through the console's own database role,** with the API's own hashing and TOTP code, and retires them after the run. | There is no sign-up route to use (Q1), and the owner's command refuses a second OWNER. |
+
+## Implementation notes (PR C, 2026-11-02)
+
+**Built:**
+- **Vault** (`tools/stack/src/vault.ts`): the console's own Transit key, `univarse-console-kek` (AES-256-GCM, derived, like the tenant KEK), its policy `univarse-console` (encrypt and decrypt on that key, and the token's own renewal and lookup; nothing else), and a third periodic token, `consoleToken` in `vault-init.json`. It is made, kept, re-issued when dead and renewed like the other two (spec 0023). The first deploy with S2 creates it on a running stack.
+- **The platform API's settings** (`render.ts`, `secrets.ts`): `platform-api.env` gains the console's own code pepper (a new stack secret, added on the next deploy and kept like the rest), `CONSOLE_KEY_PROVIDER=vault`, `VAULT_ADDR` over TLS, `CONSOLE_VAULT_TOKEN`, and the stack's Mailpit. It still holds nothing of the tenant API's, and no other file holds the console's token or pepper (tests).
+- **Renewal:** the platform API renews its own token at start and every 6 hours (`ConsoleTokenRenewal`), as the API and worker do; only the real process asks for it.
+- **The deploy** recreates the platform API when its token was made or re-issued, after the stack is up and before the smoke check.
+- **The owner's command:** `pnpm stack:console owner --email … --name …` and `--recover --email …` (`tools/stack/src/console.ts`), the `console-owner` job from the deployed API image with `platform-api.env` only. The line is checked before any container starts.
+- **The smoke check** proves the keys' separation after every deploy: the console's token wraps and unwraps with its key, the tenant KEK refuses it, and the app's token can't use the console's key (acceptance criterion 9). Every token's remaining life is reported, the console's included.
+- **Test members:** the API's integration tests and the console's E2E delete, after their run, the retired `@staff.test` members they made, as the migrator, so development's Staff page lists real people only.
+- **Tests:** the stack's unit tests (592: the policy's exact text, the third token's create, keep, renew and re-issue, a stack from before S2, the env file, the recreate, the command line, the smoke's decision); `vault-token.int.ts` on a real Vault in CI, through the platform API's own provider (the console token on its key; the tenant KEK refusing it; the app token refused on the console key; a tenant ciphertext not opening with the console token); the platform API's renewer (2). Locally: the platform integration file (19) and the console's E2E (desktop), each leaving no test member behind.
+- **Mutations: 9 tried, 9 caught:** the console policy on the tenant KEK; no console token; the app token given to the platform API; the pepper left out of its env file, or not added to an existing stack (caught once its test was added); the platform API not recreated; the smoke ignoring a tenant KEK open to the console token; renewal without the flag; a name accepted with `--recover`.
+
+**Decisions made while building, for approval:**
+
+| # | Decision | Why |
+| --- | --- | --- |
+| Q-C1 | **The owner's command is its own one-shot compose job, `console-owner`,** with `platform-api.env` and the same hardening, not `compose run` on the running platform API's service. | Like the `keys` and `migrate` jobs: named, limited, never left running, and checked by the compose tests. |
+| Q-C2 | **The console's key is derived, like the tenant KEK,** and each staff secret is wrapped with a context bound to its member. | A ciphertext copied to another member's row doesn't decrypt. |
+| Q-C3 | **Tests delete their retired test members, as the migrator, after the run** (an `@staff.test` address, no access, READ_ONLY; nothing else). | The console role has no `DELETE` (Q-A2), so tests could only retire; the owner saw 234 of them on the Staff page. The audit log keeps its rows. |
+| Q-C4 | **The smoke check fails if the keys aren't separate,** on every deploy, not only in CI. | Criterion 9 is about this stack's Vault, whose policies a deploy rewrites. |
 
