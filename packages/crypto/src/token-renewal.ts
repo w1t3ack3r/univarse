@@ -43,6 +43,7 @@ export class VaultTokenRenewer {
     try {
       res = await f(`${this.opts.addr.replace(/\/$/, '')}/v1/auth/token/renew-self`, {
         method: 'POST',
+        // codeql[js/file-access-to-http]: by design: the token renews itself at the configured Vault and is sent nowhere else (spec 0023 T3)
         headers: { 'x-vault-token': this.opts.token, 'content-type': 'application/json' },
         body: '{}',
         signal: AbortSignal.timeout(this.opts.timeoutMs ?? 5000),

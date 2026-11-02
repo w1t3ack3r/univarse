@@ -200,10 +200,13 @@ test('[PB10] proofs: an isolated corruption run builds nothing and removes only 
 });
 
 test("[PB10] proofs: --only is validated before any Docker work: unknown or empty selections are refused (owner's probe)", async () => {
+  // Inside a fresh owner-only directory (mkdtemp), never a guessable name in the shared temp directory.
+  const base = mkdtempSync(join(tmpdir(), 'uv-proofs-only-'));
+  test.after(() => rmSync(base, { recursive: true, force: true }));
   for (const only of [['corupted-database'], [], [' '], ['corrupted-database', 'nope']]) {
     const m = mocks();
     await assert.rejects(
-      proveAll({ image: 'x', evidenceDir: join(tmpdir(), 'uv-never-created'), only, deps: m.deps }),
+      proveAll({ image: 'x', evidenceDir: join(base, 'never-created'), only, deps: m.deps }),
       /--only (names unknown control|selected no controls)/,
     );
     assert.equal(m.calls.docker.length, 0);
