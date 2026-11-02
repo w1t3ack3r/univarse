@@ -36,6 +36,21 @@ Surfaces: **C** = platform console · **A** = `/apply` · **St** = `/student` ·
 | **IT Admin ↔ UniVarse support channel**: tenant tickets with SLA timers, two-way messages, attachments | M | Only IT Admins (and roles they delegate) can raise platform tickets. Every message is logged on both sides |
 | Platform health overview (links to Grafana), per-tenant usage | S | |
 | **Support access ("break-glass")**: time-boxed, reason-logged, tenant-visible read-only access | S | Access expires in ≤ 4h. Tenant admin is notified. Every action is audited as `platform:{user}` |
+| **Institution templates** (university, polytechnic, college of education): grading scheme, session structure, carry-over rules and default roles seeded in one choice | M | The regulatory profile proposes the template. Provisioning applies it; settings stay editable after ([spec 0025](specs/0025-phase-1-control-plane.md) E13, S5) |
+| Adoption and health per institution: active users by role, sign-ins, products in use, storage, failed jobs, errors | S | Aggregates only, written by a tenant-side job; never a person's data (E14, S11) |
+| **Messaging delivery per institution:** SMS and email sent, delivered, failed; spend or credits; sender-ID approval; the email domain's SPF and DKIM | M | Counts and statuses only (E15, Phase 3) |
+| **Integration status per institution:** payments (Paystack, Remita), JAMB CAPS, result and identity checks where integrated | M | Connected, last success, recent failures, webhook health. Credentials are the institution's, write-only; the console never sees them (E16, Phase 3) |
+| **Training sandbox per institution:** its configuration in a tenant of its own, with made-up data | S | Never a copy of real data. "Staff trained in the sandbox" is on the go-live checklist (E17, Phase 2) |
+| Release rings and release notes: a pilot ring first, then the rest; notes to IT Admins | S | Per-tenant flags on the entitlements; the console shows each institution's ring (E18, S6) |
+| Incident records (timeline, updates, follow-up) and their status shown to affected institutions | M | Linked to the incident register. The public status page waits for hosting (E19, S6) |
+| Contracts, renewals and key contacts per institution; the onboarding pipeline (prospect → signed → provisioning → live) | S | UniVarse's own business records, not tenant data (E20, S10) |
+| Import monitor: each bulk import's progress and error counts | S | Never the imported rows (E21, Phase 2) |
+| Peak-load planning and per-institution rate limits and abuse blocks | S | With the peak-days calendar (E22, S11) |
+| Verification monitor: public certificate and transcript verifications, and suspicious patterns | S | Counts and patterns per institution (E23, Phase 6) |
+| Data requests register (NDPA): requests an institution asks UniVarse to help with, and their deadlines | S | The institution, as controller, decides `[VERIFY with counsel]` (E24, S11) |
+| Console inbox: approvals waiting, SLA timers near breach, failed provisioning, security alerts | S | (E25, S6) |
+| Global search: institutions by name, short code or subdomain; later tickets and runs | S | (E26, S4) |
+| Help centre: articles and guides for institutions' users, linked from tickets | S | (E27, S9) |
 
 ## 2. Identity & access (W, St, A) — `[PHASE 0]`
 
