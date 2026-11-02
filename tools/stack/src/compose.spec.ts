@@ -3,12 +3,13 @@
 // digests. Needs the Docker CLI (not a running stack).
 import { spawnSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { BlockList } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { envText } from './render.js';
 import { generateSecrets } from './secrets.js';
-import { CADDY_IP, COMPOSE_FILE, EDGE_GATEWAY, EDGE_SUBNET, isDigestRef, MEMORY_BUDGET_MB, PROJECT, ROLE_VARS, THIRD_PARTY, WEB_IP } from './config.js';
+import { APP_DYNAMIC_RANGE, APP_SUBNET, CADDY_IP, COMPOSE_FILE, EDGE_GATEWAY, EDGE_SUBNET, isDigestRef, MEMORY_BUDGET_MB, PROJECT, ROLE_VARS, THIRD_PARTY, WEB_IP } from './config.js';
 
 interface Service {
   image: string;
@@ -26,7 +27,7 @@ interface Service {
 }
 interface Config {
   services: Record<string, Service>;
-  networks: Record<string, { internal?: boolean; ipam?: { config?: { subnet?: string; gateway?: string }[] } }>;
+  networks: Record<string, { internal?: boolean; ipam?: { config?: { subnet?: string; gateway?: string; ip_range?: string }[] } }>;
 }
 
 const STAND_IN = Object.fromEntries(Object.entries(ROLE_VARS).map(([role, v], i) => [v, `localhost:5000/univarse-${role}@sha256:${String(i + 1).repeat(64)}`]));
@@ -77,6 +78,23 @@ describe('[LS1] the shape', () => {
     expect(onDb).toEqual(['migrate', 'pgbackup', 'pgbouncer', 'postgres']);
     expect(Object.keys(svc('pgbackup').networks ?? {})).toEqual(['db']);
     for (const s of ['api', 'worker', 'web', 'platform-api', 'console']) expect(Object.keys(svc(s).networks ?? {})).toEqual(['app']);
+  });
+
+  it('[LS1] every fixed address on the app network is inside its subnet and outside the range Docker hands out', () => {
+    // A redeploy once gave the console Caddy's address: the dynamic range then began at .2, and ten containers reach .10.
+    expect(config.networks.app?.ipam?.config).toEqual([{ subnet: APP_SUBNET, ip_range: APP_DYNAMIC_RANGE }]);
+    const within = (cidr: string, ip: string) => {
+      const [net = '', bits = '32'] = cidr.split('/');
+      const b = new BlockList();
+      b.addSubnet(net, Number(bits));
+      return b.check(ip);
+    };
+    const fixed = Object.entries(config.services).flatMap(([n, s]) => {
+      const ip = (s.networks?.app as { ipv4_address?: string } | null | undefined)?.ipv4_address;
+      return ip ? [[n, ip] as const] : [];
+    });
+    expect(fixed.map(([n]) => n).sort()).toEqual(['caddy', 'web']);
+    for (const [n, ip] of fixed) expect([n, within(APP_SUBNET, ip), within(APP_DYNAMIC_RANGE, ip)]).toEqual([n, true, false]);
   });
 
   it('[spec 0027 P4] the edge network has the fixed subnet whose gateway is the console\'s allowlist', () => {

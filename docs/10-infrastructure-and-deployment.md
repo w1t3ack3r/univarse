@@ -180,6 +180,7 @@ pnpm stack:down                              # stop it; named volumes are kept, 
   - PostgreSQL is on `db` with only PgBouncer and the migrate job;
   - the API, worker and platform API reach the database only through PgBouncer, over TLS verified against the stack CA;
   - `edge` has a fixed subnet, `172.31.218.0/24`, so its gateway `172.31.218.1` is known ([spec 0027](specs/0027-console-shell.md) P4).
+  - on `app`, Caddy (`.10`) and the web app (`.11`) have fixed addresses, and Docker gives every other container one from the top half only (`172.31.219.128/25`), so none can take a fixed one. A change to a network's plan needs `pnpm stack:down` first.
 - **The console** ([spec 0027](specs/0027-console-shell.md)):
   - **Two containers:** `platform-api` (the API image running `dist/platform.js`, holding only the console role's URL) and `console` (the fifth signed image, holding no secret).
   - **Its allowlist is the edge network's gateway.** A browser on this machine reaches Caddy from that address, never from `127.0.0.1` (measured). Caddy answers anything else with an empty 404, and the platform API checks the address again, trusting `X-Forwarded-For` from Caddy only. What really keeps it private here is that Caddy's ports are bound to `127.0.0.1`; production relies on the allowlist.

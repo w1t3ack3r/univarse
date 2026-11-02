@@ -287,7 +287,10 @@ networks:
     ipam: { config: [{ subnet: 172.31.218.0/24, gateway: 172.31.218.1 }] }
   app:
     internal: true
-    ipam: { config: [{ subnet: 172.31.219.0/24 }] }
+    # Docker gives the other containers addresses from ip_range only, the top half, so no container can take a fixed
+    # address below it (Caddy's .10, the web app's .11). Without it, with ten of them (spec 0027), the console took
+    # .10 on a redeploy and Caddy could not start. tools/stack/src/config.ts holds the same plan.
+    ipam: { config: [{ subnet: 172.31.219.0/24, ip_range: 172.31.219.128/25 }] }
   db: { internal: true }
 
 volumes:

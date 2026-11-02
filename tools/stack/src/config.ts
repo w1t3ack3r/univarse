@@ -52,6 +52,8 @@ export type Role = keyof typeof ROLE_VARS;
  * (apps/web/src/lib/server-api.ts), as the dev edge and web do on 127.0.0.1.
  */
 export const APP_SUBNET = '172.31.219.0/24';
+/** Where Docker gives every other container its address: the top half, so it never reaches a fixed one below. */
+export const APP_DYNAMIC_RANGE = '172.31.219.128/25';
 export const CADDY_IP = '172.31.219.10';
 export const WEB_IP = '172.31.219.11';
 
