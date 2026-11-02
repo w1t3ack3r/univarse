@@ -179,3 +179,18 @@ describe('[G10] the PR title', () => {
     assert.match(titleProblem('') ?? '', /empty/);
   });
 });
+
+describe('the CodeQL job (spec 0024 G2, CS12)', () => {
+  it('analyses the whole tree on pull requests too, and sends GitHub nothing', async () => {
+    const { readFileSync } = await import('node:fs');
+    const { load } = await import('js-yaml');
+    const ci = load(readFileSync(new URL('../../.github/workflows/ci.yml', import.meta.url), 'utf8'));
+    const job = ci.jobs.codeql;
+    // Without this, a PR's scan reports only its changed lines: findings elsewhere pass every PR and fail main.
+    assert.equal(String(job.env?.CODEQL_ACTION_DIFF_INFORMED_QUERIES), 'false');
+    const analyze = job.steps.find((s) => String(s.uses ?? '').startsWith('github/codeql-action/analyze@'));
+    assert.equal(analyze.with.upload, 'never');
+    assert.equal(analyze.with['upload-database'], false);
+    assert.deepEqual(job.permissions, { contents: 'read', actions: 'read' });
+  });
+});

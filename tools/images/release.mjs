@@ -6,7 +6,7 @@
 // For producing a verified local deployment — NOT part of the everyday loop (pnpm dev, tests and PR CI are).
 // The signing password is read once (hidden) or from COSIGN_PASSWORD, and reaches cosign only by environment.
 import { createHash, randomBytes } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 import { proveSecretCoverage } from './canary.mjs';
@@ -27,7 +27,9 @@ const opt = (n, d) => (argv.includes(`--${n}`) ? argv[argv.indexOf(`--${n}`) + 1
 const rehearsal = flag('rehearsal');
 const KEY = opt('key', DEFAULT_KEY);
 const PUB = opt('pub', DEFAULT_PUB);
-const WORK = join(tmpdir(), `univarse-release-${Date.now()}`);
+// A fresh, unguessable, owner-only directory (mkdtemp): nothing else on the machine can create or replace it first.
+// Cleanup removes it, failure included.
+const WORK = mkdtempSync(join(tmpdir(), 'univarse-release-'));
 // The images and Dockerfiles come from the trusted ROLES table (release-lib), the same one verification uses.
 const IMAGES = Object.fromEntries(Object.entries(ROLES).map(([role, r]) => [role, r.dockerfile]));
 /** CS1: where each image's own files live, for the inspection (pgbouncer ships one binary under usr/bin). */
@@ -370,6 +372,7 @@ try {
   await main();
   cleanup();
 } catch (e) {
+  // codeql[js/log-injection]: the release's own failure, printed to the owner's terminal that ran it; no log file or other reader
   console.error(`\n[release] FAILED: ${e.message}`);
   cleanup();
   process.exit(1);

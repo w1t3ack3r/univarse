@@ -82,6 +82,7 @@ export class VaultTransitProvider implements KeyProvider {
     try {
       res = await fetch(`${this.opts.addr.replace(/\/$/, '')}/v1/${this.opts.mount}/${op}/${this.opts.key}`, {
         method: 'POST',
+        // codeql[js/file-access-to-http]: by design: the Vault token (from configuration) goes only to the configured Vault, over TLS in production (spec 0019 C1)
         headers: { 'x-vault-token': this.opts.token, 'content-type': 'application/json' },
         body: JSON.stringify(body),
         signal: AbortSignal.timeout(this.opts.timeoutMs ?? 3000),
