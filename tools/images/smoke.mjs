@@ -4,6 +4,7 @@
 // Spec 0027: the console image, and the api image's platform role, run with their own settings only (never the
 // tenant API's), and the platform role refuses to start when handed a tenant credential.
 import { spawnSync } from 'node:child_process';
+import { randomBytes } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { request } from 'node:http';
 import { parseEnv } from 'node:util';
@@ -24,6 +25,17 @@ if (!API_IMAGE || !WEB_IMAGE || !CONSOLE_IMAGE) {
 // The console role's URL, from `pnpm db:setup` (.env.console). Never loaded into this process's environment.
 const consoleEnv = new URL('../../.env.console', import.meta.url);
 const CONSOLE_DATABASE_URL = existsSync(consoleEnv) ? parseEnv(readFileSync(consoleEnv, 'utf8')).CONSOLE_DATABASE_URL : undefined;
+/**
+ * Spec 0028: the rest of what the platform API needs to start, in production mode as the image runs. A fresh pepper;
+ * Mailpit on the host; and a placeholder for the console's Vault token: nothing here signs anyone in, so the console key
+ * is never used (the stack proves it, with its own Transit key and token). The address must be https in production.
+ */
+const PLATFORM_SETTINGS = {
+  CONSOLE_CODE_PEPPER: randomBytes(32).toString('base64url'),
+  VAULT_ADDR: 'https://127.0.0.1:8201',
+  CONSOLE_VAULT_TOKEN: 'smoke-placeholder-not-a-token',
+  SMTP_URL: 'smtp://127.0.0.1:1025',
+};
 
 const API_PORT = '8090';
 const WEB_PORT = '3090';
@@ -86,7 +98,7 @@ try {
   // Spec 0027 P1, P5: the platform API from the same api image, with the console role's URL and nothing else.
   if (!CONSOLE_DATABASE_URL) problems.push('no CONSOLE_DATABASE_URL in .env.console: run pnpm db:setup');
   else {
-    run(N.platform, API_IMAGE, { PORT: PLATFORM_PORT, HOST: '127.0.0.1', CONSOLE_DATABASE_URL, CONSOLE_ALLOWLIST: '127.0.0.1' }, PLATFORM_CMD, true);
+    run(N.platform, API_IMAGE, { PORT: PLATFORM_PORT, HOST: '127.0.0.1', CONSOLE_DATABASE_URL, CONSOLE_ALLOWLIST: '127.0.0.1', ...PLATFORM_SETTINGS }, PLATFORM_CMD, true);
     await waitFor('platform API /health/ready', async () => (await get(PLATFORM_PORT, '/health/ready')) === 200).catch((e) => problems.push(String(e)));
     // Its walls: the tenant API's routes aren't here, and an unknown platform route is the same plain 404.
     for (const path of ['/api/v1/tenant/public-profile', '/api/platform/v1/smoke']) {
@@ -127,7 +139,7 @@ try {
   // Spec 0027 P-A2: handed a tenant credential (named, never shown), the platform API refuses to start.
   if (CONSOLE_DATABASE_URL) {
     const name = `uv-smoke-platform-tenant${runSuffix()}`;
-    const extra = { PORT: '8094', HOST: '127.0.0.1', CONSOLE_DATABASE_URL, CONSOLE_ALLOWLIST: '127.0.0.1', PLATFORM_DATABASE_URL: CONSOLE_DATABASE_URL };
+    const extra = { PORT: '8094', HOST: '127.0.0.1', CONSOLE_DATABASE_URL, CONSOLE_ALLOWLIST: '127.0.0.1', ...PLATFORM_SETTINGS, PLATFORM_DATABASE_URL: CONSOLE_DATABASE_URL };
     const { args, env } = dockerRun({ name, image: API_IMAGE, extra, cmd: PLATFORM_CMD, own: true });
     const r = spawnSync('docker', args, { env, encoding: 'utf8', timeout: 60_000 });
     spawnSync('docker', ['rm', '-f', '-v', name]); // only if it outlived the timeout

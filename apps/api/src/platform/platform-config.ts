@@ -1,4 +1,5 @@
 import { BlockList, isIP } from 'node:net';
+import { keyProviderFrom, vaultAddrProblem, type KeyProvider } from '@univarse/crypto';
 import { z } from 'zod';
 
 /**
@@ -27,6 +28,25 @@ const schema = z.object({
    * gets 404, as an unknown route does. Required in production; development defaults to loopback.
    */
   CONSOLE_ALLOWLIST: cidrList,
+  /**
+   * Spec 0028 Q6: the console's own pepper for one-time and recovery codes (never the tenant API's SESSION_PEPPER,
+   * which this process refuses). Required.
+   */
+  CONSOLE_CODE_PEPPER: z.string().min(32),
+  /**
+   * Spec 0028 Q3: staff TOTP secrets are encrypted with the console's own Transit key, through its own token, whose
+   * policy allows that key only. `local` is for development and tests, and refused in production.
+   */
+  CONSOLE_KEY_PROVIDER: z.enum(['vault', 'local']).default('vault'),
+  VAULT_ADDR: z.url().optional(),
+  CONSOLE_VAULT_TOKEN: z.string().min(8).optional(),
+  VAULT_TRANSIT_MOUNT: z.string().regex(/^[a-z0-9_-]{1,64}$/).default('transit'),
+  CONSOLE_LOCAL_KEK: z.string().min(40).optional(),
+  /** Spec 0028 Q4: the console's mail, sent by its own relay (Mailpit locally). */
+  SMTP_URL: z.string().regex(/^smtps?:\/\//),
+  MAIL_FROM: z.string().min(3).default('UniVarse Platform <no-reply@univarse.localhost>'),
+  /** How often the relay looks for mail; 0 turns it off (tests drive it by hand). */
+  MAIL_RELAY_INTERVAL_MS: z.coerce.number().int().min(0).default(2_000),
 });
 
 export type PlatformConfig = z.infer<typeof schema>;
@@ -53,9 +73,40 @@ export function loadPlatformConfig(env: NodeJS.ProcessEnv = process.env): Platfo
   for (const k of foreignCredentials(env)) issues.push(`  - ${k}: set, but the platform API holds no tenant or app credential (spec 0027 P5)`);
   if (parsed.success && parsed.data.NODE_ENV === 'production' && parsed.data.CONSOLE_ALLOWLIST.length === 0)
     issues.push('  - CONSOLE_ALLOWLIST: required in production (spec 0027 P4)');
+  if (parsed.success) for (const p of consoleKeyProblems(parsed.data)) issues.push(`  - ${p}`);
   if (!parsed.success || issues.length > 0) throw new Error(`Invalid platform API configuration:\n${issues.join('\n')}`);
   const config = parsed.data;
   return config.CONSOLE_ALLOWLIST.length > 0 ? config : { ...config, CONSOLE_ALLOWLIST: ['127.0.0.1', '::1'] };
+}
+
+/** The console key's settings, checked at start (spec 0028 Q3), by name only. */
+function consoleKeyProblems(c: z.infer<typeof schema>): string[] {
+  if (c.CONSOLE_KEY_PROVIDER === 'local') {
+    if (c.NODE_ENV === 'production') return ['CONSOLE_KEY_PROVIDER: local is refused in production (spec 0028 Q3)'];
+    return c.CONSOLE_LOCAL_KEK ? [] : ['CONSOLE_LOCAL_KEK: required for CONSOLE_KEY_PROVIDER=local'];
+  }
+  const problems: string[] = [];
+  if (!c.VAULT_ADDR) problems.push('VAULT_ADDR: required for the console key (spec 0028 Q3)');
+  if (!c.CONSOLE_VAULT_TOKEN) problems.push('CONSOLE_VAULT_TOKEN: required for the console key (spec 0028 Q3)');
+  const plain = vaultAddrProblem({ KEY_PROVIDER: 'vault', NODE_ENV: c.NODE_ENV, VAULT_ADDR: c.VAULT_ADDR });
+  if (c.VAULT_ADDR && plain) problems.push(`VAULT_ADDR: ${plain}`);
+  return problems;
+}
+
+/** The Transit key staff TOTP secrets are encrypted with (spec 0028 Q3): the console's own, never the tenant KEK. */
+export const CONSOLE_KEK = 'univarse-console-kek';
+
+/** The console key's provider: its own token and key, through the same factory and production rules as the API's. */
+export function consoleKeyProvider(c: PlatformConfig): KeyProvider {
+  return keyProviderFrom({
+    KEY_PROVIDER: c.CONSOLE_KEY_PROVIDER,
+    NODE_ENV: c.NODE_ENV,
+    VAULT_ADDR: c.VAULT_ADDR,
+    VAULT_TOKEN: c.CONSOLE_VAULT_TOKEN,
+    VAULT_TRANSIT_MOUNT: c.VAULT_TRANSIT_MOUNT,
+    VAULT_TRANSIT_KEY: CONSOLE_KEK,
+    LOCAL_KEK: c.CONSOLE_LOCAL_KEK,
+  });
 }
 
 /**

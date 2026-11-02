@@ -9,8 +9,9 @@ import { Controller, Get } from '@nestjs/common';
 import type { NestFastifyApplication } from '@nestjs/platform-fastify';
 import { createPlatformClient } from '@univarse/db';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { platformTestConfig } from '../testing/platform-env.js';
+import { PlatformPublic } from './identity/access.js';
 import { createPlatformApp } from './platform-app.js';
-import { loadPlatformConfig } from './platform-config.js';
 
 const consoleEnvFile = new URL('../../../../.env.console', import.meta.url);
 const CONSOLE_DATABASE_URL = existsSync(consoleEnvFile) ? parseEnv(readFileSync(consoleEnvFile, 'utf8')).CONSOLE_DATABASE_URL : undefined;
@@ -18,6 +19,7 @@ if (!CONSOLE_DATABASE_URL) throw new Error('No CONSOLE_DATABASE_URL in .env.cons
 
 /** A route under the platform prefix, so the walls can be seen to let a request through (tests only). */
 @Controller('api/platform/v1/test')
+@PlatformPublic()
 class WallProbeController {
   @Get('probe')
   probe() {
@@ -35,7 +37,7 @@ const get = (url: string, remoteAddress: string, forwardedFor?: string) =>
     .inject({ method: 'GET', url, remoteAddress, headers: { host: 'console.stack.univarse.localhost', ...(forwardedFor ? { 'x-forwarded-for': forwardedFor } : {}) } });
 
 beforeAll(async () => {
-  const config = loadPlatformConfig({ NODE_ENV: 'test', CONSOLE_DATABASE_URL, TRUSTED_PROXIES: EDGE, CONSOLE_ALLOWLIST: GATEWAY });
+  const config = platformTestConfig({ TRUSTED_PROXIES: EDGE, CONSOLE_ALLOWLIST: GATEWAY });
   app = await createPlatformApp(config, { extraControllers: [WallProbeController] });
 });
 afterAll(async () => {
@@ -105,19 +107,50 @@ describe('[P5] the console role, in the database', () => {
     }
   });
 
-  it('holds no privilege on any platform table yet, and no special attribute: each later slice grants its own', async () => {
+  it('holds exactly spec 0028 Q2\'s grants, and no special attribute: each later slice grants its own', async () => {
     const db = as('univarse_platform');
     try {
-      const tables = await db.$queryRaw<{ table_name: string }[]>`
-        SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'
-           AND (has_table_privilege(current_user, quote_ident(table_name), 'SELECT') OR has_table_privilege(current_user, quote_ident(table_name), 'INSERT')
-             OR has_table_privilege(current_user, quote_ident(table_name), 'UPDATE') OR has_table_privilege(current_user, quote_ident(table_name), 'DELETE'))`;
-      expect(tables).toEqual([]);
+      const rows = await db.$queryRaw<{ table_name: string; sel: boolean; ins: boolean; upd: boolean; del: boolean; trunc: boolean }[]>`
+        SELECT table_name,
+               has_table_privilege(current_user, quote_ident(table_name), 'SELECT') AS sel,
+               has_table_privilege(current_user, quote_ident(table_name), 'INSERT') AS ins,
+               has_any_column_privilege(current_user, quote_ident(table_name), 'UPDATE') AS upd,
+               has_table_privilege(current_user, quote_ident(table_name), 'DELETE') AS del,
+               has_table_privilege(current_user, quote_ident(table_name), 'TRUNCATE') AS trunc
+          FROM information_schema.tables WHERE table_schema = 'public' AND table_type = 'BASE TABLE' ORDER BY table_name`;
+      const held = Object.fromEntries(rows.filter((r) => r.sel || r.ins || r.upd || r.del || r.trunc).map((r) => [r.table_name, `${r.sel ? 'S' : ''}${r.ins ? 'I' : ''}${r.upd ? 'U' : ''}${r.del ? 'D' : ''}${r.trunc ? 'T' : ''}`]));
+      expect(held).toEqual({
+        platform_audit_event: 'SI',
+        platform_known_device: 'SIU',
+        platform_mail_outbox: 'SIU',
+        platform_mfa_challenge: 'SIU',
+        platform_mfa_factor: 'SIU',
+        platform_one_time_code: 'SIU',
+        platform_recovery_code: 'SIU',
+        platform_session: 'SIU',
+        platform_user: 'SIU',
+      });
       const role = await db.$queryRaw<{ rolname: string; rolsuper: boolean; rolbypassrls: boolean; rolcreaterole: boolean; rolcreatedb: boolean; rolreplication: boolean }[]>`
         SELECT rolname, rolsuper, rolbypassrls, rolcreaterole, rolcreatedb, rolreplication FROM pg_roles WHERE rolname = current_user`;
       expect(role).toEqual([{ rolname: 'univarse_console', rolsuper: false, rolbypassrls: false, rolcreaterole: false, rolcreatedb: false, rolreplication: false }]);
     } finally {
       await db.$disconnect();
+    }
+  });
+
+  it('the tenant API\'s platform role holds nothing on staff identity (spec 0028 Q2)', async () => {
+    const env = parseEnv(readFileSync(new URL('../../../../.env', import.meta.url), 'utf8'));
+    const app = createPlatformClient(env.PLATFORM_DATABASE_URL ?? 'postgresql://unset');
+    try {
+      const rows = await app.$queryRaw<{ table_name: string }[]>`
+        SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'
+           AND table_name IN ('platform_user', 'platform_session', 'platform_mfa_factor', 'platform_recovery_code', 'platform_mfa_challenge',
+                              'platform_one_time_code', 'platform_known_device', 'platform_mail_outbox')
+           AND (has_table_privilege(current_user, quote_ident(table_name), 'SELECT') OR has_table_privilege(current_user, quote_ident(table_name), 'INSERT')
+             OR has_any_column_privilege(current_user, quote_ident(table_name), 'UPDATE') OR has_table_privilege(current_user, quote_ident(table_name), 'DELETE'))`;
+      expect(rows).toEqual([]);
+    } finally {
+      await app.$disconnect();
     }
   });
 });

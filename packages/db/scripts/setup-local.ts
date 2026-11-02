@@ -19,6 +19,7 @@ import { randomBytes } from 'node:crypto';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { stdin, stdout } from 'node:process';
+import { parseEnv } from 'node:util';
 import pg from 'pg';
 import { bootstrap, CONSOLE_ROLE, DATABASES, POOLED_ROLES, ROLES } from '../../db-ops/src/bootstrap.js';
 import { CONSOLE_ENV_PATH, REPO_ROOT, ROOT_ENV_PATH, WORKER_ENV_PATH } from './env.js';
@@ -109,7 +110,7 @@ async function main() {
   });
   console.log(`  ✓ wrote the relay's connection strings to ${WORKER_ENV_PATH} (git-ignored, worker only)`);
   // Spec 0027 P5: the console role's URL goes to .env.console only, which only the platform API's entrypoint loads.
-  writeOwnEnv(CONSOLE_ENV_PATH, 'the PLATFORM API only (spec 0027 P5)', { CONSOLE_DATABASE_URL: url(CONSOLE_ROLE, consolePassword, 'univarse_platform') });
+  writeOwnEnv(CONSOLE_ENV_PATH, 'the PLATFORM API only (spec 0027 P5, spec 0028)', consoleEnv(url(CONSOLE_ROLE, consolePassword, 'univarse_platform')));
   console.log(`  ✓ wrote the console role's connection string to ${CONSOLE_ENV_PATH} (git-ignored, platform API only)`);
   console.log(`  ✓ wrote connection strings to ${ROOT_ENV_PATH} (git-ignored)`);
   console.log('\nNext: pnpm db:migrate && pnpm rls:check');
@@ -135,6 +136,22 @@ function writePgBouncerFiles(authFile: string) {
 /** The worker's own env file (spec 0016 IO17): the relay's credentials, and nothing else. Replaced whole. */
 function writeWorkerEnv(values: Record<string, string>) {
   writeOwnEnv(WORKER_ENV_PATH, 'the WORKER only (spec 0016 IO17)', values);
+}
+
+/**
+ * The platform API's development settings (spec 0028). The console's pepper and local key are kept when the file
+ * already has them: a new one would make every staff authenticator, recovery code and known device stop working. The
+ * console key is local in development; the stack uses its own Vault Transit key (Q3).
+ */
+function consoleEnv(databaseUrl: string): Record<string, string> {
+  const existing = parseEnv(readIfExists(CONSOLE_ENV_PATH) ?? '');
+  return {
+    CONSOLE_DATABASE_URL: databaseUrl,
+    CONSOLE_CODE_PEPPER: existing.CONSOLE_CODE_PEPPER ?? randomBytes(32).toString('base64url'),
+    CONSOLE_KEY_PROVIDER: 'local',
+    CONSOLE_LOCAL_KEK: existing.CONSOLE_LOCAL_KEK ?? randomBytes(32).toString('base64'),
+    SMTP_URL: 'smtp://127.0.0.1:1025',
+  };
 }
 
 /** An env file only one process loads, owner-only. */

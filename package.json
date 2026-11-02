@@ -37,6 +37,7 @@
     "dev:infra:down": "docker compose -f infra/compose/compose.dev.yml --env-file .env down",
     "test:e2e": "turbo run test:e2e",
     "dev:vault": "node tools/vault-dev.mjs",
+    "console:owner": "pnpm --filter @univarse/api run console:owner --",
     "stack:init": "pnpm --filter @univarse/stack run init",
     "stack:deploy": "pnpm --filter @univarse/stack run deploy",
     "stack:vault": "pnpm --filter @univarse/stack run vault",

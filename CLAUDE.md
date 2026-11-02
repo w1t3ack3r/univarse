@@ -18,6 +18,7 @@ pnpm test               # unit
 pnpm test:int           # integration (Testcontainers)
 pnpm test:e2e           # Playwright
 pnpm rls:check          # RLS/tenant_id checker — must pass
+pnpm console:owner --email <a> --name "<n>"   # the first platform OWNER (development; the stack: stack:console owner). Activation code by email
 pnpm contracts:gen      # regenerate packages/api-client/openapi.json after contract/route changes (a unit test fails if stale)
 pnpm dev:traces         # optional: local OTel Collector (spans → infra/compose/otel/out); set OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:14318
 pnpm --filter @univarse/api test:ob12   # compiled API + worker traced through the collector (needs build + dev:traces)

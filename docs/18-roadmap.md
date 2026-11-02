@@ -161,7 +161,7 @@ Each roadmap line checked against the repository, CI and the decision log.
 |---|---|---|
 | **S0** Phase start | The console's threat-model rows (T23–T30); **Storybook** for `packages/ui` with an accessibility gate in CI ([ADR-027](19-decision-log.md)) | [0026](specs/0026-phase-1-start-threat-model-and-storybook.md), approved; **built** (in review) |
 | **S1** The console's shell | `apps/console`; the platform API process; the console host with its allowlist; the `univarse_console` role; the fifth signed image | [0027](specs/0027-console-shell.md): **done** (2026-11-02). PR A (#135) and PR B (#138) merged; released and deployed as `a4d0266`, five images; the smoke proves the allowlist at both layers |
-| **S2** Platform identity | The OWNER bootstrap CLI; login with mandatory TOTP; sessions, step-up; staff invite and roles; `platform.*` permissions; every action audited | [0028](specs/0028-console-identity.md), draft for approval |
+| **S2** Platform identity | The OWNER bootstrap CLI; login with mandatory TOTP; sessions, step-up; staff invite and roles; `platform.*` permissions; every action audited | [0028](specs/0028-console-identity.md), approved; PR A (the backend) **built** (in review); PR B (the screens) and PR C (the stack, release) next |
 | **S3** Seeing what happened | The platform audit viewer with chain verification; security events; the monthly access review | to write |
 | **S4** The tenant registry | Tenant list and detail; profile, branding and the regulatory profile; entitlements per tenant | to write |
 | **S5** Provisioning | **BullMQ** ([ADR-019](19-decision-log.md)); the resumable provisioning job; the first IT Admin invite; the go-live checklist | to write |

@@ -60,6 +60,8 @@ The platform console is walled off from the tenants at three places, each tested
 
 The images carry the same walls: the image smoke runs the platform API from the API image with the console role's URL only (ready, its 404s, and a refusal to start when handed a tenant credential), and the console image's frame; the console's E2E runs against its image in CI and in every release. The migrate image creates the role, and the smoke reads from the catalogue that it can connect to the platform database only.
 
+**Platform identity** ([spec 0028](specs/0028-console-identity.md)): `platform-routes.spec.ts` sweeps every platform route (each declares its access; the public ones are exactly health and sign-in, each rate-limited; nothing creates a member but an OWNER's invite; every staff change needs `platform.staff.manage`). `permissions.spec.ts` tests the whole role × permission matrix. `platform-identity.int.spec.ts` drives sign-in, enrolment, sessions, lockout, new-browser mail, step-up, staff changes, recovery codes and password reset through the platform API's own HTTP stack against the real database, as the console role.
+
 The platform API's role, `univarse_console`, is checked in the real database: `CONNECT` on the platform database only, read from the catalogue for every UniVarse database, and a real connection to a tenant database refused. A reserved name (`console`, `api`…) never resolves to a tenant.
 
 ### 3.2 Through PgBouncer, in transaction mode ([spec 0017](specs/0017-pgbouncer-isolation.md))

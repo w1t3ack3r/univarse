@@ -14,6 +14,14 @@ export const SECURITY_EVENTS = [
   'products.route_undeclared',
   // Spec 0027 P4: a platform API request from outside the console's allowlist (answered 404).
   'platform.allowlist_refused',
+  // Spec 0028 Q9, Q11, Q12, Q13, Q15: the console's sign-in, step-up, routes, mail and staff changes.
+  'platform.account.locked',
+  'platform.session.invalid_token',
+  'platform.step_up.failed',
+  'platform.rate_limited',
+  'platform.mail.failed',
+  'platform.route_undeclared',
+  'platform.staff.changed',
 ] as const;
 
 export type SecurityEvent = (typeof SECURITY_EVENTS)[number];
