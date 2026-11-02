@@ -62,6 +62,7 @@ async function rootToken() {
   if (!init.initialized) {
     const out = await vault('PUT', 'sys/init', { body: { secret_shares: 1, secret_threshold: 1 } });
     keys = { unsealKey: out.keys_base64[0], rootToken: out.root_token };
+    // codeql[js/http-to-file-access]: by design, dev only: the local dev Vault's own init keys, kept owner-only (0600) in the git-ignored .vault-dev.json
     writeFileSync(keyFile, JSON.stringify(keys, null, 2), { mode: 0o600 });
     console.log('Vault initialised (keys in .vault-dev.json, git-ignored)');
   }
@@ -136,6 +137,7 @@ async function main() {
   set('VAULT_ADDR', ADDR);
   set('VAULT_TOKEN', appToken);
   set('VAULT_ADMIN_TOKEN', adminToken);
+  // codeql[js/http-to-file-access]: by design, dev only: the dev Vault's tokens into the git-ignored .env, owner-only (0600)
   writeFileSync(envPath, next, { mode: 0o600 });
   console.log('Vault ready for UniVarse (.env updated)');
 }

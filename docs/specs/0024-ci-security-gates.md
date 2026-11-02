@@ -249,3 +249,18 @@ The owner chose:
 
 - **A push takes 19 to 105 s.** On this branch every package counts as affected, because the root `package.json` and lockfile changed, so the typecheck builds and checks all 12. The 105 s was the first run, with no turbo cache. A branch touching one package checks only what depends on it.
 - **All 80 recent subjects on `main`** pass the commit-msg check, as they pass the PR-title check.
+
+## A correction (2026-11-02): CodeQL gated only a PR's changed lines
+
+**What was wrong.** On a pull request, the CodeQL action analyses only the lines the PR changed: its "diff-informed" mode, on by default. So every PR's `codeql` passed, while `main`'s, which analyses the whole tree, failed on every push since at least 2026-10-28, with 13 blocking findings. G2 (block on the whole tree) held on `main` and not on PRs, and the red on `main` went unread. On `main` the action also tried to upload its database, which CS12's read-only permissions refused (the `##[error]` after four retries).
+
+**The fix.**
+- **The `codeql` job sets `CODEQL_ACTION_DIFF_INFORMED_QUERIES: 'false'`,** so a PR is gated on the whole tree, like `main`, and **`upload-database: false`**. `security.test.mjs` fails if either is removed, or the job's permissions grow.
+- **The 13 findings, triaged:**
+  - **Fixed, 6** (`js/insecure-temporary-file`): the release's work directory was a guessable name in the shared temp directory, made with `mkdir`; it is now `mkdtemp` (unique, owner-only). The canary and the release's own writes went through it. A PgBouncer proofs test used `join(tmpdir(), …)`; it now uses a `mkdtemp` directory too.
+  - **By design, 7, each with its reason on the line above it** (G4):
+    - the Vault token sent to the configured Vault, in `packages/crypto` (twice);
+    - the edge CA's public certificate used as the smoke check's TLS trust;
+    - the dev Vault's keys and tokens written owner-only to git-ignored files (twice);
+    - the release's failure printed to the owner's terminal;
+    - a test fixture's source text that is scanned, never run.

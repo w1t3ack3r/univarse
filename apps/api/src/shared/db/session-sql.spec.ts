@@ -14,6 +14,7 @@ import {
 const HEAD = `import type { PlatformClient } from '@univarse/db';\nimport { PlatformModels } from '@univarse/db';\nvoid PlatformModels;\n`;
 /** A fixture running `sql` through $executeRawUnsafe (a substitution-free literal). */
 const unsafe = (sql: string) =>
+  // codeql[js/bad-code-sanitization]: a test fixture's source text, scanned by the session-SQL guard and never run; JSON.stringify makes the SQL a string literal
   `${HEAD}export async function f(p: PlatformClient) { await p.$executeRawUnsafe(${JSON.stringify(sql)}); }`;
 
 /** One fixture per PB4 form, each with the problem it must report. */

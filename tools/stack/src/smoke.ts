@@ -48,6 +48,7 @@ const collect = (resolve: (r: Res) => void) => (res: IncomingMessage) => {
 export function get(host: string, path: string): Promise<Res> {
   const ca = readFileSync(join(edgeDir(), 'edge-ca.crt'));
   return new Promise((resolve, reject) => {
+    // codeql[js/file-access-to-http]: by design: the file is the edge CA's public certificate, the trust anchor that verifies the stack's TLS
     const req = httpsRequest({ host: '127.0.0.1', port: 443, servername: host, ca, path, method: 'GET', headers: { host }, timeout: 10_000 }, collect(resolve));
     req.on('timeout', () => req.destroy(new Error('timed out')));
     req.on('error', reject);
