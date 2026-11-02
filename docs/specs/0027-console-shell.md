@@ -1,6 +1,6 @@
 # Spec 0027: Phase 1's S1, the console's shell
 
-**Status:** **Approved by the owner on 2026-10-29, all as written:** P1 to P10.
+**Status:** **Done** (2026-11-02). Approved by the owner on 2026-10-29, all as written: P1 to P10.
 **Phase:** 1, slice **S1** of [spec 0025](0025-phase-1-control-plane.md) (A1, A2, A6, A11).
 **Builds on:**
 
@@ -135,7 +135,7 @@ PR B adds the stack: the image, the deploy, Caddy's console block and allowlist,
 - **Not run locally:** the image build, the image smoke and the console's E2E against the image. The owner's stack was running on this 8 GB machine; CI runs all three, and the release runs them again.
 - **The stack itself** is proved by the owner's release and deploy: the smoke's console checks and the memory measurement (P8) need the running stack.
 
-**Decisions made while building, for approval:**
+**Decisions made while building:** **approved by the owner on 2026-11-01, all as written** (P-B1 to P-B8).
 
 | # | Decision | Why |
 | --- | --- | --- |
@@ -147,4 +147,19 @@ PR B adds the stack: the image, the deploy, Caddy's console block and allowlist,
 | P-B6 | **The allowlist's proof uses the platform API's own image as the probe,** hardened, one network each, and **counts the refusal only when the platform API logs `platform.allowlist_refused`.** | No new image to pin and scan. A 404 alone can't tell a refusal from an unknown route, which is the point of the 404. |
 | P-B7 | **`pnpm dev` starts the dev edge and runs the tenant API on :8099** (CLAUDE.md said :8080), trusting forwarding from `127.0.0.1` only. | The web app's server components and the edge already used :8099; with `pnpm dev` alone, the tenant app couldn't load. |
 | P-B8 | **The image variables for compose stand-ins come from `ROLE_VARS`,** not hand-kept lists. | Five lists had to change for the fifth image; `stack:down` would have failed on the one missed. |
+
+## The release and deploy (2026-11-02): S1 done
+
+- **Released** `a4d0266` (`releases/2026-11-02-a4d0266.json`), five images, not a rehearsal. Every gate passed, among them the console's: the hardened smoke (the platform API ready as the console role, its 404 walls, a tenant credential refused at start; the console's frame), its E2E against the image, and the migrate smoke (the role created, `CONNECT` on the platform database only). The console image: no HIGH or CRITICAL finding.
+- **Deployed** with `pnpm stack:deploy`: the new `edge` network (`172.31.218.0/24`, gateway `172.31.218.1`), `platform-api` and `console` healthy, and the smoke passed: the console's frame from the owner's machine, a tenant host's `/api/platform/*` refused, and the allowlist at both layers (a container on `edge` got Caddy's 404; one on `app` claiming the allowed address got the platform API's 404, and the refusal was logged).
+- **P8, measured** after the deploy, idle and then under three rounds of 80 concurrent requests through the edge (half the console's frame, half the platform API):
+
+  | Container | Idle | Under load | Limit set |
+  | --- | --- | --- | --- |
+  | `console` | 41 MiB | about 60 MiB | 256 MiB |
+  | `platform-api` | 72 MiB | about 73 MiB | 256 MiB (S2's password hashing will add to it; S2 revisits it) |
+
+  The memory budget is 4,096 MiB. The new limits apply at the next deploy (`--commit a4d0266` redeploys the same release with them).
+- **Acceptance criteria:** 1–3 and 5 by PR A's tests; 4 and 6 by the release, the deploy and its smoke; 7 above; 8 by PR A's mutations (18 of 19, the survivor's code removed) and PR B's (21 of 21).
+- **Seen on the way, not S1's:** the daily backup missed three days (the machine off on 2026-10-31; `D:` absent on 2026-11-01; the release holding the registry lock on 2026-11-02). The owner ran one by hand after the deploy: set `20261102T042624Z-e32c`.
 

@@ -245,8 +245,8 @@ services:
     volumes:
       - stack-ca:/ca:ro
     networks: [app]
-    # P8: a starting limit; the owner's deploy measures it, and the limit is set from that.
-    mem_limit: 384m
+    # P8, measured 2026-11-02 under 240 requests: 72-73 MiB. Room for S2's password hashing; S2 revisits it.
+    mem_limit: 256m
 
   # Spec 0027 P6, P7: the platform console, its own signed image. It holds no secret.
   console:
@@ -254,7 +254,8 @@ services:
     <<: *hardening
     env_file: ['${UNIVARSE_STACK_DIR:?run pnpm stack:init}/console.env']
     networks: [app]
-    mem_limit: 384m
+    # P8, measured 2026-11-02: 41 MiB idle, about 60 MiB under 240 requests.
+    mem_limit: 256m
 
   caddy:
     image: caddy:2.11.7@sha256:685ae3d7c34d9b5f8caeddc5d14051db7bbd88ff1f5a2fa0c16bd8ca328fb7af
