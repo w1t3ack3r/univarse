@@ -68,10 +68,10 @@ export const CONSOLE_HOST = `console.${STACK_DOMAIN}`;
 
 /**
  * D10: the sum of the long-running containers' memory limits, without ClamAV (a profile), must stay within this.
- * Spec 0027 P8: 3584 plus the platform API's and the console's starting limits (384 each), until the owner's deploy
- * measures them and their limits, and this, are set from it.
+ * Spec 0027 P8: 3584 plus the platform API's and the console's limits, 256 MiB each, set from the owner's deploy's
+ * measurement (2026-11-02: at most 73 and 60 MiB under load).
  */
-export const MEMORY_BUDGET_MB = 4352;
+export const MEMORY_BUDGET_MB = 4096;
 
 const DIGEST_REF = /^[a-z0-9][a-z0-9._/:-]*@sha256:[0-9a-f]{64}$/;
 /** LS2: an image reference the stack may run: a repository pinned by digest (a tag alone never). */
