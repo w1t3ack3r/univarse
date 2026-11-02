@@ -1,6 +1,6 @@
 # Spec 0029: Practicals: blended laboratory practicals, simulations and virtual labs
 
-**Status:** **Draft, for the owner's approval** (Q1 to Q12 and the phasing). Written 2026-11-02 at the owner's request, after a discussion of online practicals for Phase 4c. Nothing is built from it until its phase starts; each part then gets its own build spec.
+**Status:** **Approved by the owner on 2026-11-02, all as written:** Q1 to Q12 and the phasing. Written the same day at the owner's request, after a discussion of online practicals for Phase 4c. Nothing is built from it until its phase starts; each part then gets its own build spec.
 **Phase:** spread over 4b, 4c and 7 ([18](../18-roadmap.md)); its own lab player after GA.
 **Builds on:**
 
@@ -78,7 +78,7 @@ So Phase 4b moves from about 7 weeks to about 9, Phase 4c from about 5 to about 
 
 ## The owner's steps
 
-- **Approve or change** Q1 to Q12 and the phasing.
+- ~~Approve or change Q1 to Q12 and the phasing.~~ Done: all approved on 2026-11-02.
 - **PhET:** decide whether to ask for a commercial partnership (phet-partnerships@colorado.edu) for the sims published after 29 March 2026; without it, the library keeps the historical versions.
 - **Regulators `[VERIFY]`:** a written view from COREN (and NUC's quality assurance) on how online practicals count, before an institution relies on them for accreditation.
 - **Counsel `[VERIFY]`:** the vendor DPAs for P4 (NDPA), and a review of the PhET historical agreement for a self-hosted, paid platform.
