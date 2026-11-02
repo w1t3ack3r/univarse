@@ -15,6 +15,7 @@ import { docker } from './docker.js';
 import {
   classifyVaultFailure,
   configure,
+  CONSOLE_KEK,
   ensureVault,
   initialise,
   loadVaultInit,
@@ -70,9 +71,9 @@ afterAll(() => {
 });
 
 describe('[0023] the tokens on a real Vault', () => {
-  it('[T6] both tokens are periodic at 768 h, each saved with its accessor', () => {
+  it('[T6] every token is periodic at 768 h, each saved with its accessor', () => {
     const init = loadVaultInit(dir);
-    for (const [token, accessor] of [[init.appToken, init.appTokenAccessor], [init.backupToken ?? '', init.backupTokenAccessor]] as const) {
+    for (const [token, accessor] of [[init.appToken, init.appTokenAccessor], [init.backupToken ?? '', init.backupTokenAccessor], [init.consoleToken ?? '', init.consoleTokenAccessor]] as const) {
       const l = lookupToken(docker, init.rootToken, token, TARGET);
       if (!l.ok) throw new Error(JSON.stringify(l.failure));
       expect(l.info.period).toBe(PERIOD_S);
@@ -81,7 +82,7 @@ describe('[0023] the tokens on a real Vault', () => {
     expect(JSON.stringify(readFileSync(join(dir, 'vault-init.json'), 'utf8'))).toContain('appTokenAccessor');
   });
 
-  it('[T3] renewal resets both TTLs to the full period', async () => {
+  it('[T3] renewal resets every TTL to the full period', async () => {
     await pause(3000);
     expect(renewTokens(docker, dir, TARGET).ok).toBe(true);
     const r = tokenReport(tokenStates(docker, dir, TARGET));
@@ -92,7 +93,7 @@ describe('[0023] the tokens on a real Vault', () => {
   it("[T1] each token renews and looks up itself, and is still refused everything else it wasn't given", () => {
     const init = loadVaultInit(dir);
     const status = (token: string, args: string[]) => vaultCli(docker, args, { VAULT_TOKEN: token }, undefined, TARGET).status;
-    for (const token of [init.appToken, init.backupToken ?? '']) {
+    for (const token of [init.appToken, init.backupToken ?? '', init.consoleToken ?? '']) {
       expect(status(token, ['token', 'renew', '-format=json'])).toBe(0);
       expect(status(token, ['token', 'lookup', '-format=json'])).toBe(0);
       expect(status(token, ['read', 'sys/mounts'])).toBe(2);
@@ -116,7 +117,7 @@ describe('[0023] the tokens on a real Vault', () => {
     if (!own.ok) console.log(`[vault-token.int] a dead token renewing itself: ${JSON.stringify(own.failure)}`);
     // T4: re-issued at the normal period, saved, and working through the app's own provider.
     const c = configure(docker, d, TARGET);
-    expect(c.reissued).toEqual(['app', 'backup']);
+    expect(c.reissued).toEqual(['app', 'backup', 'console']);
     const fresh = loadVaultInit(d);
     expect(fresh.appToken).not.toBe(dead.appToken);
     expect(fresh.appTokenAccessor).not.toBe(dead.appTokenAccessor);
@@ -126,6 +127,22 @@ describe('[0023] the tokens on a real Vault', () => {
     expect(Buffer.compare(await provider.unwrap(await provider.wrap(dek, context), context), dek)).toBe(0);
     rmSync(d, { recursive: true, force: true });
   }, 60_000);
+
+  it("[0028 Q3] the console's key, through the platform API's own provider: its token wraps and unwraps; the tenant KEK refuses it, and the app token can't use the console's key", async () => {
+    const init = loadVaultInit(dir);
+    const consoleKey = (token: string) => new VaultTransitProvider({ addr, token, mount: 'transit', key: CONSOLE_KEK });
+    const tenantKey = (token: string) => new VaultTransitProvider({ addr, token, mount: 'transit', key: 'univarse-kek' });
+    const secret = randomBytes(20);
+    const context = wrapContext(randomUUID(), 1);
+    const own = consoleKey(init.consoleToken ?? '');
+    // A TOTP secret is 20 bytes, not a DEK's 32: the platform API says so (spec 0028; a 32-only unwrap failed here).
+    expect(Buffer.compare(await own.unwrap(await own.wrap(secret, context), context, 20), secret)).toBe(0);
+    await expect(tenantKey(init.consoleToken ?? '').wrap(secret, context)).rejects.toThrow();
+    await expect(consoleKey(init.appToken).wrap(secret, context)).rejects.toThrow();
+    // And a ciphertext from one key never opens with the other's token.
+    const tenantCipher = await tenantKey(init.appToken).wrap(secret, context);
+    await expect(tenantKey(init.consoleToken ?? '').unwrap(tenantCipher, context, 20)).rejects.toThrow();
+  });
 
   it("[T2] the app's renewer keeps a short-period token alive past several periods; stopped, it dies", async () => {
     const d = shortLived(5);

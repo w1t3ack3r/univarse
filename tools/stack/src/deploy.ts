@@ -45,7 +45,7 @@ export interface DeployDeps {
    * Initialises Vault on first use, otherwise completes any missing part of its setup (idempotent), re-issues a token
    * Vault says is dead and renews both (spec 0023 T3, T4). Its lines say what happened to the tokens, never a token.
    */
-  ensureVault(): { appTokenReissued: boolean; lines: string[] };
+  ensureVault(): { appTokenReissued: boolean; consoleTokenIssued: boolean; lines: string[] };
   /** The storage buckets, created if missing (idempotent); returns problems. SeaweedFS must be running. */
   buckets(): string[];
   /**
@@ -182,6 +182,12 @@ export async function deploy(record: ReleaseRecord, commit: string, deps: Deploy
       deps.log('[stack:deploy] recreating api, worker: the app token was re-issued');
       if (deps.compose(['up', '-d', '--wait', '--force-recreate', '--no-deps', 'api', 'worker'], images).status !== 0)
         return { ok: false, problems: ['the API and worker did not come back with the re-issued app token'] };
+    }
+    // Spec 0028 Q3: the same for the platform API's token, made on the first deploy with S2 or re-issued.
+    if (tokens.consoleTokenIssued) {
+      deps.log('[stack:deploy] recreating platform-api: the console token was issued');
+      if (deps.compose(['up', '-d', '--wait', '--force-recreate', '--no-deps', 'platform-api'], images).status !== 0)
+        return { ok: false, problems: ['the platform API did not come back with the console token'] };
     }
 
     // ── LS6: the smoke check.

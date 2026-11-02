@@ -2,8 +2,8 @@
 // container, with the Vault CLI against its own listener: over TLS, verified against the stack CA under the name
 // `vault` (C2). Secrets travel by environment (`-e NAME`) or stdin, never as arguments, and are never printed.
 //   pnpm stack:vault status | init | unseal | migrate-raft <releases/record.json>   (the CLI is vault-cli.ts)
-// `init` runs once: one unseal share (as in development), stored with the root token and the app's least-privilege
-// token in STACK_DIR/vault-init.json, owner-only. After a restart Vault is sealed: the owner runs `unseal`.
+// `init` runs once: one unseal share (as in development), stored with the root token and the least-privilege tokens
+// (the app's, the backup's, the console's) in STACK_DIR/vault-init.json, owner-only. After a restart Vault is sealed: the owner runs `unseal`.
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { writeOwnerOnly } from '../../../packages/db/scripts/pgbouncer-config.js';
@@ -22,10 +22,18 @@ const POLICY = 'univarse-app';
 export const SELF_HCL = 'path "auth/token/renew-self" { capabilities = ["update"] }\npath "auth/token/lookup-self" { capabilities = ["read"] }\n';
 /** The app's policy: Transit encrypt and decrypt on the KEK (spec 0006), and its own renewal (T1). */
 export const APP_POLICY_HCL = `path "${MOUNT}/encrypt/${KEK}" { capabilities = ["update"] }\npath "${MOUNT}/decrypt/${KEK}" { capabilities = ["update"] }\n${SELF_HCL}`;
+/**
+ * Spec 0028 Q3: the console's own Transit key and policy. The platform API's token encrypts and decrypts staff TOTP
+ * secrets with this key only (never the tenant KEK), and the app's token can't use it. Derived like the tenant KEK:
+ * the context binds each ciphertext to its member.
+ */
+export const CONSOLE_KEK = 'univarse-console-kek';
+export const CONSOLE_POLICY = 'univarse-console';
+export const CONSOLE_POLICY_HCL = `path "${MOUNT}/encrypt/${CONSOLE_KEK}" { capabilities = ["update"] }\npath "${MOUNT}/decrypt/${CONSOLE_KEK}" { capabilities = ["update"] }\n${SELF_HCL}`;
 /** Spec 0020 B-4: the backup's policy: a Raft snapshot, read (no Transit, no restore), and its own renewal (T1). */
 export const BACKUP_POLICY = 'univarse-backup';
 export const BACKUP_POLICY_HCL = `path "sys/storage/raft/snapshot" { capabilities = ["read"] }\n${SELF_HCL}`;
-/** Spec 0023: both tokens are periodic: each renewal resets its TTL to this period. */
+/** Spec 0023: every token is periodic: each renewal resets its TTL to this period. */
 export const TOKEN_PERIOD = '768h';
 /** T5: below this, the smoke check fails (a week to act on a renewal that has failed for three weeks). */
 export const TOKEN_MIN_TTL_S = 7 * 24 * 3600;
@@ -48,12 +56,16 @@ export interface VaultInit {
   /** Spec 0023 T6: each token's accessor (for a lookup or a revocation without the token); never printed either. */
   readonly appTokenAccessor?: string;
   readonly backupTokenAccessor?: string;
+  /** Spec 0028 Q3: the platform API's, for the console key only; absent until the first deploy with S2. */
+  readonly consoleToken?: string;
+  readonly consoleTokenAccessor?: string;
 }
 
-/** The stack's two periodic tokens, by their fields in vault-init.json (spec 0023). */
+/** The stack's periodic tokens, by their fields in vault-init.json (spec 0023; the console's, spec 0028 Q3). */
 export const TOKENS = [
   { name: 'app', token: 'appToken', accessor: 'appTokenAccessor', policy: 'univarse-app' },
   { name: 'backup', token: 'backupToken', accessor: 'backupTokenAccessor', policy: BACKUP_POLICY },
+  { name: 'console', token: 'consoleToken', accessor: 'consoleTokenAccessor', policy: CONSOLE_POLICY },
 ] as const;
 export type TokenName = (typeof TOKENS)[number]['name'];
 
@@ -163,7 +175,7 @@ export interface ConfigureOptions {
 }
 
 /**
- * The audit device (C3), Transit, the KEK, the policies and the two least-privilege tokens. Idempotent and resumable:
+ * The audit device (C3), Transit, the KEKs (the tenant's and the console's), the policies and the least-privilege tokens. Idempotent and resumable:
  * each part is created only if missing, so a first deploy that stopped half-way is completed by the next. The audit
  * device comes first, so everything after it is recorded. A token Vault says is dead is re-issued (spec 0023 T4).
  */
@@ -182,10 +194,13 @@ export function configure(run: Runner = docker, dir = STACK_DIR, target: VaultTa
   if (!(`${MOUNT}/` in mounts)) must(['secrets', 'enable', '-path', MOUNT, 'transit'], 'enabling Transit');
   if (vaultCli(run, ['read', '-format=json', `${MOUNT}/keys/${KEK}`], root, undefined, target).status !== 0)
     must(['write', '-f', `${MOUNT}/keys/${KEK}`, 'type=aes256-gcm96', 'derived=true'], 'creating the KEK');
+  if (vaultCli(run, ['read', '-format=json', `${MOUNT}/keys/${CONSOLE_KEK}`], root, undefined, target).status !== 0)
+    must(['write', '-f', `${MOUNT}/keys/${CONSOLE_KEK}`, 'type=aes256-gcm96', 'derived=true'], "creating the console's key");
   // The policies are rewritten every time, so an existing token gains a policy's new paths (T1) at the next deploy:
   // a token's policies are evaluated by name.
   must(['policy', 'write', POLICY, '-'], 'writing the app policy', APP_POLICY_HCL);
   must(['policy', 'write', BACKUP_POLICY, '-'], 'writing the backup policy', BACKUP_POLICY_HCL);
+  must(['policy', 'write', CONSOLE_POLICY, '-'], 'writing the console policy', CONSOLE_POLICY_HCL);
   const create = (p: string, what: string) => {
     const a = (JSON.parse(must(['token', 'create', '-policy', p, '-no-default-policy', '-period', opts.period ?? TOKEN_PERIOD, '-orphan', '-format=json'], what).stdout) as { auth: { client_token: string; accessor: string } }).auth;
     return { token: a.client_token, accessor: a.accessor };
@@ -196,12 +211,14 @@ export function configure(run: Runner = docker, dir = STACK_DIR, target: VaultTa
     writeOwnerOnly(vaultFile(dir), `${JSON.stringify(done, null, 2)}\n`);
   };
   const reissued: TokenName[] = [];
-  // Each token is saved as soon as it exists, so a stop between the two never orphans one.
+  const created: TokenName[] = [];
+  // Each token is saved as soon as it exists, so a stop between them never orphans one.
   for (const t of TOKENS) {
     const current = done[t.token];
     if (!current) {
       const c = create(t.policy, `creating the ${t.name} token`);
       save({ ...done, [t.token]: c.token, [t.accessor]: c.accessor });
+      created.push(t.name);
       continue;
     }
     // T4: a live token is kept (its accessor backfilled once, T6). Only Vault's definite "bad token" re-issues it; a
@@ -216,16 +233,20 @@ export function configure(run: Runner = docker, dir = STACK_DIR, target: VaultTa
     save({ ...done, [t.token]: c.token, [t.accessor]: c.accessor });
     reissued.push(t.name);
   }
-  return { ...done, reissued };
-}
-
-/** What `configure` did to the tokens: those it re-issued because Vault said they were dead (T4). */
-export interface Configured extends VaultInit {
-  readonly reissued: readonly TokenName[];
+  return { ...done, reissued, created };
 }
 
 /**
- * T3: both tokens renewed, each by itself, back to the full period. A failure is reported, never thrown: the token is
+ * What `configure` did to the tokens: those it re-issued because Vault said they were dead (T4), and those it made for
+ * the first time (the console's, on the first deploy with spec 0028).
+ */
+export interface Configured extends VaultInit {
+  readonly reissued: readonly TokenName[];
+  readonly created: readonly TokenName[];
+}
+
+/**
+ * T3: every token renewed, each by itself, back to the full period. A failure is reported, never thrown: the token is
  * still valid until its TTL runs out, and the smoke check (T5) fails well before that.
  */
 export function renewTokens(run: Runner = docker, dir = STACK_DIR, target: VaultTarget = STACK_VAULT): { ok: boolean; lines: string[] } {
@@ -294,7 +315,7 @@ export function tokenStates(run: Runner = docker, dir = STACK_DIR, target: Vault
 
 /**
  * For the deploy: initialise on first use, otherwise complete whatever is missing, re-issue a dead token (T4), then
- * renew both (T3). A sealed Vault is the owner's step.
+ * renew them all (T3). A sealed Vault is the owner's step.
  */
 export function ensureVault(run: Runner = docker, dir = STACK_DIR, target: VaultTarget = STACK_VAULT): Configured & { renewal: { ok: boolean; lines: string[] } } {
   const state = vaultState(run, target);
@@ -304,7 +325,7 @@ export function ensureVault(run: Runner = docker, dir = STACK_DIR, target: Vault
   return { ...configured, renewal: renewTokens(run, dir, target) };
 }
 
-export const tokensOf = (v: VaultInit): VaultTokens => ({ appToken: v.appToken });
+export const tokensOf = (v: VaultInit): VaultTokens => ({ appToken: v.appToken, ...(v.consoleToken ? { consoleToken: v.consoleToken } : {}) });
 
 /**
  * The tokens the env files carry: vault-init.json's whenever it exists, so a deploy that stops before its Vault step

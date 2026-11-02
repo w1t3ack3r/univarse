@@ -157,7 +157,7 @@ export async function createHarness(opts: { mailDelayMs?: number } = {}): Promis
     async makeUser(tenant, opts) {
       const tenantId = tenants[tenant];
       const db = forTenant(shard, tenantId);
-      const username = opts.username ?? `T${run}-${randomBytes(3).toString('hex').toUpperCase()}`;
+      const username = opts.username ?? `T${run}-${randomBytes(6).toString('hex').toUpperCase()}`; // 48 bits: a run makes hundreds per tenant (a 24-bit name collided in CI)
       const email = opts.email === undefined ? `${username.toLowerCase()}@test.local` : opts.email;
       const status = opts.status ?? 'ACTIVE';
       const user = await db.userAccount.create({

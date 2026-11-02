@@ -26,7 +26,7 @@ import type { Entry } from './ledger/chain.js';
 import { establishAuthority } from './ledger/ledger.js';
 import { waivedSince } from './ledger/waiver.js';
 import { loadSecrets } from './secrets.js';
-import { AUDIT_LOG, loadVaultInit, SEALED_LINE, tokenReport, tokenStates, VAULT_CONTAINER, vaultCli, vaultState } from './vault.js';
+import { AUDIT_LOG, CONSOLE_KEK, loadVaultInit, SEALED_LINE, tokenReport, tokenStates, VAULT_CONTAINER, vaultCli, vaultState } from './vault.js';
 export { tokenReport } from './vault.js';
 
 interface Res {
@@ -139,6 +139,39 @@ function auditCheck(): string[] {
   const hmac = (input: string) => (JSON.parse(vaultCli(docker, ['write', '-format=json', 'sys/audit-hash/file', `input=${input}`], { VAULT_TOKEN: rootToken }).stdout) as { data: { hash: string } }).data.hash;
   const log = docker(['exec', VAULT_CONTAINER, 'tail', '-n', '500', AUDIT_LOG], { allowFail: true }).stdout;
   return auditProblems(log, { plain, context, plainHmac: hmac(plain), contextHmac: hmac(context) });
+}
+
+/** Spec 0028 Q3, acceptance criterion 9: which token wrapped with which key; true when Vault allowed it. */
+export interface KeySeparation {
+  readonly consoleOwn: boolean;
+  readonly consoleOnTenantKek: boolean;
+  readonly appOnConsoleKek: boolean;
+}
+
+/** The console's token works on its own key only, and the app's token can't use the console's key. */
+export function keySeparationProblems(r: KeySeparation): string[] {
+  const problems: string[] = [];
+  if (!r.consoleOwn) problems.push("the console token could not wrap and unwrap with the console's key");
+  if (r.consoleOnTenantKek) problems.push('the console token could wrap with the tenant KEK (spec 0028 Q3)');
+  if (r.appOnConsoleKek) problems.push("the app token could wrap with the console's key (spec 0028 Q3)");
+  return problems;
+}
+
+/** The live input: a wrap and unwrap with each token where it belongs, and a wrap where it must be refused. */
+function keySeparation(): string[] {
+  const { appToken, consoleToken } = loadVaultInit();
+  if (!consoleToken) return ['the console token is missing from vault-init.json: deploy once (its Vault step creates it)'];
+  const plain = randomBytes(32).toString('base64');
+  const context = Buffer.from(`univarse:smoke:console:${randomBytes(8).toString('hex')}`).toString('base64');
+  const wrap = (token: string, key: string) => vaultCli(docker, ['write', '-format=json', `transit/encrypt/${key}`, `plaintext=${plain}`, `context=${context}`], { VAULT_TOKEN: token });
+  const own = wrap(consoleToken, CONSOLE_KEK);
+  let consoleOwn = false;
+  if (own.status === 0) {
+    const ciphertext = (JSON.parse(own.stdout) as { data: { ciphertext: string } }).data.ciphertext;
+    const dec = vaultCli(docker, ['write', '-format=json', `transit/decrypt/${CONSOLE_KEK}`, `ciphertext=${ciphertext}`, `context=${context}`], { VAULT_TOKEN: consoleToken });
+    consoleOwn = dec.status === 0 && (JSON.parse(dec.stdout) as { data: { plaintext: string } }).data.plaintext === plain;
+  }
+  return keySeparationProblems({ consoleOwn, consoleOnTenantKek: wrap(consoleToken, 'univarse-kek').status === 0, appOnConsoleKek: wrap(appToken, CONSOLE_KEK).status === 0 });
 }
 
 /** Each non-empty stdout line parses as a JSON object. */
@@ -344,7 +377,9 @@ export async function smoke(): Promise<string[]> {
   for (const s of ['api', 'worker', 'platform-api']) if (!jsonLinesOnly(logsOf(s).stdout)) problems.push(`${s}: stdout is not JSON lines only`);
   // C3: Vault's audit device records a wrap and an unwrap, HMAC'd, never in clear.
   problems.push(...auditCheck());
-  // Spec 0023 T5: neither token is near its end.
+  // Spec 0028 Q3: the console's key and the tenant KEK, each reachable by its own token only.
+  problems.push(...keySeparation());
+  // Spec 0023 T5: no token is near its end.
   const tokens = tokenReport(tokenStates());
   for (const l of tokens.lines) console.log(`[stack:smoke] ${l}`);
   problems.push(...tokens.problems);
@@ -362,5 +397,5 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     for (const p of problems) console.error(`[stack:smoke] FAIL ${p}`);
     process.exit(1);
   }
-  console.log('[stack:smoke] PASS: HTTPS (verified), the redirect and HSTS, Vault audit (HMACs only), the life left in both Vault tokens, health, tenant, /login, worker and relay, the console and its allowlist at both layers, JSON logs, and the hardened shape (LS1, LS6, LS7, spec 0027)');
+  console.log('[stack:smoke] PASS: HTTPS (verified), the redirect and HSTS, Vault audit (HMACs only), each Vault token on its own key only, the life left in every Vault token, health, tenant, /login, worker and relay, the console and its allowlist at both layers, JSON logs, and the hardened shape (LS1, LS6, LS7, spec 0027)');
 }

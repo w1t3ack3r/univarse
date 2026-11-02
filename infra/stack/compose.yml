@@ -206,6 +206,21 @@ services:
     networks: [app]
     mem_limit: 512m
 
+  # Spec 0028 Q5, Q14: the owner's command (`pnpm stack:console owner ...`), one run per use, from the deployed API image
+  # with the platform API's settings only. It writes the activation code to the console's mail outbox in the same
+  # transaction as the member and its audit row; the running platform API sends it. It prints the member's id only.
+  console-owner:
+    image: ${UNIVARSE_API_IMAGE:?pnpm stack:deploy sets the verified image}
+    <<: *hardening
+    profiles: [job]
+    restart: 'no'
+    command: ['--enable-source-maps', 'dist/cli/platform-owner.js']
+    env_file: ['${UNIVARSE_STACK_DIR:?run pnpm stack:init}/platform-api.env']
+    volumes:
+      - stack-ca:/ca:ro
+    networks: [app]
+    mem_limit: 256m
+
   api:
     image: ${UNIVARSE_API_IMAGE:?pnpm stack:deploy sets the verified image}
     <<: *hardening

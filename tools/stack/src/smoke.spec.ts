@@ -2,7 +2,7 @@
 // runs after every deploy (smoke.ts); this pins what it refuses.
 import { describe, expect, it } from 'vitest';
 import { nextEntry, WAIVER_STATEMENT } from './ledger/chain.js';
-import { allowlistProblems, auditProblems, HSTS, hstsProblems, PROBES, tokenReport, waiverNotice } from './smoke.js';
+import { allowlistProblems, auditProblems, HSTS, hstsProblems, keySeparationProblems, PROBES, tokenReport, waiverNotice } from './smoke.js';
 
 describe('[LS7] HSTS at the edge (B1)', () => {
   it('[LS7] one header with the stack value passes', () => {
@@ -94,6 +94,18 @@ describe('[0023 T5] the tokens in the smoke check', () => {
       'the backup token is missing from vault-init.json: deploy once (its Vault step creates it)',
     ]);
     expect(tokenReport([{ name: 'app', failure: { kind: 'sealed' } }]).problems[0]).toMatch(/Vault is sealed: run `pnpm stack:vault unseal`/);
+  });
+});
+
+describe('[0028 Q3] each Vault token on its own key only', () => {
+  it('the console token on its own key, refused on the tenant KEK, and the app token refused on the console key: no problem', () => {
+    expect(keySeparationProblems({ consoleOwn: true, consoleOnTenantKek: false, appOnConsoleKek: false })).toEqual([]);
+  });
+
+  it('each way it can go wrong is its own problem', () => {
+    expect(keySeparationProblems({ consoleOwn: false, consoleOnTenantKek: false, appOnConsoleKek: false })).toEqual(["the console token could not wrap and unwrap with the console's key"]);
+    expect(keySeparationProblems({ consoleOwn: true, consoleOnTenantKek: true, appOnConsoleKek: false })).toEqual(['the console token could wrap with the tenant KEK (spec 0028 Q3)']);
+    expect(keySeparationProblems({ consoleOwn: true, consoleOnTenantKek: false, appOnConsoleKek: true })).toEqual(["the app token could wrap with the console's key (spec 0028 Q3)"]);
   });
 });
 

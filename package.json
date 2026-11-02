@@ -52,7 +52,8 @@
     "stack:backup": "pnpm --filter @univarse/stack run backup",
     "stack:restore-rehearsal": "pnpm --filter @univarse/stack run restore-rehearsal",
     "stack:drill": "pnpm --filter @univarse/stack run drill",
-    "stack:restore": "pnpm --filter @univarse/stack run restore"
+    "stack:restore": "pnpm --filter @univarse/stack run restore",
+    "stack:console": "pnpm --filter @univarse/stack run console"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

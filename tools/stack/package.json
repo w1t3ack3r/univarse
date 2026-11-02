@@ -16,6 +16,7 @@
     "isolation": "tsx src/isolation.ts",
     "keys": "tsx src/keys.ts",
     "bucket-check": "tsx src/bucket-check.ts",
+    "console": "tsx src/console.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint .",
     "test": "vitest run",

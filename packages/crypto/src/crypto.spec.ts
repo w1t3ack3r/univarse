@@ -80,6 +80,33 @@ describe('[E2][E3] key providers', () => {
     await expect(p.unwrap(parts.join(':'), wrapContext(A, 1))).rejects.toBeInstanceOf(KeyUnavailableError);
   });
 
+  it('[spec 0028] unwrap returns only a plaintext of the length asked for: a DEK’s 32 by default, a TOTP secret’s 20 when said', async () => {
+    const p = new LocalKeyProvider('t', kek());
+    const secret = randomBytes(20);
+    const wrapped = await p.wrap(secret, 'console:member:totp');
+    expect((await p.unwrap(wrapped, 'console:member:totp', 20)).equals(secret)).toBe(true);
+    await expect(p.unwrap(wrapped, 'console:member:totp')).rejects.toMatchObject({ reason: 'unwrap_failed' });
+    const dek = await p.wrap(randomBytes(32), wrapContext(A, 1));
+    await expect(p.unwrap(dek, wrapContext(A, 1), 20)).rejects.toMatchObject({ reason: 'unwrap_failed' });
+  });
+
+  it('[spec 0028] Transit’s unwrap applies the same length rule to what Vault returns', async () => {
+    const secret = randomBytes(20);
+    const server = createServer((req, res) => {
+      req.resume();
+      res.end(JSON.stringify({ data: { plaintext: secret.toString('base64') } }));
+    });
+    await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
+    const { port } = server.address() as AddressInfo;
+    const v = new VaultTransitProvider({ addr: `http://127.0.0.1:${port}`, token: 't', mount: 'transit', key: 'k' });
+    try {
+      expect((await v.unwrap('vault:v1:abc', 'console:member:totp', 20)).equals(secret)).toBe(true);
+      await expect(v.unwrap('vault:v1:abc', 'console:member:totp')).rejects.toMatchObject({ reason: 'unwrap_failed' });
+    } finally {
+      await new Promise((r) => server.close(r));
+    }
+  });
+
   it('the wrapped form never contains the DEK', async () => {
     const p = new LocalKeyProvider('t', kek());
     const dek = randomBytes(32);

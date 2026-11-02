@@ -14,6 +14,7 @@ import { PlatformSessions } from './identity/sessions.js';
 import { PlatformStaff } from './identity/staff.service.js';
 import { CONSOLE_DB, consoleKeyProvider, PLATFORM_CONFIG, type PlatformConfig } from './platform-config.js';
 import { PlatformHealthController } from './platform-health.controller.js';
+import { ConsoleTokenRenewal, RENEW_CONSOLE_TOKEN } from './token-renewal.js';
 
 /**
  * Every production controller of the platform API (spec 0027 P1), each under `/api/platform/v1` but health. None of
@@ -29,6 +30,8 @@ export interface PlatformOverrides {
   readonly mailer?: Mailer;
   readonly keys?: KeyProvider;
   readonly onShutdown?: () => Promise<void>;
+  /** Spec 0028 Q3: keep the console's Vault token alive (renewed at start, then every 6 h). Only platform.ts sets it. */
+  readonly renewVaultToken?: boolean;
 }
 
 @Module({})
@@ -51,6 +54,8 @@ export class PlatformModule {
         PlatformIdentity,
         PlatformStaff,
         PlatformMailRelay,
+        { provide: RENEW_CONSOLE_TOKEN, useValue: overrides.renewVaultToken ?? false },
+        ConsoleTokenRenewal,
         ...(overrides.extraProviders ?? []),
         ...(overrides.onShutdown ? [shutdownHook(overrides.onShutdown)] : []),
       ],

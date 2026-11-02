@@ -3,6 +3,9 @@
 import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
 import { TAG_BYTES } from './cipher.js';
 
+/** A per-tenant DEK's length: what `unwrap` expects unless told otherwise. */
+const DEK_BYTES = 32;
+
 /**
  * Raised when a DEK can't be wrapped or unwrapped (fail closed, E6). `detail` is for operators only:
  * an HTTP status or a network error name, never a token, key, ciphertext or Vault response body.
@@ -21,7 +24,11 @@ export interface KeyProvider {
   /** Stable id of the KEK this provider wraps with, stored beside each wrapped DEK. */
   readonly kekId: string;
   wrap(dek: Uint8Array, context: string): Promise<string>;
-  unwrap(wrapped: string, context: string): Promise<Buffer>;
+  /**
+   * The plaintext, which must be `bytes` long (a DEK's 32 by default): anything else is `unwrap_failed`. Spec 0028: the
+   * console wraps TOTP secrets (20 bytes) with its own key, and says so here.
+   */
+  unwrap(wrapped: string, context: string, bytes?: number): Promise<Buffer>;
 }
 
 /** Internal: a failure worth one retry. Never escapes the provider. */
@@ -118,13 +125,13 @@ export class VaultTransitProvider implements KeyProvider {
     return data.ciphertext;
   }
 
-  async unwrap(wrapped: string, context: string): Promise<Buffer> {
+  async unwrap(wrapped: string, context: string, bytes = DEK_BYTES): Promise<Buffer> {
     const data = await this.call('decrypt', {
       ciphertext: wrapped,
       context: Buffer.from(context, 'utf8').toString('base64'),
     });
     const dek = Buffer.from(data.plaintext ?? '', 'base64');
-    if (dek.length !== 32) throw new KeyUnavailableError('unwrap_failed');
+    if (dek.length !== bytes) throw new KeyUnavailableError('unwrap_failed');
     return dek;
   }
 }
@@ -198,14 +205,17 @@ export class LocalKeyProvider implements KeyProvider {
     return Promise.resolve(['local', iv.toString('base64url'), ct.toString('base64url'), c.getAuthTag().toString('base64url')].join(':'));
   }
 
-  unwrap(wrapped: string, context: string): Promise<Buffer> {
+  unwrap(wrapped: string, context: string, bytes = DEK_BYTES): Promise<Buffer> {
     try {
       const [tag0, iv, ct, tag] = wrapped.split(':');
       if (tag0 !== 'local' || !iv || !ct || !tag) throw new Error('format');
       const d = createDecipheriv('aes-256-gcm', this.kek, Buffer.from(iv, 'base64url'), { authTagLength: TAG_BYTES });
       d.setAAD(Buffer.from(context, 'utf8'));
       d.setAuthTag(Buffer.from(tag, 'base64url'));
-      return Promise.resolve(Buffer.concat([d.update(Buffer.from(ct, 'base64url')), d.final()]));
+      const plain = Buffer.concat([d.update(Buffer.from(ct, 'base64url')), d.final()]);
+      // The same rule as Transit's, so development and the tests catch a length the stack would refuse.
+      if (plain.length !== bytes) throw new Error('length');
+      return Promise.resolve(plain);
     } catch {
       return Promise.reject(new KeyUnavailableError('unwrap_failed'));
     }

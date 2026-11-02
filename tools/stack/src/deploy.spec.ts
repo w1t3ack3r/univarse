@@ -51,7 +51,7 @@ function deps(over: Partial<DeployDeps> = {}, signed = SIGNED, vault: VaultState
     compose: (args) => (calls.push(`compose:${args.join(' ')}`), { status: 0 }),
     vaultState: () => (calls.push('vaultState'), vault),
     vaultStorage: () => (calls.push('vaultStorage'), 'raft'),
-    ensureVault: () => (calls.push('ensureVault'), { appTokenReissued: false, lines: [] }),
+    ensureVault: () => (calls.push('ensureVault'), { appTokenReissued: false, consoleTokenIssued: false, lines: [] }),
     buckets: () => (calls.push('buckets'), []),
     recover: (_images, { initLedger }) => (calls.push(`recover${initLedger ? ':init' : ''}`), Promise.resolve({ ok: true, lines: [] })),
     smoke: () => (calls.push('smoke'), Promise.resolve([])),
@@ -307,7 +307,7 @@ describe('[LS3][LS4] a verified record: the order of the deploy', () => {
 
   it('[0023 T4] a re-issued app token: the API and worker are recreated, after the stack is up and before the smoke check', async () => {
     const lines: string[] = [];
-    await deploy(record(), COMMIT, deps({ ensureVault: () => (calls.push('ensureVault'), { appTokenReissued: true, lines: ['the app token was invalid or expired: re-issued'] }), log: (l) => void lines.push(l) }));
+    await deploy(record(), COMMIT, deps({ ensureVault: () => (calls.push('ensureVault'), { appTokenReissued: true, consoleTokenIssued: false, lines: ['the app token was invalid or expired: re-issued'] }), log: (l) => void lines.push(l) }));
     const recreate = 'compose:up -d --wait --force-recreate --no-deps api worker';
     const at = calls.indexOf(recreate);
     expect(at).toBeGreaterThan(calls.indexOf('markApplied'));
@@ -316,17 +316,35 @@ describe('[LS3][LS4] a verified record: the order of the deploy', () => {
   });
 
   it('[0023 T4] the app token unchanged (or only the backup token re-issued): nothing is recreated', async () => {
-    await deploy(record(), COMMIT, deps({ ensureVault: () => (calls.push('ensureVault'), { appTokenReissued: false, lines: ['the backup token was invalid or expired: re-issued'] }) }));
+    await deploy(record(), COMMIT, deps({ ensureVault: () => (calls.push('ensureVault'), { appTokenReissued: false, consoleTokenIssued: false, lines: ['the backup token was invalid or expired: re-issued'] }) }));
     expect(calls.filter((c) => c.includes('--force-recreate'))).toEqual([]);
   });
 
   it('[0023 T4] the API and worker failing to come back with a re-issued token fails the deploy, before the smoke check', async () => {
     const r = await deploy(record(), COMMIT, deps({
-      ensureVault: () => (calls.push('ensureVault'), { appTokenReissued: true, lines: [] }),
+      ensureVault: () => (calls.push('ensureVault'), { appTokenReissued: true, consoleTokenIssued: false, lines: [] }),
       compose: (args) => (calls.push(`compose:${args.join(' ')}`), { status: args.includes('--force-recreate') ? 1 : 0 }),
     }));
     expect(r.ok).toBe(false);
     expect(r.problems.join()).toMatch(/re-issued app token/);
+    expect(calls).not.toContain('smoke');
+  });
+
+  it('[0028 Q3] a console token issued (first made, or re-issued): only the platform API is recreated, before the smoke check', async () => {
+    await deploy(record(), COMMIT, deps({ ensureVault: () => (calls.push('ensureVault'), { appTokenReissued: false, consoleTokenIssued: true, lines: [] }) }));
+    const recreate = 'compose:up -d --wait --force-recreate --no-deps platform-api';
+    expect(calls.filter((c) => c.includes('--force-recreate'))).toEqual([recreate]);
+    expect(calls.indexOf(recreate)).toBeGreaterThan(calls.indexOf('markApplied'));
+    expect(calls.indexOf(recreate)).toBeLessThan(calls.indexOf('smoke'));
+  });
+
+  it('[0028 Q3] the platform API failing to come back with its token fails the deploy, before the smoke check', async () => {
+    const r = await deploy(record(), COMMIT, deps({
+      ensureVault: () => (calls.push('ensureVault'), { appTokenReissued: false, consoleTokenIssued: true, lines: [] }),
+      compose: (args) => (calls.push(`compose:${args.join(' ')}`), { status: args.includes('--force-recreate') ? 1 : 0 }),
+    }));
+    expect(r.ok).toBe(false);
+    expect(r.problems.join()).toMatch(/console token/);
     expect(calls).not.toContain('smoke');
   });
 
