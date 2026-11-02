@@ -41,7 +41,9 @@ export function base32Decode(input: string): Buffer {
 }
 
 /** 160-bit secret (RFC 4226 recommends ≥128, SHA-1 block-friendly 160). */
-export const newTotpSecret = (): Buffer => randomBytes(20);
+/** RFC 4226's recommended 160 bits. */
+export const TOTP_SECRET_BYTES = 20;
+export const newTotpSecret = (): Buffer => randomBytes(TOTP_SECRET_BYTES);
 
 export const timeStep = (unixMs: number): number => Math.floor(unixMs / 1000 / TOTP_STEP_SEC);
 

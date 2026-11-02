@@ -135,12 +135,13 @@ describe('[0023] the tokens on a real Vault', () => {
     const secret = randomBytes(20);
     const context = wrapContext(randomUUID(), 1);
     const own = consoleKey(init.consoleToken ?? '');
-    expect(Buffer.compare(await own.unwrap(await own.wrap(secret, context), context), secret)).toBe(0);
+    // A TOTP secret is 20 bytes, not a DEK's 32: the platform API says so (spec 0028; a 32-only unwrap failed here).
+    expect(Buffer.compare(await own.unwrap(await own.wrap(secret, context), context, 20), secret)).toBe(0);
     await expect(tenantKey(init.consoleToken ?? '').wrap(secret, context)).rejects.toThrow();
     await expect(consoleKey(init.appToken).wrap(secret, context)).rejects.toThrow();
     // And a ciphertext from one key never opens with the other's token.
     const tenantCipher = await tenantKey(init.appToken).wrap(secret, context);
-    await expect(tenantKey(init.consoleToken ?? '').unwrap(tenantCipher, context)).rejects.toThrow();
+    await expect(tenantKey(init.consoleToken ?? '').unwrap(tenantCipher, context, 20)).rejects.toThrow();
   });
 
   it("[T2] the app's renewer keeps a short-period token alive past several periods; stopped, it dies", async () => {

@@ -5,7 +5,7 @@ import { createHmac, randomBytes } from 'node:crypto';
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import type { KeyProvider } from '@univarse/crypto';
 import { securityFields } from '../../shared/observability/security.js';
-import { base32Encode, newTotpSecret, otpauthUri, verifyTotp } from '../../modules/identity/totp.js';
+import { base32Encode, newTotpSecret, otpauthUri, TOTP_SECRET_BYTES, verifyTotp } from '../../modules/identity/totp.js';
 import { hashOneTimeCode, newOneTimeCode, newSessionToken, safeEqual, sha256 } from '../../modules/identity/tokens.js';
 import { PLATFORM_CONFIG, type PlatformConfig } from '../platform-config.js';
 import { enqueueMail, NOT_YOU } from './mail.js';
@@ -119,7 +119,7 @@ export class PlatformCredentials {
       orderBy: { createdAt: 'desc' },
     });
     if (!factor) return false;
-    const step = verifyTotp(await this.keys.unwrap(factor.secretEnc, factorContext(userId)), code, now.getTime());
+    const step = verifyTotp(await this.keys.unwrap(factor.secretEnc, factorContext(userId), TOTP_SECRET_BYTES), code, now.getTime());
     if (step === null) return false;
     const confirmed = await tx.platformMfaFactor.updateMany({ where: { id: factor.id, confirmedAt: null, revokedAt: null }, data: { confirmedAt: now, lastUsedStep: BigInt(step), lastUsedAt: now } });
     return confirmed.count === 1;
@@ -141,7 +141,7 @@ export class PlatformCredentials {
     if ('code' in input) {
       const factor = await tx.platformMfaFactor.findFirst({ where: { userId, confirmedAt: { not: null }, revokedAt: null } });
       if (!factor) return { ok: false };
-      const step = verifyTotp(await this.keys.unwrap(factor.secretEnc, factorContext(userId)), input.code, now.getTime());
+      const step = verifyTotp(await this.keys.unwrap(factor.secretEnc, factorContext(userId), TOTP_SECRET_BYTES), input.code, now.getTime());
       if (step === null) return { ok: false };
       const fresh = await tx.platformMfaFactor.updateMany({
         where: { id: factor.id, revokedAt: null, OR: [{ lastUsedStep: null }, { lastUsedStep: { lt: BigInt(step) } }] },
