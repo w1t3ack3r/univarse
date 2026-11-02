@@ -1,6 +1,6 @@
 # Spec 0028: Phase 1's S2, platform identity
 
-**Status:** **Approved by the owner on 2026-11-02, all as written:** Q1 to Q18. PR A built; PR B and PR C next.
+**Status:** **Approved by the owner on 2026-11-02, all as written:** Q1 to Q18, and PR A's Q-A1 to Q-A11 (with #144). PR A merged; PR B built; PR C next.
 **Phase:** 1, slice **S2** of [spec 0025](0025-phase-1-control-plane.md) (A3, A4, A5; E5 as a rule).
 **Builds on:**
 
@@ -120,7 +120,7 @@ The console is the platform's highest-value target (T12). Its sign-in is therefo
   - a second first OWNER, the limiter, and the tenant `VAULT_TOKEN` accepted.
 - **Run locally against the development database,** with the migration applied there. The owner reruns `pnpm db:setup` after merge, to add the console's settings to `.env.console`.
 
-**Decisions made while building, for approval:**
+**Decisions made while building:** approved by the owner on 2026-11-02, with the merge of #144.
 
 | # | Decision | Why |
 | --- | --- | --- |
@@ -135,4 +135,26 @@ The console is the platform's highest-value target (T12). Its sign-in is therefo
 | Q-A9 | **The platform contracts live in `packages/contracts`, outside the tenant API's OpenAPI document.** | The console (PR B) shares them; the tenant API's published contract doesn't describe the platform API. |
 | Q-A10 | **The owner's command prints the member's id, never the email.** | Invariant 8. |
 | Q-A11 | **`dev-run` starts the platform API only when `.env.console` has the console's pepper.** | A file from before S2 would make it refuse to start and, as one child's exit stops them all, take `pnpm dev` down. |
+
+## Implementation notes (PR B, 2026-11-02)
+
+**Built:** the console's screens in `apps/console`, from `packages/ui` and the tenant app's patterns, all calling the platform API from the browser (same origin, through the edge, so the allowlist sees the member's own address; nothing in storage).
+- **Signed out:** sign in (email and password), the second factor (a TOTP or a recovery code), activation (the emailed code and a new password), and password reset (request, then the code and a new password).
+- **Setup:** the authenticator (the QR drawn in the browser from the `otpauth://` URI, by `qrcode`, the web app's own; the key to type instead), then the recovery codes, shown once, with Download and Copy all, and "Go to the console" only once "I've saved these codes" is ticked. A reload in the recovery-codes state gets the acknowledgement alone.
+- **Signed in:** the shell (who you are, your role, Sign out; tabs for Overview, Your account and, with `platform.staff.read`, Staff); Your account (your sessions, ending one; new recovery codes); Staff (the members; an OWNER invites, changes a role, resets an authenticator, removes and restores access). Every staff change and new recovery codes go through one step-up dialog, asked for only when the API answers `auth.step_up_required`.
+- **Tests:**
+  - **E2E** (`apps/console/e2e/journeys.e2e.ts`, desktop and mobile): Playwright starts the platform API (dist), the console (`next start`) and the dev edge, and drives `console.univarse.localhost:4180`. An OWNER's first sign-in (acceptance criterion 3: before the factor, `/me` only, `/staff` 403 and the console sends you to setup), an invite with a step-up, the invitee's activation from Mailpit's code and their setup (no Staff tab; `/staff` absent, in the API and on the page), and a password alone opening nothing (`/me` 401) until a recovery code finishes it; then signing out. axe (WCAG 2.2 AA) and no sideways scroll on every screen and the dialog. Members are `console-e2e-…@staff.test`, retired by the global teardown.
+  - **The frame** (`frame.e2e.ts`) now checks `/sign-in`, and the home page's server-rendered title; the image job and the release run this file alone, as it needs no platform API.
+  - **Mutations: 4 tried, 4 caught:** an enrolment session not sent to setup, continuing without the acknowledgement, the Staff page for a member without the permission, and a change without the step-up dialog.
+  - PR A's integration tests now retire, in `afterAll`, every member they made: the development database is shared, and an active test OWNER made `pnpm console:owner` refuse.
+- **Also:** the image smoke runs the platform API with a random pepper and a placeholder `CONSOLE_VAULT_TOKEN` (PR A): the smoke checks the walls and readiness, never a factor, so no real token is needed.
+
+**Decisions made while building, for approval:**
+
+| # | Decision | Why |
+| --- | --- | --- |
+| Q-B1 | **A page out of the member's scope shows the same "nothing at this address" as an unknown one,** without asking the API. | Q12 and docs/08: out of scope reads as absent. Asking first showed the API's 404 as an error, under the page's own heading. |
+| Q-B2 | **The step-up dialog appears only when the API asks** (`auth.step_up_required`), and the change is retried once after it. | The 5-minute window lives on the server; the page never guesses it, so a second change inside the window asks nothing. |
+| Q-B3 | **The QR code is drawn in the browser,** from the URI the API returns, with `qrcode`, as the web app does. | The secret never goes to another service, and no image of it is stored or cached. |
+| Q-B4 | **The E2E makes its members through the console's own database role,** with the API's own hashing and TOTP code, and retires them after the run. | There is no sign-up route to use (Q1), and the owner's command refuses a second OWNER. |
 

@@ -5,6 +5,14 @@
 @import '@univarse/ui/tokens.css';
 @import '@univarse/ui/components.css';
 
+/* The web app gets this from Tailwind's preflight; the console has no Tailwind. Without it a field's padding and
+   border are added to its width, and it overflows its card on a phone. */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
 html {
   background: var(--uv-bg);
   color: var(--uv-text);
@@ -24,6 +32,7 @@ a {
   text-underline-offset: 4px;
 }
 h1,
+h2,
 p {
   margin: 0;
 }
@@ -116,6 +125,608 @@ p {
 .pc-intro .uv-btn {
   justify-self: start;
   margin-top: var(--uv-space-2);
+}
+
+/* ---------- Spec 0028: signed out. One task card under the bar; the links that belong to it below. ---------- */
+.pc-auth {
+  display: grid;
+  gap: var(--uv-space-4);
+  width: min(100%, 440px);
+  margin: 0 auto;
+}
+.pc-card {
+  display: grid;
+  gap: var(--uv-space-5);
+}
+.pc-card__title {
+  margin: 0;
+  font-size: var(--uv-text-xl);
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: -0.015em;
+  text-wrap: balance;
+}
+.pc-card__lead {
+  margin: -8px 0 0;
+  font-size: var(--uv-text-sm);
+  line-height: 1.55;
+  color: var(--uv-text-muted);
+  text-wrap: pretty;
+}
+.pc-form {
+  display: grid;
+  gap: var(--uv-space-4);
+}
+.pc-actions {
+  display: grid;
+  gap: var(--uv-space-2);
+  margin-top: var(--uv-space-1);
+}
+.pc-auth__more {
+  display: grid;
+  gap: var(--uv-space-2);
+  padding: 0 var(--uv-space-2);
+  font-size: var(--uv-text-sm);
+  color: var(--uv-text-muted);
+}
+.pc-auth__more p {
+  margin: 0;
+}
+.pc-auth__note {
+  padding: 0 var(--uv-space-2);
+  font-size: var(--uv-text-xs);
+  color: var(--uv-text-muted);
+}
+
+/* ---------- Spec 0028: signed in. Who you are, sign out, and the console's tabs. ---------- */
+.pc-page {
+  display: grid;
+  gap: var(--uv-space-8);
+  min-width: 0;
+}
+.pc-head {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: var(--uv-space-4) var(--uv-space-6);
+}
+.pc-head__who {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+.pc-head__name {
+  font-size: var(--uv-text-lg);
+  font-weight: 600;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+.pc-head__meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px var(--uv-space-3);
+  font-size: var(--uv-text-sm);
+  color: var(--uv-text-muted);
+}
+.pc-head__email {
+  /* break-word, not anywhere: the address moves to its own line before it is split. */
+  min-width: 0;
+  overflow-wrap: break-word;
+}
+.pc-tabs {
+  grid-column: 1 / -1;
+  display: flex;
+  gap: var(--uv-space-1);
+  overflow-x: auto;
+  border-bottom: 1px solid var(--uv-border);
+  scrollbar-width: none;
+}
+.pc-tabs__tab {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--uv-tap);
+  padding: 0 var(--uv-space-4);
+  border-bottom: 3px solid transparent;
+  margin-bottom: -1px;
+  font-size: var(--uv-text-sm);
+  font-weight: 500;
+  color: var(--uv-text-muted);
+  text-decoration: none;
+  white-space: nowrap;
+  transition:
+    color 160ms var(--uv-ease-out),
+    border-color 160ms var(--uv-ease-out);
+}
+@media (hover: hover) {
+  .pc-tabs__tab:hover {
+    color: var(--uv-text);
+  }
+}
+.pc-tabs__tab[aria-current='page'] {
+  color: var(--uv-text);
+  font-weight: 600;
+  border-bottom-color: var(--uv-deep);
+}
+.pc-role {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 10px;
+  border-radius: var(--uv-radius-pill);
+  background: var(--uv-deep);
+  color: var(--uv-offwhite); /* 7.44:1 */
+  font-size: var(--uv-text-xs);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+/* Sections: a heading, a line on what it is for, then the work. */
+.pc-section {
+  display: grid;
+  gap: var(--uv-space-4);
+  min-width: 0;
+}
+.pc-section + .pc-section {
+  padding-top: var(--uv-space-8);
+  border-top: 1px solid var(--uv-border);
+}
+.pc-section__title {
+  font-size: var(--uv-text-xl);
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: -0.015em;
+  text-wrap: balance;
+}
+h2.pc-section__title {
+  font-size: var(--uv-text-lg);
+}
+.pc-section__lead {
+  max-width: 65ch;
+  color: var(--uv-text-muted);
+  text-wrap: pretty;
+}
+.pc-section__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  justify-content: space-between;
+  gap: var(--uv-space-4);
+}
+
+/* The home page's rows: one line each, the whole row a link. */
+.pc-list {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border-radius: var(--uv-radius-card);
+  background: var(--uv-surface);
+  box-shadow: var(--uv-shadow-card);
+}
+.pc-list__row {
+  display: flex;
+  align-items: center;
+  gap: var(--uv-space-4);
+  min-height: 80px;
+  padding: var(--uv-space-4) var(--uv-space-6);
+  color: inherit;
+  text-decoration: none;
+  border-radius: inherit;
+}
+.pc-list li + li .pc-list__row {
+  border-top: 1px solid var(--uv-border);
+  border-radius: 0;
+}
+@media (hover: hover) {
+  .pc-list__row:hover .pc-list__title {
+    text-decoration: underline;
+    text-underline-offset: 4px;
+  }
+}
+.pc-list__row:focus-visible {
+  outline-offset: -3px;
+}
+.pc-list__text {
+  display: grid;
+  flex: 1;
+  gap: 2px;
+  min-width: 0;
+}
+.pc-list__title {
+  font-weight: 600;
+}
+.pc-list__meta {
+  font-size: var(--uv-text-sm);
+  color: var(--uv-text-muted);
+}
+
+/* Sessions: a plain table; on phones each row stacks. */
+.pc-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--uv-text-sm);
+  font-variant-numeric: tabular-nums;
+  background: var(--uv-surface);
+  border-radius: var(--uv-radius-card);
+  box-shadow: var(--uv-shadow-card);
+  overflow: hidden;
+}
+.pc-table th {
+  padding: var(--uv-space-4) var(--uv-space-4) var(--uv-space-3);
+  text-align: left;
+  font-size: var(--uv-text-xs);
+  font-weight: 600;
+  color: var(--uv-text-muted);
+}
+.pc-table td {
+  padding: var(--uv-space-4);
+  border-top: 1px solid var(--uv-border);
+  vertical-align: middle;
+}
+.pc-table__strong {
+  font-weight: 600;
+  margin-right: var(--uv-space-2);
+}
+.pc-table__mono {
+  font-family: ui-monospace, 'Cascadia Mono', 'Roboto Mono', Menlo, Consolas, monospace;
+  font-size: var(--uv-text-xs);
+}
+.pc-table__action {
+  text-align: right;
+  width: 1%;
+  white-space: nowrap;
+}
+@media (max-width: 719px) {
+  .pc-table thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+  }
+  .pc-table,
+  .pc-table tbody,
+  .pc-table td {
+    display: block;
+  }
+  .pc-table tr {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 2px var(--uv-space-3);
+    padding: var(--uv-space-4);
+  }
+  .pc-table tbody tr + tr {
+    border-top: 1px solid var(--uv-border);
+  }
+  .pc-table td {
+    padding: 0;
+    border-top: 0;
+    color: var(--uv-text-muted);
+  }
+  .pc-table td:first-child {
+    color: var(--uv-text);
+  }
+  /* The hidden headings, said again beside each value once the columns stack. */
+  .pc-table td[data-label]::before {
+    content: attr(data-label) ': ';
+    color: var(--uv-text-muted);
+  }
+  .pc-table td[data-label] {
+    color: var(--uv-text);
+  }
+  .pc-table td:not(.pc-table__action) {
+    grid-column: 1;
+  }
+  .pc-table__action {
+    grid-column: 2;
+    grid-row: 1 / span 4;
+    align-self: center;
+    width: auto;
+  }
+}
+
+.pc-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border-radius: var(--uv-radius-pill);
+  font-size: var(--uv-text-xs);
+  font-weight: 600;
+  white-space: nowrap;
+}
+.pc-status--on {
+  background: var(--uv-lime-wash);
+  color: var(--uv-deep); /* 7.09:1 */
+}
+.pc-status--off {
+  background: var(--uv-danger-bg);
+  color: var(--uv-danger);
+}
+.pc-status--wait {
+  background: var(--uv-warning-bg);
+  color: var(--uv-warning);
+}
+
+/* Staff: one row a member; their facts, then (for an owner) what can be changed, folded away. */
+.pc-members {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border-radius: var(--uv-radius-card);
+  background: var(--uv-surface);
+  box-shadow: var(--uv-shadow-card);
+}
+.pc-member {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--uv-space-2) var(--uv-space-6);
+  align-items: center;
+  padding: var(--uv-space-4) var(--uv-space-6);
+}
+.pc-member + .pc-member {
+  border-top: 1px solid var(--uv-border);
+}
+.pc-member[data-inactive='true'] .pc-member__name {
+  color: var(--uv-text-muted);
+}
+.pc-member__main {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.pc-member__name {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.pc-member__you {
+  font-weight: 400;
+  color: var(--uv-text-muted);
+}
+.pc-member__email {
+  font-size: var(--uv-text-sm);
+  color: var(--uv-text-muted);
+  overflow-wrap: anywhere;
+}
+.pc-member__facts {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+  gap: var(--uv-space-2);
+}
+.pc-member__seen {
+  flex-basis: 100%;
+  text-align: right;
+  font-size: var(--uv-text-xs);
+  color: var(--uv-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+.pc-member__manage {
+  grid-column: 1 / -1;
+}
+@media (max-width: 719px) {
+  .pc-member {
+    grid-template-columns: 1fr;
+    padding: var(--uv-space-4);
+  }
+  .pc-member__facts {
+    justify-content: flex-start;
+  }
+  .pc-member__seen {
+    text-align: left;
+  }
+}
+.pc-inline-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: var(--uv-space-3);
+}
+.pc-inline-form .uv-field {
+  flex: 1 1 240px;
+}
+/* A native select (the platform's own picker on phones), with the system's chevron drawn in the palette. */
+.pc-select {
+  appearance: none;
+  padding-right: 40px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='18' height='18' viewBox='0 0 24 24' fill='none' stroke='%23485550' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  cursor: pointer;
+}
+.pc-danger {
+  color: var(--uv-danger);
+}
+.pc-invite {
+  display: grid;
+  gap: var(--uv-space-4);
+}
+.pc-invite > summary {
+  justify-self: start;
+  list-style: none;
+}
+.pc-invite > summary::-webkit-details-marker {
+  display: none;
+}
+.pc-invite__form {
+  max-width: 34rem;
+  padding: var(--uv-space-6);
+  border-radius: var(--uv-radius-card);
+  background: var(--uv-surface);
+  box-shadow: var(--uv-shadow-card);
+}
+
+/* ---------- Setup pieces (the tenant app's, spec 0005 W13) ---------- */
+.pc-qr {
+  display: grid;
+  place-items: center;
+  justify-self: center;
+  width: min(100%, 248px);
+  padding: var(--uv-space-4);
+  border-radius: var(--uv-radius);
+  background: var(--uv-white);
+  box-shadow: inset 0 0 0 1.5px var(--uv-border);
+}
+.pc-qr svg {
+  width: 100%;
+  height: auto;
+}
+.pc-secret,
+.pc-codes {
+  font-family: ui-monospace, 'Cascadia Mono', 'Roboto Mono', 'Droid Sans Mono', Menlo, Consolas, monospace;
+}
+.pc-secret {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  font-variant-numeric: tabular-nums;
+}
+.pc-codes {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 6px;
+  max-width: 34rem;
+  margin: 0;
+  padding: 8px;
+  list-style: none;
+  border-radius: var(--uv-radius);
+  background: var(--uv-offwhite);
+  box-shadow: inset 0 0 0 1px var(--uv-border);
+  font-size: 0.9375rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  font-variant-numeric: tabular-nums;
+}
+.pc-codes li {
+  padding: 8px 4px;
+  border-radius: 8px;
+  background: var(--uv-white);
+  text-align: center;
+  white-space: nowrap; /* a recovery code is read and written down whole */
+}
+.pc-note {
+  font-size: var(--uv-text-xs);
+  color: var(--uv-text-muted);
+}
+.pc-row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--uv-space-2);
+}
+.pc-row-actions > * {
+  flex: 1 1 auto;
+}
+.pc-row-actions--start > * {
+  flex: 0 0 auto;
+}
+.pc-check {
+  display: flex;
+  gap: var(--uv-space-3);
+  align-items: flex-start;
+  padding: var(--uv-space-3) var(--uv-space-4);
+  border-radius: var(--uv-radius);
+  background: var(--uv-offwhite);
+  font-size: var(--uv-text-sm);
+  line-height: 1.45;
+  cursor: pointer;
+}
+.pc-check input {
+  width: 22px;
+  height: 22px;
+  margin: 0;
+  flex: none;
+  accent-color: var(--uv-deep);
+}
+.pc-disclosure > summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: var(--uv-tap);
+  list-style: none;
+  cursor: pointer;
+}
+.pc-disclosure > summary::-webkit-details-marker {
+  display: none;
+}
+.pc-disclosure > summary svg {
+  transition: transform 180ms var(--uv-ease-out);
+}
+.pc-disclosure[open] > summary svg {
+  transform: rotate(180deg);
+}
+.pc-disclosure__body {
+  display: grid;
+  gap: var(--uv-space-3);
+  margin-top: var(--uv-space-2);
+}
+
+/* Step-up: a native dialog, the one place the console interrupts. */
+.pc-dialog {
+  margin: auto;
+  width: min(calc(100% - 32px), 440px);
+  padding: 0;
+  border: 0;
+  border-radius: var(--uv-radius-card);
+  background: var(--uv-surface);
+  color: var(--uv-text);
+  box-shadow: var(--uv-shadow-raised);
+}
+.pc-dialog::backdrop {
+  background: rgb(54 64 60 / 0.55);
+}
+.pc-dialog[open] {
+  animation: pc-rise 240ms var(--uv-ease-out);
+}
+@keyframes pc-rise {
+  from {
+    transform: translateY(12px);
+    opacity: 0;
+  }
+}
+.pc-dialog__body {
+  display: grid;
+  gap: var(--uv-space-4);
+  padding: var(--uv-space-6);
+}
+
+/* While the platform API answers: the page's shape, no content. */
+.pc-skeleton {
+  border-radius: var(--uv-radius-card);
+  background: linear-gradient(90deg, var(--uv-deep-soft) 0%, #edf1ea 50%, var(--uv-deep-soft) 100%);
+  background-size: 200% 100%;
+  animation: pc-shimmer 1.4s linear infinite;
+}
+.pc-skeleton--head {
+  height: 96px;
+}
+.pc-skeleton--body {
+  height: 240px;
+}
+@keyframes pc-shimmer {
+  to {
+    background-position: -200% 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pc-skeleton,
+  .pc-dialog[open] {
+    animation: none;
+  }
+  .pc-tabs__tab,
+  .pc-disclosure > summary svg {
+    transition: none;
+  }
+}
+
+/* The parts no component draws: the caret and scrollbars carry the palette too. */
+html {
+  caret-color: var(--uv-deep);
+  scrollbar-color: #b9c2b6 transparent;
 }
 
 @media (max-width: 480px) {

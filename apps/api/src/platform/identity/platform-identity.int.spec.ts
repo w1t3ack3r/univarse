@@ -41,6 +41,10 @@ beforeAll(async () => {
   creds = app.get(PlatformCredentials);
 });
 afterAll(async () => {
+  // The database is shared with development: an OWNER left active here would make `pnpm console:owner` refuse.
+  const email = { in: [...emails] };
+  await db.platformSession.updateMany({ where: { user: { email }, revokedAt: null }, data: { revokedAt: new Date(), revokeReason: 'test_retired' } });
+  await db.platformUser.updateMany({ where: { email }, data: { role: 'READ_ONLY', isActive: false } });
   await app.close();
 });
 let ip = '127.0.0.1';
@@ -93,7 +97,13 @@ interface Member {
   secret: string;
 }
 
-const uniqueEmail = (tag: string) => `${tag}-${randomBytes(5).toString('hex')}@staff.test`;
+/** Every address this file makes, so afterAll retires whatever came of it (seeded, invited or refused). */
+const emails = new Set<string>();
+const uniqueEmail = (tag: string) => {
+  const email = `${tag}-${randomBytes(5).toString('hex')}@staff.test`;
+  emails.add(email);
+  return email;
+};
 /** A TOTP code `offset` steps from now: each use of a factor needs a newer step than the last (the replay guard). */
 const totp = (secret: string, offset = 0) => hotp(base32Decode(secret), timeStep(Date.now()) + offset);
 
