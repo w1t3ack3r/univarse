@@ -84,7 +84,7 @@ UniVarse is organised as **products** that an institution enables and that work 
 | **Admissions** | Cycles, applicant portal, screening, merit lists, offers, CAPS export, enrolment |
 | **Bursary** | Fee schedules, invoices, gateway payments, waivers, reconciliation |
 | **Academics** | Programmes, curriculum, student records, course registration, exam timetable & dockets, score entry & result workflow, GPA/CGPA & standing, clearance, graduation, transcripts, NYSC export |
-| **Teaching & Learning** | Course spaces, materials, announcements, **live lecture engagement** (attendance check-in, polls, Q&A), **assignments** (submission, marking, feedback) |
+| **Teaching & Learning** | Course spaces, materials, announcements, **live lecture engagement** (attendance check-in, polls, Q&A), **assignments** (submission, marking, feedback), **practicals**: blended lab practicals with simulations and video-based practicals ([spec 0029](specs/0029-practicals.md)) |
 | **Assessment (CA CBT)** | Question banks, **continuous-assessment tests** (timed, randomised, integrity-logged, auto-marked where objective), scores flowing into score sheets as CA components. **Examinations are excluded** (§5.5) |
 | **Student Affairs** | Hostel, disciplinary cases, clearance steps |
 | **Helpdesk & Comms** | Tickets, announcements, email/SMS |
@@ -123,7 +123,7 @@ UniVarse is organised as **products** that an institution enables and that work 
 |---|---|---|
 | **CBT for examinations** (and Post-UTME) | Exams need invigilated venues, stricter lockdown and legal defensibility. CA CBT proves the engine first | The Assessment engine is built exam-capable (sessions, venues, integrity logs). Exams stay on paper or an external vendor, with scores imported |
 | **Native mobile apps** (students and lecturers only) | A responsive web app / PWA covers GA. Native apps need a stable API | Mobile-first UI, offline-tolerant flows, token-based auth to be added by ADR (ADR-005 note) |
-| **3D virtual labs** for practical-heavy courses (physics, chemistry…) | Content-heavy and specialised | Teaching & Learning supports embeddable interactive content (sandboxed) |
+| **UniVarse's own virtual lab player, and 3D/VR labs** | Content-heavy and specialised: worth building once the pilot shows which practicals are run ([spec 0029](specs/0029-practicals.md) Q6, Q10) | Practicals ship before GA with a self-hosted 2D simulation library, video-based practicals and, from Phase 7, vendor labs through LTI (spec 0029) |
 | **Inter-institution access ("campus embassies")**: students of one UniVarse institution taking classes or tests at a nearby UniVarse institution | Needs bilateral agreements, policy and trust frameworks | Federation design principles recorded now (ADR-021) so tenant isolation never has to be weakened later |
 | Postgraduate school specifics (thesis supervision, etc.) | Scope | Entry modes modelled generically |
 
