@@ -10,7 +10,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 import { proveSecretCoverage } from './canary.mjs';
-import { configOf, makeGates, samePushed, sameImage, TRIVY_CACHE } from './gates.mjs';
+import { configOf, makeGates, reusableDb, samePushed, sameImage, TRIVY_CACHE } from './gates.mjs';
 import { readFromTar } from './tar.mjs';
 import {
   COMPOSE, COSIGN_IMAGE, cosign, DEFAULT_KEY, DEFAULT_PUB, devOnlyPackages, HOST_REGISTRY, hostPath, IDENTITY, IDENTITY_ISSUER, PREDICATES, ROLES,
@@ -128,13 +128,21 @@ async function main() {
   record.gates.exceptions = exc.stdout.includes('none active') ? 'none active' : 'ACTIVE — zero-findings can NOT be claimed';
 
   step('vulnerability, secret and misconfiguration gates, SBOM (CS7, CS8) — Trivy reads tarballs, never the Docker socket');
-  // Fresh vulnerability data for every release; a broken download is retried across Trivy's official mirrors, and if
-  // every attempt fails the release fails: it never scans without fresh data (CS9).
-  const db0 = gates.freshDb();
-  if (!db0.ok) throw new Error(`${db0.why}; nothing was scanned or published (CS9)`);
+  // Fresh vulnerability data for every release (CS9): the cached database if it was downloaded in the last 6 hours and
+  // built in the last day (the owner may fetch it ahead on a slow connection), otherwise a new download, shown live and
+  // retried across Trivy's official mirrors. If every attempt fails the release fails: it never scans without it.
+  const reuse = reusableDb(gates.dbMeta());
+  let dbSource = 'reused';
+  if (reuse.ok) console.log(`[release] reusing the vulnerability database in ${TRIVY_CACHE}: ${reuse.why} (CS9)`);
+  else {
+    console.log(`[release] downloading a fresh vulnerability database (${reuse.why}); Trivy's progress follows`);
+    dbSource = 'downloaded';
+    const db0 = gates.freshDb({ progress: true });
+    if (!db0.ok) throw new Error(`${db0.why}; nothing was scanned or published (CS9). Trivy's own messages are above`);
+  }
   const ver = sh('docker', ['run', '--rm', '-v', `${TRIVY_CACHE}:/root/.cache/trivy`, TRIVY_IMAGE, 'version', '--format', 'json']);
   const db = JSON.parse(ver.stdout).VulnerabilityDB ?? {};
-  record.gates.trivy = { version: JSON.parse(ver.stdout).Version, dbUpdatedAt: db.UpdatedAt, dbDownloadedAt: db.DownloadedAt };
+  record.gates.trivy = { version: JSON.parse(ver.stdout).Version, dbUpdatedAt: db.UpdatedAt, dbDownloadedAt: db.DownloadedAt, dbSource };
   for (const name of Object.keys(IMAGES)) {
     await recheck();
     const tar = `${name}.tar`;

@@ -4,7 +4,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
-import { makeGates, samePushed } from './gates.mjs';
+import { DB_REUSE, makeGates, reusableDb, samePushed } from './gates.mjs';
 
 function fake(statuses = []) {
   const calls = [];
@@ -103,7 +103,7 @@ test('[CS13] the release runs every scan and the CS6 checks through gates.mjs, n
     'no hand-written scan in release.mjs',
   );
   for (const g of [
-    'freshDb()',
+    'freshDb(',
     'gates.vulnerability(',
     'gates.secret(',
     'gates.misconfiguration(',
@@ -143,4 +143,49 @@ test('[CS9] if the old DB can not be removed, nothing is downloaded and the rele
   ]) {
     assert.ok(stop > 0 && stop < src.indexOf(scan), `the release throws before ${scan}`);
   }
+});
+
+test('[CS9] a cached DB is reused only when downloaded in the last 6 h and built in the last day; anything else downloads', () => {
+  const now = Date.parse('2026-11-03T12:00:00Z');
+  const at = (h) => new Date(now - h * 3_600_000).toISOString();
+  assert.equal(reusableDb({ downloadedAt: at(1), updatedAt: at(5) }, now).ok, true);
+  assert.equal(reusableDb({ downloadedAt: at(5.9), updatedAt: at(23) }, now).ok, true);
+  assert.match(reusableDb({ downloadedAt: at(6.1), updatedAt: at(1) }, now).why, /downloaded 6\.1 h ago, over 6\.0 h/);
+  assert.match(reusableDb({ downloadedAt: at(1), updatedAt: at(25) }, now).why, /built 25\.0 h ago, over 24\.0 h/);
+  assert.match(reusableDb({ downloadedAt: at(-2), updatedAt: at(1) }, now).why, /in the future/);
+  for (const meta of [null, {}, { downloadedAt: 'not a date', updatedAt: at(1) }, { downloadedAt: at(1), updatedAt: null }])
+    assert.match(reusableDb(meta, now).why, /no readable vulnerability database/);
+  assert.deepEqual(DB_REUSE, { maxDownloadAgeMs: 6 * 3_600_000, maxBuiltAgeMs: 24 * 3_600_000 });
+});
+
+test("[CS9] the cached DB's dates come from `trivy version`; an unreadable answer means none", () => {
+  const sh = (cmd, args) => ({ status: 0, stdout: JSON.stringify({ VulnerabilityDB: { UpdatedAt: '2026-11-03T06:00:00Z', DownloadedAt: '2026-11-03T10:00:00Z' } }), stderr: '', args });
+  assert.deepEqual(makeGates({ work: '/w', sh }).dbMeta(), { updatedAt: '2026-11-03T06:00:00Z', downloadedAt: '2026-11-03T10:00:00Z' });
+  assert.equal(makeGates({ work: '/w', sh: () => ({ status: 1, stdout: '', stderr: 'boom' }) }).dbMeta(), null);
+  assert.equal(makeGates({ work: '/w', sh: () => ({ status: 0, stdout: 'not json', stderr: '' }) }).dbMeta(), null);
+});
+
+test("[CS9] the release's download is live: Trivy's own output reaches the terminal, with its progress bar", () => {
+  const calls = [];
+  const sh = (cmd, args, opts) => {
+    calls.push({ args, opts });
+    return { status: 0, stdout: '', stderr: '' };
+  };
+  makeGates({ work: '/w', sh }).freshDb({ progress: true });
+  const download = calls.find((c) => c.args.includes('--download-db-only'));
+  assert.equal(download.opts.stdio, 'inherit');
+  assert.ok(!download.args.includes('--no-progress'));
+  // The proofs keep capturing, to check why a gate failed.
+  calls.length = 0;
+  makeGates({ work: '/w', sh }).freshDb();
+  assert.ok(calls.find((c) => c.args.includes('--download-db-only')).args.includes('--no-progress'));
+});
+
+test('[CS9] the release decides on reuse before downloading, and still throws before any scan if the download fails', () => {
+  const src = readFileSync(new URL('./release.mjs', import.meta.url), 'utf8');
+  const decide = src.indexOf('reusableDb(gates.dbMeta())');
+  const download = src.indexOf('gates.freshDb({ progress: true })');
+  assert.ok(decide > 0 && decide < download, 'reuse is decided first');
+  assert.ok(download < src.indexOf('if (!db0.ok) throw new Error('));
+  assert.match(src, /dbSource/, 'the record says which');
 });
