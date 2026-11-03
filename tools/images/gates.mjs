@@ -11,6 +11,28 @@ export const DB_REPOS =
   'mirror.gcr.io/aquasec/trivy-db:2,ghcr.io/aquasecurity/trivy-db:2,public.ecr.aws/aquasecurity/trivy-db:2';
 export const TRIVY_CACHE = 'uv-trivy-cache';
 
+/**
+ * CS9: a release may reuse the vulnerability database already in the cache only when it was downloaded in the last
+ * 6 hours (Trivy rebuilds it about every 6) and built in the last day. Anything else, or anything unreadable, means a
+ * fresh download. So the owner can fetch it ahead of a release on a slow connection, and never scan with older data
+ * than a fresh download would get.
+ */
+export const DB_REUSE = { maxDownloadAgeMs: 6 * 60 * 60 * 1000, maxBuiltAgeMs: 24 * 60 * 60 * 1000 };
+
+/** Whether the cached database (`trivy version`'s VulnerabilityDB: UpdatedAt, DownloadedAt) may be reused. */
+export function reusableDb(meta, now = Date.now(), limits = DB_REUSE) {
+  const downloaded = Date.parse(meta?.downloadedAt ?? '');
+  const built = Date.parse(meta?.updatedAt ?? '');
+  if (Number.isNaN(downloaded) || Number.isNaN(built)) return { ok: false, why: 'no readable vulnerability database in the cache' };
+  if (downloaded > now + 60_000 || built > now + 60_000) return { ok: false, why: 'the cached database is dated in the future' };
+  const hours = (ms) => `${(ms / 3_600_000).toFixed(1)} h`;
+  if (now - downloaded > limits.maxDownloadAgeMs)
+    return { ok: false, why: `the cached database was downloaded ${hours(now - downloaded)} ago, over ${hours(limits.maxDownloadAgeMs)}` };
+  if (now - built > limits.maxBuiltAgeMs)
+    return { ok: false, why: `the cached database was built ${hours(now - built)} ago, over ${hours(limits.maxBuiltAgeMs)}` };
+  return { ok: true, why: `downloaded ${hours(now - downloaded)} ago, built ${hours(now - built)} ago` };
+}
+
 const result = (r) => ({
   ok: r.status === 0,
   status: r.status,
@@ -30,12 +52,15 @@ export function configOf(manifest) {
  * network for Trivy (CS9 proofs use an unreachable one).
  */
 export function makeGates({ work, sh = realSh, cache = TRIVY_CACHE, network } = {}) {
-  const trivyRun = (args) =>
+  // `opts.live`: Trivy's own output goes straight to this terminal (with a TTY when there is one, so its progress bar
+  // draws), instead of being captured.
+  const trivyRun = (args, opts = {}) =>
     sh(
       'docker',
       [
         'run',
         '--rm',
+        ...(opts.live && process.stdout.isTTY ? ['-t'] : []),
         ...(network ? ['--network', network] : []),
         '-v',
         `${cache}:/root/.cache/trivy`,
@@ -48,7 +73,7 @@ export function makeGates({ work, sh = realSh, cache = TRIVY_CACHE, network } = 
         TRIVY_IMAGE,
         ...args,
       ],
-      { allowFail: true },
+      { allowFail: true, ...(opts.live ? { stdio: 'inherit' } : {}) },
     );
   // --no-progress exists only on `trivy image` (`trivy config` rejects it).
   const trivy = (args) =>
@@ -73,8 +98,22 @@ export function makeGates({ work, sh = realSh, cache = TRIVY_CACHE, network } = 
     /** CS1/CS2: user, labels, no shell, no UniVarse source/test/env files, root-owned app tree. */
     inspection: (image, root = 'app') =>
       result(sh('node', ['tools/images/inspect.mjs', image, '--root', root], { allowFail: true })),
-    /** CS7/CS9: a clean vulnerability DB, then a fresh download with retries across mirrors; fail closed. */
-    freshDb({ attempts = 3, repos = DB_REPOS } = {}) {
+    /** CS9: the cached database's dates (`trivy version`), or null if there is none or it can't be read. */
+    dbMeta() {
+      const r = trivyRun(['version', '--format', 'json']);
+      if (r.status !== 0) return null;
+      try {
+        const db = JSON.parse(r.stdout).VulnerabilityDB ?? {};
+        return { updatedAt: db.UpdatedAt ?? null, downloadedAt: db.DownloadedAt ?? null };
+      } catch {
+        return null;
+      }
+    },
+    /**
+     * CS7/CS9: a clean vulnerability DB, then a fresh download with retries across mirrors; fail closed. `progress`
+     * shows the download and Trivy's own errors live (the release); otherwise they're captured (the proofs).
+     */
+    freshDb({ attempts = 3, repos = DB_REPOS, progress = false } = {}) {
       // The old DB must really be gone: if it can't be removed, a "fresh" download could leave stale data in use.
       const clean = trivy(['clean', '--vuln-db']);
       if (!clean.ok) {
@@ -88,7 +127,9 @@ export function makeGates({ work, sh = realSh, cache = TRIVY_CACHE, network } = 
       }
       const tries = [];
       for (let attempt = 1; attempt <= attempts; attempt++) {
-        const r = trivy(['image', '--download-db-only', '--db-repository', repos]);
+        const r = progress
+          ? result(trivyRun(['image', '--download-db-only', '--db-repository', repos], { live: true }))
+          : trivy(['image', '--download-db-only', '--db-repository', repos]);
         tries.push(r);
         if (r.ok) return { ok: true, status: 0, output: r.output, attempts: attempt };
       }
