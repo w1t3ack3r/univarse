@@ -231,7 +231,7 @@ The rest of [spec 0025](specs/0025-phase-1-control-plane.md) (owner decision 202
 
 **Exit:** J4 E2E green. The registration-opening load test passes. The pilot's legacy data imports with reconciliation reports (counts, CGPA re-computation match ≥ 99.9%, and every mismatch explained).
 
-## Phase 4b — Teaching & Learning + Assessment (CA CBT) (~7 wks)
+## Phase 4b — Teaching & Learning + Assessment (CA CBT) (~9 wks)
 
 Spec first (spec 0004 for Teaching & Learning, spec 0005 for Assessment; spec 0003 is product entitlements) from [05 §18–19](05-modules-and-features.md).
 
@@ -240,6 +240,7 @@ Spec first (spec 0004 for Teaching & Learning, spec 0005 for Assessment; spec 00
 - **Live lecture engagement** on the `realtime` role: rotating-code attendance check-in, polls, moderated Q&A, with HTTP-polling fallback
 - **CA CBT:** question banks with versioning, test definitions, pre-generated seeded papers, server-authoritative timer, autosave and resume, exactly-once submission, integrity logging (no auto-penalties), auto- and manual marking, regrade on key correction
 - **CA → results contract:** `assessment.ca_scores_released` event → score-sheet CA component (only while the sheet is editable)
+- **Practicals ([spec 0029](specs/0029-practicals.md) P1, P2):** practicals online, physical or blended, with the pre-lab, lab sessions (groups, benches, rotations) and the post-lab report; hours per mode; the self-hosted, sandboxed simulation library (PhET's historical collection, CircuitJS, JupyterLite) with its licence check; video-based practicals; the console's library screens
 
 **Exit:**
 - CBT peak load test: **2,000 candidates start within 60 s, zero lost answers**, start p95 ≤ 2 s, errors < 0.1%
@@ -247,14 +248,16 @@ Spec first (spec 0004 for Teaching & Learning, spec 0005 for Assessment; spec 00
 - Crash/reconnect tests: no acknowledged answer lost. Submission is exactly-once under parallel submits
 - Integrity: attempt logs are append-only and audited. Score changes after release only via the amendment path
 - Live engagement: 500 concurrent participants with poll/Q&A round-trip p95 ≤ 1 s
+- Practicals: a blended practical end to end (pre-lab, rotation check-in, report, CA); a hosted simulation can't reach the app's cookies or storage and makes no outside request; the licence check fails on a disallowed item
 
-## Phase 4c — UniVarse Live (media) (~5 wks, parallel with Phase 5)
+## Phase 4c — UniVarse Live (media) (~5.5 wks, parallel with Phase 5)
 
 Per ADR-022. It starts with a **cost and bandwidth spike** (1 week): SFU egress per participant at audio+slides vs video, TURN usage, recording storage. Then:
 - Self-hosted LiveKit (SFU + TURN + egress) in the infra plan. Join tokens minted by the API for registered members only
 - Lecturer publishes, students request to speak. Presence-based attendance. Polls/Q&A from Phase 4b inside the call
 - Audio + slides default. **Video implemented and optional**: lecturer camera and screen share, student cameras allowed per course, simulcast layers, per-participant audio-only receive (low-data mode). Recordings → scanned course materials, plus an audio + slides rendition of video sessions
 - Audit of joins, leaves, role changes and recordings. Egress cost per tenant
+- **Practicals in Live ([spec 0029](specs/0029-practicals.md) P3):** the lecturer pins a simulation or practical step during a session; students open it beside the call, and polls collect their readings
 
 **Exit:** 300 participants per room on a constrained-bandwidth load test, with audio continuity ≥ 99%. The test is run in both modes: audio + slides, and lecturer video on with most students on audio-only receive. Recordings appear in the course space. Isolation: a Live spike leaves other products within SLO.
 
@@ -286,13 +289,14 @@ Private university, returning students first (fees → registration → results 
 
 **Exit:** J8 E2E green. The pilot registry issues 20 transcripts matching historical ones.
 
-## Phase 7 — Hostel, Communications, Helpdesk, Reporting (~6 wks)
+## Phase 7 — Hostel, Communications, Helpdesk, Reporting, vendor labs (~7.5 wks)
 
 - Hostel setup, allocation rounds, applications, holds/expiry, check-in/out, damages → clearance
 - **From Phase 0 (ADR-028):** `HOSTEL` scope enforcement, checked against the loaded resource, with positive and negative tests
 - Announcements with targeting, preferences, SMS cost tracking and caps
 - Tenant helpdesk + escalation to platform support
 - Dashboards per role, standard reports, NUC-style returns export, read replica for reporting
+- **Vendor labs through LTI 1.3 ([spec 0029](specs/0029-practicals.md) P4):** UniVarse as the LTI platform for Labster, LabsLand, Wokwi and others on each institution's own contract; pseudonymous launches by default; grades into the tool's assignment; tool status in the console
 
 **Exit:** J9 E2E green. Dashboards are scoped correctly (tested). The reporting load doesn't affect OLTP p95.
 

@@ -1,6 +1,6 @@
 # Spec 0025: Phase 1, the platform control plane: slices and decisions
 
-**Status:** **Approved by the owner on 2026-10-28, all as written:** A1 to A14, the extras E1 to E12, and the recommended sizing. **Amended on 2026-11-02 at the owner's request:** the extras E13 to E27 ([below](#amendment-2026-11-02-the-extras-e13-to-e27)). The sizing: **Phase 1 closes at S0 to S8, and S9 to S11 are Phase 1b**, built before Phase 3. Nothing is built from it until Phase 0 is signed off. Each slice then gets its own spec (its detailed decisions, acceptance criteria and tests) before it's built, the same way Phase 0 went.
+**Status:** **Approved by the owner on 2026-10-28, all as written:** A1 to A14, the extras E1 to E12, and the recommended sizing. **Amended on 2026-11-02 at the owner's request, and its placements and re-estimates approved the same day:** the extras E13 to E27 ([below](#amendment-2026-11-02-the-extras-e13-to-e27)). The sizing: **Phase 1 closes at S0 to S8, and S9 to S11 are Phase 1b**, built before Phase 3. Nothing is built from it until Phase 0 is signed off. Each slice then gets its own spec (its detailed decisions, acceptance criteria and tests) before it's built, the same way Phase 0 went.
 **Phase:** 1 ([18](../18-roadmap.md)): "Platform control plane (~4 wks)".
 **Builds on:**
 
