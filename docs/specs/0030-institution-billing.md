@@ -1,6 +1,6 @@
 # Spec 0030: Institution billing: subscriptions, the student count and semester invoices
 
-**Status:** **Draft, for the owner's approval** (B1 to B16 and the phasing). Written 2026-11-05 at the owner's request, from the billing model the owner chose that day: **billed per semester, in arrears, for the students and products actually used**, with a setup fee and, for a new institution, a deposit. The prices below are **starting assumptions**, held as settings and changed after talking to the first institutions; nothing in code depends on them.
+**Status:** **Approved by the owner on 2026-11-06, all as written:** B1 to B16 and the phasing. Written 2026-11-05 at the owner's request, from the billing model the owner chose that day: **billed per semester, in arrears, for the students and products actually used**, with a setup fee and, for a new institution, a deposit. The prices below are **starting assumptions**, held as settings and changed after talking to the first institutions; nothing in code depends on them.
 **Phase:** 1b (S10) and 4 ([18](../18-roadmap.md)).
 **Builds on:**
 
@@ -84,7 +84,7 @@ S10 grows by about a week; Phase 4 by about a week and a half (Phase 4 moves fro
 
 ## The owner's steps
 
-- **Approve or change** B1 to B16 and the phasing.
+- ~~Approve or change B1 to B16 and the phasing.~~ Done: all approved on 2026-11-06.
 - **Prices:** test the starting price book with the first institutions; change it through the console before the first invoice.
 - **An accountant `[VERIFY]`:** VAT, withholding tax and e-invoicing for UniVarse's services to public and private institutions.
 - **A lawyer `[VERIFY]`:** the contract (payment terms, the billing hold, the review cap, the deposit), and, later, B16.
