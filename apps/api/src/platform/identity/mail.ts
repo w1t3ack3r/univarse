@@ -43,13 +43,26 @@ export class PlatformMailRelay implements OnApplicationBootstrap, OnApplicationS
 
   onApplicationBootstrap(): void {
     if (this.config.MAIL_RELAY_INTERVAL_MS === 0) return;
-    this.timer = setInterval(() => void this.drain(), this.config.MAIL_RELAY_INTERVAL_MS);
+    this.timer = setInterval(() => void this.tick(), this.config.MAIL_RELAY_INTERVAL_MS);
     this.timer.unref();
   }
 
   async onApplicationShutdown(): Promise<void> {
     if (this.timer) clearInterval(this.timer);
-    await this.running;
+    await this.running?.catch(() => undefined); // a failing pass has been logged by its tick
+  }
+
+  /**
+   * One pass on the timer, outside any request: a failure must end here, because an unhandled rejection kills the
+   * process (a busy pool's P2028 did, on the stack). The outbox still holds the mail, so the next tick tries again.
+   */
+  private async tick(): Promise<void> {
+    try {
+      await this.drain();
+    } catch (err) {
+      const reason = (err as { code?: string }).code ?? (err as Error).name;
+      this.logger.warn({ event: 'platform.mail.pass_failed', reason }, 'A console mail pass failed; the next one retries');
+    }
   }
 
   /** One pass; never overlaps another. Returns how many were sent. */
