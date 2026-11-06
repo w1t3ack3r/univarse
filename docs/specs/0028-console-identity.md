@@ -1,6 +1,6 @@
 # Spec 0028: Phase 1's S2, platform identity
 
-**Status:** **Approved by the owner on 2026-11-02, all as written:** Q1 to Q18, and PR A's Q-A1 to Q-A11 (with #144). PR A and PR B merged (with PR B's Q-B1 to Q-B4); PR C built; then the release and the deploy.
+**Status:** **Done (2026-11-06).** Approved by the owner on 2026-11-02, all as written: Q1 to Q18, and PR A's Q-A1 to Q-A11 (with #144), PR B's Q-B1 to Q-B4 and PR C's Q-C1 to Q-C5. Released and deployed as `db7d824`; the owner signed in on the stack with TOTP. Two accepted exceptions are active ([.trivyignore.yaml](../../.trivyignore.yaml)), so this release can't claim zero findings.
 **Phase:** 1, slice **S2** of [spec 0025](0025-phase-1-control-plane.md) (A3, A4, A5; E5 as a rule).
 **Builds on:**
 
@@ -66,7 +66,7 @@ The console is the platform's highest-value target (T12). Its sign-in is therefo
 ## The owner's steps
 
 - ~~Approve Q1 to Q18.~~ Done on 2026-11-02.
-- After PR C: the release and the deploy, then `pnpm stack:console owner --email <your address> --name "<your name>"`, the activation code from Mailpit (`https://mail.stack.univarse.localhost`), your password, your authenticator app, and your recovery codes, kept offline.
+- ~~After PR C: the release and the deploy, then `pnpm stack:console owner --email <your address> --name "<your name>"`, the activation code from Mailpit (`https://mail.stack.univarse.localhost`), your password, your authenticator app, and your recovery codes, kept offline.~~ Done on 2026-11-06.
 
 ## Affected docs (in the implementation PRs)
 
@@ -181,4 +181,11 @@ The console is the platform's highest-value target (T12). Its sign-in is therefo
 | Q-C3 | **Tests delete their retired test members, as the migrator, after the run** (an `@staff.test` address, no access, READ_ONLY; nothing else). | The console role has no `DELETE` (Q-A2), so tests could only retire; the owner saw 234 of them on the Staff page. The audit log keeps its rows. |
 | Q-C4 | **The smoke check fails if the keys aren't separate,** on every deploy, not only in CI. | Criterion 9 is about this stack's Vault, whose policies a deploy rewrites. |
 | Q-C5 | **`unwrap` takes the plaintext's expected length (a DEK's 32 by default), enforced by both providers,** rather than the console padding its 20-byte TOTP secrets to 32, or using longer ones. | The check still refuses a wrong-sized plaintext; RFC 4226's 160-bit secrets stay as the tenant side has them; and the local provider no longer hides what Transit refuses. |
+
+## Closing notes (2026-11-06)
+
+- **Released and deployed as `db7d824`** (five images, signed and verified offline). The deploy created the console's token and pepper on a running stack and recreated the platform API; the smoke check proved each Vault token works on its own key only (criterion 9).
+- **Criterion 11, on the stack:** the owner's command made the OWNER, activation and the authenticator's setup worked through Vault, and a real sign-in (`auth/login`, then `auth/mfa`) followed, with no errors or restarts.
+- **Memory:** the platform API read 131 MiB after the deploy and 192 MiB after those sign-ins; 60 failed sign-ins, one at a time for addresses that don't exist, took it to 249 MiB of its 256 MiB limit, where it stayed. It isn't climbing without end, but about 7 MiB was left and an Argon2id hash takes about 19, so **the limit is now 384 MiB**. Sign-ins at the same moment are still to be measured on the new limit.
+- **The OWNER's address on the stack holds a typo** (`gmal.com`). It's harmless on a local stack, where Mailpit catches everything, but there is no way to change a member's email yet. To fix before any real mail goes out.
 

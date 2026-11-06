@@ -260,8 +260,9 @@ services:
     volumes:
       - stack-ca:/ca:ro
     networks: [app]
-    # P8, measured 2026-11-02 under 240 requests: 72-73 MiB. Room for S2's password hashing; S2 revisits it.
-    mem_limit: 256m
+    # Spec 0028, measured 2026-11-06: 60 sign-in attempts one at a time (Argon2id, about 19 MiB each) took it to 249 MiB
+    # and it stayed there, 7 MiB under the old 256 MiB limit. 384 MiB leaves room for several at once, within the budget.
+    mem_limit: 384m
 
   # Spec 0027 P6, P7: the platform console, its own signed image. It holds no secret.
   console:
