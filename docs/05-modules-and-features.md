@@ -30,7 +30,7 @@ Surfaces: **C** = platform console · **A** = `/apply` · **St** = `/student` ·
 | Tenant data export (full, for portability/offboarding) | M | Encrypted archive with a short-lived link |
 | Shard management & pool → dedicated promotion | S | |
 | Migrations runner dashboard (per shard status) | M | |
-| Plans, subscriptions, platform invoices, usage (active students) | S | |
+| Plans, subscriptions, platform invoices, usage (active students) ([spec 0030](specs/0030-institution-billing.md)) | M | Billed **per semester, in arrears**, for the active students and products used, from a versioned price book (two-person approval, effective only from a session's start). The count holds numbers only; the institution sees the list behind it and the running bill. Invoices are immutable (corrections by credit note). Unpaid after a grace period: a billing hold on new admissions and registrations, never on sign-in, results or records |
 | **Product entitlements per tenant** (ADR-020) + feature flags | M | Disabling a product makes its routes 404 and skips its jobs for that tenant, server-side. Changes are audited |
 | Platform announcements, incident and maintenance notices **to IT Admins** (in-app banner + email) | M | Targeted per tenant or all. Delivery is logged |
 | **IT Admin ↔ UniVarse support channel**: tenant tickets with SLA timers, two-way messages, attachments | M | Only IT Admins (and roles they delegate) can raise platform tickets. Every message is logged on both sides |

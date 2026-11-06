@@ -189,7 +189,7 @@ The rest of [spec 0025](specs/0025-phase-1-control-plane.md) (owner decision 202
 | Slice | What it delivers |
 |---|---|
 | **S9** Support and break-glass | Platform tickets from IT Admins with SLA timers ([14](14-observability-and-operations.md)), two-way messages and attachments; the break-glass decision (spec 0025 A14); the help centre |
-| **S10** Plans and subscriptions | Plans and subscriptions driving entitlements, prices in `bigint` kobo; contracts, renewals and key contacts; the onboarding pipeline |
+| **S10** Plans and subscriptions | Plans and subscriptions driving entitlements, prices in `bigint` kobo; contracts, renewals and key contacts; the onboarding pipeline; the versioned price book, setup-fee and deposit invoices, credit notes, payments and receipts ([spec 0030](specs/0030-institution-billing.md) P1) |
 | **S11** Compliance and operations | The NDPA registers (DPAs, sub-processors, the incident register with its clocks, the audit-return evidence pack) `[VERIFY with counsel]`; the peak-days calendar; the read-only operations snapshot; the key view; adoption and health per institution; peak-load planning and per-institution limits; the data requests register |
 
 **Exit:** each slice's acceptance in spec 0025, plus: an IT Admin raises a ticket and gets a reply, with both sides logged; a plan change changes entitlements, audited; the operations snapshot holds nothing secret (a test).
@@ -220,14 +220,14 @@ The rest of [spec 0025](specs/0025-phase-1-control-plane.md) (owner decision 202
 - Reconciliation catches injected mismatches
 - CSP/security review of payment pages done
 
-## Phase 4 — Student records & Course registration (~6 wks)
+## Phase 4 — Student records & Course registration (~7.5 wks)
 
 - Student profiles, status changes, sensitive-data access controls, programme transfer (basic)
 - **Legacy student + legacy results import** (critical for pilot go-live with returning students)
 - Course offerings from curricula, lecturer allocation, class lists
 - Student course registration with all [04 §5](04-business-rules.md) rules, fee gate, adviser approval, add/drop, late registration, printable course form
 - **From Phase 0 (ADR-028):** `COURSE_OFFERING` and `COHORT` scope enforcement, checked against the loaded resource, with positive and negative tests
-- **From Phase 1 ([spec 0025](specs/0025-phase-1-control-plane.md) A13):** platform invoices and usage (active students), on the plans and subscriptions of Phase 1b
+- **From Phase 1 ([spec 0025](specs/0025-phase-1-control-plane.md) A13; [spec 0030](specs/0030-institution-billing.md) P2):** the continuous count of active students and the institution's running bill; usage counts (applicants, Live hours, SMS); end-of-semester invoices; reminders and the billing hold
 
 **Exit:** J4 E2E green. The registration-opening load test passes. The pilot's legacy data imports with reconciliation reports (counts, CGPA re-computation match ≥ 99.9%, and every mismatch explained).
 
