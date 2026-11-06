@@ -82,6 +82,15 @@ export function exceptionProblems(parsed, todayIso) {
   return problems;
 }
 
+/**
+ * Whether an active exception covers a Trivy finding: the same id, for one of the exact packages it names (the purls
+ * Trivy matches with --ignorefile). The gate proofs use it to see what the gate counts.
+ */
+export function isExcepted(finding, vulnerabilities) {
+  const purl = finding.PkgIdentifier?.PURL;
+  return Boolean(purl) && vulnerabilities.some((e) => e.id === finding.VulnerabilityID && Array.isArray(e.purls) && e.purls.includes(purl));
+}
+
 /** Files that must never ask Trivy to ignore unfixed findings. */
 export function ignoreUnfixedProblems(files) {
   return files.filter(({ text }) => /ignore[-_]unfixed/i.test(text.replace(/^\s*#.*$/gm, ''))).map(({ path }) => `${path}: uses ignore-unfixed (ADR-029: unfixed HIGH/CRITICAL findings block too)`);

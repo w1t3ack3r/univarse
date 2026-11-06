@@ -17,6 +17,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
+import { isExcepted, parseExceptions } from './exceptions.mjs';
 import { makeGates, samePushed, sameImage, savedConfig } from './gates.mjs';
 import { REPO, RUN_LABEL, sh, TRIVY_IMAGE } from './release-lib.mjs';
 
@@ -173,12 +174,17 @@ async function main() {
   });
 
   // ── CS7: vulnerabilities — only the planted package may be reported, and it must be the named CVE.
+  // "Only this reason" must see what the gate counts: the full report (kept as evidence) minus what an active exception
+  // covers, as the gate's --ignorefile does. Otherwise an accepted finding in the shared base (zlib, 2026-11) reads as
+  // a second reason and the proof fails for nothing the gate did wrong.
+  const accepted = parseExceptions(readFileSync(join(REPO, '.trivyignore.yaml'), 'utf8')).vulnerabilities;
   const findings = (name) => {
     gates.vulnerabilityReport(`${name}.tar`, `vuln-${name}.json`);
     const report = JSON.parse(readFileSync(join(WORK, `vuln-${name}.json`), 'utf8'));
     return (report.Results ?? [])
       .flatMap((r) => r.Vulnerabilities ?? [])
-      .filter((v) => ['HIGH', 'CRITICAL'].includes(v.Severity));
+      .filter((v) => ['HIGH', 'CRITICAL'].includes(v.Severity))
+      .filter((v) => !isExcepted(v, accepted));
   };
   const goodVuln = gates.vulnerability('good.tar');
   const fixable = findings('fixable');
