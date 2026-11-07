@@ -12,6 +12,7 @@ export interface PermissionDef {
 export const PERMISSIONS = {
   'identity.user.view': { description: 'View user accounts in scope' },
   'identity.user.manage': { description: 'Create, disable and update user accounts', privileged: true },
+  'identity.user.contact.manage': { description: 'Correct a user’s email address (spec 0032)', privileged: true, stepUp: true },
   'identity.role.assign': { description: 'Grant or revoke roles', privileged: true, stepUp: true },
   'org.unit.view': { description: 'View the organisation structure' },
   'org.unit.manage': { description: 'Create and edit org units', privileged: true },
@@ -42,6 +43,7 @@ export const SYSTEM_ROLE_PERMISSIONS: Readonly<Record<string, readonly Permissio
   INSTITUTION_ADMIN: [
     'identity.user.view',
     'identity.user.manage',
+    'identity.user.contact.manage',
     'identity.role.assign',
     'org.unit.view',
     'org.unit.manage',

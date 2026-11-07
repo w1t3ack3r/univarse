@@ -11,6 +11,11 @@ import {
   MfaEnrolBody,
   MfaVerifyBody,
   StepUpBody,
+  ContactConfirmBody,
+  ContactCorrectBody,
+  ContactCorrectionConfirmBody,
+  ContactRequestBody,
+  ContactUndoBody,
 } from './identity.js';
 import { defineOperations, type PathParam } from './operation.js';
 import { FileUploadRequestBody, ProductSetEnabledBody, SettingWriteBody } from './resources.js';
@@ -165,6 +170,62 @@ export const UsersOps = defineOperations({
     success: 200,
     response: R.UserList,
     errors: { 400: ['request.invalid_cursor'] },
+  },
+});
+
+/** Spec 0032: changing an address. */
+export const ContactOps = defineOperations({
+  pendingContactChange: {
+    operationId: 'pendingContactChange',
+    summary: 'The address change this user has waiting',
+    tag: 'auth',
+    success: 200,
+    response: R.ContactPending,
+  },
+  requestContactChange: {
+    operationId: 'requestContactChange',
+    summary: 'Send a code to a new address (the same answer whether or not it is taken)',
+    tag: 'auth',
+    body: ContactRequestBody,
+    success: 202,
+    response: R.MessageResponse,
+    errors: { 422: ['contact.same_address'], 429: ['contact.too_many'] },
+  },
+  confirmContactChange: {
+    operationId: 'confirmContactChange',
+    summary: 'Confirm a new address with its code; other sessions end',
+    tag: 'auth',
+    body: ContactConfirmBody,
+    success: 204,
+    errors: { 400: ['contact.code_invalid'] },
+  },
+  confirmContactCorrection: {
+    operationId: 'confirmContactCorrection',
+    summary: 'Finish an administrator’s correction with the code and your password',
+    tag: 'auth',
+    body: ContactCorrectionConfirmBody,
+    success: 204,
+    errors: { 400: ['contact.code_invalid'] },
+    rateLimit: 'contact-confirm: 30/15 min per IP',
+  },
+  undoContactChange: {
+    operationId: 'undoContactChange',
+    summary: 'Undo an address change with the code sent to the old address',
+    tag: 'auth',
+    body: ContactUndoBody,
+    success: 204,
+    errors: { 400: ['contact.undo_invalid'] },
+    rateLimit: 'contact-undo: 30/15 min per IP',
+  },
+  correctContact: {
+    operationId: 'correctContact',
+    summary: 'Correct a user’s address: at once if not activated; otherwise they finish it',
+    tag: 'users',
+    params: { id: { schema: z.uuid(), description: 'The user. Any other value, or another institution’s user, is 404.', invalid: { status: 404, code: 'resource.not_found' } } },
+    body: ContactCorrectBody,
+    success: 202,
+    response: R.MessageResponse,
+    errors: { 409: ['contact.address_taken', 'contact.own_account', 'contact.member_inactive'], 422: ['contact.same_address'], 429: ['contact.too_many'] },
   },
 });
 

@@ -62,6 +62,16 @@ export function LoginForm() {
             Forgot your password?
           </Link>
         </p>
+        <p>
+          <Link className="uv-link" href="/contact-change">
+            Confirm a new address
+          </Link>
+        </p>
+        <p>
+          <Link className="uv-link" href="/contact-change/undo">
+            Undo an address change
+          </Link>
+        </p>
       </div>
     </>
   );

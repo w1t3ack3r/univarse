@@ -1,6 +1,6 @@
 # Spec 0032: Contact details: changing an account's email address
 
-**Status:** **Approved by the owner on 2026-11-07, all as written:** Q1 to Q15. PR A built; held until S3 is deployed (Q15). PR B, PR C and the release next.
+**Status:** **Approved by the owner on 2026-11-07, all as written:** Q1 to Q15, and Q-A1 to Q-A9. PR A merged (#159), and released with S3 by the owner's decision on 2026-11-07, changing Q15's order. PR B built; PR C and its release next.
 **Phase:** 1, between S3 and S4 ([18](../18-roadmap.md)). It delivers [05 §2](../05-modules-and-features.md)'s "contact update with OTP verification", planned from the start and never built.
 **Builds on:**
 
@@ -90,7 +90,7 @@ In this PR: [05 §2](../05-modules-and-features.md), [18](../18-roadmap.md). In 
 
 The platform side, in `packages/domain/src/contact-change.ts` (the rules) and `apps/api/src/platform/identity/contact.service.ts`: the migration, the routes, Your account, Staff, two signed-out pages (`/contact-change`, `/contact-change/undo`), and the owner's command.
 
-**Decisions made while building, for approval:**
+**Decisions made while building PR A, approved by the owner on 2026-11-07:**
 
 | # | Decision | Why |
 | --- | --- | --- |
@@ -103,3 +103,21 @@ The platform side, in `packages/domain/src/contact-change.ts` (the rules) and `a
 | Q-A7 | **A member without access can't have their address corrected:** restore them first. | Reinstating is what sends mail, and it starts from a fresh activation. |
 | Q-A8 | **Failures on the signed-out confirm page don't count toward the sign-in lockout.** Each change allows 5 tries. | The lockout mails the address on record, which here may be a stranger's. |
 | Q-A9 | **The `Staff` page shows the old-address choice only for a proven address.** An unproven one is corrected at once, and it gets nothing either way. | Q9. |
+
+## PR B: what was built
+
+The institutions' side, in `apps/api/src/modules/identity/contact.service.ts`, with the same rules from `packages/domain`: the migration, `contact_change` with forced RLS, the `identity.user.contact.manage` permission, six routes in the OpenAPI document and the route sweep, an hourly pass in the worker, Your account, the Users page, and the two signed-out pages.
+
+**Decisions made while building, for approval:**
+
+| # | Decision | Why |
+| --- | --- | --- |
+| Q-B1 | **The signed-out pages ask for the matric or staff number, not an address.** | A username never changes (Q14), so it finds the account without searching addresses, which are encrypted here. |
+| Q-B2 | **`contact_change` holds a keyed hash of each address beside the ciphertext,** under the session pepper, not the data key. It's blanked with them. | The per-address limit (Q3) and the 72-hour hold (Q-A4) have to find an address without decrypting every row. |
+| Q-B3 | **An account with no address can add one the same way.** Nothing is told and there's no undo, because there's no old address. | Imports will have blanks, and a person needs an address to reset a password. |
+| Q-B4 | **`identity.user.contact.manage` goes to `INSTITUTION_ADMIN` only,** and is privileged with a step-up. The Registrar doesn't get it. | It's account-takeover territory (T31). An institution can't change this today; that comes with custom roles. |
+| Q-B5 | **Lacking the permission is 403, as every other tenant route; another institution's user is 404.** | Q7's "out of scope is 404" is about the loaded resource (invariant 2). A 403 here says nothing about any user. |
+| Q-B6 | **A locked or disabled user's address can't be corrected.** The Users page offers it only for active and not-yet-activated users. | As on the console (Q-A7): restore them first. |
+| Q-B7 | **A correction of a not-yet-activated user sends a new activation code to the corrected address.** | Q9 says the address changes directly. Sending the code saves a second step, and activation is what proves it. |
+| Q-B8 | **Each undo code has its own row, and every try spends an attempt on all of that user's open undos.** | The account can have two open undos, so the code has to say which change it is, and guessing mustn't get more tries for having two. |
+| Q-B9 | **Your account is a new workspace page, reached from your name at the top,** not from the navigation. | The spec placed the change in "Your account", which didn't exist for institutions' users. A sixth item pushed Settings off a phone's bottom bar. |

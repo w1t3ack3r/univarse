@@ -244,16 +244,16 @@ describe('[OA3] settings: one operation, value shapes derived from the registry,
 describe('[OA5][OA6] authentication, step-up, CSRF and path parameters as enforced', () => {
   it('[OA5] public operations have no security; MFA verify uses the challenge cookie; the rest the session', () => {
     expect(ids((o) => (o.security as unknown[]).length === 0)).toEqual(
-      ['confirmActivation', 'confirmPasswordReset', 'live', 'login', 'publicProfile', 'ready', 'requestActivation', 'requestPasswordReset'].sort(),
+      ['confirmActivation', 'confirmContactCorrection', 'confirmPasswordReset', 'live', 'login', 'publicProfile', 'ready', 'requestActivation', 'requestPasswordReset', 'undoContactChange'].sort(),
     );
     expect(byId('verifyMfa').security).toEqual([{ mfaChallenge: [] }]);
-    expect(ids((o) => JSON.stringify(o.security) === '[{"session":[]}]')).toHaveLength(ops.length - 9);
+    expect(ids((o) => JSON.stringify(o.security) === '[{"session":[]}]')).toHaveLength(ops.length - 11);
   });
 
   it('[OA5] x-step-up is derived from @RequireStepUp and the permission catalog, as the guard does', () => {
     // Explicit: disable, regenerate. Catalog: settings.product.manage is stepUp-flagged, so even the
     // products overview GET needs a fresh step-up (the web app wraps it in withStepUp).
-    expect(ids((o) => o['x-step-up'] === true)).toEqual(['disableTotp', 'productsOverview', 'regenerateRecoveryCodes', 'setProductEnabled']);
+    expect(ids((o) => o['x-step-up'] === true)).toEqual(['correctContact', 'disableTotp', 'productsOverview', 'regenerateRecoveryCodes', 'requestContactChange', 'setProductEnabled']);
   });
 
   it('[OA5] enrolment-only sessions are allowed exactly where @AllowRestricted is (spec 0001 M15′)', () => {
@@ -354,7 +354,7 @@ describe('[OA4] every response, including every error', () => {
 describe('[OA5][OA6] headers, cookies, ETags, binary and empty responses', () => {
   it('[OA6] 204 responses document no content', () => {
     for (const { op } of ops) expect(responses(op)['204']?.content, op.operationId).toBeUndefined();
-    expect(ids((o) => '204' in responses(o))).toEqual(['confirmActivation', 'confirmPasswordReset', 'deleteFile', 'logout']);
+    expect(ids((o) => '204' in responses(o))).toEqual(['confirmActivation', 'confirmContactChange', 'confirmContactCorrection', 'confirmPasswordReset', 'deleteFile', 'logout', 'undoContactChange']);
   });
 
   it('[OA6] the download is binary: PDF, PNG or JPEG, attachment, verified length, sandboxed', () => {

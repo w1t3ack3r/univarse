@@ -989,3 +989,47 @@
     justify-content: flex-start;
   }
 }
+
+/* Spec 0032: a form folded into a table row; a labelled tick box. */
+.row-disclosure summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: var(--uv-tap);
+  list-style: none;
+  cursor: pointer;
+}
+.row-disclosure summary::-webkit-details-marker {
+  display: none;
+}
+.row-disclosure[open] summary svg {
+  transform: rotate(180deg);
+}
+.row-disclosure form {
+  min-width: min(20rem, 70vw);
+  margin-top: var(--uv-space-2);
+}
+.check {
+  display: flex;
+  gap: var(--uv-space-3);
+  align-items: flex-start;
+  font-size: var(--uv-text-sm);
+  line-height: 1.45;
+  cursor: pointer;
+}
+.check input {
+  flex: none;
+  width: 22px;
+  height: 22px;
+}
+
+/* Your account: the name at the top, on a phone its initials. */
+.plate__link {
+  display: inline-flex;
+  align-items: center;
+  gap: inherit;
+  min-height: var(--uv-tap);
+  border-radius: var(--uv-radius);
+  color: inherit;
+  text-decoration: none;
+}

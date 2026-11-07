@@ -28,6 +28,8 @@ export const ERROR_MESSAGES = {
   'contact.too_many': 'Too many address changes. Try again in an hour.',
   'contact.same_address': 'That’s already the address on this account.',
   'contact.member_inactive': 'Restore their access first.',
+  'contact.address_taken': 'That address already belongs to someone.',
+  'contact.own_account': 'Change your own address in Your account.',
   'staff.email_taken': 'Someone on the platform team already uses that email address.',
   'staff.own_account': "You can't change your own role or access. Ask another owner.",
   'staff.last_owner': 'The platform must keep at least one active owner.',
