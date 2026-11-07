@@ -65,7 +65,8 @@ Surfaces: **C** = platform console · **A** = `/apply` · **St** = `/student` ·
 | Roles & permission catalog. Custom roles | M | |
 | Role assignments with scope and validity dates (acting HOD, tenure) | M | Assignment outside validity has no effect. Changes invalidate the permission cache immediately |
 | Step-up re-authentication for sensitive actions | M | |
-| User directory & profile (photo, contact update with OTP verification) | M | |
+| User directory & profile (photo) | M | |
+| **Changing an email address** ([spec 0032](specs/0032-contact-details.md)): by the person, or corrected by an administrator; phone numbers follow with SMS | M | A step-up and a code to the new address. The old address is told and can undo it for 72 hours. Other sessions end. An administrator can't complete one without the person's password. The screen never reveals whether an address is taken |
 | Delegation (HOD delegates approval while away) | S | Implemented as a time-bound role assignment with reason |
 
 ## 3. Institution setup (W: institution admin) — `[PHASE 2]`
