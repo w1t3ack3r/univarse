@@ -9,6 +9,9 @@ import { paged } from './pagination.js';
 const Uuid = z.string().meta({ format: 'uuid' });
 const Instant = z.string().meta({ format: 'date-time' });
 
+/** Spec 0032: the change a user has waiting. */
+export const ContactPending = z.object({ address: z.string().nullable(), pending: z.object({ address: z.string(), expiresAt: z.iso.datetime() }).strict().nullable() }).strict();
+
 export const MessageResponse = z.object({ message: z.string() }).strict();
 
 export const UserSummary = z.object({ id: Uuid, username: z.string(), displayName: z.string() }).strict();

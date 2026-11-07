@@ -3,6 +3,7 @@
 // `*_enc` column in the catalog and fails if one is missing here. Each entry has its own static SQL
 // (tagged templates only, no identifier interpolation).
 import type { TenantTx } from '@univarse/db';
+import { contactAad } from '../../modules/identity/contact.service.js';
 import { mfaSecretAad } from '../../modules/identity/mfa.service.js';
 import { outboxAad } from '../outbox/outbox.js';
 
@@ -83,6 +84,56 @@ export const ENCRYPTED_COLUMNS: readonly EncryptedColumn[] = [
         SELECT id::text, payload_enc AS value FROM outbox_event
         WHERE tenant_id = ${tenantId}::uuid AND payload_enc IS NOT NULL ORDER BY id LIMIT ${limit}`;
       return rows.map((r) => ({ id: r.id, value: r.value, aad: outboxAad(tenantId, r.id) }));
+    },
+  },
+  {
+    // Spec 0032 Q12: NULL once blanked, and for an account that had no address.
+    table: 'contact_change',
+    column: 'new_address_enc',
+    async lockStale(tx, tenantId, activePrefix, afterId, limit) {
+      const rows = await tx.$queryRaw<{ id: string; value: string }[]>`
+        SELECT id::text, new_address_enc AS value FROM contact_change
+        WHERE tenant_id = ${tenantId}::uuid AND id > ${afterId}::uuid AND new_address_enc IS NOT NULL AND new_address_enc NOT LIKE ${activePrefix}
+        ORDER BY id LIMIT ${limit} FOR UPDATE SKIP LOCKED`;
+      return rows.map((r) => ({ id: r.id, value: r.value, aad: contactAad(tenantId, r.id, 'new') }));
+    },
+    swap: (tx, tenantId, id, old, next) =>
+      tx.$executeRaw`UPDATE contact_change SET new_address_enc = ${next}
+        WHERE tenant_id = ${tenantId}::uuid AND id = ${id}::uuid AND new_address_enc = ${old}`,
+    count: (tx, tenantId) =>
+      tx.$queryRaw<VersionCount[]>`
+        SELECT split_part(new_address_enc, ':', 1) AS format, split_part(new_address_enc, ':', 2) AS version, count(*)::int AS n
+        FROM contact_change WHERE tenant_id = ${tenantId}::uuid AND new_address_enc IS NOT NULL GROUP BY 1, 2`,
+    async sample(tx, tenantId, limit) {
+      const rows = await tx.$queryRaw<{ id: string; value: string }[]>`
+        SELECT id::text, new_address_enc AS value FROM contact_change
+        WHERE tenant_id = ${tenantId}::uuid AND new_address_enc IS NOT NULL ORDER BY id LIMIT ${limit}`;
+      return rows.map((r) => ({ id: r.id, value: r.value, aad: contactAad(tenantId, r.id, 'new') }));
+    },
+  },
+  {
+    // Spec 0032 Q12: NULL once blanked, and for an account that had no address.
+    table: 'contact_change',
+    column: 'old_address_enc',
+    async lockStale(tx, tenantId, activePrefix, afterId, limit) {
+      const rows = await tx.$queryRaw<{ id: string; value: string }[]>`
+        SELECT id::text, old_address_enc AS value FROM contact_change
+        WHERE tenant_id = ${tenantId}::uuid AND id > ${afterId}::uuid AND old_address_enc IS NOT NULL AND old_address_enc NOT LIKE ${activePrefix}
+        ORDER BY id LIMIT ${limit} FOR UPDATE SKIP LOCKED`;
+      return rows.map((r) => ({ id: r.id, value: r.value, aad: contactAad(tenantId, r.id, 'old') }));
+    },
+    swap: (tx, tenantId, id, old, next) =>
+      tx.$executeRaw`UPDATE contact_change SET old_address_enc = ${next}
+        WHERE tenant_id = ${tenantId}::uuid AND id = ${id}::uuid AND old_address_enc = ${old}`,
+    count: (tx, tenantId) =>
+      tx.$queryRaw<VersionCount[]>`
+        SELECT split_part(old_address_enc, ':', 1) AS format, split_part(old_address_enc, ':', 2) AS version, count(*)::int AS n
+        FROM contact_change WHERE tenant_id = ${tenantId}::uuid AND old_address_enc IS NOT NULL GROUP BY 1, 2`,
+    async sample(tx, tenantId, limit) {
+      const rows = await tx.$queryRaw<{ id: string; value: string }[]>`
+        SELECT id::text, old_address_enc AS value FROM contact_change
+        WHERE tenant_id = ${tenantId}::uuid AND old_address_enc IS NOT NULL ORDER BY id LIMIT ${limit}`;
+      return rows.map((r) => ({ id: r.id, value: r.value, aad: contactAad(tenantId, r.id, 'old') }));
     },
   },
 ];

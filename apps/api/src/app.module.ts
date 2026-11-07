@@ -13,6 +13,8 @@ import { OneTimeCodeService } from './modules/identity/one-time-code.service.js'
 import { PasswordAttempts } from './modules/identity/password-attempts.service.js';
 import { SessionService } from './modules/identity/session.service.js';
 import { UsersController } from './modules/identity/users.controller.js';
+import { ContactController } from './modules/identity/contact.controller.js';
+import { ContactService } from './modules/identity/contact.service.js';
 import { ProductDeclarationCheck } from './modules/products/product-declaration.check.js';
 import { ProductGuard } from './modules/products/product.guard.js';
 import { ProductService } from './modules/products/product.service.js';
@@ -54,6 +56,7 @@ export const API_CONTROLLERS = [
   AuthController,
   MfaController,
   UsersController,
+  ContactController,
   ProductsController,
   SettingsController,
   FilesController,
@@ -114,6 +117,7 @@ export class AppModule {
         PasswordAttempts,
         MfaService,
         AuthService,
+        ContactService,
         ProductService,
         ProductDeclarationCheck,
         SettingsCache,

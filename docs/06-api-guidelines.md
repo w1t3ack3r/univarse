@@ -35,7 +35,7 @@ Applies to every HTTP endpoint in `apps/api`. Contracts live in `packages/contra
 }
 ```
 - **A `GET` that writes:** `GET /api/platform/v1/audit` writes one audit row for a new query, in the same transaction as the read ([spec 0031](specs/0031-seeing-what-happened.md) Q3), because viewing the audit log is itself audited. It is the only `GET` that writes.
-- **An answer that doesn't say:** `POST /api/platform/v1/me/email` gives the same 202 whether or not the address is taken ([spec 0032](specs/0032-contact-details.md) Q4). Confirming then fails exactly as a wrong code does.
+- **An answer that doesn't say:** `POST /api/platform/v1/me/email` and `POST /api/v1/auth/email` give the same 202 whether or not the address is taken ([spec 0032](specs/0032-contact-details.md) Q4). Confirming then fails exactly as a wrong code does.
 - **Pagination:** cursor-based by default (`?cursor=&limit=`, max 200). Offset pagination is allowed only for small admin tables with a known size. **The cursor is opaque and holds a row id, never a value from the row** (a username is a matric or staff number, and cursors travel in page URLs); the server looks the row up again under the tenant's RLS. A cursor that doesn't resolve is `400 request.invalid_cursor`, the same answer whatever the reason. Query parameters are declared in the operation's strict `query` object and parsed by the handler, like a body ([spec 0021](specs/0021-users-pagination.md)).
 - **Filtering/sorting:** `?status=SUBMITTED&level=300&sort=-createdAt&q=adeyemi`. Only allow-listed fields.
 - **Response DTOs** are explicit mappers. Never serialize ORM objects, because hidden fields (password hashes, encrypted secrets) must be impossible to leak by accident.

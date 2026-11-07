@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import type { ReactNode } from 'react';
 import { LogoutButton } from '@/components/LogoutButton';
 import { NavLinks } from '@/components/NavLinks';
@@ -43,15 +44,17 @@ export default async function WorkspaceLayout({ children }: { children: ReactNod
           <header className="ws__top">
             <span className="ws__inst ws__inst--phone">{profile?.legalName}</span>
             <div className="plate">
-              <span className="plate__initials" aria-hidden="true">
-                {initials(me.displayName)}
-              </span>
-              <span className="plate__text">
-                <span className="plate__name" data-testid="user-name">
-                  {me.displayName}
+              <Link className="plate__link" href="/workspace/account" aria-label={`Your account: ${me.displayName}`}>
+                <span className="plate__initials" aria-hidden="true">
+                  {initials(me.displayName)}
                 </span>
-                <span className="plate__id">{me.username}</span>
-              </span>
+                <span className="plate__text">
+                  <span className="plate__name" data-testid="user-name">
+                    {me.displayName}
+                  </span>
+                  <span className="plate__id">{me.username}</span>
+                </span>
+              </Link>
               <LogoutButton variant="quiet" compact />
             </div>
           </header>

@@ -12,6 +12,14 @@ export const CodeRequestBody = z.object({ username: Identifier }).strict();
 /** …then identifier + emailed code + the new password (activation and reset alike). */
 export const CodeConfirmBody = z.object({ username: Identifier, code: TotpCode, password: Password }).strict();
 
+/** Spec 0032: an address, trimmed and lower-cased before it's used or stored. */
+const ContactEmail = z.string().trim().toLowerCase().pipe(z.email().max(254));
+export const ContactRequestBody = z.object({ email: ContactEmail }).strict();
+export const ContactConfirmBody = z.object({ code: TotpCode }).strict();
+export const ContactCorrectionConfirmBody = z.object({ username: Identifier, code: TotpCode, password: Password }).strict();
+export const ContactUndoBody = z.object({ username: Identifier, code: z.string().trim().min(10).max(16) }).strict();
+export const ContactCorrectBody = z.object({ email: ContactEmail, oldAddressWrong: z.boolean() }).strict();
+
 export const LoginBody = z.object({ username: Identifier, password: Password }).strict();
 
 /** S2: password, plus a TOTP code or a recovery code for MFA users (never both). */

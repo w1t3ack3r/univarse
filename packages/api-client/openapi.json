@@ -1186,6 +1186,1274 @@
         "x-csrf": "same-origin"
       }
     },
+    "/api/v1/auth/contact-change/confirm": {
+      "post": {
+        "operationId": "confirmContactCorrection",
+        "summary": "Finish an administrator’s correction with the code and your password",
+        "tags": [
+          "auth"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "username": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 254
+                  },
+                  "code": {
+                    "type": "string",
+                    "pattern": "^\\d{6}$"
+                  },
+                  "password": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                  }
+                },
+                "required": [
+                  "username",
+                  "code",
+                  "password"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "No content"
+          },
+          "400": {
+            "description": "contact.code_invalid, request.invalid",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 400
+                    },
+                    "code": {
+                      "enum": [
+                        "contact.code_invalid",
+                        "request.invalid"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "request.csrf_rejected",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 403
+                    },
+                    "code": {
+                      "enum": [
+                        "request.csrf_rejected"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "tenant.not_found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 404
+                    },
+                    "code": {
+                      "enum": [
+                        "tenant.not_found"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "423": {
+            "description": "tenant.suspended",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 423
+                    },
+                    "code": {
+                      "enum": [
+                        "tenant.suspended"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "request.rate_limited",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 429
+                    },
+                    "code": {
+                      "enum": [
+                        "request.rate_limited"
+                      ]
+                    }
+                  }
+                }
+              }
+            },
+            "headers": {
+              "Retry-After": {
+                "required": true,
+                "description": "Seconds until the limit resets.",
+                "schema": {
+                  "type": "string",
+                  "pattern": "^[0-9]+$"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "server.internal",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 500
+                    },
+                    "code": {
+                      "enum": [
+                        "server.internal"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "server.busy",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 503
+                    },
+                    "code": {
+                      "enum": [
+                        "server.busy"
+                      ]
+                    }
+                  }
+                }
+              }
+            },
+            "headers": {
+              "Retry-After": {
+                "required": true,
+                "description": "Seconds to wait before retrying.",
+                "schema": {
+                  "type": "string",
+                  "pattern": "^[0-9]+$"
+                }
+              }
+            }
+          }
+        },
+        "security": [],
+        "x-product": "core",
+        "x-rate-limit": "contact-confirm: 30/15 min per IP",
+        "x-csrf": "same-origin"
+      }
+    },
+    "/api/v1/auth/contact-change/undo": {
+      "post": {
+        "operationId": "undoContactChange",
+        "summary": "Undo an address change with the code sent to the old address",
+        "tags": [
+          "auth"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "username": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 254
+                  },
+                  "code": {
+                    "type": "string",
+                    "minLength": 10,
+                    "maxLength": 16
+                  }
+                },
+                "required": [
+                  "username",
+                  "code"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "No content"
+          },
+          "400": {
+            "description": "contact.undo_invalid, request.invalid",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 400
+                    },
+                    "code": {
+                      "enum": [
+                        "contact.undo_invalid",
+                        "request.invalid"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "request.csrf_rejected",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 403
+                    },
+                    "code": {
+                      "enum": [
+                        "request.csrf_rejected"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "tenant.not_found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 404
+                    },
+                    "code": {
+                      "enum": [
+                        "tenant.not_found"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "423": {
+            "description": "tenant.suspended",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 423
+                    },
+                    "code": {
+                      "enum": [
+                        "tenant.suspended"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "request.rate_limited",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 429
+                    },
+                    "code": {
+                      "enum": [
+                        "request.rate_limited"
+                      ]
+                    }
+                  }
+                }
+              }
+            },
+            "headers": {
+              "Retry-After": {
+                "required": true,
+                "description": "Seconds until the limit resets.",
+                "schema": {
+                  "type": "string",
+                  "pattern": "^[0-9]+$"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "server.internal",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 500
+                    },
+                    "code": {
+                      "enum": [
+                        "server.internal"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "server.busy",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 503
+                    },
+                    "code": {
+                      "enum": [
+                        "server.busy"
+                      ]
+                    }
+                  }
+                }
+              }
+            },
+            "headers": {
+              "Retry-After": {
+                "required": true,
+                "description": "Seconds to wait before retrying.",
+                "schema": {
+                  "type": "string",
+                  "pattern": "^[0-9]+$"
+                }
+              }
+            }
+          }
+        },
+        "security": [],
+        "x-product": "core",
+        "x-rate-limit": "contact-undo: 30/15 min per IP",
+        "x-csrf": "same-origin"
+      }
+    },
+    "/api/v1/auth/email": {
+      "get": {
+        "operationId": "pendingContactChange",
+        "summary": "The address change this user has waiting",
+        "tags": [
+          "auth"
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "address": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "pending": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "address": {
+                              "type": "string"
+                            },
+                            "expiresAt": {
+                              "type": "string",
+                              "format": "date-time",
+                              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                            }
+                          },
+                          "required": [
+                            "address",
+                            "expiresAt"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "address",
+                    "pending"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "auth.unauthenticated",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 401
+                    },
+                    "code": {
+                      "enum": [
+                        "auth.unauthenticated"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "auth.mfa_enrolment_required",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 403
+                    },
+                    "code": {
+                      "enum": [
+                        "auth.mfa_enrolment_required"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "tenant.not_found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 404
+                    },
+                    "code": {
+                      "enum": [
+                        "tenant.not_found"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "423": {
+            "description": "tenant.suspended",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 423
+                    },
+                    "code": {
+                      "enum": [
+                        "tenant.suspended"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "server.internal",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 500
+                    },
+                    "code": {
+                      "enum": [
+                        "server.internal"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "server.busy",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 503
+                    },
+                    "code": {
+                      "enum": [
+                        "server.busy"
+                      ]
+                    }
+                  }
+                }
+              }
+            },
+            "headers": {
+              "Retry-After": {
+                "required": true,
+                "description": "Seconds to wait before retrying.",
+                "schema": {
+                  "type": "string",
+                  "pattern": "^[0-9]+$"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "x-product": "core",
+        "x-step-up": false
+      },
+      "post": {
+        "operationId": "requestContactChange",
+        "summary": "Send a code to a new address (the same answer whether or not it is taken)",
+        "tags": [
+          "auth"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "email": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "email"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "message"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "request.invalid",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 400
+                    },
+                    "code": {
+                      "enum": [
+                        "request.invalid"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "auth.unauthenticated",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 401
+                    },
+                    "code": {
+                      "enum": [
+                        "auth.unauthenticated"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "auth.mfa_enrolment_required, request.csrf_rejected",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 403
+                    },
+                    "code": {
+                      "enum": [
+                        "auth.mfa_enrolment_required",
+                        "request.csrf_rejected"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "tenant.not_found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 404
+                    },
+                    "code": {
+                      "enum": [
+                        "tenant.not_found"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "contact.same_address",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 422
+                    },
+                    "code": {
+                      "enum": [
+                        "contact.same_address"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "423": {
+            "description": "tenant.suspended",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 423
+                    },
+                    "code": {
+                      "enum": [
+                        "tenant.suspended"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "428": {
+            "description": "auth.step_up_required",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 428
+                    },
+                    "code": {
+                      "enum": [
+                        "auth.step_up_required"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "contact.too_many",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 429
+                    },
+                    "code": {
+                      "enum": [
+                        "contact.too_many"
+                      ]
+                    }
+                  }
+                }
+              }
+            },
+            "headers": {
+              "Retry-After": {
+                "required": true,
+                "description": "Seconds until the limit resets.",
+                "schema": {
+                  "type": "string",
+                  "pattern": "^[0-9]+$"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "server.internal",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 500
+                    },
+                    "code": {
+                      "enum": [
+                        "server.internal"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "server.busy",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 503
+                    },
+                    "code": {
+                      "enum": [
+                        "server.busy"
+                      ]
+                    }
+                  }
+                }
+              }
+            },
+            "headers": {
+              "Retry-After": {
+                "required": true,
+                "description": "Seconds to wait before retrying.",
+                "schema": {
+                  "type": "string",
+                  "pattern": "^[0-9]+$"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "x-product": "core",
+        "x-step-up": true,
+        "x-csrf": "same-origin"
+      }
+    },
+    "/api/v1/auth/email/confirm": {
+      "post": {
+        "operationId": "confirmContactChange",
+        "summary": "Confirm a new address with its code; other sessions end",
+        "tags": [
+          "auth"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "code": {
+                    "type": "string",
+                    "pattern": "^\\d{6}$"
+                  }
+                },
+                "required": [
+                  "code"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "No content"
+          },
+          "400": {
+            "description": "contact.code_invalid, request.invalid",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 400
+                    },
+                    "code": {
+                      "enum": [
+                        "contact.code_invalid",
+                        "request.invalid"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "auth.unauthenticated",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 401
+                    },
+                    "code": {
+                      "enum": [
+                        "auth.unauthenticated"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "auth.mfa_enrolment_required, request.csrf_rejected",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 403
+                    },
+                    "code": {
+                      "enum": [
+                        "auth.mfa_enrolment_required",
+                        "request.csrf_rejected"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "tenant.not_found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 404
+                    },
+                    "code": {
+                      "enum": [
+                        "tenant.not_found"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "423": {
+            "description": "tenant.suspended",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 423
+                    },
+                    "code": {
+                      "enum": [
+                        "tenant.suspended"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "server.internal",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 500
+                    },
+                    "code": {
+                      "enum": [
+                        "server.internal"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "server.busy",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 503
+                    },
+                    "code": {
+                      "enum": [
+                        "server.busy"
+                      ]
+                    }
+                  }
+                }
+              }
+            },
+            "headers": {
+              "Retry-After": {
+                "required": true,
+                "description": "Seconds to wait before retrying.",
+                "schema": {
+                  "type": "string",
+                  "pattern": "^[0-9]+$"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "x-product": "core",
+        "x-step-up": false,
+        "x-csrf": "same-origin"
+      }
+    },
     "/api/v1/auth/login": {
       "post": {
         "operationId": "login",
@@ -1771,6 +3039,7 @@
                         "enum": [
                           "identity.user.view",
                           "identity.user.manage",
+                          "identity.user.contact.manage",
                           "identity.role.assign",
                           "org.unit.view",
                           "org.unit.manage",
@@ -8611,6 +9880,386 @@
         "x-product": "core",
         "x-permission": "identity.user.view",
         "x-step-up": false
+      }
+    },
+    "/api/v1/users/{id}/email": {
+      "post": {
+        "operationId": "correctContact",
+        "summary": "Correct a user’s address: at once if not activated; otherwise they finish it",
+        "tags": [
+          "users"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "The user. Any other value, or another institution’s user, is 404.",
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            },
+            "x-invalid": {
+              "status": 404,
+              "code": "resource.not_found"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "email": {
+                    "type": "string"
+                  },
+                  "oldAddressWrong": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "email",
+                  "oldAddressWrong"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "message"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "request.invalid",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 400
+                    },
+                    "code": {
+                      "enum": [
+                        "request.invalid"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "auth.unauthenticated",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 401
+                    },
+                    "code": {
+                      "enum": [
+                        "auth.unauthenticated"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "auth.forbidden, auth.mfa_enrolment_required, auth.mfa_required, request.csrf_rejected",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 403
+                    },
+                    "code": {
+                      "enum": [
+                        "auth.forbidden",
+                        "auth.mfa_enrolment_required",
+                        "auth.mfa_required",
+                        "request.csrf_rejected"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "resource.not_found, tenant.not_found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 404
+                    },
+                    "code": {
+                      "enum": [
+                        "resource.not_found",
+                        "tenant.not_found"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "contact.address_taken, contact.member_inactive, contact.own_account",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 409
+                    },
+                    "code": {
+                      "enum": [
+                        "contact.address_taken",
+                        "contact.member_inactive",
+                        "contact.own_account"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "contact.same_address",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 422
+                    },
+                    "code": {
+                      "enum": [
+                        "contact.same_address"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "423": {
+            "description": "tenant.suspended",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 423
+                    },
+                    "code": {
+                      "enum": [
+                        "tenant.suspended"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "428": {
+            "description": "auth.step_up_required",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 428
+                    },
+                    "code": {
+                      "enum": [
+                        "auth.step_up_required"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "contact.too_many",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 429
+                    },
+                    "code": {
+                      "enum": [
+                        "contact.too_many"
+                      ]
+                    }
+                  }
+                }
+              }
+            },
+            "headers": {
+              "Retry-After": {
+                "required": true,
+                "description": "Seconds until the limit resets.",
+                "schema": {
+                  "type": "string",
+                  "pattern": "^[0-9]+$"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "server.internal",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 500
+                    },
+                    "code": {
+                      "enum": [
+                        "server.internal"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "server.busy",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 503
+                    },
+                    "code": {
+                      "enum": [
+                        "server.busy"
+                      ]
+                    }
+                  }
+                }
+              }
+            },
+            "headers": {
+              "Retry-After": {
+                "required": true,
+                "description": "Seconds to wait before retrying.",
+                "schema": {
+                  "type": "string",
+                  "pattern": "^[0-9]+$"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "x-product": "core",
+        "x-permission": "identity.user.contact.manage",
+        "x-step-up": true,
+        "x-csrf": "same-origin"
       }
     },
     "/health/live": {

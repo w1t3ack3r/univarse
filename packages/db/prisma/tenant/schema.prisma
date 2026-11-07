@@ -82,11 +82,15 @@ model UserAccount {
   username         String
   /// Normalised lower-case.
   email            String?
+  /// Spec 0032 Q11: set by activation and by a confirmed change
+  emailVerifiedAt  DateTime?  @map("email_verified_at") @db.Timestamptz(3)
   /// E.164, e.g. +2348012345678
   phone            String?
   displayName      String     @map("display_name")
   /// argon2id; null until activation.
   passwordHash     String?    @map("password_hash")
+  /// Spec 0032 Q6: after an undo the password may be an intruder's: it's refused until a reset replaces it
+  passwordResetRequired Boolean @default(false) @map("password_reset_required")
   status           UserStatus @default(PENDING_ACTIVATION)
   failedLoginCount Int        @default(0) @map("failed_login_count")
   lockedUntil      DateTime?  @map("locked_until") @db.Timestamptz(3)
@@ -101,11 +105,65 @@ model UserAccount {
   recoveryCodes   RecoveryCode[]
   oneTimeTokens   OneTimeToken[]
   roleAssignments RoleAssignment[]
+  contactChanges  ContactChange[]
 
   @@unique([tenantId, id])
   @@unique([tenantId, username])
   @@unique([tenantId, email])
   @@map("user_account")
+}
+
+enum ContactChannel {
+  EMAIL
+}
+
+enum ContactChangeKind {
+  SELF
+  ADMIN
+}
+
+enum ContactChangeStatus {
+  PENDING
+  REPLACED
+  CONFIRMED
+  UNDONE
+}
+
+/// Spec 0032: one change of a user's address. The row stays as the record that it happened; its addresses and codes are
+/// blanked once they're no longer needed (Q12). The hashes are keyed, so a request limit and the 72-hour hold on an old
+/// address can work without reading an address. Phone numbers use the same table when SMS arrives (Q13).
+model ContactChange {
+  id              String              @id @default(dbgenerated("uuidv7()")) @db.Uuid
+  tenantId        String              @map("tenant_id") @db.Uuid
+  userId          String              @map("user_id") @db.Uuid
+  channel         ContactChannel      @default(EMAIL)
+  kind            ContactChangeKind
+  status          ContactChangeStatus @default(PENDING)
+  requestedBy     String?             @map("requested_by") @db.Uuid
+  newAddressEnc   String?             @map("new_address_enc")
+  oldAddressEnc   String?             @map("old_address_enc")
+  newAddressHash  Bytes?              @map("new_address_hash")
+  oldAddressHash  Bytes?              @map("old_address_hash")
+  oldAddressWrong Boolean             @default(false) @map("old_address_wrong")
+  codeHash        Bytes?              @map("code_hash")
+  attempts        Int                 @default(0)
+  expiresAt       DateTime            @map("expires_at") @db.Timestamptz(3)
+  confirmedAt     DateTime?           @map("confirmed_at") @db.Timestamptz(3)
+  undoHash        Bytes?              @map("undo_hash")
+  undoUntil       DateTime?           @map("undo_until") @db.Timestamptz(3)
+  undoAttempts    Int                 @default(0) @map("undo_attempts")
+  undoneAt        DateTime?           @map("undone_at") @db.Timestamptz(3)
+  blankedAt       DateTime?           @map("blanked_at") @db.Timestamptz(3)
+  createdAt       DateTime            @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  user UserAccount @relation(fields: [tenantId, userId], references: [tenantId, id], onDelete: Cascade)
+
+  @@unique([tenantId, id])
+  @@index([tenantId, userId, createdAt])
+  @@index([tenantId, newAddressHash])
+  @@index([tenantId, oldAddressHash])
+  @@index([tenantId, blankedAt])
+  @@map("contact_change")
 }
 
 model Session {
