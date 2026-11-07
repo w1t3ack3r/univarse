@@ -21,6 +21,8 @@ export type PlatformNext = z.infer<typeof PlatformNext>;
 export const PlatformMember = z.strictObject({
   id: z.uuid(),
   email: z.string(),
+  /** Spec 0032 Q11: the address has been proven. Unproven is why someone may be getting no mail. */
+  emailVerified: z.boolean(),
   displayName: z.string(),
   role,
   isActive: z.boolean(),
@@ -114,6 +116,15 @@ export const PlatformOps = {
         }),
       ),
     }),
+  },
+  /** Spec 0032. The first answer is the same whatever the address (Q4). */
+  contactChange: {
+    pending: { response: z.strictObject({ pending: z.strictObject({ address: z.string(), expiresAt: z.iso.datetime() }).nullable() }) },
+    request: { body: z.strictObject({ email }) },
+    confirm: { body: z.strictObject({ code }) },
+    confirmCorrection: { body: z.strictObject({ email, code, password }) },
+    undo: { body: z.strictObject({ email, code: z.string().trim().min(10).max(16) }) },
+    correct: { body: z.strictObject({ email, oldAddressWrong: z.boolean() }) },
   },
   staff: { response: z.strictObject({ data: z.array(PlatformMember) }) },
   invite: { body: z.strictObject({ email, displayName, role }), response: PlatformMember },

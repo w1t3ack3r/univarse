@@ -49,7 +49,7 @@ export class PlatformStaff {
   private async member(tx: PlatformTx | PlatformClient, id: string): Promise<PlatformMember> {
     const u = await tx.platformUser.findUnique({ where: { id }, include: { mfaFactors: { where: { confirmedAt: { not: null }, revokedAt: null }, select: { id: true } } } });
     if (!u) throw notFound();
-    return { id: u.id, email: u.email, displayName: u.displayName, role: u.role, isActive: u.isActive, mfaEnrolled: u.mfaFactors.length > 0, lastLoginAt: u.lastLoginAt?.toISOString() ?? null };
+    return { id: u.id, email: u.email, emailVerified: u.emailVerifiedAt !== null, displayName: u.displayName, role: u.role, isActive: u.isActive, mfaEnrolled: u.mfaFactors.length > 0, lastLoginAt: u.lastLoginAt?.toISOString() ?? null };
   }
 
   async list(): Promise<PlatformMember[]> {
@@ -74,7 +74,8 @@ export class PlatformStaff {
   async invite(actor: PlatformActor, input: { email: string; displayName: string; role: Role }, meta: RequestMeta): Promise<PlatformMember> {
     const id = await this.db.$transaction(async (tx) => {
       await this.lockStaff(tx);
-      if (await tx.platformUser.findUnique({ where: { email: input.email }, select: { id: true } })) throw new ProblemError(409, 'staff.email_taken', 'That email is already a member');
+      const held = await tx.platformContactChange.findFirst({ where: { oldAddress: input.email, status: 'CONFIRMED', undoUntil: { gt: new Date() } }, select: { id: true } }); // an undo may need it back (spec 0032 Q6)
+      if (held || (await tx.platformUser.findUnique({ where: { email: input.email }, select: { id: true } }))) throw new ProblemError(409, 'staff.email_taken', 'That email is already a member');
       const { id } = await tx.platformUser.create({ data: { email: input.email, displayName: input.displayName, role: input.role }, select: { id: true } });
       const code = await this.creds.issueCode(tx, id, 'ACTIVATION');
       await platformAudit(tx, { actorId: actor.userId, action: 'platform.staff.invited', metadata: { memberId: id, role: input.role } }, meta);

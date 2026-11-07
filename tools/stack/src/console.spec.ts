@@ -13,7 +13,16 @@ describe('[0028 Q5, Q14] pnpm stack:console owner', () => {
     expect(ownerArgs(['owner', '--email', 'ada@example.ng', '--recover'])).toEqual(['--recover', '--email', 'ada@example.ng']);
   });
 
+  it('[0032 Q10] correcting an address: both addresses, and the old one marked wrong only if asked', () => {
+    expect(ownerArgs(['owner', '--correct-email', '--email', 'ada@gmal.com', '--new-email', 'ada@gmail.com'])).toEqual(['--correct-email', '--email', 'ada@gmal.com', '--new-email', 'ada@gmail.com']);
+    expect(ownerArgs(['owner', '--correct-email', '--old-address-wrong', '--email', 'ada@gmal.com', '--new-email', 'ada@gmail.com'])).toEqual(['--correct-email', '--email', 'ada@gmal.com', '--new-email', 'ada@gmail.com', '--old-address-wrong']);
+  });
+
   for (const [what, argv] of [
+    ['a correction with no new address', ['owner', '--correct-email', '--email', 'ada@example.ng']],
+    ['a correction with a bad new address', ['owner', '--correct-email', '--email', 'ada@example.ng', '--new-email', 'ada']],
+    ['a correction and a recovery together', ['owner', '--correct-email', '--recover', '--email', 'ada@example.ng', '--new-email', 'b@example.ng']],
+    ['the old address marked wrong without a correction', ['owner', '--recover', '--old-address-wrong', '--email', 'ada@example.ng']],
     ['no command', []],
     ['another command', ['staff', '--email', 'ada@example.ng', '--name', 'Ada']],
     ['no email', ['owner', '--name', 'Ada']],

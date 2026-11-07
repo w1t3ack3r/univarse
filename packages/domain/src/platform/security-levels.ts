@@ -15,6 +15,7 @@ const LEVELS: Readonly<Record<string, SecurityLevel>> = Object.freeze({
   'products.route_undeclared': 'act',
   'platform.route_undeclared': 'act',
   'platform.mail.failed': 'act',
+  'identity.email_change.undone': 'act',
 
   'auth.account.locked': 'watch',
   'auth.session.invalid_token': 'watch',

@@ -52,7 +52,7 @@ Minors: some applicants/students are under 18. Show age-appropriate notices and 
 | Right | Tooling | SLA support |
 |-------|---------|-------------|
 | Access / portability | "Download my data" (JSON + PDF summary) for students/applicants. Staff-initiated DSAR export | Tenant responds within the statutory period `[VERIFY]` (generally ≤ 30 days) |
-| Rectification | Profile edit + change-request workflow | |
+| Rectification | Profile edit + change-request workflow. An address has its own flow ([spec 0032](specs/0032-contact-details.md)), because whoever changes it can take the account over | |
 | Erasure | Supported where no retention obligation applies (e.g. unsuccessful applicants, marketing data). Academic & financial records are **retained** under legal obligation, and the response explains this | |
 | Restriction / objection | Flag to restrict processing (e.g. exclude from broadcasts). Marketing opt-out | |
 | Consent withdrawal | Preferences page. Recorded with timestamp | |
@@ -75,6 +75,8 @@ All DSAR actions are logged (`dsar_request` table with status and deadlines).
 | Audit events | ≥ 10 years for academic/financial actions | Archive |
 | Backups | 35 days PITR, monthly 12 months | Expire. Deleted data disappears from backups at expiry |
 | Offboarded tenant | Export delivered, deleted 60 days after offboarding | Purge + certificate of deletion |
+
+Addresses in a change of address are blanked when no longer needed: at the end of the 72-hour undo window, or an hour after an unconfirmed code expires. The row stays as the record that a change happened ([spec 0032](specs/0032-contact-details.md) Q12).
 
 Retention jobs are idempotent, log counts (not contents), and run in the `maintenance` queue.
 

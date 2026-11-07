@@ -8,6 +8,7 @@ import { shutdownHook } from '../shared/observability/shutdown-hook.js';
 import { PlatformAccessGuard } from './identity/access.js';
 import { CONSOLE_KEYS, PlatformCredentials } from './identity/credentials.js';
 import { PlatformAccountController, PlatformAuthController, PlatformStaffController } from './identity/identity.controller.js';
+import { PlatformContact } from './identity/contact.service.js';
 import { PlatformIdentity } from './identity/identity.service.js';
 import { PLATFORM_MAILER, PlatformMailRelay } from './identity/mail.js';
 import { PlatformSessions } from './identity/sessions.js';
@@ -69,6 +70,7 @@ export class PlatformModule {
         PlatformSessions,
         PlatformCredentials,
         PlatformIdentity,
+        PlatformContact,
         PlatformStaff,
         PlatformMailRelay,
         { provide: RENEW_CONSOLE_TOKEN, useValue: overrides.renewVaultToken ?? false },

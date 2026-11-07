@@ -6,6 +6,7 @@ import { PlatformOps } from '@univarse/contracts';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { parse } from '../../shared/http/validate.js';
 import { CurrentPlatformActor, PlatformPublic, PlatformRateLimit, PlatformSession, RequirePlatformPermission, RequirePlatformStepUp, requestMeta } from './access.js';
+import { PlatformContact } from './contact.service.js';
 import { PlatformIdentity, sessionState } from './identity.service.js';
 import { PlatformStaff } from './staff.service.js';
 import {
@@ -25,7 +26,10 @@ const AUTH_RATE = 20;
 
 @Controller('api/platform/v1/auth')
 export class PlatformAuthController {
-  constructor(private readonly identity: PlatformIdentity) {}
+  constructor(
+    private readonly identity: PlatformIdentity,
+    private readonly contact: PlatformContact,
+  ) {}
 
   @Post('activate')
   @PlatformPublic()
@@ -77,6 +81,24 @@ export class PlatformAuthController {
     await this.identity.confirmPasswordReset(parse(PlatformOps.confirmPasswordReset.body, body), requestMeta(req));
   }
 
+  /** Spec 0032 Q7: signed out: a correction is for someone who can't sign in. */
+  @Post('contact-change/confirm')
+  @PlatformPublic()
+  @PlatformRateLimit(AUTH_RATE)
+  @HttpCode(204)
+  async confirmCorrection(@Body() body: unknown, @Req() req: FastifyRequest) {
+    await this.contact.confirmCorrection(parse(PlatformOps.contactChange.confirmCorrection.body, body), requestMeta(req));
+  }
+
+  /** Spec 0032 Q6: signed out, by a code in the mail to the old address. */
+  @Post('contact-change/undo')
+  @PlatformPublic()
+  @PlatformRateLimit(AUTH_RATE)
+  @HttpCode(204)
+  async undo(@Body() body: unknown, @Req() req: FastifyRequest) {
+    await this.contact.undo(parse(PlatformOps.contactChange.undo.body, body), requestMeta(req));
+  }
+
   @Post('logout')
   @PlatformSession()
   @HttpCode(204)
@@ -88,7 +110,10 @@ export class PlatformAuthController {
 
 @Controller('api/platform/v1/me')
 export class PlatformAccountController {
-  constructor(private readonly identity: PlatformIdentity) {}
+  constructor(
+    private readonly identity: PlatformIdentity,
+    private readonly contact: PlatformContact,
+  ) {}
 
   @Get()
   @PlatformSession()
@@ -146,6 +171,31 @@ export class PlatformAccountController {
     return { recoveryCodes: await this.identity.regenerateRecoveryCodes(actor, requestMeta(req)) };
   }
 
+  @Get('email')
+  @RequirePlatformPermission('platform.self')
+  async pendingEmail(@CurrentPlatformActor() actor: PlatformActor) {
+    return { pending: await this.contact.pending(actor) };
+  }
+
+  /** Spec 0032 Q2, Q4: the same answer whatever the address. */
+  @Post('email')
+  @RequirePlatformPermission('platform.self')
+  @RequirePlatformStepUp()
+  @PlatformRateLimit(AUTH_RATE)
+  @HttpCode(202)
+  async requestEmail(@CurrentPlatformActor() actor: PlatformActor, @Body() body: unknown, @Req() req: FastifyRequest) {
+    await this.contact.requestOwn(actor, parse(PlatformOps.contactChange.request.body, body).email, requestMeta(req));
+    return { message: 'A code has been sent to the new address.' };
+  }
+
+  @Post('email/confirm')
+  @RequirePlatformPermission('platform.self')
+  @PlatformRateLimit(AUTH_RATE)
+  @HttpCode(204)
+  async confirmEmail(@CurrentPlatformActor() actor: PlatformActor, @Body() body: unknown, @Req() req: FastifyRequest) {
+    await this.contact.confirmOwn(actor, parse(PlatformOps.contactChange.confirm.body, body).code, requestMeta(req));
+  }
+
   @Get('sessions')
   @RequirePlatformPermission('platform.self')
   async sessions(@CurrentPlatformActor() actor: PlatformActor) {
@@ -162,7 +212,10 @@ export class PlatformAccountController {
 
 @Controller('api/platform/v1/staff')
 export class PlatformStaffController {
-  constructor(private readonly staff: PlatformStaff) {}
+  constructor(
+    private readonly staff: PlatformStaff,
+    private readonly contact: PlatformContact,
+  ) {}
 
   @Get()
   @RequirePlatformPermission('platform.staff.read')
@@ -196,6 +249,15 @@ export class PlatformStaffController {
   @HttpCode(200)
   reinstate(@CurrentPlatformActor() actor: PlatformActor, @Param('id', new ParseUUIDPipe()) id: string, @Req() req: FastifyRequest) {
     return this.staff.reinstate(actor, id, requestMeta(req));
+  }
+
+  /** Spec 0032 Q7, Q8, Q9. */
+  @Post(':id/email')
+  @RequirePlatformPermission('platform.staff.manage')
+  @HttpCode(202)
+  async correctEmail(@CurrentPlatformActor() actor: PlatformActor, @Param('id', new ParseUUIDPipe()) id: string, @Body() body: unknown, @Req() req: FastifyRequest) {
+    await this.contact.correct(actor, id, parse(PlatformOps.contactChange.correct.body, body), requestMeta(req));
+    return { message: 'A code has been sent to the new address.' };
   }
 
   @Post(':id/mfa-reset')

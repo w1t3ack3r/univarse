@@ -69,7 +69,7 @@ export class PlatformIdentity {
     const passwordHash = await hashPassword(input.password);
     const outcome = await orNullOnConflict(this.db.$transaction(async (tx) => {
       if (!(await this.creds.checkCode(tx, user.id, 'ACTIVATION', input.code))) return null;
-      const set = await tx.platformUser.updateMany({ where: { id: user.id, passwordHash: null, isActive: true }, data: { passwordHash, failedLoginCount: 0, lockedUntil: null } });
+      const set = await tx.platformUser.updateMany({ where: { id: user.id, passwordHash: null, isActive: true }, data: { passwordHash, emailVerifiedAt: new Date(), passwordResetRequired: false, failedLoginCount: 0, lockedUntil: null } });
       if (set.count !== 1) throw new Conflict();
       const session = await this.sessions.create(tx, user.id, meta, { mfaAt: null, restricted: true });
       await platformAudit(tx, { actorId: user.id, action: 'platform.auth.activated', metadata: { sessionId: session.sessionId } }, meta);
@@ -85,7 +85,7 @@ export class PlatformIdentity {
    */
   async login(input: { email: string; password: string }, meta: RequestMeta): Promise<{ next: 'mfa'; challenge: string } | { next: 'enrol'; token: string }> {
     const user = await this.db.platformUser.findUnique({ where: { email: input.email } });
-    if (!user || !user.isActive || !user.passwordHash || (user.lockedUntil && user.lockedUntil > new Date())) {
+    if (!user || !user.isActive || !user.passwordHash || user.passwordResetRequired || (user.lockedUntil && user.lockedUntil > new Date())) {
       await verifyAgainstDummy(input.password);
       throw invalidCredentials();
     }
@@ -176,7 +176,7 @@ export class PlatformIdentity {
     const passwordHash = await hashPassword(input.password);
     const ok = await this.db.$transaction(async (tx) => {
       if (!(await this.creds.checkCode(tx, user.id, 'PASSWORD_RESET', input.code))) return false;
-      await tx.platformUser.update({ where: { id: user.id }, data: { passwordHash, failedLoginCount: 0, lockedUntil: null } });
+      await tx.platformUser.update({ where: { id: user.id }, data: { passwordHash, passwordResetRequired: false, failedLoginCount: 0, lockedUntil: null } });
       const ended = await this.sessions.endAll(tx, user.id, 'password_reset');
       await platformAudit(tx, { actorId: user.id, action: 'platform.auth.password_reset', metadata: { sessionsEnded: ended } }, meta);
       await enqueueMail(tx, { to: user.email, subject: 'your password was changed', text: `The password of your UniVarse console account was just changed, and every session was signed out.${NOT_YOU}` });

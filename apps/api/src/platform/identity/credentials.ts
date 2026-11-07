@@ -78,6 +78,38 @@ export class PlatformCredentials {
     return consumed.count === 1;
   }
 
+  /** Every unused code of a member's dies: what was sent to an old address must not outlive it (spec 0032). */
+  async retireCodes(tx: PlatformTx, userId: string): Promise<void> {
+    await tx.platformOneTimeCode.updateMany({ where: { userId, usedAt: null }, data: { usedAt: new Date() } });
+  }
+
+  async retireChallenges(tx: PlatformTx, userId: string): Promise<void> {
+    await tx.platformMfaChallenge.updateMany({ where: { userId, usedAt: null, revokedAt: null }, data: { revokedAt: new Date() } });
+  }
+
+  // ── Address changes (spec 0032 Q2, Q6): a code bound to the exact address, peppered. An undo code goes to an old
+  // address and lives 72 hours, signed out, so it's a recovery code's length, not six digits.
+
+  contactHash(userId: string, address: string, code: string): Uint8Array<ArrayBuffer> {
+    return hashOneTimeCode(this.config.CONSOLE_CODE_PEPPER, userId, `contact:${address}`, code);
+  }
+
+  contactCodeMatches(change: { userId: string; newAddress: string | null; codeHash: Uint8Array | null }, code: string): boolean {
+    return change.newAddress !== null && change.codeHash !== null && safeEqual(this.contactHash(change.userId, change.newAddress, code), change.codeHash);
+  }
+
+  newUndoCode(): string {
+    return newRecoveryCode();
+  }
+
+  undoHash(userId: string, oldAddress: string, code: string): Uint8Array<ArrayBuffer> {
+    return hashOneTimeCode(this.config.CONSOLE_CODE_PEPPER, userId, `contact-undo:${oldAddress}`, normaliseRecovery(code));
+  }
+
+  undoMatches(hash: Uint8Array, userId: string, oldAddress: string, code: string): boolean {
+    return safeEqual(this.undoHash(userId, oldAddress, code), hash);
+  }
+
   // ── Lockout (Q9): 10 failures (passwords and second factors) lock the account for 15 minutes, and email the member.
 
   /** Counts a failure, and locks and notifies at the threshold, in the caller's transaction. */

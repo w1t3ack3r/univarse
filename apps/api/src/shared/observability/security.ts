@@ -26,6 +26,8 @@ export const SECURITY_EVENTS = [
   'platform.staff.changed',
   // Spec 0031 Q6: the audit chain failed verification (a Sev-1 candidate, docs/14 §5).
   'platform.audit.chain_broken',
+  // Spec 0032 T31: someone said an address change wasn't theirs.
+  'identity.email_change.undone',
 ] as const;
 
 export type SecurityEvent = (typeof SECURITY_EVENTS)[number];

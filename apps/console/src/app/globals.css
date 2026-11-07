@@ -613,6 +613,9 @@ h2.pc-section__title {
   text-align: center;
   white-space: nowrap; /* a recovery code is read and written down whole */
 }
+.pc-form--narrow {
+  max-width: 28rem;
+}
 .pc-note {
   font-size: var(--uv-text-xs);
   color: var(--uv-text-muted);
