@@ -47,6 +47,8 @@ const schema = z.object({
   MAIL_FROM: z.string().min(3).default('UniVarse Platform <no-reply@univarse.localhost>'),
   /** How often the relay looks for mail; 0 turns it off (tests drive it by hand). */
   MAIL_RELAY_INTERVAL_MS: z.coerce.number().int().min(0).default(2_000),
+  /** Spec 0031 Q6: how often to see whether the daily chain verification is due; 0 turns it off (tests). */
+  AUDIT_VERIFY_CHECK_INTERVAL_MS: z.coerce.number().int().min(0).default(3_600_000),
 });
 
 export type PlatformConfig = z.infer<typeof schema>;

@@ -3,7 +3,16 @@
  * decides a platform request. Pure, so the whole matrix is tested; the platform API's guard is its only caller.
  * Each later slice adds its own permissions here, with its routes.
  */
-export const PLATFORM_PERMISSIONS = ['platform.self', 'platform.staff.read', 'platform.staff.manage'] as const;
+export const PLATFORM_PERMISSIONS = [
+  'platform.self',
+  'platform.staff.read',
+  'platform.staff.manage',
+  'platform.audit.read',
+  'platform.audit.verify',
+  'platform.security.read',
+  'platform.access_review.read',
+  'platform.access_review.attest',
+] as const;
 export type PlatformPermission = (typeof PLATFORM_PERMISSIONS)[number];
 
 export const PLATFORM_ROLES = ['OWNER', 'SUPER_ADMIN', 'SUPPORT', 'FINANCE', 'READ_ONLY'] as const;
@@ -14,15 +23,29 @@ export const PLATFORM_PERMISSION_CATALOG: Readonly<Record<PlatformPermission, { 
   'platform.self': { stepUp: false, description: "One's own account: who you are, your sessions, signing out." },
   'platform.staff.read': { stepUp: false, description: 'The list of platform staff: names, roles, status, last sign-in.' },
   'platform.staff.manage': { stepUp: true, description: 'Invite, reinstate or deactivate staff, change a role, reset MFA (OWNER only).' },
+  'platform.audit.read': { stepUp: false, description: 'The platform audit log and the chain verification results. Viewing it is itself audited.' },
+  'platform.audit.verify': { stepUp: false, description: 'Start a verification of the audit chain.' },
+  'platform.security.read': { stepUp: false, description: 'Counts of security events, per institution and for the platform.' },
+  'platform.access_review.read': { stepUp: false, description: 'The monthly access reviews, and whether one is due.' },
+  'platform.access_review.attest': { stepUp: true, description: "Attest this month's access review (OWNER only)." },
 });
 
 /** The roles' grants, in code (A5): a change here is a reviewed change, never data. Only OWNER manages staff. */
 export const PLATFORM_ROLE_PERMISSIONS: Readonly<Record<PlatformRole, readonly PlatformPermission[]>> = Object.freeze({
-  OWNER: ['platform.self', 'platform.staff.read', 'platform.staff.manage'],
-  SUPER_ADMIN: ['platform.self', 'platform.staff.read'],
+  OWNER: [
+    'platform.self',
+    'platform.staff.read',
+    'platform.staff.manage',
+    'platform.audit.read',
+    'platform.audit.verify',
+    'platform.security.read',
+    'platform.access_review.read',
+    'platform.access_review.attest',
+  ],
+  SUPER_ADMIN: ['platform.self', 'platform.staff.read', 'platform.audit.read', 'platform.audit.verify', 'platform.security.read', 'platform.access_review.read'],
   SUPPORT: ['platform.self'],
   FINANCE: ['platform.self'],
-  READ_ONLY: ['platform.self', 'platform.staff.read'],
+  READ_ONLY: ['platform.self', 'platform.staff.read', 'platform.audit.read', 'platform.security.read', 'platform.access_review.read'],
 });
 
 /** Spec 0028 Q11: a step-up counts for 5 minutes on the session that made it. */

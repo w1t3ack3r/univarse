@@ -18,6 +18,8 @@ import { ProductGuard } from './modules/products/product.guard.js';
 import { ProductService } from './modules/products/product.service.js';
 import { fieldCryptoProvider, keyringProvider } from './shared/crypto/envelope.js';
 import { RENEW_VAULT_TOKEN, VaultTokenRenewal } from './shared/crypto/token-renewal.js';
+import { TenantSideRollupWriter } from './shared/db/security-rollup-writer.js';
+import { SECURITY_ROLLUP_SOURCE } from './shared/observability/security-rollup.js';
 import { KeyForgetListener } from './shared/crypto/key-forget.js';
 import { BUS_SUBSCRIBE, InvalidationBus } from './shared/infra/invalidation-bus.js';
 import { ProductsController } from './modules/products/products.controller.js';
@@ -67,6 +69,8 @@ export interface AppOverrides {
   readonly onShutdown?: () => Promise<void>;
   /** Spec 0023 T2: keep the Vault token alive (renewed at start, then every 6 h). Only the real process sets it. */
   readonly renewVaultToken?: boolean;
+  /** Spec 0031 Q9: count security events for the console. Only the real process sets it. */
+  readonly recordSecurityEvents?: boolean;
 }
 
 @Module({})
@@ -95,6 +99,8 @@ export class AppModule {
         fieldCryptoProvider,
         { provide: RENEW_VAULT_TOKEN, useValue: overrides.renewVaultToken ?? false },
         VaultTokenRenewal,
+        { provide: SECURITY_ROLLUP_SOURCE, useValue: overrides.recordSecurityEvents ? 'api' : null },
+        TenantSideRollupWriter,
         // Spec 0015: the cross-instance invalidation bus (products, key forget).
         { provide: BUS_SUBSCRIBE, useValue: true },
         InvalidationBus,

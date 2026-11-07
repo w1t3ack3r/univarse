@@ -1,7 +1,8 @@
 import { ArgumentsHost, Catch, ExceptionFilter, HttpException, Logger } from '@nestjs/common';
-import { isConnectionUnavailable } from '@univarse/db';
+import { isConnectionUnavailable, isPermissionRefused } from '@univarse/db';
 import { DomainError } from '@univarse/domain';
 import type { FastifyReply, FastifyRequest } from 'fastify';
+import { securityFields } from '../observability/security.js';
 import { ProblemError, problemType, type ProblemBody } from './problem.js';
 
 const TITLES: Record<number, [string, string]> = {
@@ -40,8 +41,11 @@ export class ProblemFilter implements ExceptionFilter {
     if (body.code === 'server.busy') {
       // ADR-026: no database connection in time. Backpressure, not a bug: a capacity signal for humans.
       this.logger.warn({ event: 'db.connection_unavailable', err: exception }, 'No database connection available in time');
-    } else if (body.status >= 500) {
-      this.logger.error({ event: 'http.unhandled_error', err: exception }, 'Unhandled error');
+    } else {
+      // Spec 0031 Q11: as well as the error below, never instead of it. Never the query; the tenant comes from the log
+      // context, the Host's own.
+      if (isPermissionRefused(exception)) this.logger.error(securityFields('db.rls_violation', { method: req.method, route: req.routeOptions.url ?? null }), 'The database refused a statement');
+      if (body.status >= 500) this.logger.error({ event: 'http.unhandled_error', err: exception }, 'Unhandled error');
     }
     void reply.status(body.status).header('content-type', 'application/problem+json').send(body);
   }

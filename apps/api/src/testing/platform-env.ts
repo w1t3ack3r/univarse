@@ -13,5 +13,5 @@ export function consoleEnv(): Record<string, string> {
 }
 
 export function platformTestConfig(over: Record<string, string> = {}): PlatformConfig {
-  return loadPlatformConfig({ ...consoleEnv(), NODE_ENV: 'test', MAIL_RELAY_INTERVAL_MS: '0', ...over });
+  return loadPlatformConfig({ ...consoleEnv(), NODE_ENV: 'test', MAIL_RELAY_INTERVAL_MS: '0', AUDIT_VERIFY_CHECK_INTERVAL_MS: '0', ...over });
 }

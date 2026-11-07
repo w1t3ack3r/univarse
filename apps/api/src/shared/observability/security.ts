@@ -12,6 +12,8 @@ export const SECURITY_EVENTS = [
   'access.route_undeclared',
   'access.step_up_on_public_route',
   'products.route_undeclared',
+  // Spec 0031 Q11: PostgreSQL refused a row or an object: RLS or a role's grants did their job, on something that tried.
+  'db.rls_violation',
   // Spec 0027 P4: a platform API request from outside the console's allowlist (answered 404).
   'platform.allowlist_refused',
   // Spec 0028 Q9, Q11, Q12, Q13, Q15: the console's sign-in, step-up, routes, mail and staff changes.
@@ -22,6 +24,8 @@ export const SECURITY_EVENTS = [
   'platform.mail.failed',
   'platform.route_undeclared',
   'platform.staff.changed',
+  // Spec 0031 Q6: the audit chain failed verification (a Sev-1 candidate, docs/14 §5).
+  'platform.audit.chain_broken',
 ] as const;
 
 export type SecurityEvent = (typeof SECURITY_EVENTS)[number];

@@ -49,6 +49,17 @@ export function isConnectionUnavailable(err: unknown): boolean {
 }
 
 /**
+ * Spec 0031 Q11: PostgreSQL refused the statement with insufficient_privilege (42501): a row RLS rejected, or an object
+ * the role has no grant on. Either means the isolation held against something that tried. Prisma wraps it as P2039 with
+ * the driver adapter's error inside (captured 2026-11-07 from a real cross-tenant insert), so the field decides.
+ */
+export function isPermissionRefused(err: unknown): boolean {
+  if (!(err instanceof PrismaClientKnownRequestError)) return false;
+  const adapterError = err.meta?.driverAdapterError as { cause?: { kind?: unknown; originalCode?: unknown } } | undefined;
+  return adapterError?.cause?.kind === 'postgres' && adapterError.cause.originalCode === '42501';
+}
+
+/**
  * PgBouncer ended a query or a transaction start waiting in its queue (`query_wait_timeout`), exactly as
  * captured on 2026-10-14 (Prisma 7.10, PgBouncer 1.26.1, outside a transaction and at a transaction's
  * start alike): a PrismaClientKnownRequestError P2039 whose driver adapter error is PgBouncer's FATAL

@@ -270,6 +270,69 @@ model PlatformSession {
   @@map("platform_session")
 }
 
+/// Spec 0031 Q6: one run of the audit chain's verification, started by a member or the schedule. The last PASSED run's
+/// head is what the next run checks is still there (Q7).
+model PlatformAuditVerification {
+  id          String                      @id @default(dbgenerated("uuidv7()")) @db.Uuid
+  trigger     PlatformVerificationTrigger
+  startedBy   String?                     @map("started_by") @db.Uuid
+  startedAt   DateTime                    @default(now()) @map("started_at") @db.Timestamptz(3)
+  finishedAt  DateTime?                   @map("finished_at") @db.Timestamptz(3)
+  status      PlatformVerificationStatus  @default(RUNNING)
+  rowsChecked BigInt                      @default(0) @map("rows_checked")
+  headSeq     BigInt?                     @map("head_seq")
+  headHash    Bytes?                      @map("head_hash")
+  brokenAtSeq BigInt?                     @map("broken_at_seq")
+  reason      String?
+
+  @@index([startedAt])
+  @@map("platform_audit_verification")
+}
+
+enum PlatformVerificationTrigger {
+  MEMBER
+  SCHEDULE
+}
+
+/// PASSED or FAILED is what the chain was found to be. ERROR means the run itself couldn't finish, and says nothing
+/// about the chain.
+enum PlatformVerificationStatus {
+  RUNNING
+  PASSED
+  FAILED
+  ERROR
+}
+
+/// Spec 0031 Q8: security events as per-minute counts, never as individual rows, because attackers trigger them. No
+/// user id, address or detail. `tenantId` is the all-zero id for events that belong to no institution.
+model PlatformSecurityEventRollup {
+  minute     DateTime @db.Timestamptz(0)
+  event      String
+  source     String
+  tenantId   String   @map("tenant_id") @db.Uuid
+  count      Int
+  lastSeenAt DateTime @map("last_seen_at") @db.Timestamptz(3)
+
+  @@id([minute, event, source, tenantId])
+  @@index([minute])
+  @@index([tenantId, minute])
+  @@map("platform_security_event_rollup")
+}
+
+/// Spec 0031 Q15: one attested access review a month. Never changed once written (insert-only for the console role).
+/// `snapshot` holds what was attested, by ids; `snapshotHash` covers access only (canonicalReviewedAccess).
+model PlatformAccessReview {
+  id           String   @id @default(dbgenerated("uuidv7()")) @db.Uuid
+  /// `2026-11`, in WAT.
+  period       String   @unique
+  reviewerId   String   @map("reviewer_id") @db.Uuid
+  attestedAt   DateTime @default(now()) @map("attested_at") @db.Timestamptz(3)
+  snapshot     Json
+  snapshotHash Bytes    @map("snapshot_hash")
+
+  @@map("platform_access_review")
+}
+
 model PlatformAuditEvent {
   id         String   @id @default(dbgenerated("uuidv7()")) @db.Uuid
   /// Position in the single platform hash chain (written under an advisory lock).
@@ -287,6 +350,8 @@ model PlatformAuditEvent {
   ledgerWaiver   LedgerWaiver?
 
   @@index([tenantId, occurredAt])
+  @@index([action, seq(sort: Desc)])
+  @@index([actorId, seq(sort: Desc)])
   @@map("platform_audit_event")
 }
 

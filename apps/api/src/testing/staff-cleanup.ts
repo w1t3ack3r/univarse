@@ -9,6 +9,9 @@ export async function pruneRetiredTestStaff(migratorUrl: string | undefined): Pr
   if (!migratorUrl) return 0;
   const db = createPlatformClient(migratorUrl);
   try {
+    // Spec 0031: what the tests date in the far future, because the console role can't delete: nothing real is there.
+    await db.platformAccessReview.deleteMany({ where: { period: { gte: '2100' } } });
+    await db.platformSecurityEventRollup.deleteMany({ where: { minute: { gte: new Date('2100-01-01T00:00:00Z') } } });
     return (await db.platformUser.deleteMany({ where: { email: { endsWith: '@staff.test' }, isActive: false, role: 'READ_ONLY' } })).count;
   } finally {
     await db.$disconnect();

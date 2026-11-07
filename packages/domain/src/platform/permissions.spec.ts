@@ -27,6 +27,17 @@ describe('platform permissions (spec 0028 Q12)', () => {
     expect(PLATFORM_PERMISSION_CATALOG['platform.self'].stepUp).toBe(false);
   });
 
+  it('[0031 Q1] who sees what happened: never SUPPORT or FINANCE; only OWNER attests, with a step-up; READ_ONLY reads but never starts a run', () => {
+    const holders = (p: (typeof PLATFORM_PERMISSIONS)[number]) => PLATFORM_ROLES.filter((r) => PLATFORM_ROLE_PERMISSIONS[r].includes(p));
+    expect(holders('platform.audit.read')).toEqual(['OWNER', 'SUPER_ADMIN', 'READ_ONLY']);
+    expect(holders('platform.audit.verify')).toEqual(['OWNER', 'SUPER_ADMIN']);
+    expect(holders('platform.security.read')).toEqual(['OWNER', 'SUPER_ADMIN', 'READ_ONLY']);
+    expect(holders('platform.access_review.read')).toEqual(['OWNER', 'SUPER_ADMIN', 'READ_ONLY']);
+    expect(holders('platform.access_review.attest')).toEqual(['OWNER']);
+    expect(PLATFORM_PERMISSION_CATALOG['platform.access_review.attest'].stepUp).toBe(true);
+    expect(PLATFORM_PERMISSION_CATALOG['platform.audit.read'].stepUp).toBe(false);
+  });
+
   it('every role holds platform.self, and grants only catalogued permissions', () => {
     for (const role of PLATFORM_ROLES) {
       expect(PLATFORM_ROLE_PERMISSIONS[role]).toContain('platform.self');

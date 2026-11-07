@@ -67,26 +67,80 @@ export async function writePlatformAudit(tx: Tx, entry: PlatformAuditEntry): Pro
   return seq;
 }
 
-export type PlatformChainVerification = { ok: true; count: number } | { ok: false; brokenAtSeq: bigint };
-
-export async function verifyPlatformAuditChain(platform: PlatformClient): Promise<PlatformChainVerification> {
-  let prev: Uint8Array = GENESIS;
-  let expected = 1n;
-  const rows = await platform.platformAuditEvent.findMany({ orderBy: { seq: 'asc' } });
-  for (const r of rows) {
-    const recomputed = hashOf(prev, r.seq, r.occurredAt, {
-      actorId: r.actorId,
-      action: r.action,
-      tenantId: r.tenantId,
-      metadata: (r.metadata ?? {}) as Record<string, unknown>,
-      ip: r.ip,
-    });
-    const same = (a: Uint8Array, b: Uint8Array) => a.length === b.length && a.every((x, i) => x === b[i]);
-    if (r.seq !== expected || !same(new Uint8Array(r.prevHash), prev) || !same(recomputed, new Uint8Array(r.hash))) {
-      return { ok: false, brokenAtSeq: r.seq };
-    }
-    prev = new Uint8Array(r.hash);
-    expected += 1n;
-  }
-  return { ok: true, count: rows.length };
+/** One row as the walk reads it. */
+export interface PlatformAuditRow {
+  readonly seq: bigint;
+  readonly occurredAt: Date;
+  readonly actorId: string | null;
+  readonly action: string;
+  readonly tenantId: string | null;
+  readonly metadata: unknown;
+  readonly ip: string | null;
+  readonly prevHash: Uint8Array;
+  readonly hash: Uint8Array;
 }
+
+/** The end of the chain as a run saw it: the next run checks it's still there (spec 0031 Q7). */
+export interface PlatformChainHead {
+  readonly seq: bigint;
+  readonly hash: Uint8Array;
+}
+
+export type PlatformChainVerification =
+  | { ok: true; count: number; head: PlatformChainHead | null }
+  | { ok: false; brokenAtSeq: bigint; reason: 'row_changed' | 'row_missing' | 'tail_missing'; count: number };
+
+/** Rows after `afterSeq`, oldest first, at most `limit`. */
+export type PlatformAuditPages = (afterSeq: bigint, limit: number) => Promise<readonly PlatformAuditRow[]>;
+
+export const CHAIN_PAGE_SIZE = 1_000;
+
+const sameBytes = (a: Uint8Array, b: Uint8Array) => a.length === b.length && a.every((x, i) => x === b[i]);
+
+/**
+ * Spec 0031 Q5, Q7: the whole check, over a page source: pure, so the tests tamper with rows in memory and never with
+ * the real, append-only chain (Q16), and one page at a time, so memory stays flat however long the chain is. Given the
+ * last recorded head, it also proves the end of the chain is still there, which a chain alone can't: deleting the
+ * newest rows leaves a valid chain.
+ */
+export async function walkPlatformAuditChain(
+  pages: PlatformAuditPages,
+  opts: { pageSize?: number; knownHead?: PlatformChainHead | null; onProgress?: (count: number) => void } = {},
+): Promise<PlatformChainVerification> {
+  const pageSize = opts.pageSize ?? CHAIN_PAGE_SIZE;
+  const known = opts.knownHead ?? null;
+  let prev: Uint8Array = GENESIS;
+  let last = 0n;
+  let count = 0;
+  for (;;) {
+    const rows = await pages(last, pageSize);
+    for (const r of rows) {
+      if (r.seq !== last + 1n) return { ok: false, brokenAtSeq: last + 1n, reason: 'row_missing', count };
+      const recomputed = hashOf(prev, r.seq, r.occurredAt, {
+        actorId: r.actorId,
+        action: r.action,
+        tenantId: r.tenantId,
+        metadata: (r.metadata ?? {}) as Record<string, unknown>,
+        ip: r.ip,
+      });
+      if (!sameBytes(new Uint8Array(r.prevHash), prev) || !sameBytes(recomputed, new Uint8Array(r.hash))) return { ok: false, brokenAtSeq: r.seq, reason: 'row_changed', count };
+      if (known?.seq === r.seq && !sameBytes(new Uint8Array(r.hash), new Uint8Array(known.hash))) return { ok: false, brokenAtSeq: r.seq, reason: 'row_changed', count };
+      prev = new Uint8Array(r.hash);
+      last = r.seq;
+      count += 1;
+    }
+    opts.onProgress?.(count);
+    if (rows.length < pageSize) break;
+  }
+  if (known && last < known.seq) return { ok: false, brokenAtSeq: last + 1n, reason: 'tail_missing', count };
+  return { ok: true, count, head: last === 0n ? null : { seq: last, hash: prev } };
+}
+
+/** The chain's rows, a page at a time, from any client that can read it. */
+export const platformAuditPages =
+  (platform: Pick<PlatformClient, 'platformAuditEvent'>): PlatformAuditPages =>
+  (afterSeq, limit) =>
+    platform.platformAuditEvent.findMany({ where: { seq: { gt: afterSeq } }, orderBy: { seq: 'asc' }, take: limit });
+
+export const verifyPlatformAuditChain = (platform: PlatformClient, knownHead: PlatformChainHead | null = null): Promise<PlatformChainVerification> =>
+  walkPlatformAuditChain(platformAuditPages(platform), { knownHead });

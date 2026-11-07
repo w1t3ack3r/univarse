@@ -108,6 +108,8 @@ Enforced with dependency-cruiser in CI.
 
 ## 8. Things that are banned (lint-enforced where possible)
 
+- **A timer's work outside `backgroundPass`** (`shared/observability/background.ts`). A rejection on a timer is unhandled, and an unhandled rejection ends the process: S2's mail relay took the platform API down that way ([spec 0031](specs/0031-seeing-what-happened.md) Q10).
+
 - Importing the raw tenant `PrismaClient` outside `shared/db`
 - `$queryRawUnsafe` / `$executeRawUnsafe`
 - `console.*` in app code

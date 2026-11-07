@@ -52,6 +52,16 @@ export const setActiveSpanIdsProvider = (fn: typeof activeSpanIds): void => {
   activeSpanIds = fn;
 };
 
+/**
+ * Spec 0031 Q9: receives every security line's event and institution, so a new event is counted without touching its
+ * call site. Null until a real process sets it. It runs inside a log call, so it must only touch memory.
+ */
+type SecurityEventSink = (event: unknown, tenantId: unknown) => void;
+let securityEventSink: SecurityEventSink | null = null;
+export const setSecurityEventSink = (fn: SecurityEventSink | null): void => {
+  securityEventSink = fn;
+};
+
 /** Errors: type, scrubbed message and scrubbed stack. Driver messages can quote values, so foreign scrub. */
 /**
  * Machine codes worth keeping: Prisma (`P2002`), Node and system (`ECONNREFUSED`, `ERR_…`), Postgres
@@ -102,6 +112,14 @@ export function createLogger(opts: LoggerOptions): Pino {
         logMethod(args, method) {
           const cleaned = args.map((a) => (typeof a === 'string' ? scrub(a) : a)) as typeof args;
           method.apply(this, cleaned);
+          const first = args[0] as { stream?: unknown; event?: unknown; tenantId?: unknown } | null | undefined;
+          if (securityEventSink && typeof first === 'object' && first?.stream === 'security') {
+            try {
+              securityEventSink(first.event, first.tenantId);
+            } catch {
+              // Counting must never break logging, or the request that logged.
+            }
+          }
         },
       },
     },
