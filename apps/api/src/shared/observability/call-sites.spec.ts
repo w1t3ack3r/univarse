@@ -73,6 +73,8 @@ describe('[OB7] the security stream', () => {
         'files.scan.malware_detected',
         'http.csrf_rejected',
         'products.route_undeclared',
+        'db.rls_violation',
+        'platform.audit.chain_broken',
         'platform.allowlist_refused',
         'platform.account.locked',
         'platform.session.invalid_token',

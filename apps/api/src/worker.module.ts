@@ -5,6 +5,8 @@ import { AuditWriter } from './shared/audit/audit-writer.js';
 import { Redis } from 'ioredis';
 import { fieldCryptoProvider, keyringProvider } from './shared/crypto/envelope.js';
 import { RENEW_VAULT_TOKEN, VaultTokenRenewal } from './shared/crypto/token-renewal.js';
+import { TenantSideRollupWriter } from './shared/db/security-rollup-writer.js';
+import { SECURITY_ROLLUP_SOURCE } from './shared/observability/security-rollup.js';
 import { KeyDestruction, KeyForgetListener } from './shared/crypto/key-forget.js';
 import { BUS_SUBSCRIBE, InvalidationBus } from './shared/infra/invalidation-bus.js';
 import { VALKEY } from './shared/infra/rate-limiter.js';
@@ -28,6 +30,8 @@ export interface WorkerOverrides {
   readonly subscribe?: boolean;
   /** Spec 0023 T2: keep the Vault token alive (renewed at start, then every 6 h). Only the real process sets it. */
   readonly renewVaultToken?: boolean;
+  /** Spec 0031 Q9: count security events for the console. Only the real process sets it. */
+  readonly recordSecurityEvents?: boolean;
 }
 
 /**
@@ -76,6 +80,8 @@ export class WorkerModule {
         fieldCryptoProvider,
         { provide: RENEW_VAULT_TOKEN, useValue: overrides.renewVaultToken ?? false },
         VaultTokenRenewal,
+        { provide: SECURITY_ROLLUP_SOURCE, useValue: overrides.recordSecurityEvents ? 'worker' : null },
+        TenantSideRollupWriter,
         KeyForgetListener,
         KeyDestruction,
         ProductService,

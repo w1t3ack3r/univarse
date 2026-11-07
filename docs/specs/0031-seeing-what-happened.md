@@ -1,6 +1,6 @@
 # Spec 0031: Phase 1's S3, seeing what happened
 
-**Status:** **Draft, for the owner's approval** (Q1 to Q17). Nothing is built from it until it's approved.
+**Status:** **Approved by the owner on 2026-11-07, all as written:** Q1 to Q17. PR A built; PR B and the release next.
 **Phase:** 1, slice **S3** of [spec 0025](0025-phase-1-control-plane.md) (E1, E2, E3).
 **Builds on:**
 
@@ -61,7 +61,7 @@ The platform now records everything staff do, on a hash chain, but nobody can re
 
 ## The owner's steps
 
-- Approve or change Q1 to Q17.
+- ~~Approve or change Q1 to Q17.~~ Done on 2026-11-07.
 - After the PRs: the release and the deploy.
 - On the stack: run the first chain verification and the first access review.
 
@@ -80,3 +80,41 @@ The platform now records everything staff do, on a hash chain, but nobody can re
 - **Exporting the audit log:** with S11's evidence pack, where it has a purpose; 05 §17's export is the tenant's.
 - **Alerts and the inbox** (E25): S6. **Tenant-side audit viewing:** the tenant's own product, Phase 2 onwards.
 - **Tenant data of any kind:** the console sees counts and ids, as always.
+
+## Implementation notes (PR A, 2026-11-07)
+
+**Built:**
+- **The migration** (`20261107120000_seeing_what_happened`): the three tables, the viewer's two indexes on the chain, and the grants. It revokes what the migrator's default privileges would have given the tenant API's role.
+- **`packages/domain`:** the five permissions, the security levels (Q12), and the review's rules (the month in WAT, its status, the snapshot's identity).
+- **`packages/crypto`:** `walkPlatformAuditChain`, a pure, paged walk that also checks a recorded head. `verifyPlatformAuditChain` now runs on it.
+- **`apps/api/src/platform/observe/`:** the audit log, chain verification, the security view, the access review, and their routes.
+- **`shared/observability`:** `backgroundPass` (Q10), and the rollups with their tap on the logger (Q9). The mail relay moved onto `backgroundPass`.
+- **`db.rls_violation`** in `ProblemFilter`, through `isPermissionRefused` in `packages/db`.
+
+**Evidence:**
+- **Unit:** 442 API tests pass, with the pure walk's 15 and the domain's 63.
+- **Integration:** `observe.int.spec.ts` (22) as the console role through the platform API's HTTP stack; `rls-event.int.spec.ts` (4) with a real cross-tenant insert; the exact-grants test extended, including the three `tenant` columns.
+- **`pnpm rls:check`** passes, as does the session-SQL scan.
+- **Mutations: 16 tried, 16 caught:**
+  - the tap, the buffer's cap, undeclared events, and a failed write losing its rows;
+  - a background pass rethrowing;
+  - no tail check, and no head hash check;
+  - a broken chain logging nothing, and two runs at once;
+  - every page audited, and viewing not audited;
+  - no snapshot check, decisions not required, and notes in the chain;
+  - attesting without a step-up, and the security page open to everyone.
+
+**Corrections to the draft, found while building:**
+- **The snapshot's hash covers access only** (id, role, active, authenticator). Q15 said the server refuses if "anything changed", but a last sign-in changes whenever anyone signs in, the reviewer included, so a hash over it could never match. Last sign-ins are stored in the snapshot, not hashed.
+- **The rollups use an all-zero id for "no institution",** because PostgreSQL treats NULLs in a key as distinct, and two such rows wouldn't add up.
+- **`db.rls_violation` covers refused statements on the HTTP path.** A refusal in a background job shows in that job's own failure log. It also fires on a missing grant, not only RLS: PostgreSQL reports both as `42501`, and either means something tried what it mustn't.
+
+**Decisions made while building, for approval:**
+
+| # | Decision | Why |
+| --- | --- | --- |
+| Q-A1 | **A review's "overdue" starts only after a first review:** a platform that has never reviewed is `due`. | Otherwise the first month after S3 ships would open as overdue, which is noise and teaches people to ignore it. |
+| Q-A2 | **`platform.mail.failed` is level `act`.** | Q12's table didn't list it. A staff member's activation or security mail that can't be delivered needs a person. |
+| Q-A3 | **Starting a verification is limited to 6 a minute per address.** | It reads the whole chain. One run at a time already bounds the work; the limit stops a stuck script filling the run table. |
+| Q-A4 | **Verification runs and the access review's history are read at most 10 and 24 rows back.** | The page shows recent ones; older runs stay in the table. |
+

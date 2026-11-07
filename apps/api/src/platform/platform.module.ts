@@ -15,12 +15,27 @@ import { PlatformStaff } from './identity/staff.service.js';
 import { CONSOLE_DB, consoleKeyProvider, PLATFORM_CONFIG, type PlatformConfig } from './platform-config.js';
 import { PlatformHealthController } from './platform-health.controller.js';
 import { ConsoleTokenRenewal, RENEW_CONSOLE_TOKEN } from './token-renewal.js';
+import { PlatformAccessReviews } from './observe/access-review.js';
+import { ConsoleRollupWriter } from './observe/console-rollup-writer.js';
+import { PlatformAuditLog } from './observe/audit-log.js';
+import { ChainVerification } from './observe/chain-verification.js';
+import { PlatformAccessReviewController, PlatformAuditController, PlatformSecurityController } from './observe/observe.controller.js';
+import { PlatformSecurityView } from './observe/security-view.js';
+import { SECURITY_ROLLUP_SOURCE } from '../shared/observability/security-rollup.js';
 
 /**
  * Every production controller of the platform API (spec 0027 P1), each under `/api/platform/v1` but health. None of
  * these is ever in the tenant API's `API_CONTROLLERS`, and the reverse (a test). S2 adds sign-in, the account and staff.
  */
-export const PLATFORM_CONTROLLERS = [PlatformHealthController, PlatformAuthController, PlatformAccountController, PlatformStaffController] as const;
+export const PLATFORM_CONTROLLERS = [
+  PlatformHealthController,
+  PlatformAuthController,
+  PlatformAccountController,
+  PlatformStaffController,
+  PlatformAuditController,
+  PlatformSecurityController,
+  PlatformAccessReviewController,
+] as const;
 
 export interface PlatformOverrides {
   /** Tests only: controllers that exercise the walls (a route under /api/platform/v1). Never in platform.ts. */
@@ -32,6 +47,8 @@ export interface PlatformOverrides {
   readonly onShutdown?: () => Promise<void>;
   /** Spec 0028 Q3: keep the console's Vault token alive (renewed at start, then every 6 h). Only platform.ts sets it. */
   readonly renewVaultToken?: boolean;
+  /** Spec 0031 Q9: count security events for the console. Only platform.ts sets it. */
+  readonly recordSecurityEvents?: boolean;
 }
 
 @Module({})
@@ -56,6 +73,12 @@ export class PlatformModule {
         PlatformMailRelay,
         { provide: RENEW_CONSOLE_TOKEN, useValue: overrides.renewVaultToken ?? false },
         ConsoleTokenRenewal,
+        { provide: SECURITY_ROLLUP_SOURCE, useValue: overrides.recordSecurityEvents ? 'platform-api' : null },
+        ConsoleRollupWriter,
+        PlatformAuditLog,
+        ChainVerification,
+        PlatformSecurityView,
+        PlatformAccessReviews,
         ...(overrides.extraProviders ?? []),
         ...(overrides.onShutdown ? [shutdownHook(overrides.onShutdown)] : []),
       ],

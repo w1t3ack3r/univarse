@@ -6,3 +6,5 @@ export * from './results/standing.js';
 export * from './results/defaults.js';
 export * from './platform/reserved-names.js';
 export * from './platform/permissions.js';
+export * from './platform/access-review.js';
+export * from './platform/security-levels.js';
