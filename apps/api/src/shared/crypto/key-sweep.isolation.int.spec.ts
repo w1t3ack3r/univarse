@@ -32,6 +32,7 @@ import { mfaSecretAad } from '../../modules/identity/mfa.service.js';
 import { WorkerModule } from '../../worker.module.js';
 import { PLATFORM_DB, ShardRegistry } from '../db/db.module.js';
 import { outboxAad } from '../outbox/outbox.js';
+import { contactAad } from '../../modules/identity/contact.service.js';
 import { ENCRYPTED_COLUMNS } from './encrypted-columns.js';
 import { KeyMaintenance } from './key-maintenance.js';
 
@@ -73,7 +74,9 @@ interface Scratch {
   readonly id: string;
   readonly ref: { id: string; shardId: string };
   readonly values: {
-    table: 'mfa_factor' | 'outbox_event';
+    table: 'mfa_factor' | 'outbox_event' | 'contact_change';
+    /** For a table with more than one encrypted column. */
+    column?: 'new_address_enc' | 'old_address_enc';
     id: string;
     aad: string;
     plaintext: string;
@@ -132,6 +135,23 @@ async function scratch(label: string, outbox = 3): Promise<Scratch> {
     });
     values.push({ table: 'outbox_event', id, aad: outboxAad(t.id, id), plaintext: body });
   }
+  // Spec 0032: one change, holding both encrypted columns.
+  const changeId = randomUUID();
+  const [newAddress, oldAddress] = [`new-${label}-${run}@iso.test`, `old-${label}-${run}@iso.test`];
+  await db.contactChange.create({
+    data: {
+      id: changeId,
+      tenantId: t.id,
+      userId: user.id,
+      kind: 'SELF',
+      status: 'CONFIRMED',
+      expiresAt: new Date(),
+      newAddressEnc: await fieldCrypto.encrypt(t.id, Buffer.from(newAddress), contactAad(t.id, changeId, 'new')),
+      oldAddressEnc: await fieldCrypto.encrypt(t.id, Buffer.from(oldAddress), contactAad(t.id, changeId, 'old')),
+    },
+  });
+  values.push({ table: 'contact_change', column: 'new_address_enc', id: changeId, aad: contactAad(t.id, changeId, 'new'), plaintext: newAddress });
+  values.push({ table: 'contact_change', column: 'old_address_enc', id: changeId, aad: contactAad(t.id, changeId, 'old'), plaintext: oldAddress });
   return { id: t.id, ref: { id: t.id, shardId }, values };
 }
 
@@ -139,6 +159,11 @@ async function stored(s: Scratch): Promise<string[]> {
   const db = forTenant(shard, s.id);
   const out: string[] = [];
   for (const v of s.values) {
+    if (v.table === 'contact_change') {
+      const row = await db.contactChange.findUniqueOrThrow({ where: { id: v.id } });
+      out.push((v.column === 'new_address_enc' ? row.newAddressEnc : row.oldAddressEnc) ?? '');
+      continue;
+    }
     out.push(
       v.table === 'mfa_factor'
         ? (await db.mfaFactor.findUniqueOrThrow({ where: { id: v.id } })).secretEnc
@@ -261,7 +286,7 @@ describe('[JI7] RLS is the backstop for the sweep’s column operations', () => 
     const NIL = '00000000-0000-0000-0000-000000000000';
     for (const col of ENCRYPTED_COLUMNS) {
       // Every registered table.column needs a fixture in B; a missing one fails here (never a silent zero).
-      const i = b.values.findIndex((v) => v.table === col.table);
+      const i = b.values.findIndex((v) => v.table === col.table && (v.column === undefined || v.column === col.column));
       expect(
         i,
         `a fixture for ${col.table}.${col.column} in the scratch tenant`,
