@@ -12,7 +12,12 @@ export async function pruneRetiredTestStaff(migratorUrl: string | undefined): Pr
     // Spec 0031: what the tests date in the far future, because the console role can't delete: nothing real is there.
     await db.platformAccessReview.deleteMany({ where: { period: { gte: '2100' } } });
     await db.platformSecurityEventRollup.deleteMany({ where: { minute: { gte: new Date('2100-01-01T00:00:00Z') } } });
-    return (await db.platformUser.deleteMany({ where: { email: { endsWith: '@staff.test' }, isActive: false, role: 'READ_ONLY' } })).count;
+    const pruned = await db.platformUser.deleteMany({ where: { email: { endsWith: '@staff.test' }, isActive: false, role: 'READ_ONLY' } });
+    // A month a test attested stays open for the owner: a review doesn't outlive its reviewer here (no foreign key, as
+    // the audit log's actors).
+    const staff = await db.platformUser.findMany({ select: { id: true } });
+    await db.platformAccessReview.deleteMany({ where: { reviewerId: { notIn: staff.map((m) => m.id) } } });
+    return pruned.count;
   } finally {
     await db.$disconnect();
   }

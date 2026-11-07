@@ -165,3 +165,8 @@ export const PlatformOps = {
     response: z.strictObject({ period: z.string(), attestedAt: z.iso.datetime() }),
   },
 } as const;
+
+export type PlatformAuditLog = z.infer<typeof PlatformOps.audit.response>;
+export type PlatformChainStatus = z.infer<typeof PlatformOps.auditVerification.response>;
+export type PlatformSecuritySummary = z.infer<typeof PlatformOps.security.response>;
+export type PlatformAccessReview = z.infer<typeof PlatformOps.accessReview.response>;

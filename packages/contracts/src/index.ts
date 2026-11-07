@@ -5,3 +5,4 @@ export * from './settings.js';
 export * from './cache.js';
 export * from './api/index.js';
 export * from './platform.js';
+export * from './platform-labels.js';
