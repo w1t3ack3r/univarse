@@ -1,6 +1,6 @@
 # Spec 0032: Contact details: changing an account's email address
 
-**Status:** **Draft, for the owner's approval** (Q1 to Q15). Nothing is built from it until it's approved.
+**Status:** **Approved by the owner on 2026-11-07, all as written:** Q1 to Q15. Three PRs and a release, not started.
 **Phase:** 1, between S3 and S4 ([18](../18-roadmap.md)). It delivers [05 §2](../05-modules-and-features.md)'s "contact update with OTP verification", planned from the start and never built.
 **Builds on:**
 

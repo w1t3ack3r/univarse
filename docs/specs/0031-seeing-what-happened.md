@@ -1,6 +1,6 @@
 # Spec 0031: Phase 1's S3, seeing what happened
 
-**Status:** **Approved by the owner on 2026-11-07, all as written:** Q1 to Q17. PR A built; PR B and the release next.
+**Status:** **Approved by the owner on 2026-11-07, all as written:** Q1 to Q17, and Q-A1 to Q-A4 (with #156). PR A merged; PR B built; the release next.
 **Phase:** 1, slice **S3** of [spec 0025](0025-phase-1-control-plane.md) (E1, E2, E3).
 **Builds on:**
 
@@ -109,7 +109,7 @@ The platform now records everything staff do, on a hash chain, but nobody can re
 - **The rollups use an all-zero id for "no institution",** because PostgreSQL treats NULLs in a key as distinct, and two such rows wouldn't add up.
 - **`db.rls_violation` covers refused statements on the HTTP path.** A refusal in a background job shows in that job's own failure log. It also fires on a missing grant, not only RLS: PostgreSQL reports both as `42501`, and either means something tried what it mustn't.
 
-**Decisions made while building, for approval:**
+**Decisions made while building PR A, approved by the owner on 2026-11-07:**
 
 | # | Decision | Why |
 | --- | --- | --- |
@@ -118,3 +118,24 @@ The platform now records everything staff do, on a hash chain, but nobody can re
 | Q-A3 | **Starting a verification is limited to 6 a minute per address.** | It reads the whole chain. One run at a time already bounds the work; the limit stops a stuck script filling the run table. |
 | Q-A4 | **Verification runs and the access review's history are read at most 10 and 24 rows back.** | The page shows recent ones; older runs stay in the table. |
 
+## PR B: what was built
+
+The three screens, Overview's status and the shell's banner, in `apps/console`. **Labels live in `packages/contracts/src/platform-labels.ts`,** and a test (`apps/api/src/platform/observe/labels.spec.ts`) fails on an audit action or security event with no words, and on words for an action nothing writes. An unknown name shows raw: the log never hides a row.
+
+**Corrections found while building:**
+- **The chart holds one more bucket than the window has hours or days** (25, 8, 31): the window starts part way through its oldest bucket, and without it, events counted in the totals fell off the left edge.
+- **`crypto.ledger.<action>` names come from the stack's ledger job at run time,** so the label test can't list them. `crypto.ledger.waived` is labelled; any other shows as its raw name.
+- **The E2E's test reviews now go when their reviewer does:** `pruneRetiredTestStaff` removes reviews whose reviewer no longer exists. A test's attested month was blocking the month on the shared development database.
+
+**Decisions made while building, for approval:**
+
+| # | Decision | Why |
+| --- | --- | --- |
+| Q-B1 | **Filters apply on a Show button, not on each change.** | Every new query writes `platform.audit.viewed` (Q5), so filtering as you pick would fill the log with its own reads. |
+| Q-B2 | **A picked date means that whole day in WAT,** whatever the browser's zone. Times shown stay in the reader's own zone, as everywhere else in the console. | The platform's calendar is WAT, as the review's month is (Q15). |
+| Q-B3 | **The "Who" filter lists staff only for those who can read the staff list.** All three roles with the log can, today. | It reuses `GET /staff`, with no new route. If the read fails, the filter lists only "Anyone" and the log still works. |
+| Q-B4 | **The chart is HTML bars, with no chart library, and its table sits one tap away.** Its amber passes the colour-blind checks but is weak on contrast, so every chart shows a legend, each event names its level in words, and the table holds every value. | Low-end Android on slow networks. |
+| Q-B5 | **A review's decisions all start unset:** Attest stays disabled until each member is marked, with no "keep all". | The attestation says a person looked at each one. |
+| Q-B6 | **The note about reviewing your own access shows only when you're the sole member.** | Q15 says a solo owner's review is recorded honestly. With two or more members, the reviewer's own row is marked "(you)". |
+| Q-B7 | **Overview's due or overdue chip shows to whoever can attest, which is OWNERs,** and nothing shows when the month is done. | Q15. |
+| Q-B8 | **On a phone, the current tab scrolls into view.** With six tabs, the one you're on was off-screen. | Found on the phone screenshot. |

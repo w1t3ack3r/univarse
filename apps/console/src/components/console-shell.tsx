@@ -1,6 +1,7 @@
 'use client';
 
-import { Button, LogOut } from '@univarse/ui';
+import type { PlatformChainStatus } from '@univarse/contracts';
+import { Button, LogOut, Notice } from '@univarse/ui';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
@@ -74,10 +75,33 @@ export function ConsoleShell({ children }: { children: ReactNode }) {
       <StepUpProvider>
         <div className="pc-page">
           <SignedInHeader me={me} />
+          {me.permissions.includes('platform.audit.read') ? <ChainBanner /> : null}
           {children}
         </div>
       </StepUpProvider>
     </MeContext.Provider>
+  );
+}
+
+/** Spec 0031 Q6: a broken audit chain is seen without anyone asking, on every page, until a later check passes. */
+function ChainBanner() {
+  const [broken, setBroken] = useState(false);
+  useEffect(() => {
+    let live = true;
+    api<PlatformChainStatus>('GET', '/audit/verification')
+      .then((r) => {
+        if (live) setBroken(r.broken);
+      })
+      .catch(() => undefined); // this banner only ever adds to a page; the audit page itself reports a failed read
+    return () => {
+      live = false;
+    };
+  }, []);
+  if (!broken) return null;
+  return (
+    <Notice>
+      The audit log failed its last check. Follow the incident runbook, and change nothing. <Link href="/audit">See the audit log</Link>
+    </Notice>
   );
 }
 
@@ -89,6 +113,9 @@ function SignedInHeader({ me }: { me: Me }) {
     { href: '/', label: 'Overview' },
     { href: '/account', label: 'Your account' },
     ...(me.permissions.includes('platform.staff.read') ? [{ href: '/staff', label: 'Staff' }] : []),
+    ...(me.permissions.includes('platform.audit.read') ? [{ href: '/audit', label: 'Audit log' }] : []),
+    ...(me.permissions.includes('platform.security.read') ? [{ href: '/security', label: 'Security' }] : []),
+    ...(me.permissions.includes('platform.access_review.read') ? [{ href: '/access-review', label: 'Access review' }] : []),
   ];
   const signOut = () => {
     setLeaving(true);
@@ -96,6 +123,10 @@ function SignedInHeader({ me }: { me: Me }) {
       .catch(() => undefined)
       .finally(() => router.replace('/sign-in'));
   };
+  // On a phone the tabs scroll: the page you're on should be one you can see.
+  useEffect(() => {
+    document.querySelector('.pc-tabs__tab[aria-current="page"]')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  }, [path]);
   return (
     <header className="pc-head">
       <div className="pc-head__who">

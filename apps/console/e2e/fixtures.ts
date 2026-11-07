@@ -22,7 +22,7 @@ export const PASSWORD = `E2e-${randomBytes(12).toString('base64url')}-7a`;
 export const uniqueEmail = (tag: string) => `${E2E_PREFIX}${tag}-${randomBytes(4).toString('hex')}@staff.test`;
 
 /** A member with a password and no authenticator yet: what the owner's command and an activation leave behind. */
-export async function makeMember(role: 'OWNER' | 'SUPPORT'): Promise<{ email: string }> {
+export async function makeMember(role: 'OWNER' | 'SUPPORT' | 'READ_ONLY'): Promise<{ email: string }> {
   const db = createPlatformClient(consoleEnv().CONSOLE_DATABASE_URL!);
   try {
     const email = uniqueEmail(role.toLowerCase());

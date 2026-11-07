@@ -52,6 +52,23 @@ export const Lock = (p: IconProps) => (
     <path d="M8 10.5V8a4 4 0 0 1 8 0v2.5" />
   </Icon>
 );
+export const ScrollText = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M6 3h9l4 4v14H6z" />
+    <path d="M15 3v4h4M9.5 12h6M9.5 16h6" />
+  </Icon>
+);
+export const Activity = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M3 12h4l3-8 4 16 3-8h4" />
+  </Icon>
+);
+export const ClipboardCheck = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M9 4H6v17h12V4h-3" />
+    <path d="M9 3h6v3H9zM9.5 14l2 2 3.5-4" />
+  </Icon>
+);
 export const ShieldCheck = (p: IconProps) => (
   <Icon {...p}>
     <path d="M12 3 5 6v5.5c0 4.3 2.9 7.9 7 9.5 4.1-1.6 7-5.2 7-9.5V6l-7-3Z" />
