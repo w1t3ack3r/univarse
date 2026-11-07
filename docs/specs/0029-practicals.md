@@ -78,6 +78,8 @@ So Phase 4b moves from about 7 weeks to about 9, Phase 4c from about 5 to about 
 
 ## The owner's steps
 
+**Deferred by the owner on 2026-11-07:** the steps below are taken up when Phase 4b starts, not before.
+
 - ~~Approve or change Q1 to Q12 and the phasing.~~ Done: all approved on 2026-11-02.
 - **PhET:** decide whether to ask for a commercial partnership (phet-partnerships@colorado.edu) for the sims published after 29 March 2026; without it, the library keeps the historical versions.
 - **Regulators `[VERIFY]`:** a written view from COREN (and NUC's quality assurance) on how online practicals count, before an institution relies on them for accreditation.
