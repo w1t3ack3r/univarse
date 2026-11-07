@@ -123,6 +123,7 @@ describe('[P5] the console role, in the database', () => {
         platform_access_review: 'SI',
         platform_audit_event: 'SI',
         platform_audit_verification: 'SIU',
+        platform_contact_change: 'SIU',
         platform_known_device: 'SIU',
         platform_mail_outbox: 'SIU',
         platform_mfa_challenge: 'SIU',

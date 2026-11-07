@@ -49,6 +49,8 @@ const schema = z.object({
   MAIL_RELAY_INTERVAL_MS: z.coerce.number().int().min(0).default(2_000),
   /** Spec 0031 Q6: how often to see whether the daily chain verification is due; 0 turns it off (tests). */
   AUDIT_VERIFY_CHECK_INTERVAL_MS: z.coerce.number().int().min(0).default(3_600_000),
+  /** Spec 0032 Q12: how often finished address changes lose their addresses; 0 turns it off (tests). */
+  CONTACT_BLANK_INTERVAL_MS: z.coerce.number().int().min(0).default(3_600_000),
 });
 
 export type PlatformConfig = z.infer<typeof schema>;

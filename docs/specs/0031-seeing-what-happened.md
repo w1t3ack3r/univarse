@@ -1,6 +1,6 @@
 # Spec 0031: Phase 1's S3, seeing what happened
 
-**Status:** **Approved by the owner on 2026-11-07, all as written:** Q1 to Q17, and Q-A1 to Q-A4 (with #156). PR A merged; PR B built; the release next.
+**Status:** **Approved by the owner on 2026-11-07, all as written:** Q1 to Q17, Q-A1 to Q-A4 (with #156) and Q-B1 to Q-B8 (with #158). Both PRs merged; the release next.
 **Phase:** 1, slice **S3** of [spec 0025](0025-phase-1-control-plane.md) (E1, E2, E3).
 **Builds on:**
 
@@ -127,7 +127,7 @@ The three screens, Overview's status and the shell's banner, in `apps/console`. 
 - **`crypto.ledger.<action>` names come from the stack's ledger job at run time,** so the label test can't list them. `crypto.ledger.waived` is labelled; any other shows as its raw name.
 - **The E2E's test reviews now go when their reviewer does:** `pruneRetiredTestStaff` removes reviews whose reviewer no longer exists. A test's attested month was blocking the month on the shared development database.
 
-**Decisions made while building, for approval:**
+**Decisions made while building PR B, approved by the owner on 2026-11-07:**
 
 | # | Decision | Why |
 | --- | --- | --- |

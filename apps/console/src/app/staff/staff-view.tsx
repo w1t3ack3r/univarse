@@ -12,6 +12,7 @@ import { when } from '../../lib/device';
 interface Member {
   readonly id: string;
   readonly email: string;
+  readonly emailVerified: boolean;
   readonly displayName: string;
   readonly role: string;
   readonly isActive: boolean;
@@ -156,6 +157,19 @@ export function StaffView() {
                               )
                             }
                           />
+                          <CorrectAddress
+                            member={m}
+                            busy={busy === `email:${m.id}`}
+                            onCorrect={(input) =>
+                              change(
+                                `email:${m.id}`,
+                                () => api('POST', `/staff/${m.id}/email`, input),
+                                m.emailVerified
+                                  ? `A code went to the new address. ${m.displayName} finishes the change with it and their password.`
+                                  : `${m.displayName}’s address is corrected, and a new activation code went to it.`,
+                              )
+                            }
+                          />
                           <div className="pc-row-actions pc-row-actions--start">
                             {m.mfaEnrolled ? (
                               <Button
@@ -280,6 +294,48 @@ function RoleChange({
       <Button type="submit" variant="quiet" pending={busy} disabled={role === member.role}>
         Change role
       </Button>
+    </form>
+  );
+}
+
+/**
+ * Spec 0032 Q7, Q8, Q9. Not activated yet, the address changes at once. Activated, the person finishes it, so no
+ * administrator can take an account over alone. Only here can the old address be marked wrong: nothing then goes to it.
+ */
+function CorrectAddress({
+  member,
+  busy,
+  onCorrect,
+}: {
+  member: Member;
+  busy: boolean;
+  onCorrect: (input: { email: string; oldAddressWrong: boolean }) => Promise<boolean>;
+}) {
+  const [wrong, setWrong] = useState(false);
+  const onSubmit = (e: SubmitEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const form = e.currentTarget;
+    void onCorrect({ email: field(new FormData(form), 'email'), oldAddressWrong: wrong }).then((ok) => {
+      if (ok) {
+        form.reset();
+        setWrong(false);
+      }
+    });
+  };
+  return (
+    <form method="post" className="pc-form" onSubmit={onSubmit} noValidate>
+      <TextField label={`Correct ${member.displayName}’s email`} name="email" type="email" inputMode="email" autoComplete="off" autoCapitalize="none" spellCheck={false} required />
+      {member.emailVerified ? (
+        <label className="pc-check">
+          <input type="checkbox" checked={wrong} onChange={(e) => setWrong(e.target.checked)} />
+          <span>The old address is wrong. Send nothing to it, because it may be a stranger’s.</span>
+        </label>
+      ) : null}
+      <div className="pc-row-actions pc-row-actions--start">
+        <Button type="submit" variant="quiet" pending={busy}>
+          Correct the address
+        </Button>
+      </div>
     </form>
   );
 }

@@ -26,7 +26,7 @@ export async function makeMember(role: 'OWNER' | 'SUPPORT' | 'READ_ONLY'): Promi
   const db = createPlatformClient(consoleEnv().CONSOLE_DATABASE_URL!);
   try {
     const email = uniqueEmail(role.toLowerCase());
-    await db.platformUser.create({ data: { email, displayName: `Ada E2E ${role}`, role, passwordHash: await hashPassword(PASSWORD) } });
+    await db.platformUser.create({ data: { email, emailVerifiedAt: new Date(), displayName: `Ada E2E ${role}`, role, passwordHash: await hashPassword(PASSWORD) } });
     return { email };
   } finally {
     await db.$disconnect();

@@ -4,6 +4,7 @@ import { Button, Download, Notice } from '@univarse/ui';
 import { CopyButton } from '@univarse/ui/client';
 import { useCallback, useEffect, useState } from 'react';
 import { useStepUp } from '../../components/step-up';
+import { EmailSection } from './email-section';
 import { api, ApiError, asApiError } from '../../lib/api';
 import { describeDevice, when } from '../../lib/device';
 
@@ -27,6 +28,7 @@ export function AccountView() {
   const [ending, setEnding] = useState<string | null>(null);
   const [codes, setCodes] = useState<string[] | null>(null);
   const [making, setMaking] = useState(false);
+  const [changed, setChanged] = useState(false);
 
   const load = useCallback(() => {
     api<{ data: Session[] }>('GET', '/me/sessions')
@@ -34,6 +36,9 @@ export function AccountView() {
       .catch((err: unknown) => setError(asApiError(err)));
   }, []);
   useEffect(load, [load]);
+  useEffect(() => {
+    setChanged(new URLSearchParams(window.location.search).get('address') === 'changed');
+  }, []);
 
   const end = (id: string) => {
     setEnding(id);
@@ -78,6 +83,7 @@ export function AccountView() {
   return (
     <>
       {error ? <Notice requestId={error.requestId}>{error.message}</Notice> : null}
+      {changed ? <Notice tone="success">Your address is changed. Your other sessions were signed out, and your old address was told.</Notice> : null}
 
       <section className="pc-section" aria-labelledby="sessions-title">
         <h1 id="sessions-title" className="pc-section__title">
@@ -133,6 +139,8 @@ export function AccountView() {
           </table>
         )}
       </section>
+
+      <EmailSection />
 
       <section className="pc-section" aria-labelledby="codes-title">
         <h2 id="codes-title" className="pc-section__title">

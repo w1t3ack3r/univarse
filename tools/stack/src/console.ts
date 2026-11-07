@@ -2,6 +2,8 @@
 // deployed, verified API image, with the platform API's settings only:
 //   pnpm stack:console owner --email <address> --name "<name>"     the first OWNER; refused if one exists
 //   pnpm stack:console owner --recover --email <address>          an OWNER who lost both factors: a new activation code
+//   pnpm stack:console owner --correct-email --email <current> --new-email <new> [--old-address-wrong]
+//                                                                 spec 0032 Q10: an OWNER who can't reach their mailbox
 // The activation code goes by email (Mailpit, https://mail.<stack domain>); nothing secret is printed.
 import { spawnSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
@@ -11,6 +13,7 @@ import { deployedImages } from './ledger/job.js';
 export const USAGE = [
   'usage: pnpm stack:console owner --email <address> --name "<name>"',
   '       pnpm stack:console owner --recover --email <address>',
+  '       pnpm stack:console owner --correct-email --email <current> --new-email <new> [--old-address-wrong]',
 ].join('\n');
 
 /** The owner's command line, checked here so a mistake never starts a container. Returns the CLI's arguments. */
@@ -18,16 +21,24 @@ export function ownerArgs(argv: readonly string[]): string[] {
   const [command, ...rest] = argv;
   if (command !== 'owner') throw new Error(USAGE);
   const recover = rest.includes('--recover');
-  const flags = rest.filter((a) => a !== '--recover');
+  const correct = rest.includes('--correct-email');
+  const wrong = rest.includes('--old-address-wrong');
+  const flags = rest.filter((a) => a !== '--recover' && a !== '--correct-email' && a !== '--old-address-wrong');
   const values: Record<string, string> = {};
   for (let i = 0; i < flags.length; i += 2) {
     const name = flags[i]?.replace(/^--/, '') ?? '';
     const value = flags[i + 1];
-    if (!flags[i]?.startsWith('--') || !['email', 'name'].includes(name) || value === undefined || value.startsWith('--') || name in values) throw new Error(USAGE);
+    if (!flags[i]?.startsWith('--') || !['email', 'name', 'new-email'].includes(name) || value === undefined || value.startsWith('--') || name in values) throw new Error(USAGE);
     values[name] = value;
   }
-  const { email, name } = values;
-  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error(USAGE);
+  const { email, name, 'new-email': newEmail } = values;
+  const address = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!email || !address.test(email)) throw new Error(USAGE);
+  if (correct) {
+    if (recover || name !== undefined || !newEmail || !address.test(newEmail)) throw new Error(USAGE);
+    return ['--correct-email', '--email', email, '--new-email', newEmail, ...(wrong ? ['--old-address-wrong'] : [])];
+  }
+  if (wrong || newEmail !== undefined) throw new Error(USAGE);
   if (recover ? name !== undefined : !name?.trim()) throw new Error(USAGE);
   return recover ? ['--recover', '--email', email] : ['--email', email, '--name', name ?? ''];
 }

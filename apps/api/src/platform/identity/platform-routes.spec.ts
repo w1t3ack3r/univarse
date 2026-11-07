@@ -44,6 +44,8 @@ describe('the platform routes (spec 0028 Q12)', () => {
         'GET /health/live',
         'GET /health/ready',
         'POST /api/platform/v1/auth/activate',
+        'POST /api/platform/v1/auth/contact-change/confirm',
+        'POST /api/platform/v1/auth/contact-change/undo',
         'POST /api/platform/v1/auth/login',
         'POST /api/platform/v1/auth/mfa',
         'POST /api/platform/v1/auth/password-reset/confirm',
@@ -61,9 +63,13 @@ describe('the platform routes (spec 0028 Q12)', () => {
 
   it('every staff change needs platform.staff.manage, which the catalogue flags for step-up (Q11, Q13)', () => {
     const writes = all.filter((r) => r.key.includes('/staff') && !r.key.startsWith('GET'));
-    expect(writes.length).toBe(5); // invite, role, deactivate, reinstate, MFA reset
+    expect(writes.length).toBe(6); // invite, role, deactivate, reinstate, MFA reset, correcting an address
     for (const r of writes) expect([r.key, r.access.access]).toEqual([r.key, { kind: 'permission', permission: 'platform.staff.manage' }]);
     expect(PLATFORM_PERMISSION_CATALOG['platform.staff.manage'].stepUp).toBe(true);
+  });
+
+  it('[0032 Q2] asking to change your own address needs an explicit step-up', () => {
+    expect(all.find((x) => x.key === 'POST /api/platform/v1/me/email')?.access.stepUp).toBe(true);
   });
 
   it('regenerating recovery codes needs an explicit step-up (Q11)', () => {

@@ -81,6 +81,7 @@ describe('[OB7] the security stream', () => {
         'platform.step_up.failed',
         'platform.rate_limited',
         'platform.mail.failed',
+        'identity.email_change.undone',
         'platform.route_undeclared',
         'platform.staff.changed',
       ].sort(),

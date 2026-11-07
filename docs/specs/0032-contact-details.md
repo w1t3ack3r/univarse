@@ -1,6 +1,6 @@
 # Spec 0032: Contact details: changing an account's email address
 
-**Status:** **Approved by the owner on 2026-11-07, all as written:** Q1 to Q15. Three PRs and a release, not started.
+**Status:** **Approved by the owner on 2026-11-07, all as written:** Q1 to Q15. PR A built; held until S3 is deployed (Q15). PR B, PR C and the release next.
 **Phase:** 1, between S3 and S4 ([18](../18-roadmap.md)). It delivers [05 §2](../05-modules-and-features.md)'s "contact update with OTP verification", planned from the start and never built.
 **Builds on:**
 
@@ -85,3 +85,21 @@ In this PR: [05 §2](../05-modules-and-features.md), [18](../18-roadmap.md). In 
 - **Phone numbers:** the same rules, when SMS arrives (Q13).
 - **Several addresses on one account.**
 - **A hold on password resets after a change:** the undo covers the risk, and a hold would mostly block genuine users.
+
+## PR A: what was built
+
+The platform side, in `packages/domain/src/contact-change.ts` (the rules) and `apps/api/src/platform/identity/contact.service.ts`: the migration, the routes, Your account, Staff, two signed-out pages (`/contact-change`, `/contact-change/undo`), and the owner's command.
+
+**Decisions made while building, for approval:**
+
+| # | Decision | Why |
+| --- | --- | --- |
+| Q-A1 | **"A new password at the next sign-in" is a flag:** after an undo the old password signs in to nothing, answering as a wrong one does, until "Forgot your password?" replaces it. | The password may be the intruder's. It uses the reset that already exists, sent to the address just restored. |
+| Q-A2 | **An undo code is 10 characters, not 6 digits,** and is entered with the old address. | It lives 72 hours and works signed out, so it needs to be far harder to guess than a 15-minute code. Five tries, then it's spent. |
+| Q-A3 | **An undo closes later changes only, not earlier ones.** | Otherwise an intruder who moved the account twice could use their own undo to close the owner's. There's a test of exactly that. |
+| Q-A4 | **An old address is held for its 72 hours:** nobody else can be invited to it or move to it. | An undo may need it back, and uniqueness would otherwise block that. |
+| Q-A5 | **A confirmed change and an undo kill every unused code on the account,** and an undo also kills sign-ins waiting for a second factor. | A reset code an intruder asked for must not survive the undo. |
+| Q-A6 | **An OWNER correcting someone's address is told if it's taken (409).** Q4 covers a member's own request. | The same OWNER can read the whole staff list, so hiding it protects nothing. |
+| Q-A7 | **A member without access can't have their address corrected:** restore them first. | Reinstating is what sends mail, and it starts from a fresh activation. |
+| Q-A8 | **Failures on the signed-out confirm page don't count toward the sign-in lockout.** Each change allows 5 tries. | The lockout mails the address on record, which here may be a stranger's. |
+| Q-A9 | **The `Staff` page shows the old-address choice only for a proven address.** An unproven one is corrected at once, and it gets nothing either way. | Q9. |

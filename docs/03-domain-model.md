@@ -25,6 +25,8 @@ Entities per bounded context, their key fields, invariants and lifecycles. This 
 | `PlatformAnnouncement`, `PlatformTicket`, `PlatformTicketMessage` | | Tenant admins ↔ UniVarse support |
 | `PlatformAuditEvent` | actor, action, tenantId?, metadata, ip, prevHash, hash | Hash-chained |
 
+**Contact change** (`platform_contact_change`, [spec 0032](specs/0032-contact-details.md)): one change of a member's address. `PENDING` → `CONFIRMED` → optionally `UNDONE`, or `REPLACED` by a newer request. Kind `SELF`, `ADMIN` or `COMMAND`. The row stays; its addresses and codes are blanked (Q12). `platform_user.email_verified_at` says the address is proven, and `password_reset_required` that an undo has left the password unusable.
+
 ## 2. Identity & access
 
 | Entity | Key fields | Invariants |

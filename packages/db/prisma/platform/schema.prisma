@@ -120,8 +120,12 @@ enum PlatformRole {
 model PlatformUser {
   id           String       @id @default(dbgenerated("uuidv7()")) @db.Uuid
   email        String       @unique
+  /// Spec 0032 Q11: set by activation and by a confirmed change
+  emailVerifiedAt DateTime? @map("email_verified_at") @db.Timestamptz(3)
   displayName  String       @map("display_name")
   passwordHash String?      @map("password_hash")
+  /// Spec 0032 Q6: after an undo the password may be the intruder's: it's refused until a reset replaces it
+  passwordResetRequired Boolean @default(false) @map("password_reset_required")
   role         PlatformRole
   /// Never used; superseded by PlatformMfaFactor (spec 0028 Q2). Dropped in a later release (expand, then contract).
   totpSecretEnc String?     @map("totp_secret_enc")
@@ -139,8 +143,58 @@ model PlatformUser {
   mfaChallenges  PlatformMfaChallenge[]
   oneTimeCodes   PlatformOneTimeCode[]
   knownDevices   PlatformKnownDevice[]
+  contactChanges PlatformContactChange[]
 
   @@map("platform_user")
+}
+
+enum PlatformContactChannel {
+  EMAIL
+}
+
+enum PlatformContactChangeKind {
+  SELF
+  ADMIN
+  COMMAND
+}
+
+enum PlatformContactChangeStatus {
+  PENDING
+  REPLACED
+  CONFIRMED
+  UNDONE
+}
+
+/// Spec 0032: one change of a member's address. The row stays as the record that it happened; its addresses and codes
+/// are blanked once they're no longer needed (Q12). Phone numbers use the same table when SMS arrives (Q13).
+model PlatformContactChange {
+  id              String                      @id @default(dbgenerated("uuidv7()")) @db.Uuid
+  userId          String                      @map("user_id") @db.Uuid
+  channel         PlatformContactChannel      @default(EMAIL)
+  kind            PlatformContactChangeKind
+  status          PlatformContactChangeStatus @default(PENDING)
+  requestedBy     String?                     @map("requested_by") @db.Uuid
+  newAddress      String?                     @map("new_address")
+  oldAddress      String?                     @map("old_address")
+  oldAddressWrong Boolean                     @default(false) @map("old_address_wrong")
+  codeHash        Bytes?                      @map("code_hash")
+  attempts        Int                         @default(0)
+  expiresAt       DateTime                    @map("expires_at") @db.Timestamptz(3)
+  confirmedAt     DateTime?                   @map("confirmed_at") @db.Timestamptz(3)
+  undoHash        Bytes?                      @map("undo_hash")
+  undoUntil       DateTime?                   @map("undo_until") @db.Timestamptz(3)
+  undoAttempts    Int                         @default(0) @map("undo_attempts")
+  undoneAt        DateTime?                   @map("undone_at") @db.Timestamptz(3)
+  blankedAt       DateTime?                   @map("blanked_at") @db.Timestamptz(3)
+  createdAt       DateTime                    @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  user PlatformUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([newAddress])
+  @@index([oldAddress])
+  @@index([blankedAt])
+  @@map("platform_contact_change")
 }
 
 /// Spec 0028 Q2, Q3: a member's TOTP factor. The secret is encrypted with the console's own Transit key.
