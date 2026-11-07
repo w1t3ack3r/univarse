@@ -51,14 +51,15 @@ export function ReviewView() {
   const remaining = useMemo(() => (review ? review.members.filter((m) => !decisions[m.id]).length : 0), [review, decisions]);
 
   const attest = () => {
-    if (!review) return;
+    if (!review || remaining > 0) return;
     setBusy(true);
     setError(null);
     const body = {
       snapshotHash: review.snapshotHash,
       decisions: review.members.map((m) => {
-        const note = notes[m.id]?.trim();
-        return { memberId: m.id, decision: decisions[m.id] ?? 'keep', ...(note ? { note } : {}) };
+        const decision = decisions[m.id] ?? 'change'; // never reached: every member is marked. Never a quiet keep.
+        const note = decision === 'change' ? notes[m.id]?.trim() : undefined; // a note left behind on a switch back to Keep
+        return { memberId: m.id, decision, ...(note ? { note } : {}) };
       }),
     };
     stepUp(() => api('POST', '/access-review', body))

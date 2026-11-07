@@ -42,11 +42,19 @@ export function SecurityView() {
 
   useEffect(() => {
     if (!canRead) return;
+    let live = true; // on a slow network an older period can answer after a newer one
     setS(null);
     setError(null);
     api<Summary>('GET', `/security?window=${period}`)
-      .then(setS)
-      .catch((err: unknown) => setError(asApiError(err)));
+      .then((r) => {
+        if (live) setS(r);
+      })
+      .catch((err: unknown) => {
+        if (live) setError(asApiError(err));
+      });
+    return () => {
+      live = false;
+    };
   }, [canRead, period]);
 
   if (!canRead) return <NothingHere />;

@@ -34,14 +34,22 @@ export function AuditView() {
 
   useEffect(() => {
     if (!canRead) return;
+    let live = true; // on a slow network an older search can answer after a newer one
     setRows(null);
+    setCursor(null);
     setError(null);
     api<Log>('GET', `/audit${auditQuery(filters)}`)
       .then((r) => {
+        if (!live) return;
         setRows(r.data);
         setCursor(r.page.nextCursor);
       })
-      .catch((err: unknown) => setError(asApiError(err)));
+      .catch((err: unknown) => {
+        if (live) setError(asApiError(err));
+      });
+    return () => {
+      live = false;
+    };
   }, [canRead, filters]);
 
   useEffect(() => {

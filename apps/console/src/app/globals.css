@@ -903,6 +903,7 @@ html {
   background: var(--uv-deep-soft);
 }
 .pc-seg__opt {
+  position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
