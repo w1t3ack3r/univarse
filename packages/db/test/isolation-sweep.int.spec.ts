@@ -58,6 +58,7 @@ async function buildFixtures(tx: TenantTx, tenantId: string): Promise<Record<str
     setting: (await tx.setting.create({ data: { tenantId, key: `sweep.${tag}`, value: { on: true } } })).id,
     file_object: (await tx.fileObject.create({ data: { tenantId, bucketKey: `sweep/${tag}`, originalName: 'x.pdf', mime: 'application/pdf', sizeBytes: 1n } })).id,
     sequence: (await tx.sequence.create({ data: { tenantId, name: `sweep.${tag}` } })).id,
+    contact_change: (await tx.contactChange.create({ data: { tenantId, userId, kind: 'SELF', expiresAt: soon() } })).id,
   };
   return rows;
 }
