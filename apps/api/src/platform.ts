@@ -11,7 +11,7 @@ const consoleEnv = new URL('../../../.env.console', import.meta.url);
 if (process.env.NODE_ENV !== 'production' && existsSync(consoleEnv)) process.loadEnvFile(consoleEnv);
 
 const config = loadPlatformConfig();
-const app = await createPlatformApp(config, { onShutdown: shutdownTracing, renewVaultToken: true });
+const app = await createPlatformApp(config, { onShutdown: shutdownTracing, renewVaultToken: true, recordSecurityEvents: true });
 await app.listen(config.PORT, config.HOST);
 new Logger('Platform').log(
   { event: 'platform_api.started', host: config.HOST, port: config.PORT },

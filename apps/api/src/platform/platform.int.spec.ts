@@ -120,16 +120,24 @@ describe('[P5] the console role, in the database', () => {
           FROM information_schema.tables WHERE table_schema = 'public' AND table_type = 'BASE TABLE' ORDER BY table_name`;
       const held = Object.fromEntries(rows.filter((r) => r.sel || r.ins || r.upd || r.del || r.trunc).map((r) => [r.table_name, `${r.sel ? 'S' : ''}${r.ins ? 'I' : ''}${r.upd ? 'U' : ''}${r.del ? 'D' : ''}${r.trunc ? 'T' : ''}`]));
       expect(held).toEqual({
+        platform_access_review: 'SI',
         platform_audit_event: 'SI',
+        platform_audit_verification: 'SIU',
         platform_known_device: 'SIU',
         platform_mail_outbox: 'SIU',
         platform_mfa_challenge: 'SIU',
         platform_mfa_factor: 'SIU',
         platform_one_time_code: 'SIU',
         platform_recovery_code: 'SIU',
+        platform_security_event_rollup: 'SIU',
         platform_session: 'SIU',
         platform_user: 'SIU',
       });
+      // Spec 0031 Q13: of the tenant registry, the console reads these three columns and nothing else.
+      const tenantColumns = await db.$queryRaw<{ column_name: string }[]>`
+        SELECT column_name FROM information_schema.columns
+         WHERE table_name = 'tenant' AND has_column_privilege(current_user, 'tenant', column_name, 'SELECT') ORDER BY column_name`;
+      expect(tenantColumns.map((c) => c.column_name)).toEqual(['id', 'short_name', 'slug']);
       const role = await db.$queryRaw<{ rolname: string; rolsuper: boolean; rolbypassrls: boolean; rolcreaterole: boolean; rolcreatedb: boolean; rolreplication: boolean }[]>`
         SELECT rolname, rolsuper, rolbypassrls, rolcreaterole, rolcreatedb, rolreplication FROM pg_roles WHERE rolname = current_user`;
       expect(role).toEqual([{ rolname: 'univarse_console', rolsuper: false, rolbypassrls: false, rolcreaterole: false, rolcreatedb: false, rolreplication: false }]);

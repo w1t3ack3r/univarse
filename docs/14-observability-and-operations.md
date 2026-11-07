@@ -47,7 +47,7 @@ Built in [spec 0012](specs/0012-observability-logs-and-traces.md).
   - **Keys:** object keys at any depth up to 3 (`password`, `code`, `otp`, `recoveryCode(s)`, `secret`, `token*`, `authorization`, `cookie`, `set-cookie`, `accountNumber`, `nin`, …) become `[redacted]`.
   - **Text:** `msg` and error messages and stacks are scrubbed of query strings, header values, our cookie values, bearer tokens and signed storage credentials. Error text also loses quoted literals.
   - **Error codes:** these log as `err.errorCode`, because `code` is a redacted key.
-- **Security events** carry `stream: "security"`, so the collector can route them to a separate stream with longer retention (12 months). The list is `SECURITY_EVENTS` in `shared/observability/security.ts`; a test requires each to be logged somewhere. Logs are never sampled.
+- **Security events** carry `stream: "security"`, so the collector can route them to a separate stream with longer retention (12 months). The list is `SECURITY_EVENTS` in `shared/observability/security.ts`; a test requires each to be logged somewhere. Logs are never sampled. The logs are the complete record; the console reads per-minute counts of the same events, with no person, address or detail ([spec 0031](specs/0031-seeing-what-happened.md) Q8), written every 30 seconds from memory, so a dead database can't slow a request.
 - **Application logs aren't the audit log.** Audit events are business records in the DB ([07 §7](07-data-and-database.md)).
 
 ## 3. Metrics

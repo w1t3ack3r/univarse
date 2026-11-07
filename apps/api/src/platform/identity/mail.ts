@@ -3,6 +3,7 @@
 // The tenant worker is never involved (T28). A sent message's body is cleared: it may have held a one-time code.
 import { Inject, Injectable, Logger, type OnApplicationBootstrap, type OnApplicationShutdown } from '@nestjs/common';
 import type { PlatformClient } from '@univarse/db';
+import { backgroundPass } from '../../shared/observability/background.js';
 import { securityFields } from '../../shared/observability/security.js';
 import type { Mailer } from '../../shared/infra/mailer.js';
 import { CONSOLE_DB, PLATFORM_CONFIG, type PlatformConfig } from '../platform-config.js';
@@ -43,26 +44,14 @@ export class PlatformMailRelay implements OnApplicationBootstrap, OnApplicationS
 
   onApplicationBootstrap(): void {
     if (this.config.MAIL_RELAY_INTERVAL_MS === 0) return;
-    this.timer = setInterval(() => void this.tick(), this.config.MAIL_RELAY_INTERVAL_MS);
+    // Spec 0031 Q10: a failed pass ends in its log line; the outbox still holds the mail, so the next tick retries.
+    this.timer = setInterval(() => void backgroundPass(this.logger, 'platform.mail.pass_failed', () => this.drain()), this.config.MAIL_RELAY_INTERVAL_MS);
     this.timer.unref();
   }
 
   async onApplicationShutdown(): Promise<void> {
     if (this.timer) clearInterval(this.timer);
     await this.running?.catch(() => undefined); // a failing pass has been logged by its tick
-  }
-
-  /**
-   * One pass on the timer, outside any request: a failure must end here, because an unhandled rejection kills the
-   * process (a busy pool's P2028 did, on the stack). The outbox still holds the mail, so the next tick tries again.
-   */
-  private async tick(): Promise<void> {
-    try {
-      await this.drain();
-    } catch (err) {
-      const reason = (err as { code?: string }).code ?? (err as Error).name;
-      this.logger.warn({ event: 'platform.mail.pass_failed', reason }, 'A console mail pass failed; the next one retries');
-    }
   }
 
   /** One pass; never overlaps another. Returns how many were sent. */

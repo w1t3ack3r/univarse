@@ -203,6 +203,7 @@ Built in [spec 0010](specs/0010-file-uploads.md).
 
 ## 12. Security monitoring & incident response
 
+- **Which of these are live, and where they show** ([spec 0031](specs/0031-seeing-what-happened.md)): every event in `SECURITY_EVENTS` is logged, and also counted per minute and per institution for the console's security page. RLS and grant refusals are live as `db.rls_violation`, on the HTTP path; a refusal inside a background job shows in that job's own failure log for now. Webhook signature failures arrive in Phase 3, mass exports in S7, break-glass in S9.
 - **Security events** go to a dedicated log stream with alerts:
   - login anomalies
   - lockouts
