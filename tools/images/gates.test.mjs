@@ -35,6 +35,18 @@ test('[CS7] the vulnerability gate blocks every HIGH/CRITICAL, fixed or not, and
   assert.ok(!a.some((x) => /ignore[-_]unfixed/i.test(x)), 'never ignore-unfixed (ADR-029)');
 });
 
+test('[CS7] every image scan may take 30 minutes: a big image on a loaded machine outlasts the default 5', () => {
+  const { sh, calls } = fake();
+  const g = makeGates({ work: '/w', sh });
+  g.vulnerability('web.tar');
+  g.vulnerabilityReport('web.tar', 'r.json');
+  g.secret('web.tar');
+  g.secretReport('web.tar', 'r.json');
+  g.misconfiguration('web.tar');
+  assert.equal(calls.length, 5);
+  for (const c of calls) assert.ok(trivyArgs(c).join(' ').includes('--timeout 30m'), trivyArgs(c).join(' '));
+});
+
 test('[CS7] the secret gate covers files (node_modules included, via its config) and the image config and history', () => {
   const { sh, calls } = fake();
   const g = makeGates({ work: '/w', sh });

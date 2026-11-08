@@ -17,6 +17,9 @@ export const TRIVY_CACHE = 'uv-trivy-cache';
  * fresh download. So the owner can fetch it ahead of a release on a slow connection, and never scan with older data
  * than a fresh download would get.
  */
+/** How long one `trivy image` run may take. */
+export const SCAN_TIMEOUT = '30m';
+
 export const DB_REUSE = { maxDownloadAgeMs: 6 * 60 * 60 * 1000, maxBuiltAgeMs: 24 * 60 * 60 * 1000 };
 
 /** Whether the cached database (`trivy version`'s VulnerabilityDB: UpdatedAt, DownloadedAt) may be reused. */
@@ -75,9 +78,11 @@ export function makeGates({ work, sh = realSh, cache = TRIVY_CACHE, network } = 
       ],
       { allowFail: true, ...(opts.live ? { stdio: 'inherit' } : {}) },
     );
-  // --no-progress exists only on `trivy image` (`trivy config` rejects it).
+  // --no-progress exists only on `trivy image` (`trivy config` rejects it). So does the longer timeout: Trivy's default
+  // is 5 minutes, and a large image on a loaded machine outlasts it (the web image did). Running out still fails the
+  // gate; the limit only says how long a scan may take.
   const trivy = (args) =>
-    result(trivyRun(args[0] === 'image' ? [args[0], '--no-progress', ...args.slice(1)] : args));
+    result(trivyRun(args[0] === 'image' ? [args[0], '--no-progress', '--timeout', SCAN_TIMEOUT, ...args.slice(1)] : args));
   const tarInput = (tar) => ['--input', `/work/${tar}`];
   const SECRET = (tar) => [
     'image',
