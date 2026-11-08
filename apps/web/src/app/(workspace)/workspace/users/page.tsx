@@ -6,6 +6,7 @@ import { notFound } from 'next/navigation';
 import type { ResponseBody } from '@univarse/api-client';
 import { serverGet } from '@/lib/server-api';
 import { requireSession } from '@/lib/session';
+import { CorrectAddress } from './CorrectAddress';
 
 export const metadata: Metadata = { title: 'Users' };
 
@@ -26,7 +27,8 @@ const FIRST_PAGE = '/workspace/users';
  * time; the cursor in this page's URL is the API's opaque one (a row id, never a username).
  */
 export default async function UsersPage({ searchParams }: { searchParams: Promise<{ cursor?: string | string[] }> }) {
-  await requireSession();
+  const me = await requireSession();
+  const canCorrect = me.permissions.includes('identity.user.contact.manage');
   const { cursor } = await searchParams;
   const after = typeof cursor === 'string' && cursor !== '' ? cursor : undefined;
   const res = await serverGet((api) => api.GET('/api/v1/users', { params: { query: after ? { cursor: after } : {} } }));
@@ -65,6 +67,7 @@ export default async function UsersPage({ searchParams }: { searchParams: Promis
                 <th scope="col">Name</th>
                 <th scope="col">Matric or staff number</th>
                 <th scope="col">Status</th>
+                {canCorrect ? <th scope="col">Address</th> : null}
               </tr>
             </thead>
             <tbody>
@@ -77,6 +80,9 @@ export default async function UsersPage({ searchParams }: { searchParams: Promis
                     <td>
                       <span className={`status ${s.on ? 'status--on' : 'status--off'}`}>{s.label}</span>
                     </td>
+                    {canCorrect ? (
+                      <td>{u.id === me.id || u.status === 'DISABLED' || u.status === 'LOCKED' ? null : <CorrectAddress userId={u.id} name={u.displayName} activated={u.status === 'ACTIVE'} />}</td>
+                    ) : null}
                   </tr>
                 );
               })}

@@ -151,6 +151,8 @@ export class AuthService {
         data: {
           passwordHash: await hashPassword(input.password),
           status: 'ACTIVE',
+          passwordResetRequired: false, // spec 0032 Q6
+          ...(purpose === 'ACTIVATION' ? { emailVerifiedAt: now } : {}), // Q11: activation proves the address
           failedLoginCount: 0, // R8
           lockedUntil: null,
         },
@@ -218,7 +220,7 @@ export class AuthService {
     const user = await db.userAccount.findFirst({ where: id.kind === 'email' ? { email: id.value } : { username: id.value } });
     const now = new Date();
 
-    if (!user?.passwordHash || user.status !== 'ACTIVE') {
+    if (!user?.passwordHash || user.status !== 'ACTIVE' || user.passwordResetRequired) {
       await verifyAgainstDummy(input.password);
       throw invalidCredentials();
     }

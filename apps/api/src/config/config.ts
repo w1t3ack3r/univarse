@@ -60,6 +60,8 @@ const schema = z.object({
   SETTINGS_CACHE_TTL_MS: z.coerce.number().int().min(0).max(30_000).default(30_000),
   /** How often the worker looks for a pending key sweep (spec 0006 E7, E9). */
   KEY_SWEEP_INTERVAL_MS: z.coerce.number().int().min(1_000).default(60_000),
+  /** Spec 0032 Q12: how often finished address changes lose their addresses. */
+  CONTACT_BLANK_INTERVAL_MS: z.coerce.number().int().min(1_000).default(3_600_000),
   /** Spec 0020 D15's `G`: how long a retired key version is kept before it may be destroyed (≥ the writer bound + 60 s). */
   RETIRED_KEY_GRACE_MS: z.coerce
     .number()

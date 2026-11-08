@@ -519,6 +519,125 @@ const DECLS: Record<RouteKey, Decl> = {
     },
   },
 
+  // Spec 0032: changing an address.
+  'GET /api/v1/auth/email': {
+    auth: 'session',
+    classes: ['self'],
+    skeleton: (cookie) => ({ method: 'GET', host: A, url: '/api/v1/auth/email', ...(cookie ? { cookie } : {}) }),
+    prepare: () => ({
+      req: { method: 'GET', host: A, url: '/api/v1/auth/email', cookie: regA.session },
+      verify: (r) => {
+        expectStatus(r, 200);
+        expect(json(r)).toEqual({ address: regA.email, pending: null });
+      },
+    }),
+  },
+
+  'POST /api/v1/auth/email': {
+    auth: 'session',
+    classes: ['self'],
+    strictBody: true,
+    skeleton: (cookie) => ({ method: 'POST', host: A, url: '/api/v1/auth/email', ...(cookie ? { cookie } : {}), body: { email: 'x@sweep.test' } }),
+    prepare: async () => {
+      const p = await mfaPerson('A', 'STUDENT');
+      await stepUp(p);
+      const to = `new-${randomBytes(4).toString('hex')}@sweep.test`;
+      return {
+        req: { method: 'POST', host: A, url: '/api/v1/auth/email', cookie: p.session, body: { email: to } },
+        verify: async (r) => {
+          expectStatus(r, 202);
+          await h.waitForMail(to, /confirm your new address/, 0);
+        },
+      };
+    },
+  },
+
+  'POST /api/v1/auth/email/confirm': {
+    auth: 'session',
+    classes: ['self'],
+    strictBody: true,
+    skeleton: (cookie) => ({ method: 'POST', host: A, url: '/api/v1/auth/email/confirm', ...(cookie ? { cookie } : {}), body: { code: '000000' } }),
+    prepare: async () => {
+      const p = await mfaPerson('A', 'STUDENT');
+      await stepUp(p);
+      const to = `new-${randomBytes(4).toString('hex')}@sweep.test`;
+      expectStatus(await send({ method: 'POST', host: A, url: '/api/v1/auth/email', cookie: p.session, body: { email: to } }), 202);
+      const code = codeIn(await h.waitForMail(to, /confirm your new address/, 0));
+      return {
+        req: { method: 'POST', host: A, url: '/api/v1/auth/email/confirm', cookie: p.session, body: { code } },
+        verify: async (r) => {
+          expectStatus(r, 204);
+          expect((await db('A').userAccount.findUniqueOrThrow({ where: { id: p.id } })).email).toBe(to);
+        },
+      };
+    },
+  },
+
+  'POST /api/v1/auth/contact-change/confirm': {
+    auth: 'public',
+    classes: ['public-auth'],
+    strictBody: true,
+    prepare: async () => {
+      const u = await user('A', 'STUDENT');
+      const admin = await mfaPerson('A', 'INSTITUTION_ADMIN'); // its own: step-up has a per-user limit
+      await stepUp(admin);
+      const to = `fix-${randomBytes(4).toString('hex')}@sweep.test`;
+      expectStatus(await send({ method: 'POST', host: A, url: `/api/v1/users/${u.id}/email`, cookie: admin.session, body: { email: to, oldAddressWrong: true } }), 202);
+      const code = codeIn(await h.waitForMail(to, /being corrected|confirm your new address/, 0));
+      return {
+        req: { method: 'POST', host: A, url: '/api/v1/auth/contact-change/confirm', body: { username: u.username, code, password: PASSWORD } },
+        verify: async (r) => {
+          expectStatus(r, 204);
+          expect((await db('A').userAccount.findUniqueOrThrow({ where: { id: u.id } })).email).toBe(to);
+        },
+      };
+    },
+  },
+
+  'POST /api/v1/auth/contact-change/undo': {
+    auth: 'public',
+    classes: ['public-auth'],
+    strictBody: true,
+    prepare: async () => {
+      const p = await mfaPerson('A', 'STUDENT');
+      await stepUp(p);
+      const to = `new-${randomBytes(4).toString('hex')}@sweep.test`;
+      expectStatus(await send({ method: 'POST', host: A, url: '/api/v1/auth/email', cookie: p.session, body: { email: to } }), 202);
+      const code = codeIn(await h.waitForMail(to, /confirm your new address/, 0));
+      expectStatus(await send({ method: 'POST', host: A, url: '/api/v1/auth/email/confirm', cookie: p.session, body: { code } }), 204);
+      const told = await h.waitForMail(p.email, /your address was changed/, 0);
+      const undo = /undo code is ([A-Z2-7-]+)/.exec(told.text)?.[1] ?? '';
+      return {
+        req: { method: 'POST', host: A, url: '/api/v1/auth/contact-change/undo', body: { username: p.username, code: undo } },
+        verify: async (r) => {
+          expectStatus(r, 204);
+          expect((await db('A').userAccount.findUniqueOrThrow({ where: { id: p.id } })).email).toBe(p.email);
+        },
+      };
+    },
+  },
+
+  // Not the files' `resource` class: an administrator rightly reaches another user here. B's id is checked below.
+  'POST /api/v1/users/:id/email': {
+    auth: 'session',
+    classes: ['self'],
+    strictBody: true,
+    skeleton: (cookie) => ({ method: 'POST', host: A, url: `/api/v1/users/${randomUUID()}/email`, ...(cookie ? { cookie } : {}), body: { email: 'x@sweep.test', oldAddressWrong: false } }),
+    prepare: async () => {
+      const u = await user('A', 'STUDENT');
+      const admin = await mfaPerson('A', 'INSTITUTION_ADMIN'); // its own: step-up has a per-user limit
+      await stepUp(admin);
+      const to = `fix-${randomBytes(4).toString('hex')}@sweep.test`;
+      return {
+        req: { method: 'POST', host: A, url: `/api/v1/users/${u.id}/email`, cookie: admin.session, body: { email: to, oldAddressWrong: false } },
+        verify: async (r) => {
+          expectStatus(r, 202);
+          await h.waitForMail(to, /being corrected|confirm your new address/, 0);
+        },
+      };
+    },
+  },
+
   'GET /api/v1/users': {
     auth: 'session',
     classes: ['collection'],
@@ -877,6 +996,7 @@ describe('[OA2] the OpenAPI document covers exactly the routes the app serves', 
     'PUT /api/v1/settings/:key': { role: 'REGISTRAR', body: { value: SETTING_A }, headers: { 'if-match': '"v0"' } },
     'DELETE /api/v1/settings/:key': { role: 'REGISTRAR', headers: { 'if-match': '"v0"' } },
     'PUT /api/v1/admin/products/:product': { role: 'INSTITUTION_ADMIN', stepUp: true, body: { enabled: true } },
+    'POST /api/v1/users/:id/email': { role: 'INSTITUTION_ADMIN', stepUp: true, body: { email: 'x@sweep.test', oldAddressWrong: false } },
   };
   const withParams = [...docOps].filter(([, op]) => (op.parameters ?? []).some((x) => x.in === 'path')).map(([k]) => k);
 
@@ -1053,6 +1173,19 @@ describe('[RS5] keyed items are per tenant', () => {
 
 describe('[RS6][RS8] resources by id, and the negative controls', () => {
   const resourceRoutes = real.filter(([, d]) => d.classes.includes('resource')).map(([k]) => k);
+
+  it('[RS6] POST /api/v1/users/:id/email: B’s user answers exactly like a nonexistent id; nothing changes (spec 0032)', async () => {
+    const admin = await mfaPerson('A', 'INSTITUTION_ADMIN');
+    await stepUp(admin);
+    const other = await user('B', 'STUDENT');
+    const body = { email: `x-${randomBytes(4).toString('hex')}@sweep.test`, oldAddressWrong: false };
+    const call = (id: string) => send({ method: 'POST', host: A, url: `/api/v1/users/${id}/email`, cookie: admin.session, body });
+    const missing = await call(randomUUID());
+    const elsewhere = await call(other.id);
+    expect([elsewhere.statusCode, json(elsewhere).code]).toEqual([missing.statusCode, json(missing).code]);
+    expect(elsewhere.statusCode).toBe(404);
+    expect(await db('B').contactChange.count({ where: { userId: other.id } })).toBe(0);
+  });
 
   it('[RS6] real resource routes exist now (spec 0010 FU2), reported separately from the controls', () => {
     expect(resourceRoutes.sort()).toEqual(['DELETE /api/v1/files/:id', 'GET /api/v1/files/:id', 'GET /api/v1/files/:id/content', 'POST /api/v1/files/:id/complete']);

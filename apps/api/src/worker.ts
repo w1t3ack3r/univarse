@@ -1,3 +1,4 @@
+import { ContactBlanker } from './modules/identity/contact-blanker.js';
 import 'reflect-metadata';
 import { existsSync } from 'node:fs';
 import { Logger } from '@nestjs/common';
@@ -35,10 +36,13 @@ scans.start(config.FILE_SCAN_INTERVAL_MS);
 // And again: platform invalidations every 250 ms, never behind email, keys or scans (spec 0016 D4).
 const relay = ctx.get(PlatformInvalidationRelay);
 relay.start();
+// And again: an hourly pass over finished address changes (spec 0032 Q12).
+const contact = ctx.get(ContactBlanker);
+contact.start(config.CONTACT_BLANK_INTERVAL_MS);
 new Logger('Worker').log({ event: 'worker.started', pollMs: config.WORKER_POLL_MS }, `UniVarse worker polling the outbox every ${String(config.WORKER_POLL_MS)} ms (${config.NODE_ENV})`);
 
 const shutdown = async () => {
-  await Promise.all([worker.stop(), keys.stop(), scans.stop(), relay.stop()]);
+  await Promise.all([worker.stop(), keys.stop(), scans.stop(), relay.stop(), contact.stop()]);
   await ctx.close();
   process.exit(0);
 };
