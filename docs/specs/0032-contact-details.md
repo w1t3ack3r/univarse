@@ -124,7 +124,7 @@ The institutions' side, in `apps/api/src/modules/identity/contact.service.ts`, w
 
 ## Closing
 
-**Released and deployed:** `69e4ee8`, on 2026-11-09, with S3. Q15 planned S3 first and this one after; once PR A and PR B had merged ahead of the first attempt at S3's release, all three went out in one. On the stack, the owner corrected their own mistyped address through Your account (acceptance criterion 12).
+**Released and deployed:** `69e4ee8`, on 2026-11-09, with S3. Q15 planned S3 first and this one after. PR A merged before S3's release, and PR B while its first attempt was being fixed, so all of it went out in one. On the stack, the owner corrected their own mistyped address through Your account (acceptance criterion 12).
 
 **Tests that had to learn about the new table,** for the next slice that adds one: the isolation sweep's fixture for each tenant table (`packages/db/test/isolation-sweep.int.spec.ts`), and the key sweep's fixture for each encrypted column (`key-sweep.isolation.int.spec.ts`). Both fail until the fixture is added.
 
