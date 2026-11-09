@@ -6,7 +6,7 @@
 
 - [spec 0025](0025-phase-1-control-plane.md): A2 (the console has no tenant database credentials), A5 (a slice adds its own `platform.*` permissions), A10 (custom domains wait for hosting), E7 and E26;
 - [spec 0003](0003-product-entitlements.md): entitled and enabled, and P9's "only platform code writes `entitled`";
-- [spec 0015](0015-cache-isolation.md) and [spec 0016](0016-platform-cache-invalidation.md): a change to the tenant tables reaches every instance through the database triggers;
+- [spec 0015](0015-cache-isolation.md) and [spec 0016](0016-platform-invalidation-outbox.md): a change to the tenant tables reaches every instance through the database triggers;
 - [spec 0028](0028-console-identity.md) and [spec 0031](0031-seeing-what-happened.md): the console's sign-in, step-up, audit, and the audit log this slice's changes appear in;
 - [05 §1](../05-modules-and-features.md), [06](../06-api-guidelines.md) (cursors, ETags), [11 §9](../11-frontend-guidelines.md) (the console's UI rules), and [08](../08-security.md) T12 and T26.
 
@@ -55,7 +55,7 @@ T26 (a platform insider changing entitlements) gets S4's controls added: the per
 
 ## Acceptance criteria
 
-1. **Who sees what:** each role's access matches Q1, by route; a member without the permission gets 404-by-absence on the screens and is refused by the API.
+1. **Who sees what:** each role's access matches Q1, by route; a member without the permission sees no tab and a not-found page, and the API refuses them.
 2. **The grants:** `shard.secret_ref`, `tenant_domain.verification_token` and `tenant_data_key.wrapped_dek` can't be selected by the console role, and no response contains them.
 3. **The list** pages stably, filters, and refuses an unknown parameter.
 4. **Search** finds by legal name, short name, slug and hostname; a `%` matches only a literal `%`.
