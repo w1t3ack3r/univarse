@@ -83,6 +83,21 @@ describe('the logo, from its own bytes (Q9)', () => {
     expect(checkLogo(lossless)).toEqual({ ok: true, mime: 'image/webp', width: 100, height: 50 });
   });
 
+  it('refuses a WebP whose layout marker is wrong or unknown', () => {
+    expect(checkLogo(webp('VP8L', (b) => (b[20] = 0)))).toEqual({ ok: false, problem: 'not_png_or_webp' });
+    expect(checkLogo(webp('VP8 ', (b) => (b[23] = 0)))).toEqual({ ok: false, problem: 'not_png_or_webp' });
+    expect(checkLogo(webp('XXXX', () => undefined))).toEqual({ ok: false, problem: 'not_png_or_webp' });
+  });
+
+  it('refuses a RIFF that isn’t a WebP, and a PNG with no header chunk', () => {
+    const riff = webp('VP8X', () => undefined);
+    riff[8] = 0x41;
+    expect(checkLogo(riff)).toEqual({ ok: false, problem: 'not_png_or_webp' });
+    const noHeader = png(10, 10);
+    noHeader[12] = 0;
+    expect(checkLogo(noHeader)).toEqual({ ok: false, problem: 'not_png_or_webp' });
+  });
+
   it('refuses an SVG, whatever it claims', () => {
     const svg = new TextEncoder().encode('<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>');
     expect(checkLogo(svg)).toEqual({ ok: false, problem: 'not_png_or_webp' });

@@ -58,30 +58,31 @@ export type LogoMime = 'image/png' | 'image/webp';
 export type LogoProblem = 'too_large' | 'not_png_or_webp' | 'too_many_pixels';
 export type LogoCheck = { readonly ok: true; readonly mime: LogoMime; readonly width: number; readonly height: number } | { readonly ok: false; readonly problem: LogoProblem };
 
-const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+const PNG_SIGNATURE = '\x89PNG\r\n\x1a\n';
 const ascii = (b: Uint8Array, at: number, n: number) => String.fromCharCode(...b.subarray(at, at + n));
-const u24le = (b: Uint8Array, at: number) => (b[at] ?? 0) | ((b[at + 1] ?? 0) << 8) | ((b[at + 2] ?? 0) << 16);
-const u32be = (b: Uint8Array, at: number) => ((b[at] ?? 0) * 0x1000000) + (((b[at + 1] ?? 0) << 16) | ((b[at + 2] ?? 0) << 8) | (b[at + 3] ?? 0));
+const view = (b: Uint8Array) => new DataView(b.buffer, b.byteOffset, b.byteLength);
+const u24le = (d: DataView, at: number) => d.getUint16(at, true) + d.getUint8(at + 2) * 0x10000;
 
 function pngSize(b: Uint8Array): { width: number; height: number } | null {
-  if (b.length < 33 || !PNG_SIGNATURE.every((v, i) => b[i] === v) || ascii(b, 12, 4) !== 'IHDR') return null;
-  return { width: u32be(b, 16), height: u32be(b, 20) };
+  if (b.length < 33 || ascii(b, 0, 8) !== PNG_SIGNATURE || ascii(b, 12, 4) !== 'IHDR') return null;
+  const d = view(b);
+  return { width: d.getUint32(16), height: d.getUint32(20) };
 }
 
 function webpSize(b: Uint8Array): { width: number; height: number } | null {
   if (b.length < 30 || ascii(b, 0, 4) !== 'RIFF' || ascii(b, 8, 4) !== 'WEBP') return null;
+  const d = view(b);
   switch (ascii(b, 12, 4)) {
     case 'VP8X':
-      return { width: u24le(b, 24) + 1, height: u24le(b, 27) + 1 };
-    case 'VP8L':
-      if (b[20] !== 0x2f) return null;
-      return {
-        width: (((b[22] ?? 0) & 0x3f) << 8 | (b[21] ?? 0)) + 1,
-        height: (((b[24] ?? 0) & 0x0f) << 10 | (b[23] ?? 0) << 2 | ((b[22] ?? 0) & 0xc0) >> 6) + 1,
-      };
+      return { width: u24le(d, 24) + 1, height: u24le(d, 27) + 1 };
+    case 'VP8L': {
+      if (d.getUint8(20) !== 0x2f) return null;
+      const bits = d.getUint32(21, true);
+      return { width: (bits & 0x3fff) + 1, height: ((bits >>> 14) & 0x3fff) + 1 };
+    }
     case 'VP8 ':
-      if (b[23] !== 0x9d || b[24] !== 0x01 || b[25] !== 0x2a) return null;
-      return { width: ((b[27] ?? 0) << 8 | (b[26] ?? 0)) & 0x3fff, height: ((b[29] ?? 0) << 8 | (b[28] ?? 0)) & 0x3fff };
+      if (d.getUint8(23) !== 0x9d || d.getUint8(24) !== 0x01 || d.getUint8(25) !== 0x2a) return null;
+      return { width: d.getUint16(26, true) & 0x3fff, height: d.getUint16(28, true) & 0x3fff };
     default:
       return null;
   }
