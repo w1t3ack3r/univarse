@@ -1,6 +1,6 @@
 # Spec 0031: Phase 1's S3, seeing what happened
 
-**Status:** **Approved by the owner on 2026-11-07, all as written:** Q1 to Q17, Q-A1 to Q-A4 (with #156) and Q-B1 to Q-B8 (with #158). Both PRs merged; the release next.
+**Status:** **Done (2026-11-09).** Approved by the owner on 2026-11-07, all as written: Q1 to Q17, Q-A1 to Q-A4 (with #156) and Q-B1 to Q-B8 (with #158). Both PRs merged, released and deployed.
 **Phase:** 1, slice **S3** of [spec 0025](0025-phase-1-control-plane.md) (E1, E2, E3).
 **Builds on:**
 
@@ -139,3 +139,10 @@ The three screens, Overview's status and the shell's banner, in `apps/console`. 
 | Q-B6 | **The note about reviewing your own access shows only when you're the sole member.** | Q15 says a solo owner's review is recorded honestly. With two or more members, the reviewer's own row is marked "(you)". |
 | Q-B7 | **Overview's due or overdue chip shows to whoever can attest, which is OWNERs,** and nothing shows when the month is done. | Q15. |
 | Q-B8 | **On a phone, the current tab scrolls into view.** With six tabs, the one you're on was off-screen. | Found on the phone screenshot. |
+
+## Closing
+
+**Released and deployed:** `69e4ee8`, deployed on 2026-11-09 with spec 0032, by the owner's decision of 2026-11-07. On the stack, the owner ran the first chain verification, which passed over 33 entries, and attested the first access review, for November 2026 (acceptance criterion 12).
+
+**What the first release found:** the web image's vulnerability report ran past Trivy's default 5-minute limit on a loaded machine and failed the release, with nothing wrong in the image. Every image scan now has 30 minutes (#161); running out still fails the gate.
+

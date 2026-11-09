@@ -1,6 +1,6 @@
 # Spec 0032: Contact details: changing an account's email address
 
-**Status:** **Approved by the owner on 2026-11-07, all as written:** Q1 to Q15, and Q-A1 to Q-A9. PR A merged (#159), and released with S3 by the owner's decision on 2026-11-07, changing Q15's order. PR B built; PR C and its release next.
+**Status:** **Done (2026-11-09).** Approved by the owner, all as written: Q1 to Q15 and Q-A1 to Q-A9 on 2026-11-07, and Q-B1 to Q-B9 on 2026-11-09. PR A (#159) and PR B (#160) merged, and released together with S3, by the owner's decision, in place of Q15's order.
 **Phase:** 1, between S3 and S4 ([18](../18-roadmap.md)). It delivers [05 §2](../05-modules-and-features.md)'s "contact update with OTP verification", planned from the start and never built.
 **Builds on:**
 
@@ -108,7 +108,7 @@ The platform side, in `packages/domain/src/contact-change.ts` (the rules) and `a
 
 The institutions' side, in `apps/api/src/modules/identity/contact.service.ts`, with the same rules from `packages/domain`: the migration, `contact_change` with forced RLS, the `identity.user.contact.manage` permission, six routes in the OpenAPI document and the route sweep, an hourly pass in the worker, Your account, the Users page, and the two signed-out pages.
 
-**Decisions made while building, for approval:**
+**Decisions made while building PR B, approved by the owner on 2026-11-09:**
 
 | # | Decision | Why |
 | --- | --- | --- |
@@ -121,3 +121,10 @@ The institutions' side, in `apps/api/src/modules/identity/contact.service.ts`, w
 | Q-B7 | **A correction of a not-yet-activated user sends a new activation code to the corrected address.** | Q9 says the address changes directly. Sending the code saves a second step, and activation is what proves it. |
 | Q-B8 | **Each undo code has its own row, and every try spends an attempt on all of that user's open undos.** | The account can have two open undos, so the code has to say which change it is, and guessing mustn't get more tries for having two. |
 | Q-B9 | **Your account is a new workspace page, reached from your name at the top,** not from the navigation. | The spec placed the change in "Your account", which didn't exist for institutions' users. A sixth item pushed Settings off a phone's bottom bar. |
+
+## Closing
+
+**Released and deployed:** `69e4ee8`, on 2026-11-09, with S3. Q15 planned S3 first and this one after. PR A merged before S3's release, and PR B while its first attempt was being fixed, so all of it went out in one. On the stack, the owner corrected their own mistyped address through Your account (acceptance criterion 12).
+
+**Tests that had to learn about the new table,** for the next slice that adds one: the isolation sweep's fixture for each tenant table (`packages/db/test/isolation-sweep.int.spec.ts`), and the key sweep's fixture for each encrypted column (`key-sweep.isolation.int.spec.ts`). Both fail until the fixture is added.
+
