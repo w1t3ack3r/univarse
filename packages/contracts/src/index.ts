@@ -6,3 +6,4 @@ export * from './cache.js';
 export * from './api/index.js';
 export * from './platform.js';
 export * from './platform-labels.js';
+export * from './nigerian-states.js';

@@ -174,7 +174,7 @@ describe('[Q6, Q7] activation, then TOTP before anything else', () => {
 
     const saved = await call('POST', '/me/mfa/recovery-codes/saved', { cookie });
     cookie = sid(saved);
-    expect((await call('GET', '/me', { cookie })).body).toMatchObject({ state: 'full', role: 'SUPPORT', permissions: ['platform.self'] });
+    expect((await call('GET', '/me', { cookie })).body).toMatchObject({ state: 'full', role: 'SUPPORT', permissions: ['platform.self', 'platform.tenant.read'] });
     expect((await call('GET', '/me/sessions', { cookie })).status).toBe(200);
     expect(await actions(id)).toEqual(['platform.auth.activated', 'platform.mfa.enrolment_started', 'platform.mfa.enrolled', 'platform.mfa.recovery_codes_saved']);
   });

@@ -12,6 +12,9 @@ export const PLATFORM_PERMISSIONS = [
   'platform.security.read',
   'platform.access_review.read',
   'platform.access_review.attest',
+  'platform.tenant.read',
+  'platform.tenant.edit',
+  'platform.tenant.entitlements',
 ] as const;
 export type PlatformPermission = (typeof PLATFORM_PERMISSIONS)[number];
 
@@ -28,6 +31,9 @@ export const PLATFORM_PERMISSION_CATALOG: Readonly<Record<PlatformPermission, { 
   'platform.security.read': { stepUp: false, description: 'Counts of security events, per institution and for the platform.' },
   'platform.access_review.read': { stepUp: false, description: 'The monthly access reviews, and whether one is due.' },
   'platform.access_review.attest': { stepUp: true, description: "Attest this month's access review (OWNER only)." },
+  'platform.tenant.read': { stepUp: false, description: 'The institutions: list, detail and search. No personal data.' },
+  'platform.tenant.edit': { stepUp: true, description: "An institution's profile, regulatory profile and branding." },
+  'platform.tenant.entitlements': { stepUp: true, description: 'Grant or revoke a product for an institution.' },
 });
 
 /** The roles' grants, in code (A5): a change here is a reviewed change, never data. Only OWNER manages staff. */
@@ -41,11 +47,14 @@ export const PLATFORM_ROLE_PERMISSIONS: Readonly<Record<PlatformRole, readonly P
     'platform.security.read',
     'platform.access_review.read',
     'platform.access_review.attest',
+    'platform.tenant.read',
+    'platform.tenant.edit',
+    'platform.tenant.entitlements',
   ],
-  SUPER_ADMIN: ['platform.self', 'platform.staff.read', 'platform.audit.read', 'platform.audit.verify', 'platform.security.read', 'platform.access_review.read'],
-  SUPPORT: ['platform.self'],
-  FINANCE: ['platform.self'],
-  READ_ONLY: ['platform.self', 'platform.staff.read', 'platform.audit.read', 'platform.security.read', 'platform.access_review.read'],
+  SUPER_ADMIN: ['platform.self', 'platform.staff.read', 'platform.audit.read', 'platform.audit.verify', 'platform.security.read', 'platform.access_review.read', 'platform.tenant.read', 'platform.tenant.edit', 'platform.tenant.entitlements'],
+  SUPPORT: ['platform.self', 'platform.tenant.read'],
+  FINANCE: ['platform.self', 'platform.tenant.read'],
+  READ_ONLY: ['platform.self', 'platform.staff.read', 'platform.audit.read', 'platform.security.read', 'platform.access_review.read', 'platform.tenant.read'],
 });
 
 /** Spec 0028 Q11: a step-up counts for 5 minutes on the session that made it. */

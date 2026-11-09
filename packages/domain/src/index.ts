@@ -9,3 +9,4 @@ export * from './platform/reserved-names.js';
 export * from './platform/permissions.js';
 export * from './platform/access-review.js';
 export * from './platform/security-levels.js';
+export * from './platform/tenant-registry.js';
