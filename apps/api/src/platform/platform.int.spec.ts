@@ -133,12 +133,21 @@ describe('[P5] the console role, in the database', () => {
         platform_security_event_rollup: 'SIU',
         platform_session: 'SIU',
         platform_user: 'SIU',
+        // `tenant`, `shard`, `tenant_domain` and `tenant_data_key` are granted by column, so they don't count as whole-table SELECT.
+        tenant: 'U',
+        tenant_branding: 'SIU',
+        tenant_product: 'SIU',
+        tenant_regulatory_profile: 'SIU',
       });
-      // Spec 0031 Q13: of the tenant registry, the console reads these three columns and nothing else.
+      // Spec 0033 Q3: the columns of the tenant registry the console reads, by name, and never a secret.
       const tenantColumns = await db.$queryRaw<{ column_name: string }[]>`
         SELECT column_name FROM information_schema.columns
          WHERE table_name = 'tenant' AND has_column_privilege(current_user, 'tenant', column_name, 'SELECT') ORDER BY column_name`;
-      expect(tenantColumns.map((c) => c.column_name)).toEqual(['id', 'short_name', 'slug']);
+      expect(tenantColumns.map((c) => c.column_name)).toEqual(['created_at', 'id', 'legal_name', 'offboarding_started_at', 'ownership', 'purge_after', 'shard_id', 'short_name', 'slug', 'status', 'suspended_reason', 'tier', 'type', 'updated_at', 'version']);
+      for (const [table, column] of [['shard', 'secret_ref'], ['tenant_domain', 'verification_token'], ['tenant_data_key', 'wrapped_dek']] as const) {
+        const [row] = await db.$queryRawUnsafe<{ ok: boolean }[]>(`SELECT has_column_privilege(current_user, '${table}', '${column}', 'SELECT') AS ok`);
+        expect([table, column, row?.ok]).toEqual([table, column, false]);
+      }
       const role = await db.$queryRaw<{ rolname: string; rolsuper: boolean; rolbypassrls: boolean; rolcreaterole: boolean; rolcreatedb: boolean; rolreplication: boolean }[]>`
         SELECT rolname, rolsuper, rolbypassrls, rolcreaterole, rolcreatedb, rolreplication FROM pg_roles WHERE rolname = current_user`;
       expect(role).toEqual([{ rolname: 'univarse_console', rolsuper: false, rolbypassrls: false, rolcreaterole: false, rolcreatedb: false, rolreplication: false }]);

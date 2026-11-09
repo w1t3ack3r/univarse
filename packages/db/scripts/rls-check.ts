@@ -19,7 +19,7 @@ async function main() {
     process.exit(1);
   }
   console.log(`✓ RLS check passed: ${tables} tenant tables isolated, all uniques and FKs tenant-scoped.`);
-  console.log('✓ Platform invalidation capture intact: 9 triggers ENABLE ALWAYS, functions locked down, no TEMPORARY, the maximum TTL unchanged.');
+  console.log('✓ Platform invalidation capture intact: 11 triggers ENABLE ALWAYS, functions locked down, no TEMPORARY, the maximum TTL unchanged.');
 }
 
 main().catch((err: unknown) => {

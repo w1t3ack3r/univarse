@@ -33,6 +33,7 @@ Entitlements live in the **platform DB** (`tenant_product`). Audit events live i
 - **Step-up on the overview.** `settings.product.manage` is step-up flagged, so `GET /api/v1/admin/products` needs a fresh step-up too. This is the same "sudo mode for settings pages" trade-off as GitHub's. It also closes the spec 0001 S9 gap, since this is the first real route with a `stepUp` permission.
 - **No ETag / `If-Match`** on the PUT. The body is an absolute value, so the request is idempotent, and the conditional update covers races. The [06 §5](../06-api-guidelines.md) rule targets multi-field settings edits, where a lost update is possible.
 - **Guard order is asserted** by a unit test on the registered `APP_GUARD` providers (tenant → product → access), so removing or reordering the product guard fails CI. This holds even before a non-core route exists.
+- **Superseded by [spec 0033](0033-tenant-registry.md) Q-A1:** the seed now only creates a missing entitlement. It runs on every deploy, so resetting would undo what staff set in the console.
 - **Seed plans.** `demo-uni` is entitled to admissions, bursary, academics and helpdesk. `test-poly` is entitled to admissions. None are enabled. Re-seeding resets entitlements and never the institution's switches, except that revoking an entitlement also disables the product, as the CHECK constraint requires.
 
 ## Out of scope (tracked)

@@ -23,6 +23,8 @@ function platformActions(): Set<string> {
   for (const file of SOURCES.flatMap(sources)) {
     const text = readFileSync(file, 'utf8');
     for (const m of text.matchAll(shape)) found.add(m[1] ?? '');
+    // The registry passes its action to a helper, so it isn't an `action:` literal there.
+    if (file.endsWith('tenant-registry.service.ts')) for (const m of text.matchAll(/'(platform\.tenant\.[a-z_]+)'/g)) found.add(m[1] ?? '');
   }
   return found;
 }

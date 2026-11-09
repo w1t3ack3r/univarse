@@ -1,6 +1,6 @@
 # Spec 0033: Phase 1's S4, the tenant registry
 
-**Status:** **Draft, for the owner's approval** (Q1 to Q17). Nothing is built from it until it's approved.
+**Status:** **Approved by the owner on 2026-11-09, all as written:** Q1 to Q17. PR A built; PR B, PR C and the release next.
 **Phase:** 1, slice **S4** of [spec 0025](0025-phase-1-control-plane.md) (E7, E26, and spec 0003's platform side).
 **Builds on:**
 
@@ -87,3 +87,24 @@ In this PR: [18](../18-roadmap.md). In the implementation PRs: [03](../03-domain
 - **An institution's own branding screen:** its IT Admin edits this from Phase 2 (05 §2). This slice builds the store they'll share.
 - **Letterheads and document branding:** with the documents that use them.
 - **Per-tenant feature flags and release rings:** S6 (E18).
+
+## PR A: what was built
+
+The migration and grants, `packages/domain/src/platform/tenant-registry.ts`, and the routes in `apps/api/src/platform/registry/`.
+
+**Found while building:**
+- **The seed was going to undo the console's work.** It runs on every deploy, and it reset each seeded institution's entitlements to the seed's plan. Once staff can grant and revoke, a deploy would have silently reversed them. The seed now only creates a missing row.
+- **`platform_audit_event.tenant_id` was always null** from the console's own actions, because nothing had needed it. It's now set for these, so S3's log can be filtered to an institution (Q4).
+
+**Decisions made while building, for approval:**
+
+| # | Decision | Why |
+| --- | --- | --- |
+| Q-A1 | **The seed creates a missing entitlement and never changes one.** | As above. Spec 0003's "re-seeding resets the plan" is retired. |
+| Q-A2 | **An archived or purged institution can't be changed,** by any route, with `409 tenant.closed`. | There's nothing left to describe. Suspended and offboarding ones can still be edited: their names may still need correcting. |
+| Q-A3 | **Lacking the permission answers 404, as every platform route does.** | Q1's "refused". The platform guard's rule from spec 0028: out of scope reads as absent. |
+| Q-A4 | **The logo is sent as base64 in JSON,** at most 360,000 characters, and the console previews it from `GET /tenants/{id}/branding/logo`. | It keeps the one body parser, the CSRF check and strict validation. A raw upload would add a second way in for one small file. |
+| Q-A5 | **The colour and the logo take no `If-Match`.** Each is one absolute value, and the audit log shows both writers. | As spec 0003 decided for a switch. `If-Match` is for multi-field edits, where a change can be lost silently. |
+| Q-A6 | **The database refuses a bad logo or colour too:** a `CHECK` on the hex format, the type, the hash and the size. | The same limits as the application, so a bug there can't store something else. |
+| Q-A7 | **The reason for a grant or revocation is free text, kept in the audit metadata (Q13), 5 to 500 characters.** Staff shouldn't put a person's details in it, and the console will say so in PR B. | The audit log's other fields hold ids only. This one can't be checked by a machine. |
+

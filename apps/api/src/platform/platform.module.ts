@@ -15,6 +15,8 @@ import { PlatformSessions } from './identity/sessions.js';
 import { PlatformStaff } from './identity/staff.service.js';
 import { CONSOLE_DB, consoleKeyProvider, PLATFORM_CONFIG, type PlatformConfig } from './platform-config.js';
 import { PlatformHealthController } from './platform-health.controller.js';
+import { PlatformTenantsController } from './registry/tenant-registry.controller.js';
+import { TenantRegistry } from './registry/tenant-registry.service.js';
 import { ConsoleTokenRenewal, RENEW_CONSOLE_TOKEN } from './token-renewal.js';
 import { PlatformAccessReviews } from './observe/access-review.js';
 import { ConsoleRollupWriter } from './observe/console-rollup-writer.js';
@@ -33,6 +35,7 @@ export const PLATFORM_CONTROLLERS = [
   PlatformAuthController,
   PlatformAccountController,
   PlatformStaffController,
+  PlatformTenantsController,
   PlatformAuditController,
   PlatformSecurityController,
   PlatformAccessReviewController,
@@ -70,6 +73,7 @@ export class PlatformModule {
         PlatformSessions,
         PlatformCredentials,
         PlatformIdentity,
+        TenantRegistry,
         PlatformContact,
         PlatformStaff,
         PlatformMailRelay,

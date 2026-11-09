@@ -34,6 +34,13 @@ describe('platform permissions (spec 0028 Q12)', () => {
     expect(holders('platform.security.read')).toEqual(['OWNER', 'SUPER_ADMIN', 'READ_ONLY']);
     expect(holders('platform.access_review.read')).toEqual(['OWNER', 'SUPER_ADMIN', 'READ_ONLY']);
     expect(holders('platform.access_review.attest')).toEqual(['OWNER']);
+    // Spec 0033 Q1.
+    expect(holders('platform.tenant.read')).toEqual([...PLATFORM_ROLES]);
+    expect(holders('platform.tenant.edit')).toEqual(['OWNER', 'SUPER_ADMIN']);
+    expect(holders('platform.tenant.entitlements')).toEqual(['OWNER', 'SUPER_ADMIN']);
+    expect(PLATFORM_PERMISSION_CATALOG['platform.tenant.edit'].stepUp).toBe(true);
+    expect(PLATFORM_PERMISSION_CATALOG['platform.tenant.entitlements'].stepUp).toBe(true);
+    expect(PLATFORM_PERMISSION_CATALOG['platform.tenant.read'].stepUp).toBe(false);
     expect(PLATFORM_PERMISSION_CATALOG['platform.access_review.attest'].stepUp).toBe(true);
     expect(PLATFORM_PERMISSION_CATALOG['platform.audit.read'].stepUp).toBe(false);
   });

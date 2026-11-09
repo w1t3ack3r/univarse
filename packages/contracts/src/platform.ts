@@ -2,6 +2,7 @@
 // unknown field is refused. Not part of the tenant API's OpenAPI document: the platform API serves the console only.
 import { z } from 'zod';
 import { Cursor, Page, PageLimit } from './api/pagination.js';
+import { NIGERIAN_STATES } from './nigerian-states.js';
 
 /** A staff email: trimmed and lower-cased before it is used or stored. */
 const email = z.string().trim().toLowerCase().pipe(z.email().max(254));
@@ -32,6 +33,24 @@ export const PlatformMember = z.strictObject({
 export type PlatformMember = z.infer<typeof PlatformMember>;
 
 /** Spec 0031 Q2: the audit viewer's query. Strict: any other parameter is a 400. No free text over metadata. */
+const tenantType = z.enum(['UNIVERSITY', 'POLYTECHNIC', 'COLLEGE_OF_EDUCATION']);
+const tenantOwnership = z.enum(['FEDERAL', 'STATE', 'PRIVATE']);
+const tenantStatus = z.enum(['REQUESTED', 'PROVISIONING', 'ONBOARDING', 'ACTIVE', 'SUSPENDED', 'OFFBOARDING', 'ARCHIVED', 'PURGED']);
+const tenantSummary = z.strictObject({
+  id: z.uuid(),
+  slug: z.string(),
+  legalName: z.string(),
+  shortName: z.string(),
+  type: tenantType,
+  ownership: tenantOwnership,
+  status: tenantStatus,
+  tier: z.enum(['POOLED', 'DEDICATED']),
+});
+const nullableTrimmed = (max: number, pattern?: RegExp) => {
+  const text = pattern ? z.string().trim().min(1).max(max).regex(pattern) : z.string().trim().min(1).max(max);
+  return text.nullable();
+};
+
 const auditQuery = z.strictObject({
   cursor: Cursor.optional(),
   limit: PageLimit.optional(),
@@ -129,6 +148,54 @@ export const PlatformOps = {
   staff: { response: z.strictObject({ data: z.array(PlatformMember) }) },
   invite: { body: z.strictObject({ email, displayName, role }), response: PlatformMember },
   changeRole: { body: z.strictObject({ role }), response: PlatformMember },
+  /** Spec 0033. Strict: any other parameter is a 400. The slug appears in no body, so nothing can change it. */
+  tenants: {
+    query: z.strictObject({ cursor: Cursor.optional(), limit: PageLimit.optional(), status: tenantStatus.optional(), type: tenantType.optional(), q: z.string().trim().min(2).max(80).optional() }),
+    response: z.strictObject({ data: z.array(tenantSummary), page: Page }),
+  },
+  tenant: {
+    response: z.strictObject({
+      ...tenantSummary.shape,
+      version: z.number().int(),
+      suspendedReason: z.string().nullable(),
+      createdAt: z.iso.datetime(),
+      updatedAt: z.iso.datetime(),
+      typeLocked: z.boolean(),
+      shard: z.strictObject({ name: z.string(), kind: z.enum(['POOL', 'DEDICATED']), region: z.string() }),
+      domains: z.array(z.strictObject({ hostname: z.string(), kind: z.enum(['SUBDOMAIN', 'CUSTOM']), verifiedAt: z.iso.datetime().nullable() })),
+      products: z.array(z.strictObject({ product: z.string(), alwaysOn: z.boolean(), entitled: z.boolean(), enabled: z.boolean() })),
+      keys: z.array(z.strictObject({ version: z.number().int(), status: z.enum(['ACTIVE', 'RETIRED', 'DESTROYED']), createdAt: z.iso.datetime(), retiredAt: z.iso.datetime().nullable(), destroyedAt: z.iso.datetime().nullable() })),
+      regulatory: z.strictObject({
+        regulator: z.enum(['NUC', 'NBTE', 'NCCE']),
+        operatingStatus: z.enum(['UNKNOWN', 'APPROVED', 'PROVISIONAL_LICENCE', 'SUSPENDED_BY_REGULATOR']),
+        state: z.string().nullable(),
+        regulatorReference: z.string().nullable(),
+        jambCode: z.string().nullable(),
+        version: z.number().int(),
+      }),
+      branding: z.strictObject({ primaryColor: z.string().nullable(), textColor: z.string().nullable(), logoSha256: z.string().nullable() }),
+    }),
+  },
+  tenantProfile: { body: z.strictObject({ legalName: z.string().trim().min(3).max(200), shortName: z.string().trim().min(2).max(40), ownership: tenantOwnership, type: tenantType }) },
+  tenantRegulatory: {
+    body: z.strictObject({
+      operatingStatus: z.enum(['UNKNOWN', 'APPROVED', 'PROVISIONAL_LICENCE', 'SUSPENDED_BY_REGULATOR']),
+      state: z.enum(NIGERIAN_STATES).nullable(),
+      regulatorReference: nullableTrimmed(120),
+      jambCode: nullableTrimmed(16, /^[A-Za-z0-9]+$/),
+    }),
+  },
+  tenantColor: { body: z.strictObject({ primaryColor: z.string().regex(/^#[0-9A-F]{6}$/, 'a colour as #RRGGBB, in capitals').nullable() }) },
+  /** Base64 of at most 256 KB; the bytes are judged in `packages/domain`. */
+  tenantLogo: { body: z.strictObject({ base64: z.string().min(1).max(360_000).regex(/^[A-Za-z0-9+/]+={0,2}$/) }) },
+  tenantProduct: {
+    body: z.strictObject({
+      entitled: z.boolean(),
+      reason: z.string().trim().min(5).max(500),
+      /** Revoking only: the institution's slug, typed (Q14). */
+      confirmSlug: z.string().trim().max(63).optional(),
+    }),
+  },
   audit: { query: auditQuery, response: z.strictObject({ data: z.array(auditRow), page: Page }) },
   auditVerification: {
     response: z.strictObject({
@@ -177,6 +244,8 @@ export const PlatformOps = {
   },
 } as const;
 
+export type PlatformTenantList = z.infer<typeof PlatformOps.tenants.response>;
+export type PlatformTenantDetail = z.infer<typeof PlatformOps.tenant.response>;
 export type PlatformAuditLog = z.infer<typeof PlatformOps.audit.response>;
 export type PlatformChainStatus = z.infer<typeof PlatformOps.auditVerification.response>;
 export type PlatformSecuritySummary = z.infer<typeof PlatformOps.security.response>;

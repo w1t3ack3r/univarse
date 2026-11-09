@@ -7,6 +7,8 @@ export interface PlatformAuditInput {
   /** The member who acted, or null for the owner's command line (Q5). */
   readonly actorId: string | null;
   readonly action: `platform.${string}`;
+  /** The institution this is about, so S3's log can be filtered to it (spec 0033). */
+  readonly tenantId?: string;
   readonly metadata?: Record<string, unknown>;
 }
 
@@ -14,7 +16,7 @@ export async function platformAudit(tx: PlatformTx, e: PlatformAuditInput, meta?
   await writePlatformAudit(tx, {
     actorId: e.actorId,
     action: e.action,
-    tenantId: null,
+    tenantId: e.tenantId ?? null,
     metadata: { ...(e.metadata ?? {}), ...(meta?.requestId ? { requestId: meta.requestId } : {}) },
     ip: meta?.ip ?? null,
   });

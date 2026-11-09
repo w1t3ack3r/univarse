@@ -84,8 +84,48 @@ model Tenant {
   keyReencryption KeyReencryption?
   dataKeys TenantDataKey[]
   keyDestructions KeyDestruction[]
+  regulatoryProfile TenantRegulatoryProfile?
+  branding TenantBranding?
 
   @@map("tenant")
+}
+
+enum TenantOperatingStatus {
+  UNKNOWN
+  APPROVED
+  PROVISIONAL_LICENCE
+  SUSPENDED_BY_REGULATOR
+}
+
+/// Spec 0033 Q7 (E7). The regulator isn't stored: it follows the tenant's type.
+model TenantRegulatoryProfile {
+  tenantId           String                @id @map("tenant_id") @db.Uuid
+  operatingStatus    TenantOperatingStatus @default(UNKNOWN) @map("operating_status")
+  state              String?
+  regulatorReference String?               @map("regulator_reference")
+  jambCode           String?               @map("jamb_code")
+  version            Int                   @default(1)
+  updatedBy          String?               @map("updated_by") @db.Uuid
+  updatedAt          DateTime              @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@map("tenant_regulatory_profile")
+}
+
+/// Spec 0033 Q9, Q10. In the platform database, because the console holds no tenant credentials. Public by nature.
+model TenantBranding {
+  tenantId     String   @id @map("tenant_id") @db.Uuid
+  primaryColor String?  @map("primary_color")
+  logo         Bytes?
+  logoMime     String?  @map("logo_mime")
+  logoSha256   String?  @map("logo_sha256")
+  updatedBy    String?  @map("updated_by") @db.Uuid
+  updatedAt    DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@map("tenant_branding")
 }
 
 enum DomainKind {

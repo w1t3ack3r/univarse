@@ -75,11 +75,12 @@ export async function seed({ platformUrl, tenantUrl, domain = DEV_DOMAIN, log = 
       update: { status: t.status },
       create: { ...t, shardId: shard.id },
     });
-    // Entitlements are platform-owned (spec 0003 P9): re-seeding resets the plan, never the institution's switches.
+    // Entitlements are platform-owned (spec 0003 P9). The seed only creates a missing row: re-seeding used to reset
+    // the plan, which would now undo a grant or revocation made in the console at every deploy (spec 0033).
     for (const [product, entitled] of Object.entries(PLANS[t.slug])) {
       await platform.tenantProduct.upsert({
         where: { tenantId_product: { tenantId: tenant.id, product } },
-        update: { entitled, ...(entitled ? {} : { enabled: false }) },
+        update: {}, // spec 0033: the seed runs on every deploy, and the console owns this from then on
         create: { tenantId: tenant.id, product, entitled, enabled: entitled && product === 'core' },
       });
     }
