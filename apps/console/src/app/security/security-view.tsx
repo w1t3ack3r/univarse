@@ -2,6 +2,8 @@
 
 import { securityEventText, type PlatformSecuritySummary as Summary } from '@univarse/contracts';
 import { ChevronDown, Notice } from '@univarse/ui';
+import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
 import { useMe } from '../../components/console-shell';
 import { NothingHere } from '../../components/nothing-here';
@@ -36,6 +38,7 @@ const bucketLabel = (at: string, hourly: boolean) =>
 export function SecurityView() {
   const me = useMe();
   const canRead = me.permissions.includes('platform.security.read');
+  const tenantId = useSearchParams().get('tenantId');
   const [period, setPeriod] = useState<Period>('24h');
   const [s, setS] = useState<Summary | null>(null);
   const [error, setError] = useState<ApiError | null>(null);
@@ -45,7 +48,7 @@ export function SecurityView() {
     let live = true; // on a slow network an older period can answer after a newer one
     setS(null);
     setError(null);
-    api<Summary>('GET', `/security?window=${period}`)
+    api<Summary>('GET', `/security?window=${period}${tenantId ? `&tenantId=${encodeURIComponent(tenantId)}` : ''}`)
       .then((r) => {
         if (live) setS(r);
       })
@@ -55,7 +58,7 @@ export function SecurityView() {
     return () => {
       live = false;
     };
-  }, [canRead, period]);
+  }, [canRead, period, tenantId]);
 
   if (!canRead) return <NothingHere />;
 
@@ -78,6 +81,14 @@ export function SecurityView() {
         ))}
       </div>
 
+      {tenantId ? (
+        <p className="pc-note">
+          Showing one institution.{' '}
+          <Link className="uv-link" href="/security">
+            Show everything
+          </Link>
+        </p>
+      ) : null}
       {error ? <Notice requestId={error.requestId}>{error.message}</Notice> : null}
       {s === null && !error ? <div className="pc-skeleton pc-skeleton--body" aria-hidden="true" /> : null}
       {s ? <Report s={s} /> : null}

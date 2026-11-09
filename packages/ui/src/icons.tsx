@@ -69,6 +69,17 @@ export const ClipboardCheck = (p: IconProps) => (
     <path d="M9 3h6v3H9zM9.5 14l2 2 3.5-4" />
   </Icon>
 );
+export const Search = (p: IconProps) => (
+  <Icon {...p}>
+    <circle cx="11" cy="11" r="6.5" />
+    <path d="m20 20-4.2-4.2" />
+  </Icon>
+);
+export const Building = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M4 21h16M6 21V9l6-5 6 5v12M10 21v-5h4v5M10 11h4" />
+  </Icon>
+);
 export const ShieldCheck = (p: IconProps) => (
   <Icon {...p}>
     <path d="M12 3 5 6v5.5c0 4.3 2.9 7.9 7 9.5 4.1-1.6 7-5.2 7-9.5V6l-7-3Z" />
