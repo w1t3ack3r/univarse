@@ -30,7 +30,7 @@ export function BrandingSection({ tenant, canEdit, changing }: { tenant: Tenant;
   const saved = tenant.branding.primaryColor;
   const [hex, setHex] = useState(saved ?? '');
   const [busy, setBusy] = useState<'color' | 'logo' | 'remove' | null>(null);
-  const [picked, setPicked] = useState<{ base64: string; url: string } | null>(null);
+  const [picked, setPicked] = useState<{ base64: string; size: string } | null>(null);
   const [logoError, setLogoError] = useState<string | null>(null);
 
   const valid = HEX.test(hex);
@@ -38,7 +38,8 @@ export function BrandingSection({ tenant, canEdit, changing }: { tenant: Tenant;
   const unreadable = valid && text === null;
   const shown = valid && text ? hex : (saved ?? FALLBACK);
   const shownText = valid && text ? text : (tenant.branding.textColor ?? '#FFFFFF');
-  const logoUrl = picked?.url ?? (tenant.branding.logoSha256 ? `/api/platform/v1/tenants/${tenant.id}/branding/logo?v=${tenant.branding.logoSha256}` : null);
+  // Only a saved logo is shown, as the API serves it back: a file picked here is described, never put on the page (CodeQL js/xss-through-dom).
+  const logoUrl = tenant.branding.logoSha256 ? `/api/platform/v1/tenants/${tenant.id}/branding/logo?v=${tenant.branding.logoSha256}` : null;
 
   const put = (what: 'color' | 'logo' | 'remove', action: () => Promise<unknown>, message: string) => {
     setBusy(what);
@@ -65,7 +66,7 @@ export function BrandingSection({ tenant, canEdit, changing }: { tenant: Tenant;
         setLogoError(WHY[check.problem]);
         return;
       }
-      setPicked({ base64: base64Of(bytes), url: URL.createObjectURL(file) });
+      setPicked({ base64: base64Of(bytes), size: `${String(check.width)} × ${String(check.height)} ${check.mime === 'image/png' ? 'PNG' : 'WebP'}` });
     });
   };
 
@@ -117,6 +118,7 @@ export function BrandingSection({ tenant, canEdit, changing }: { tenant: Tenant;
               </p>
             </div>
             {logoError ? <Notice>{logoError}</Notice> : null}
+            {picked ? <p className="pc-note">{picked.size}, ready to save. It appears in the preview once it’s saved.</p> : null}
             <div className="pc-row-actions pc-row-actions--start">
               <Button type="button" variant="quiet" pending={busy === 'logo'} disabled={!picked} onClick={() => picked && put('logo', () => api('PUT', `/tenants/${tenant.id}/branding/logo`, { base64: picked.base64 }), 'The logo is saved.')}>
                 Save the logo

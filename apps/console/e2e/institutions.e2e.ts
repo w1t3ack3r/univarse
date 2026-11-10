@@ -76,8 +76,10 @@ test('an OWNER finds an institution, edits it, brands it, and revokes and grants
     await page.getByLabel('Logo').setInputFiles({ name: 'logo.svg', mimeType: 'image/svg+xml', buffer: Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"/>') });
     await expect(page.getByText(/SVG isn’t accepted/)).toBeVisible();
     await page.getByLabel('Logo').setInputFiles({ name: 'logo.png', mimeType: 'image/png', buffer: PNG });
+    await expect(page.getByText('64 × 64 PNG, ready to save.', { exact: false })).toBeVisible();
     await page.getByRole('button', { name: 'Save the logo' }).click();
     await expect(page.getByText('The logo is saved.')).toBeVisible();
+    await expect(page.locator('.pc-brand__logo')).toHaveAttribute('src', /\/branding\/logo\?v=[0-9a-f]{64}$/);
     await expectAccessible(page);
   });
 
