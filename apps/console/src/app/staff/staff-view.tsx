@@ -25,10 +25,10 @@ const ROLES = ['OWNER', 'SUPER_ADMIN', 'SUPPORT', 'FINANCE', 'READ_ONLY'] as con
 /** What each role can do today, said where the role is chosen. */
 const ROLE_HINT: Readonly<Record<string, string>> = {
   OWNER: 'Everything, including who can reach the console.',
-  SUPER_ADMIN: 'Runs the platform; sees the staff list, the audit log and security.',
-  SUPPORT: 'Helps institutions; their own account only, for now.',
-  FINANCE: 'Plans and billing, as they arrive; their own account only, for now.',
-  READ_ONLY: 'Sees the staff list, the audit log and security; changes nothing.',
+  SUPER_ADMIN: 'Runs the platform: manages institutions; sees the staff list, the audit log and security.',
+  SUPPORT: 'Helps institutions: looks them up, changes nothing.',
+  FINANCE: 'Plans and billing, as they arrive: looks institutions up, changes nothing.',
+  READ_ONLY: 'Sees institutions, the staff list, the audit log and security; changes nothing.',
 };
 
 /**

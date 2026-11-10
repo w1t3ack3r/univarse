@@ -6,6 +6,8 @@ export interface AuditFilters {
   readonly actorId: string;
   readonly from: string;
   readonly to: string;
+  /** One institution, from its page (spec 0033 Q4). */
+  readonly tenantId?: string;
 }
 
 /** Dates as staff pick them (`2026-11-07`, a whole day in WAT), as the instants the API takes. */
@@ -13,6 +15,7 @@ export function auditQuery(f: AuditFilters, cursor?: string): string {
   const q = new URLSearchParams();
   if (f.actionGroup) q.set('actionGroup', f.actionGroup);
   if (f.actorId) q.set('actorId', f.actorId);
+  if (f.tenantId) q.set('tenantId', f.tenantId);
   if (f.from) q.set('from', new Date(`${f.from}T00:00:00+01:00`).toISOString());
   if (f.to) q.set('to', new Date(`${f.to}T23:59:59.999+01:00`).toISOString());
   if (cursor) q.set('cursor', cursor);

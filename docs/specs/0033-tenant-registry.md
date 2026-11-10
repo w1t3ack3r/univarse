@@ -1,6 +1,6 @@
 # Spec 0033: Phase 1's S4, the tenant registry
 
-**Status:** **Approved by the owner on 2026-11-09, all as written:** Q1 to Q17. PR A built; PR B, PR C and the release next.
+**Status:** **Approved by the owner on 2026-11-09, all as written:** Q1 to Q17, and Q-A1 to Q-A7. PR A merged (#164); PR B built; PR C and the release next.
 **Phase:** 1, slice **S4** of [spec 0025](0025-phase-1-control-plane.md) (E7, E26, and spec 0003's platform side).
 **Builds on:**
 
@@ -96,7 +96,7 @@ The migration and grants, `packages/domain/src/platform/tenant-registry.ts`, and
 - **The seed was going to undo the console's work.** It runs on every deploy, and it reset each seeded institution's entitlements to the seed's plan. Once staff can grant and revoke, a deploy would have silently reversed them. The seed now only creates a missing row.
 - **`platform_audit_event.tenant_id` was always null** from the console's own actions, because nothing had needed it. It's now set for these, so S3's log can be filtered to an institution (Q4).
 
-**Decisions made while building, for approval:**
+**Decisions made while building PR A, approved by the owner on 2026-11-09:**
 
 | # | Decision | Why |
 | --- | --- | --- |
@@ -107,4 +107,19 @@ The migration and grants, `packages/domain/src/platform/tenant-registry.ts`, and
 | Q-A5 | **The colour and the logo take no `If-Match`.** Each is one absolute value, and the audit log shows both writers. | As spec 0003 decided for a switch. `If-Match` is for multi-field edits, where a change can be lost silently. |
 | Q-A6 | **The database refuses a bad logo or colour too:** a `CHECK` on the hex format, the type, the hash and the size. | The same limits as the application, so a bug there can't store something else. |
 | Q-A7 | **The reason for a grant or revocation is free text, kept in the audit metadata (Q13), 5 to 500 characters.** Staff shouldn't put a person's details in it, and the console will say so in PR B. | The audit log's other fields hold ids only. This one can't be checked by a machine. |
+
+## PR B: what was built
+
+The console's screens in `apps/console/src/app/institutions/`: the list, the header's search on every page, the detail page, and the forms. S3's audit log and security page now take `?tenantId=`, so an institution links to its own view of them.
+
+**Decisions made while building, for approval:**
+
+| # | Decision | Why |
+| --- | --- | --- |
+| Q-B1 | **What's searched for stays in the address** (`/institutions?q=`). | A result can be reloaded or sent to another staff member, and an institution's name is nobody's personal data (invariant 8 is about people). |
+| Q-B2 | **The status and type filters apply as you choose them,** unlike the audit log's Show button. | Listing institutions isn't audited (Q16), so nothing fills up. |
+| Q-B3 | **The colour and the logo are checked in the browser first,** with the same `packages/domain` rules the server uses. | A colour nobody can read is explained before anyone is asked for an authenticator code. The server still decides. |
+| Q-B4 | **A file that fails the check never leaves the page.** | Slow networks: nobody waits to upload something that will be refused. |
+| Q-B5 | **An archived or purged institution shows no forms and no Grant or Revoke,** as if the viewer had no permission to change it. | The API refuses them anyway (Q-A2), so offering them would only produce an error. |
+| Q-B6 | **The console's roles are described for what they now do** in the Staff page's hints: SUPPORT and FINANCE can look institutions up. | The old hints said "their own account only". |
 

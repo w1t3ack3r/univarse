@@ -6,7 +6,7 @@ import { createPlatformClient } from '@univarse/db';
 import { existsSync, readFileSync } from 'node:fs';
 import { parseEnv } from 'node:util';
 import { pruneRetiredTestStaff } from '../../api/src/testing/staff-cleanup.js';
-import { consoleEnv, E2E_PREFIX } from './fixtures';
+import { consoleEnv, E2E_PREFIX, E2E_TENANT_PREFIX } from './fixtures';
 
 const rootEnv = new URL('../../../.env', import.meta.url);
 
@@ -19,5 +19,14 @@ export default async function globalTeardown(): Promise<void> {
   } finally {
     await db.$disconnect();
   }
-  if (existsSync(rootEnv)) await pruneRetiredTestStaff(parseEnv(readFileSync(rootEnv, 'utf8')).PLATFORM_MIGRATOR_URL);
+  if (!existsSync(rootEnv)) return;
+  const migrator = parseEnv(readFileSync(rootEnv, 'utf8')).PLATFORM_MIGRATOR_URL;
+  await pruneRetiredTestStaff(migrator);
+  if (!migrator) return;
+  const owner = createPlatformClient(migrator);
+  try {
+    await owner.tenant.deleteMany({ where: { slug: { startsWith: E2E_TENANT_PREFIX } } });
+  } finally {
+    await owner.$disconnect();
+  }
 }

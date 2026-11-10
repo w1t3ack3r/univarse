@@ -1,7 +1,7 @@
 'use client';
 
 import type { PlatformAccessReview } from '@univarse/contracts';
-import { Activity, ArrowRight, ClipboardCheck, ScrollText, ShieldCheck, Users } from '@univarse/ui';
+import { Activity, ArrowRight, Building, ClipboardCheck, ScrollText, ShieldCheck, Users } from '@univarse/ui';
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { api } from '../lib/api';
@@ -34,6 +34,22 @@ export function Overview() {
         You’re signed in with your authenticator. Sessions end after 15 minutes without activity.
       </p>
       <ul className="pc-list">
+        {me.permissions.includes('platform.tenant.read') ? (
+          <li>
+            <Link className="pc-list__row" href="/institutions">
+              <span className="uv-icon-tile">
+                <Building />
+              </span>
+              <span className="pc-list__text">
+                <span className="pc-list__title">Institutions</span>
+                <span className="pc-list__meta">
+                  {me.permissions.includes('platform.tenant.edit') ? 'Every institution: its profile, branding and products.' : 'Every institution, and its status and products.'}
+                </span>
+              </span>
+              <ArrowRight size={18} />
+            </Link>
+          </li>
+        ) : null}
         <li>
           <Link className="pc-list__row" href="/account">
             <span className="uv-icon-tile">

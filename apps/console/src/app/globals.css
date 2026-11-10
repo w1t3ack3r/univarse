@@ -1147,3 +1147,166 @@ html {
   flex: 1 1 18rem;
   max-width: 65ch;
 }
+
+/* ---------- S4: institutions (spec 0033) ---------- */
+.pc-status--none {
+  background: var(--uv-deep-soft);
+  color: var(--uv-text);
+}
+.pc-inline-button {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  cursor: pointer;
+}
+.pc-textarea {
+  padding-block: var(--uv-space-3);
+}
+
+/* The header's search: it sits between the name and sign out, and takes its own row on a phone. */
+.pc-head {
+  grid-template-columns: minmax(0, 1fr) minmax(12rem, 18rem) auto;
+}
+.pc-search {
+  display: flex;
+  align-items: center;
+  gap: var(--uv-space-2);
+  min-height: var(--uv-tap);
+  padding: 0 var(--uv-space-3);
+  border-radius: var(--uv-radius);
+  background: var(--uv-surface);
+  box-shadow: inset 0 0 0 1.5px var(--uv-input-border);
+  color: var(--uv-text-muted);
+}
+.pc-search:focus-within {
+  box-shadow: inset 0 0 0 1.5px var(--uv-deep), 0 0 0 3px rgb(72 85 80 / 0.22);
+}
+.pc-search input {
+  flex: 1;
+  min-width: 0;
+  min-height: 40px;
+  border: 0;
+  outline: 0;
+  background: none;
+  color: var(--uv-text);
+  font: inherit;
+  font-size: var(--uv-text-md);
+}
+.pc-search input::placeholder {
+  color: var(--uv-text-muted);
+}
+.pc-tabs {
+  grid-column: 1 / -1;
+}
+@media (max-width: 719px) {
+  .pc-head {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+  .pc-search {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+}
+
+/* An institution's facts, on their own card. */
+.pc-facts--card {
+  padding: var(--uv-space-4);
+  border-radius: var(--uv-radius-card);
+  background: var(--uv-surface);
+  box-shadow: var(--uv-shadow-card);
+}
+
+/* Branding: the preview shows the colour, its text colour and the logo together, as they'll really sit. */
+.pc-brand {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--uv-space-3) var(--uv-space-4);
+  padding: var(--uv-space-4) var(--uv-space-6);
+  border-radius: var(--uv-radius-card);
+}
+.pc-brand__logo {
+  width: auto;
+  max-width: 120px;
+  height: 40px;
+  object-fit: contain;
+  border-radius: 6px;
+  background: var(--uv-white);
+}
+.pc-brand__name {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.pc-brand__button {
+  margin-left: auto;
+  padding: 8px 18px;
+  border-radius: var(--uv-radius);
+  font-size: var(--uv-text-sm);
+  font-weight: 600;
+}
+.pc-brand__forms {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 20rem), 1fr));
+  gap: var(--uv-space-6);
+}
+.pc-color {
+  display: flex;
+  gap: var(--uv-space-2);
+}
+.pc-color__swatch {
+  flex: none;
+  width: 52px;
+  height: 52px;
+  padding: 4px;
+  border: 1.5px solid var(--uv-input-border);
+  border-radius: var(--uv-radius);
+  background: var(--uv-surface);
+  cursor: pointer;
+}
+.pc-file {
+  min-height: var(--uv-tap);
+  font: inherit;
+  font-size: var(--uv-text-sm);
+  max-width: 100%;
+}
+
+.pc-filters--narrow {
+  max-width: 34rem;
+}
+/* A product's action stays on its own row's line until it's opened. */
+.pc-product__action {
+  flex: 0 0 auto;
+}
+.pc-product__action[open] {
+  flex: 1 1 100%;
+}
+/* Two short forms, side by side where there's room. */
+.pc-twin {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 22rem), 1fr));
+  gap: var(--uv-space-8);
+  padding-top: var(--uv-space-8);
+  border-top: 1px solid var(--uv-border);
+}
+.pc-twin > .pc-section {
+  align-content: start;
+  padding-top: 0;
+  border-top: 0;
+}
+.pc-twin + .pc-section {
+  padding-top: var(--uv-space-8);
+  border-top: 1px solid var(--uv-border);
+}
+.pc-file::file-selector-button {
+  min-height: 40px;
+  margin-right: var(--uv-space-3);
+  padding: 0 var(--uv-space-4);
+  border: 0;
+  border-radius: var(--uv-radius);
+  background: var(--uv-deep-soft);
+  color: var(--uv-text);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
