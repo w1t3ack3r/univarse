@@ -82,9 +82,9 @@ The owner wrote a fuller billing policy, [BP-1](../billing-model.md), and decide
 | B2 | A registration standing 14 days; late registrations count | **Unchanged**, and counted **to the semester's official end**. A student whose 14 days finish after it is carried onto the next invoice, once (BP-1 §4.5). |
 | B3, B4 | The continuous, private count; the running bill | **Unchanged.** Snapshots hold numbers and a fingerprint of the list, never who (BP-1 §4.4). |
 | B5 | The price book: per-product rates, bundles, volume bands, the minimum fee, setup fees, the deposit rule | **The price book's contents change** (below). Versioned, two-person approval and session-start effect are unchanged. |
-| B6 | Per product: students × rate, marginal volume bands, the minimum-fee top-up, then VAT | **Replaced:** `T = (S × Rs) + Pt + ΣAi + ΣUj + C − D`, then tax (BP-1 §9.3). **One per-student rate** (`Rs`), a **programme tier charge** (`Pt`), a **flat semester fee per optional product** (`Ai`), usage (`Uj`). No bundles, no volume bands, **no minimum fee**. Each line in kobo, rounded half up, as before. |
+| B6 | Per product: students × rate, marginal volume bands, the minimum-fee top-up, then VAT | **Replaced:** `T = (S × Rs) + Pt + ΣUj + C − D`, then tax (BP-1 §9.3). **One per-student rate** (`Rs`), a **programme tier charge** (`Pt`), usage (`Uj`). Optional products are billed on their own invoices, in advance (R1). No bundles, no volume bands, **no minimum fee**. Each line in kobo, rounded half up, as before. |
 | B7 | Usage priced on use | **Unchanged** (BP-1 §7.4). |
-| B8 | The setup fee, and a deposit for a new institution | **No deposit.** The setup fee stays, paid before activation; everything else is invoiced after the semester. |
+| B8 | The setup fee, and a deposit for a new institution | **No deposit.** The setup fee stays, paid before activation. The semester's charges are invoiced after it; optional products are paid in advance (R1). |
 | B9, B10 | Immutable invoices; payments recorded and verified | **Unchanged.** **Full payment is the default**, and an institution may ask for an **installment plan**, approved by UniVarse finance (BP-1 §10.3). |
 | B11 | The billing hold: no new admission cycle or registration after 30 days past due | **Replaced by BP-1 §11:** reminders and escalation; any service restriction is set by the contract, product by product, and never touches academic records. No automatic hold by default. |
 | B12, B13, B14 | The contract; VAT and withholding `[VERIFY]`; the yearly, capped price review | **Unchanged** (BP-1 §13.3, §14.1). |
@@ -92,11 +92,11 @@ The owner wrote a fuller billing policy, [BP-1](../billing-model.md), and decide
 | B16 | Collecting UniVarse's fee from students' payments, later | **Unchanged.** |
 | New | | **The programme tier** (BP-1 §5): a billable programme is a formally approved qualification (B.Sc. Computer Science, HND Accountancy), never a faculty, department, level, course or cohort, counted at the semester's official end. |
 
-**Read from the owner's answers, for confirmation:**
+**Read from the owner's answers, confirmed by the owner on 2026-11-10** (R1 as the owner corrected it):
 
 | # | Reading | Why |
 | --- | --- | --- |
-| R1 | **Optional products are billed after the semester too,** not paid at activation. Active at any point in a semester, the semester is charged. | "All other payment comes in after the semester in full": activation needs approval, not payment. |
+| R1 | **Optional products are paid in advance,** immediately before they're switched on: a product invoice for the semester, verified, then the entitlement. Each renewal is invoiced before its semester, and a cancelled product runs to the end of the semester paid for (BP-1 §6.4 to §6.7). | The owner's correction: "immediately before approved for use, and not after the semester". |
 | R2 | **The programme count is taken at the semester's official end,** with the student count. | One measurement point, the same as the students'. |
 | R3 | **VAT, withholding and the yearly review cap stay** as B13 and B14 had them. | The answers didn't change them. |
 | R4 | **The volume bands go,** with the per-product rates. | One per-student rate leaves nothing to band. They can return as tiers of `Rs` if the owner wants them. |

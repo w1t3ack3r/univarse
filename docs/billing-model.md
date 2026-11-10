@@ -164,7 +164,7 @@ The standard onboarding sequence is:
 
 An institution must not be considered fully production-active merely because it has created an account or submitted a payment attempt.
 
-No deposit is required. Once the setup fee is paid, every later charge is invoiced after the semester it covers (Section 8).
+No deposit is required. Once the setup fee is paid, the institution's semester charges are invoiced after the semester they cover (Section 8). Optional products are the exception: each is paid before it's switched on (Section 6).
 
 ## 3.5 No Repeated Setup Fee
 
@@ -403,40 +403,42 @@ These examples do not constitute a commitment that every such product is current
 
 ## 6.4 Optional Product Activation
 
-Optional products are activated through an explicit institutional request:
+Optional products are **paid for in advance**, immediately before they're switched on:
 
-1. The institution views the product, its description and its price.
+1. The institution views the product, its description and its semester price.
 2. It submits an activation request.
 3. UniVarse validates and approves the request.
-4. The entitlement is activated.
+4. A product invoice is issued for the current semester.
+5. The payment is verified.
+6. The entitlement is activated.
 
-Submitting a request does not by itself grant access. **No payment is taken at activation:** the product is charged on the invoice issued after each semester in which it was active (Section 8).
+Submitting a request, or a payment attempt, does not grant access. Only a verified payment does.
 
 ## 6.5 Optional Product Billing
 
 Each optional product has a **flat fee per semester**, not a per-student rate.
 
-A product active at any point in a semester is charged for that whole semester.
+Its product invoice is separate from the semester invoice (Section 9), and it is paid in full: installments are for the semester invoice.
 
 The system keeps a separate subscription record for each institution-product relationship.
 
 ## 6.6 Optional Product Renewal
 
-An optional product stays active from semester to semester until it is cancelled.
+An optional product renews semester by semester.
 
-The institution must be told, before each semester begins, which optional products will be charged for it.
+Before each semester begins, the institution is told which optional products will renew, and each one's product invoice for that semester is issued. The product stays on through that semester only once its renewal is paid. Renewal follows the grace and escalation terms of Section 11.
 
 UniVarse must not make unauthorized charges or silently introduce new commercial obligations.
 
 ## 6.7 Optional Product Cancellation
 
-An institution may cancel an optional product.
+An institution may cancel an optional product before its next renewal.
 
 Where cancellation is valid:
 
-- If it takes effect before a semester begins, that semester is not charged for it.
-- If it takes effect during a semester, the product stays accessible until that semester's official end, and the semester is charged.
-- The cancellation is recorded, and the entitlement ends at the effective point.
+- The product stays accessible through the semester already paid for.
+- No renewal invoice is issued for the next semester.
+- The cancellation is recorded, and the entitlement ends at the end of the paid semester.
 
 Cancellation must not erase data created through the product. Data retention, export and deletion follow UniVarse's data governance and retention policies.
 
@@ -529,7 +531,7 @@ Student-based charges, applicable programme tier charges and active optional pro
 
 ## 8.2 Count and Invoice Timing
 
-**Every recurring charge is invoiced after the semester it covers.**
+**The semester's charges are invoiced after the semester they cover.** Optional products are paid in advance, on their own invoices (Section 6.4).
 
 1. The semester begins, and the continuous count starts.
 2. Students register, late registrations included; the institution sees the count and the running bill.
@@ -574,13 +576,14 @@ A semester subscription invoice may contain:
 1. Student-based subscription charge.
 2. Students carried forward from the previous semester (Section 4.5).
 3. Programme tier charge.
-4. Optional product subscription charges.
-5. Charges for services priced on use.
-6. Other approved recurring charges.
-7. Separately agreed additional services, where applicable.
-8. Approved discounts.
-9. Approved credits or adjustments.
-10. Applicable taxes, where legally required.
+4. Charges for services priced on use.
+5. Other approved recurring charges.
+6. Separately agreed additional services, where applicable.
+7. Approved discounts.
+8. Approved credits or adjustments.
+9. Applicable taxes, where legally required.
+
+Optional products are not on the semester invoice: each has its own product invoice, paid before it's switched on (Section 6.4).
 
 The one-time onboarding fee must ordinarily be issued as a separate onboarding invoice.
 
@@ -588,7 +591,7 @@ The one-time onboarding fee must ordinarily be issued as a separate onboarding i
 
 The standard semester invoice calculation is:
 
-**T = (S × Rs) + Pt + ΣAi + ΣUj + C − D**, then tax
+**T = (S × Rs) + Pt + ΣUj + C − D**, then tax
 
 Where:
 
@@ -596,7 +599,6 @@ Where:
 - **S** = Finalized eligible student count, including students carried forward.
 - **Rs** = Agreed rate per eligible student, per semester.
 - **Pt** = Applicable programme tier charge.
-- **Ai** = Flat semester fee for each active optional product.
 - **Uj** = Each service priced on use.
 - **C** = Other approved charges.
 - **D** = Approved discounts and credits.
@@ -1564,7 +1566,7 @@ UniVarse adopts a semester-oriented institutional subscription model combining:
 - One invoice after each semester, for what it used.
 - Per-student recurring subscription charges.
 - Tier-based programme subscription charges.
-- Flat-fee optional products.
+- Flat-fee optional products, paid before they're switched on.
 - Services priced on use.
 - No minimum recurring subscription fee.
 - Full payment as the default settlement method.
