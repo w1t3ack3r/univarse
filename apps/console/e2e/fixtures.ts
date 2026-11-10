@@ -33,6 +33,28 @@ export async function makeMember(role: 'OWNER' | 'SUPPORT' | 'READ_ONLY'): Promi
   }
 }
 
+/** Every institution a run makes has this prefix, so the teardown removes exactly those. */
+export const E2E_TENANT_PREFIX = 'e2e-reg-';
+
+const migratorUrl = () => (parseEnv(readFileSync(new URL('../../../.env', import.meta.url), 'utf8')) as Record<string, string | undefined>).PLATFORM_MIGRATOR_URL!;
+
+/** A live institution with one product on. Made by the migrator: the console role can't create one (spec 0033 Q15). */
+export async function makeInstitution(): Promise<{ id: string; slug: string; legalName: string }> {
+  const db = createPlatformClient(migratorUrl());
+  try {
+    const tag = randomBytes(4).toString('hex');
+    const shard = await db.shard.findFirstOrThrow({ select: { id: true } });
+    const t = await db.tenant.create({
+      data: { slug: `${E2E_TENANT_PREFIX}${tag}`, legalName: `E2E University ${tag}`, shortName: `E2E${tag}`.toUpperCase(), type: 'UNIVERSITY', ownership: 'PRIVATE', status: 'ACTIVE', shardId: shard.id },
+      select: { id: true, slug: true, legalName: true },
+    });
+    await db.tenantProduct.create({ data: { tenantId: t.id, product: 'admissions', entitled: true, enabled: true } });
+    return t;
+  } finally {
+    await db.$disconnect();
+  }
+}
+
 /** A TOTP code `offset` steps from now: each use of a factor needs a newer step than the last (the replay guard). */
 export const totp = (secret: string, offset = 0) => hotp(base32Decode(secret), timeStep(Date.now()) + offset);
 

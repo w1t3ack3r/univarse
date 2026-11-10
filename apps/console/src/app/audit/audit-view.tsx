@@ -2,6 +2,8 @@
 
 import { AUDIT_ACTION_GROUPS, auditActionLabel, type PlatformAuditLog, type PlatformChainStatus } from '@univarse/contracts';
 import { Button, ChevronDown, Notice, ShieldCheck } from '@univarse/ui';
+import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import { useEffect, useMemo, useState, type ReactNode, type SubmitEvent } from 'react';
 import { NothingHere } from '../../components/nothing-here';
 import { useMe } from '../../components/console-shell';
@@ -24,8 +26,9 @@ const actorName = (r: Row) => (r.actor.id === null ? 'The system' : (r.actor.nam
 export function AuditView() {
   const me = useMe();
   const canRead = me.permissions.includes('platform.audit.read');
+  const tenantId = useSearchParams().get('tenantId') ?? undefined;
   const [draft, setDraft] = useState<AuditFilters>(NO_FILTERS);
-  const [filters, setFilters] = useState<AuditFilters>(NO_FILTERS);
+  const [filters, setFilters] = useState<AuditFilters>({ ...NO_FILTERS, ...(tenantId ? { tenantId } : {}) });
   const [rows, setRows] = useState<Row[] | null>(null);
   const [cursor, setCursor] = useState<string | null>(null);
   const [more, setMore] = useState(false);
@@ -73,7 +76,7 @@ export function AuditView() {
 
   const apply = (e: SubmitEvent<HTMLFormElement>) => {
     e.preventDefault();
-    setFilters(draft);
+    setFilters({ ...draft, ...(tenantId ? { tenantId } : {}) });
   };
   const filtering = useMemo(() => Object.values(filters).some(Boolean), [filters]);
 
@@ -93,6 +96,14 @@ export function AuditView() {
       </div>
 
       <ChainStatus canVerify={me.permissions.includes('platform.audit.verify')} />
+      {tenantId ? (
+        <p className="pc-note">
+          Showing one institution.{' '}
+          <Link className="uv-link" href="/audit" onClick={() => setFilters(NO_FILTERS)}>
+            Show everything
+          </Link>
+        </p>
+      ) : null}
 
       <form method="get" className="pc-filters" onSubmit={apply}>
         <div className="uv-field">

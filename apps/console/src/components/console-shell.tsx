@@ -1,11 +1,11 @@
 'use client';
 
 import type { PlatformChainStatus } from '@univarse/contracts';
-import { Button, LogOut, Notice } from '@univarse/ui';
+import { Button, LogOut, Notice, Search } from '@univarse/ui';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
-import { api, ApiError } from '../lib/api';
+import { createContext, useContext, useEffect, useState, type ReactNode, type SubmitEvent } from 'react';
+import { api, ApiError, field } from '../lib/api';
 import { StepUpProvider } from './step-up';
 
 export interface Me {
@@ -111,6 +111,7 @@ function SignedInHeader({ me }: { me: Me }) {
   const [leaving, setLeaving] = useState(false);
   const tabs = [
     { href: '/', label: 'Overview' },
+    ...(me.permissions.includes('platform.tenant.read') ? [{ href: '/institutions', label: 'Institutions' }] : []),
     { href: '/account', label: 'Your account' },
     ...(me.permissions.includes('platform.staff.read') ? [{ href: '/staff', label: 'Staff' }] : []),
     ...(me.permissions.includes('platform.audit.read') ? [{ href: '/audit', label: 'Audit log' }] : []),
@@ -123,6 +124,13 @@ function SignedInHeader({ me }: { me: Me }) {
       .catch(() => undefined)
       .finally(() => router.replace('/sign-in'));
   };
+  // Spec 0033 Q8. From 2 characters, as the API takes it. The term goes in the address: an institution's name is public.
+  const search = (e: SubmitEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const q = field(new FormData(e.currentTarget), 'q');
+    if (q.length >= 2) router.push(`/institutions?q=${encodeURIComponent(q)}`);
+  };
+
   // On a phone the tabs scroll: the page you're on should be one you can see.
   useEffect(() => {
     document.querySelector('.pc-tabs__tab[aria-current="page"]')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
@@ -136,6 +144,15 @@ function SignedInHeader({ me }: { me: Me }) {
           <span className="pc-head__email">{me.email}</span>
         </p>
       </div>
+      {me.permissions.includes('platform.tenant.read') ? (
+        <form role="search" className="pc-search" onSubmit={search}>
+          <label className="uv-visually-hidden" htmlFor="pc-search">
+            Find an institution
+          </label>
+          <Search size={18} />
+          <input id="pc-search" name="q" type="search" placeholder="Find an institution" autoComplete="off" spellCheck={false} maxLength={80} />
+        </form>
+      ) : null}
       <Button type="button" variant="quiet" onClick={signOut} pending={leaving}>
         {leaving ? 'Signing out…' : 'Sign out'}
         {leaving ? null : <LogOut size={18} />}
@@ -146,7 +163,7 @@ function SignedInHeader({ me }: { me: Me }) {
             key={t.href}
             href={t.href}
             className="pc-tabs__tab"
-            aria-current={path === t.href ? 'page' : undefined}
+            aria-current={path === t.href || (t.href !== '/' && path.startsWith(`${t.href}/`)) ? 'page' : undefined}
           >
             {t.label}
           </Link>

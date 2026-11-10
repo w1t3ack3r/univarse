@@ -25,9 +25,10 @@ export class ApiError extends Error {
 const BASE = '/api/platform/v1';
 
 export async function api<T>(
-  method: 'GET' | 'POST' | 'DELETE',
+  method: 'GET' | 'POST' | 'PUT' | 'DELETE',
   path: string,
   body?: unknown,
+  opts: { ifMatch?: string } = {},
 ): Promise<T> {
   let res: Response;
   try {
@@ -35,9 +36,11 @@ export async function api<T>(
       method,
       credentials: 'same-origin',
       cache: 'no-store',
-      ...(body === undefined
-        ? {}
-        : { headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }),
+      headers: {
+        ...(body === undefined ? {} : { 'content-type': 'application/json' }),
+        ...(opts.ifMatch ? { 'if-match': opts.ifMatch } : {}),
+      },
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     });
   } catch {
     throw new ApiError(0, 'network.offline', undefined);
