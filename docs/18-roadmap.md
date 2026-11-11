@@ -190,7 +190,7 @@ The rest of [spec 0025](specs/0025-phase-1-control-plane.md) (owner decision 202
 | Slice | What it delivers |
 |---|---|
 | **S9** Support and break-glass | Platform tickets from IT Admins with SLA timers ([14](14-observability-and-operations.md)), two-way messages and attachments; the break-glass decision (spec 0025 A14); the help centre |
-| **S10** Plans and subscriptions | Plans and subscriptions driving entitlements, prices in `bigint` kobo; contracts, renewals and key contacts; the onboarding pipeline; the versioned price book, setup-fee and deposit invoices, credit notes, payments and receipts ([spec 0030](specs/0030-institution-billing.md) P1) |
+| **S10** Plans and subscriptions | Plans and subscriptions driving entitlements, prices in `bigint` kobo; contracts, renewals and key contacts; the onboarding pipeline; the versioned price book, setup-fee and deposit invoices, credit notes, payments and receipts ([spec 0030](specs/0030-institution-billing.md) P1) Billing follows [spec 0030](specs/0030-institution-billing.md) as amended by the billing policy [BP-1](billing-model.md) (2026-11-10). |
 | **S11** Compliance and operations | The NDPA registers (DPAs, sub-processors, the incident register with its clocks, the audit-return evidence pack) `[VERIFY with counsel]`; the peak-days calendar; the read-only operations snapshot; the key view; adoption and health per institution; peak-load planning and per-institution limits; the data requests register |
 
 **Exit:** each slice's acceptance in spec 0025, plus: an IT Admin raises a ticket and gets a reply, with both sides logged; a plan change changes entitlements, audited; the operations snapshot holds nothing secret (a test).
