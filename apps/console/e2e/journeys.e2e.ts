@@ -4,7 +4,11 @@
 // order: each takes up where the last left off.
 import { expect, test } from '@playwright/test';
 import { expectAccessible } from './a11y';
-import { apiStatus, emailedCode, enrol, makeMember, PASSWORD, totp, uniqueEmail } from './fixtures';
+import { apiStatus, emailedCode, enrol, makeMember, PASSWORD, randomClientIp, totp, uniqueEmail } from './fixtures';
+
+test.beforeEach(async ({ context }) => {
+  await context.setExtraHTTPHeaders({ 'x-forwarded-for': randomClientIp() });
+});
 
 test.describe.configure({ mode: 'serial', timeout: 90_000 });
 
