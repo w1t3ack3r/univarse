@@ -542,6 +542,16 @@
   border-bottom: 0;
   flex-wrap: wrap;
 }
+/*
+ * On a phone the action takes its own line, starting under the text (past the 44px icon tile and the row's gap) and
+ * reaching the card's edge: the sentence keeps a readable measure and the button a wide thumb target.
+ */
+@media not all and (min-width: 520px) {
+  .list__row--flat > .uv-btn {
+    flex: 1 0 calc(100% - 44px - var(--uv-space-4));
+    margin-left: calc(44px + var(--uv-space-4));
+  }
+}
 .scroll-x {
   overflow-x: auto;
 }
