@@ -1,3 +1,4 @@
+import { TenantLogos } from './modules/tenant-profile/tenant-logo.service.js';
 import { Module, type DynamicModule, type Provider, type Type } from '@nestjs/common';
 import { APP_FILTER, APP_GUARD, DiscoveryModule } from '@nestjs/core';
 import { Redis } from 'ioredis';
@@ -117,6 +118,7 @@ export class AppModule {
         PasswordAttempts,
         MfaService,
         AuthService,
+        TenantLogos,
         ContactService,
         ProductService,
         ProductDeclarationCheck,

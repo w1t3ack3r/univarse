@@ -114,6 +114,8 @@ beforeAll(async () => {
     legalName: 'Demo',
     type: 'UNIVERSITY',
     status: 'ACTIVE',
+    primaryColor: null,
+    logoSha256: null,
   };
   await h.app.get(InvalidationBus).ready();
   await h.workerCtx.get(InvalidationBus).ready();

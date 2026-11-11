@@ -134,3 +134,11 @@ const DOWNLOAD: keyof paths = '/api/v1/files/{id}/content';
 /** The binary download's URL, for an `<a href download>`: the browser streams it, nothing is parsed. */
 export const contentUrl = (id: string): string => DOWNLOAD.replace('{id}', encodeURIComponent(id));
 
+const LOGO: keyof paths = '/api/v1/tenant/logo';
+
+/**
+ * Spec 0033 Q11: the institution's logo for an `<img>`, under its content hash, so the browser keeps this version and a
+ * new logo is a new URL. Only a 64-hex hash is used; anything else gives the plain (uncached) path.
+ */
+export const logoUrl = (sha256: string): string => (/^[0-9a-f]{64}$/.test(sha256) ? `${LOGO}?v=${sha256}` : LOGO);
+

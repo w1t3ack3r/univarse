@@ -9407,6 +9407,239 @@
         "x-csrf": "same-origin"
       }
     },
+    "/api/v1/tenant/logo": {
+      "get": {
+        "operationId": "tenantLogo",
+        "summary": "The institution’s logo for this host (binary); 304 on a matching ETag",
+        "tags": [
+          "tenant"
+        ],
+        "parameters": [
+          {
+            "name": "v",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "image/png": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "image/webp": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            },
+            "headers": {
+              "Content-Length": {
+                "required": true,
+                "schema": {
+                  "type": "string",
+                  "pattern": "^[0-9]+$"
+                }
+              },
+              "X-Content-Type-Options": {
+                "required": true,
+                "schema": {
+                  "type": "string",
+                  "const": "nosniff"
+                }
+              },
+              "Content-Security-Policy": {
+                "required": true,
+                "description": "Sandboxed: nothing in the file can run.",
+                "schema": {
+                  "type": "string",
+                  "pattern": "(^|; )sandbox($|;)"
+                }
+              },
+              "Cache-Control": {
+                "required": true,
+                "description": "Immutable only when asked for under its own hash (`?v=`).",
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "no-store",
+                    "public, max-age=31536000, immutable"
+                  ]
+                }
+              },
+              "ETag": {
+                "required": true,
+                "description": "The content’s SHA-256; send it back as If-None-Match.",
+                "schema": {
+                  "type": "string",
+                  "pattern": "^\"[0-9a-f]{64}\"$"
+                }
+              }
+            }
+          },
+          "304": {
+            "description": "Not modified: the browser has this version.",
+            "headers": {
+              "ETag": {
+                "required": true,
+                "description": "The content’s SHA-256; send it back as If-None-Match.",
+                "schema": {
+                  "type": "string",
+                  "pattern": "^\"[0-9a-f]{64}\"$"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "request.invalid",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 400
+                    },
+                    "code": {
+                      "enum": [
+                        "request.invalid"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "resource.not_found, tenant.not_found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 404
+                    },
+                    "code": {
+                      "enum": [
+                        "resource.not_found",
+                        "tenant.not_found"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "423": {
+            "description": "tenant.suspended",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 423
+                    },
+                    "code": {
+                      "enum": [
+                        "tenant.suspended"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "server.internal",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 500
+                    },
+                    "code": {
+                      "enum": [
+                        "server.internal"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "server.busy",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 503
+                    },
+                    "code": {
+                      "enum": [
+                        "server.busy"
+                      ]
+                    }
+                  }
+                }
+              }
+            },
+            "headers": {
+              "Retry-After": {
+                "required": true,
+                "description": "Seconds to wait before retrying.",
+                "schema": {
+                  "type": "string",
+                  "pattern": "^[0-9]+$"
+                }
+              }
+            }
+          }
+        },
+        "security": [],
+        "x-product": "core"
+      }
+    },
     "/api/v1/tenant/public-profile": {
       "get": {
         "operationId": "publicProfile",
@@ -9422,6 +9655,35 @@
                 "schema": {
                   "type": "object",
                   "properties": {
+                    "branding": {
+                      "type": "object",
+                      "properties": {
+                        "primaryColor": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "textColor": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "logoSha256": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "primaryColor",
+                        "textColor",
+                        "logoSha256"
+                      ],
+                      "additionalProperties": false
+                    },
                     "slug": {
                       "type": "string"
                     },
@@ -9441,6 +9703,7 @@
                     }
                   },
                   "required": [
+                    "branding",
                     "slug",
                     "shortName",
                     "legalName",

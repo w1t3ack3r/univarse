@@ -4,7 +4,11 @@
 import { expect, test, type Page } from '@playwright/test';
 import { randomBytes } from 'node:crypto';
 import { expectAccessible } from './a11y';
-import { enrol, makeInstitution, makeMember, PASSWORD, totp } from './fixtures';
+import { enrol, makeInstitution, makeMember, PASSWORD, randomClientIp, totp } from './fixtures';
+
+test.beforeEach(async ({ context }) => {
+  await context.setExtraHTTPHeaders({ 'x-forwarded-for': randomClientIp() });
+});
 
 test.describe.configure({ mode: 'serial', timeout: 180_000 });
 

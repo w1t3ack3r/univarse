@@ -4,7 +4,11 @@
 // page's full view uses a set response: the console role can't remove what a test would write there.
 import { expect, test, type Page } from '@playwright/test';
 import { expectAccessible } from './a11y';
-import { enrol, makeMember, PASSWORD, totp } from './fixtures';
+import { enrol, makeMember, PASSWORD, randomClientIp, totp } from './fixtures';
+
+test.beforeEach(async ({ context }) => {
+  await context.setExtraHTTPHeaders({ 'x-forwarded-for': randomClientIp() });
+});
 
 test.describe.configure({ mode: 'serial', timeout: 180_000 });
 

@@ -6,7 +6,7 @@ import { StepUpProvider } from '@/components/StepUp';
 import { buildNav, NAV } from '@/lib/nav';
 import { serverGet } from '@/lib/server-api';
 import { requireSession } from '@/lib/session';
-import { tenantProfile } from '@/lib/tenant';
+import { brandStyle, logoUrl, tenantProfile } from '@/lib/tenant';
 
 const initials = (name: string) =>
   name
@@ -24,11 +24,16 @@ export default async function WorkspaceLayout({ children }: { children: ReactNod
   const me = await requireSession();
   const [{ profile }, products] = await Promise.all([tenantProfile(), serverGet((api) => api.GET('/api/v1/products'))]);
   const nav = buildNav(NAV, me.permissions, products.data?.data ?? ['core']);
+  const b = profile?.branding;
+  const logo = b?.logoSha256 ? logoUrl(b.logoSha256) : null;
+  // A light colour carries the ink; a dark one carries white (the domain chose which, at 4.5:1 or more).
+  const brand = b?.primaryColor && b.textColor ? { primaryColor: b.primaryColor, textColor: b.textColor, tone: b.textColor.toUpperCase() === '#FFFFFF' ? 'dark' : 'light' } : null;
 
   return (
     <StepUpProvider hasMfa={me.mfa}>
-      <div className="ws">
-        <aside className="ws__rail uv-on-deep">
+      <div className="ws" style={brand ? brandStyle(brand.primaryColor, brand.textColor) : undefined} data-brand={brand?.tone}>
+        <aside className={brand?.tone === 'light' ? 'ws__rail' : 'ws__rail uv-on-deep'}>
+          {logo ? <img className="ws__logo" src={logo} alt="" /> : null}
           <p className="ws__identity" data-testid="institution">
             {profile?.legalName}
           </p>
@@ -42,7 +47,10 @@ export default async function WorkspaceLayout({ children }: { children: ReactNod
         </aside>
         <div>
           <header className="ws__top">
-            <span className="ws__inst ws__inst--phone">{profile?.legalName}</span>
+            <span className="ws__inst ws__inst--phone">
+              {logo ? <img className="ws__logo ws__logo--phone" src={logo} alt="" /> : null}
+              <span className="ws__inst-name">{profile?.legalName}</span>
+            </span>
             <div className="plate">
               <Link className="plate__link" href="/workspace/account" aria-label={`Your account: ${me.displayName}`}>
                 <span className="plate__initials" aria-hidden="true">

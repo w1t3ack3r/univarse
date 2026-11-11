@@ -35,7 +35,7 @@ describe('tenant resolution from Host', () => {
   it('serves the tenant that owns the host', async () => {
     const res = await get('/api/v1/tenant/public-profile', 'demo-uni.univarse.localhost');
     expect(res.statusCode).toBe(200);
-    expect(res.json()).toEqual({ slug: 'demo-uni', shortName: 'DEMO-UNI', legalName: 'Demo University, Lagos', type: 'UNIVERSITY' });
+    expect(res.json()).toEqual({ slug: 'demo-uni', shortName: 'DEMO-UNI', legalName: 'Demo University, Lagos', type: 'UNIVERSITY', branding: { primaryColor: null, textColor: null, logoSha256: null } });
   });
 
   it('is case-insensitive and ignores the port', async () => {

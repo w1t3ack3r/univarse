@@ -17,7 +17,7 @@ export default defineConfig({
   testDir: './e2e',
   testMatch: image ? 'frame.e2e.ts' : '**/*.e2e.ts',
   ...(image ? {} : { globalTeardown: './e2e/global-teardown.ts' }), // retires the members the journeys made
-  fullyParallel: false, // the journeys run in order, and the sign-in limit is per address
+  fullyParallel: false, // the journeys run in order; each test signs in from its own address (fixtures.randomClientIp)
   workers: 1,
   retries: process.env.CI ? 1 : 0,
   reporter: process.env.CI ? [['list'], ['html', { open: 'never', outputFolder: 'playwright-report' }]] : 'list',
@@ -36,8 +36,11 @@ export default defineConfig({
         timeout: 60_000,
       }
     : [
-        // platform.js reads .env.console itself, never the root .env.
-        { command: 'node apps/api/dist/platform.js', cwd: repo, url: 'http://127.0.0.1:8081/health/live', reuseExistingServer: reuse, timeout: 60_000 },
+        // platform.js reads .env.console itself, never the root .env. It trusts the dev edge, as the tenant API does
+        // (tools/dev-edge/start-api.mjs), so each test's own loopback address (fixtures.randomClientIp) reaches the
+        // allowlist and the per-address sign-in limit: twenty a minute from one address is a real limit, and a whole
+        // suite from one address crosses it.
+        { command: 'node apps/api/dist/platform.js', cwd: repo, env: { TRUSTED_PROXIES: '127.0.0.1', CONSOLE_ALLOWLIST: '127.0.0.0/8,::1' }, url: 'http://127.0.0.1:8081/health/live', reuseExistingServer: reuse, timeout: 60_000 },
         { command: 'pnpm --filter @univarse/console start', cwd: repo, url: 'http://127.0.0.1:3001/sign-in', reuseExistingServer: reuse, timeout: 60_000 },
         { command: 'node tools/dev-edge/server.mjs', cwd: repo, port: 4180, reuseExistingServer: reuse, timeout: 30_000 },
       ],

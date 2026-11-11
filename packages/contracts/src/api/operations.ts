@@ -369,6 +369,9 @@ export const FilesOps = defineOperations({
   },
 });
 
+/** Spec 0033 Q11: the logo's hash, as the web app puts it in the URL, so the browser may keep that version. */
+const LogoQuery = z.object({ v: z.string().regex(/^[0-9a-f]{64}$/).optional() }).strict();
+
 export const TenantOps = defineOperations({
   publicProfile: {
     operationId: 'publicProfile',
@@ -376,6 +379,16 @@ export const TenantOps = defineOperations({
     tag: 'tenant',
     success: 200,
     response: R.PublicProfileResponse,
+  },
+  tenantLogo: {
+    operationId: 'tenantLogo',
+    summary: 'The institution’s logo for this host (binary); 304 on a matching ETag',
+    tag: 'tenant',
+    success: 200,
+    query: LogoQuery,
+    binary: ['image/png', 'image/webp'],
+    image: true,
+    errors: { 404: ['resource.not_found'] },
   },
 });
 

@@ -11,6 +11,7 @@ import { requiresStepUp } from '../modules/identity/actor.js';
 import { PRODUCT } from '../modules/products/product.guard.js';
 import { NO_TENANT } from '../shared/tenancy/tenant.guard.js';
 import { CONTRACT } from './contract.js';
+import { IMMUTABLE_IMAGE } from '../shared/http/fastify-hooks.js';
 
 type Json = Record<string, unknown>;
 type Ctor = new (...args: never[]) => unknown;
@@ -188,6 +189,7 @@ export function buildOpenApi(controllers: readonly Ctor[], settings: Readonly<Re
     try {
       operation.responses = {
         [String(op.success)]: successResponse(op, where),
+        ...(op.image ? { '304': { description: 'Not modified: the browser has this version.', headers: { ETag: IMAGE_ETAG } } } : {}),
         ...errorResponses(op, {
           tenant: !noTenant,
           product,
@@ -322,11 +324,20 @@ const PROBLEM: Json = {
 
 const COOKIE_RULE = 'Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age (0 when cleared). Values are never documented.';
 
+const IMAGE_ETAG = { required: true, description: 'The content’s SHA-256; send it back as If-None-Match.', schema: { type: 'string', pattern: '^"[0-9a-f]{64}"$' } };
+
 function successResponse(op: ApiOperation, where: string): ResponseObject {
   const res: ResponseObject = { description: op.success === 204 ? 'No content' : 'Success' };
   const headers: NonNullable<ResponseObject['headers']> = {};
   if (op.response) {
     res.content = { 'application/json': { schema: toJsonSchema(op.response, 'output', `${where} response`) } };
+  } else if (op.binary && op.image) {
+    res.content = Object.fromEntries(op.binary.map((t) => [t, { schema: { type: 'string', format: 'binary' } }]));
+    headers['Content-Length'] = { required: true, schema: { type: 'string', pattern: '^[0-9]+$' } };
+    headers['X-Content-Type-Options'] = { required: true, schema: { type: 'string', const: 'nosniff' } };
+    headers['Content-Security-Policy'] = { required: true, description: 'Sandboxed: nothing in the file can run.', schema: { type: 'string', pattern: '(^|; )sandbox($|;)' } };
+    headers['Cache-Control'] = { required: true, description: 'Immutable only when asked for under its own hash (`?v=`).', schema: { type: 'string', enum: ['no-store', IMMUTABLE_IMAGE] } };
+    headers.ETag = IMAGE_ETAG;
   } else if (op.binary) {
     res.content = Object.fromEntries(op.binary.map((t) => [t, { schema: { type: 'string', format: 'binary' } }]));
     headers['Content-Disposition'] = {

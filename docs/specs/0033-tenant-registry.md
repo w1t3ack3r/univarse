@@ -1,6 +1,6 @@
 # Spec 0033: Phase 1's S4, the tenant registry
 
-**Status:** **Approved by the owner on 2026-11-09, all as written:** Q1 to Q17, and Q-A1 to Q-A7. PR A merged (#164); PR B built; PR C and the release next.
+**Status:** **Approved by the owner on 2026-11-09, all as written:** Q1 to Q17, Q-A1 to Q-A7 and Q-B1 to Q-B6. PR A (#164) and PR B (#165) merged; PR C built, Q-C1 to Q-C5 approved on 2026-11-11; the release next.
 **Phase:** 1, slice **S4** of [spec 0025](0025-phase-1-control-plane.md) (E7, E26, and spec 0003's platform side).
 **Builds on:**
 
@@ -112,7 +112,7 @@ The migration and grants, `packages/domain/src/platform/tenant-registry.ts`, and
 
 The console's screens in `apps/console/src/app/institutions/`: the list, the header's search on every page, the detail page, and the forms. S3's audit log and security page now take `?tenantId=`, so an institution links to its own view of them.
 
-**Decisions made while building, for approval:**
+**Decisions made while building PR B, approved by the owner on 2026-11-10:**
 
 | # | Decision | Why |
 | --- | --- | --- |
@@ -122,4 +122,22 @@ The console's screens in `apps/console/src/app/institutions/`: the list, the hea
 | Q-B4 | **A file that fails the check never leaves the page.** | Slow networks: nobody waits to upload something that will be refused. |
 | Q-B5 | **An archived or purged institution shows no forms and no Grant or Revoke,** as if the viewer had no permission to change it. | The API refuses them anyway (Q-A2), so offering them would only produce an error. |
 | Q-B6 | **The console's roles are described for what they now do** in the Staff page's hints: SUPPORT and FINANCE can look institutions up. | The old hints said "their own account only". |
+
+## PR C: what was built
+
+Branding in the web app (Q11, Q12, Q17).
+
+- **The API:** the tenant's cached context now carries its colour and its logo's hash, read with the tenant through the existing `tenant_branding` grant, and evicted by its capture trigger. `GET /api/v1/tenant/public-profile` adds `branding: { primaryColor, textColor, logoSha256 }`, with `textColor` from the domain's `textColorOn`. `GET /api/v1/tenant/logo` serves the bytes: the Host's institution only, its checked type, `nosniff`, the sandboxed CSP, the hash as the ETag and 304 on a match; 404 with no logo.
+- **The web app:** the logo beside the institution's name on the sign-in pages, on the workspace rail and, on a phone, in the top bar. The colour on the primary buttons and the rail.
+- **Tests:** `tenant-logo.int.spec.ts` (no branding, the profile's pair for a dark and a light colour, the bytes and headers, 304, the cache policy, a new logo's new hash, another host and an unknown host); the route sweep; `branding.e2e.ts` (the sign-in page and the workspace, desktop and phone, axe; another institution's page has neither). The E2E writes branding as the migrator, so it runs on the dev chain and the image run, and is skipped on the stack run, which criterion 14 covers.
+
+**Decisions made while building PR C, approved by the owner on 2026-11-11:**
+
+| # | Decision | Why |
+| --- | --- | --- |
+| Q-C1 | **The logo is the one API response a browser may keep:** asked for under its own hash (`?v=`), a 200 PNG or WebP is `public, max-age=31536000, immutable`. Everything else, this route's 304 and 404 included, stays `no-store`, and the global hook keeps the exception for nothing else. | Otherwise every page load downloads the logo again, up to 256 KB, on slow networks. A new logo has a new hash, so a new URL: a kept copy is never stale. The logo is public and names no one. |
+| Q-C2 | **The logo route takes one optional query parameter, `v`, a 64-hex hash;** anything else is the documented 400. A `v` that isn't the current hash is served, but never cached. | The contract's strict-query rule; and a page rendered just before a change still gets a logo. |
+| Q-C3 | **The logo's bytes are kept in memory per institution for the tenant cache's bound,** keyed by the hash the context names. | A public page shouldn't read the platform database on every load; a new hash reads again. |
+| Q-C4 | **On a branded rail, the text, the muted text and the focus ring all use the one text colour the domain chose;** the hover tint follows whether the colour is dark or light. | UniVarse's muted grey and lime focus ring were checked against deep green only; an institution's colour could be anything that passes Q10. |
+| Q-C5 | **On the rail the logo sits on its own small white tile;** on the sign-in page and the phone's top bar, which are already light, it stands on its own. | A logo is drawn for white paper and may not read on the institution's own colour. |
 

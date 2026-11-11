@@ -13,6 +13,10 @@ export interface TenantContext {
   readonly legalName: string;
   readonly type: string;
   readonly status: string;
+  /** Spec 0033 Q11: the institution's colour, as `#RRGGBB`, or null for UniVarse's own. */
+  readonly primaryColor: string | null;
+  /** Spec 0033 Q12: the logo's hash only. Its bytes are read on their own route. */
+  readonly logoSha256: string | null;
 }
 
 interface CacheEntry {
@@ -62,7 +66,7 @@ export class TenantResolver implements OnModuleInit {
 
     const domain = await this.platform.tenantDomain.findUnique({
       where: { hostname: host },
-      include: { tenant: true },
+      include: { tenant: { include: { branding: { select: { primaryColor: true, logoSha256: true } } } } },
     });
     // Custom domains only count once verified; subdomains are created verified by provisioning. Spec 0027 P2: a reserved
     // name (the console's own, say) never resolves to a tenant, whether it's the tenant's slug or the subdomain's label.
@@ -77,6 +81,8 @@ export class TenantResolver implements OnModuleInit {
             legalName: domain.tenant.legalName,
             type: domain.tenant.type,
             status: domain.tenant.status,
+            primaryColor: domain.tenant.branding?.primaryColor ?? null,
+            logoSha256: domain.tenant.branding?.logoSha256 ?? null,
           }
         : null;
 

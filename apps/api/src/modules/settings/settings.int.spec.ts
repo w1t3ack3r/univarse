@@ -421,7 +421,7 @@ describe('[ST11] cross-instance freshness', () => {
       stepUpAt: new Date(),
       grants: [{ permission: 'settings.registration.manage', scopeType: 'INSTITUTION', scopeId: null, roleKey: 'REGISTRAR' }],
     };
-    const tenant: TenantContext = { tenantId: h.tenants.demo, shardId, slug: 'demo-uni', shortName: 'DEMO', legalName: 'Demo', type: 'UNIVERSITY', status: 'ACTIVE' };
+    const tenant: TenantContext = { tenantId: h.tenants.demo, shardId, slug: 'demo-uni', shortName: 'DEMO', legalName: 'Demo', type: 'UNIVERSITY', status: 'ACTIVE', primaryColor: null, logoSha256: null };
     const current = (await get(registrarUp)).json();
     const next = { min: current.value.min === 15 ? 11 : 15, max: 24 };
     const view = await svc.update(tenant, actor, KEY, next, `"v${String(current.version)}"`, { ip: '203.0.113.11', userAgent: 'test', requestId: 'req-st11d-test' });
