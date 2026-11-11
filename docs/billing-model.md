@@ -391,15 +391,28 @@ The core product catalogue must be centrally managed.
 
 Changes to the core product offering must be communicated appropriately and must not silently alter existing commercial agreements.
 
+**The core products** (the owner, 2026-11-11), all covered by the per-student rate:
+
+- **Core** (the platform: identity, roles, settings, audit).
+- **Academics** (programmes, student records, registration, results, transcripts).
+- **Bursary** (fees, invoices, payments to the institution).
+- **Admissions** (cycles, the applicant portal, screening, offers). Its applicants are still charged by use (Section 7.4).
+- **Helpdesk & Comms** (tickets, announcements, email). SMS is still charged by use (Section 7.4).
+
 ## 6.3 Optional Products
 
 Optional products are additional UniVarse services that institutions may choose to activate.
 
 Each optional product must have a defined commercial price and subscription arrangement.
 
-Examples may include additional institutional management capabilities such as Accommodation Management or other future products introduced by UniVarse.
+**The optional products** (the owner, 2026-11-11):
 
-These examples do not constitute a commitment that every such product is currently available.
+- **Teaching & Learning**, with UniVarse Live (its extra hours charged by use, Section 7.4).
+- **Assessment** (CA CBT).
+- **Student Affairs** (hostel and accommodation, disciplinary cases, clearance steps).
+- **Reporting** (dashboards and returns).
+
+Future products are optional unless a decision makes them core. Listing a product here is not a commitment that it is available yet.
 
 ## 6.4 Optional Product Activation
 
@@ -416,7 +429,7 @@ Submitting a request, or a payment attempt, does not grant access. Only a verifi
 
 ## 6.5 Optional Product Billing
 
-Each optional product has a **flat fee per semester**, not a per-student rate.
+Each optional product has a **flat fee per semester for each programme tier** (Section 5.3), not a per-student rate (the owner, 2026-11-11). Within a tier the fee is the same for every institution; a larger tier pays more, so a small college doesn't pay a university's price.
 
 Its product invoice is separate from the semester invoice (Section 9), and it is paid in full: installments are for the semester invoice.
 
@@ -1427,6 +1440,52 @@ Their absence from this policy does not authorize the implementation team to inv
 These values should be maintained through controlled commercial configuration and institutional agreements.
 
 They must not be scattered throughout application code.
+
+## 20.1 The Starting Price Sheet
+
+**Decided by the owner on 2026-11-11:** the core and optional products (Section 6), the per-student rate, and optional fees flat per programme tier. **The rest is a draft for the owner's approval**, marked *draft*. All amounts are per semester and before VAT; the price book holds them as data (versioned, two-person approval), so later changes need no release.
+
+**Per-student rate (decided):** **₦5,000** per billable student per semester (₦10,000 a session).
+
+**Programme tiers** (*draft*; thresholds as in Section 5.3):
+
+| Tier | Programmes | Tier charge per semester | Onboarding fee (one-off) |
+|---|---:|---:|---:|
+| Starter | 1–10 | ₦250,000 | ₦750,000 |
+| Growth | 11–25 | ₦500,000 | ₦1,500,000 |
+| Professional | 26–50 | ₦1,000,000 | ₦3,000,000 |
+| Enterprise | 51–100 | ₦2,000,000 | ₦5,000,000 |
+| Custom | above 100 | quoted | quoted |
+
+**Optional products, per semester by tier** (*draft*): the starting price book's per-student rate for each product (spec 0030), times a typical size per tier (about 1,000, 3,000, 8,000 and 20,000 students), rounded.
+
+| Product | Starter | Growth | Professional | Enterprise |
+|---|---:|---:|---:|---:|
+| Teaching & Learning (with Live) | ₦700,000 | ₦2,100,000 | ₦5,600,000 | ₦14,000,000 |
+| Assessment (CA CBT) | ₦500,000 | ₦1,500,000 | ₦4,000,000 | ₦10,000,000 |
+| Student Affairs | ₦300,000 | ₦900,000 | ₦2,400,000 | ₦6,000,000 |
+| Reporting | ₦200,000 | ₦600,000 | ₦1,600,000 | ₦4,000,000 |
+
+**Charged by use** (*draft*): Admissions **₦400 per applicant** per cycle; Live **10 hours per student per semester included**, then **₦20 per student-hour**; SMS at **cost plus 20%**.
+
+**Free and discounted** (*draft*): the pilot's first session free (Section 7.5); a **small-institution rate of ₦3,500** per student for a Starter-tier institution with up to 1,000 billable students; training sandboxes never billed.
+
+**Worked semester invoices** (tax at 7.5%, `[VERIFY]`):
+
+| | Small college | Mid polytechnic | Large university |
+|---|---:|---:|---:|
+| Students; programmes (tier) | 1,200; 8 (Starter) | 6,000; 30 (Professional) | 25,000; 80 (Enterprise) |
+| Students × ₦5,000 | 6,000,000 | 30,000,000 | 125,000,000 |
+| Tier charge | 250,000 | 1,000,000 | 2,000,000 |
+| Applicants × ₦400 | 800: 320,000 | 4,000: 1,600,000 | 30,000: 12,000,000 |
+| SMS | 60,000 | 150,000 | 500,000 |
+| **Before VAT** | **6,630,000** | **32,750,000** | **139,500,000** |
+| VAT | 497,250 | 2,456,250 | 10,462,500 |
+| **Semester invoice** | **₦7,127,250** | **₦35,206,250** | **₦149,962,500** |
+| Optional products, paid in advance (before VAT) | none | Assessment: 4,000,000 | all four: 34,000,000 |
+| **Everything per student per session, before VAT** | **≈ ₦11,050** | **≈ ₦12,250** | **≈ ₦13,880** |
+
+**Affordability, for the owner's judgement:** core alone is ₦10,000 per student per session, against the ICT or portal fees students already pay (about ₦5,000 to ₦25,000 a session, spec 0030's sources). An institution at the low end would need to raise its fee to fund UniVarse from it; the small-institution rate softens this for the smallest.
 
 ---
 
