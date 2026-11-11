@@ -1,6 +1,6 @@
 # Spec 0033: Phase 1's S4, the tenant registry
 
-**Status:** **Approved by the owner on 2026-11-09, all as written:** Q1 to Q17, Q-A1 to Q-A7 and Q-B1 to Q-B6. PR A (#164) and PR B (#165) merged; PR C built, its decisions Q-C1 to Q-C5 for approval; the release next.
+**Status:** **Approved by the owner on 2026-11-09, all as written:** Q1 to Q17, Q-A1 to Q-A7 and Q-B1 to Q-B6. PR A (#164) and PR B (#165) merged; PR C built, Q-C1 to Q-C5 approved on 2026-11-11; the release next.
 **Phase:** 1, slice **S4** of [spec 0025](0025-phase-1-control-plane.md) (E7, E26, and spec 0003's platform side).
 **Builds on:**
 
@@ -131,7 +131,7 @@ Branding in the web app (Q11, Q12, Q17).
 - **The web app:** the logo beside the institution's name on the sign-in pages, on the workspace rail and, on a phone, in the top bar. The colour on the primary buttons and the rail.
 - **Tests:** `tenant-logo.int.spec.ts` (no branding, the profile's pair for a dark and a light colour, the bytes and headers, 304, the cache policy, a new logo's new hash, another host and an unknown host); the route sweep; `branding.e2e.ts` (the sign-in page and the workspace, desktop and phone, axe; another institution's page has neither). The E2E writes branding as the migrator, so it runs on the dev chain and the image run, and is skipped on the stack run, which criterion 14 covers.
 
-**Decisions made while building PR C, for approval:**
+**Decisions made while building PR C, approved by the owner on 2026-11-11:**
 
 | # | Decision | Why |
 | --- | --- | --- |
