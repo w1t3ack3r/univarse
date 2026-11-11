@@ -129,6 +129,7 @@ Tactics:
 - Separate deployment, host, cookie and CSP. No shared session with tenant apps.
 - Dense admin UI is acceptable. **Every destructive action has typed confirmation** (type the tenant slug) and a reason field, and shows the two-person approval status where required.
 - Clearly labelled environment banner (STAGING / PRODUCTION).
+- **Design context:** `apps/console/PRODUCT.md` (who uses it, the voice, what it must honour) and `apps/console/DESIGN.md` (its visual system, on `packages/ui`'s tokens), as `apps/web` has its own. Design work on a console screen loads these, not the tenant app's.
 
 ## 10. Frontend testing
 
