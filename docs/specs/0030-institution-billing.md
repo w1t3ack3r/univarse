@@ -49,7 +49,7 @@ Rates are per **session**; each semester bills half.
 | Core | included |
 | Academics | ₦1,500 |
 | Bursary | ₦500 |
-| Teaching & Learning (with practicals, spec 0029) | ₦700 |
+| Teaching & Learning | ₦700 |
 | Assessment (CA CBT) | ₦500 |
 | Student Affairs | ₦300 |
 | Helpdesk & Comms (SMS by use) | ₦200 |
