@@ -1,6 +1,6 @@
 # Spec 0030: Institution billing: subscriptions, the student count and semester invoices
 
-**Status:** **Approved by the owner on 2026-11-06, all as written:** B1 to B16 and the phasing. Written 2026-11-05 at the owner's request, from the billing model the owner chose that day: **billed per semester, in arrears, for the students and products actually used**, with a setup fee and, for a new institution, a deposit. The prices below are **starting assumptions**, held as settings and changed after talking to the first institutions; nothing in code depends on them.
+**Status:** **Approved by the owner on 2026-11-06, all as written:** B1 to B16 and the phasing. Written 2026-11-05 at the owner's request, from the billing model the owner chose that day: **billed per semester, in arrears, for the students and products actually used**, with a setup fee and, for a new institution, a deposit. The prices below are **starting assumptions**, held as settings and changed after talking to the first institutions; nothing in code depends on them. **Amended on 2026-11-10** by the owner's billing policy, [BP-1](../billing-model.md): see [the amendment](#amendment-2026-11-10-the-billing-policy-bp-1). Where they differ, the amendment wins; BP-1 is the reference for what this spec doesn't cover.
 **Phase:** 1b (S10) and 4 ([18](../18-roadmap.md)).
 **Builds on:**
 
@@ -72,14 +72,45 @@ Rates are per **session**; each semester bills half.
 
 S10 grows by about a week; Phase 4 by about a week and a half (Phase 4 moves from about 6 weeks to about 7.5).
 
+## Amendment, 2026-11-10: the billing policy (BP-1)
+
+The owner wrote a fuller billing policy, [BP-1](../billing-model.md), and decided on 2026-11-10 how it and this spec fit together. **BP-1 amends this spec**, and stays the reference for everything this spec doesn't cover: installment plans, refunds, write-offs, reconciliation, the dashboards and the domain boundaries.
+
+| # | Before | Now |
+| --- | --- | --- |
+| B1 | Per semester, in arrears | **Unchanged.** One invoice after each semester's official end. |
+| B2 | A registration standing 14 days; late registrations count | **Unchanged**, and counted **to the semester's official end**. A student whose 14 days finish after it is carried onto the next invoice, once (BP-1 §4.5). |
+| B3, B4 | The continuous, private count; the running bill | **Unchanged.** Snapshots hold numbers and a fingerprint of the list, never who (BP-1 §4.4). |
+| B5 | The price book: per-product rates, bundles, volume bands, the minimum fee, setup fees, the deposit rule | **The price book's contents change** (below). Versioned, two-person approval and session-start effect are unchanged. |
+| B6 | Per product: students × rate, marginal volume bands, the minimum-fee top-up, then VAT | **Replaced:** `T = (S × Rs) + Pt + ΣUj + C − D`, then tax (BP-1 §9.3). **One per-student rate** (`Rs`), a **programme tier charge** (`Pt`), usage (`Uj`). Optional products are billed on their own invoices, in advance (R1). No bundles, no volume bands, **no minimum fee**. Each line in kobo, rounded half up, as before. |
+| B7 | Usage priced on use | **Unchanged** (BP-1 §7.4). |
+| B8 | The setup fee, and a deposit for a new institution | **No deposit.** The setup fee stays, paid before activation. The semester's charges are invoiced after it; optional products are paid in advance (R1). |
+| B9, B10 | Immutable invoices; payments recorded and verified | **Unchanged.** **Full payment is the default**, and an institution may ask for an **installment plan**, approved by UniVarse finance (BP-1 §10.3). |
+| B11 | The billing hold: no new admission cycle or registration after 30 days past due | **Replaced by BP-1 §11:** reminders and escalation; any service restriction is set by the contract, product by product, and never touches academic records. No automatic hold by default. |
+| B12, B13, B14 | The contract; VAT and withholding `[VERIFY]`; the yearly, capped price review | **Unchanged** (BP-1 §13.3, §14.1). |
+| B15 | The free pilot, the sandbox, a small-institution price | **Unchanged** (BP-1 §7.5). |
+| B16 | Collecting UniVarse's fee from students' payments, later | **Unchanged.** |
+| New | | **The programme tier** (BP-1 §5): a billable programme is a formally approved qualification (B.Sc. Computer Science, HND Accountancy), never a faculty, department, level, course or cohort, counted at the semester's official end. |
+
+**Read from the owner's answers, confirmed by the owner on 2026-11-10** (R1 as the owner corrected it):
+
+| # | Reading | Why |
+| --- | --- | --- |
+| R1 | **Optional products are paid in advance,** immediately before they're switched on: a product invoice for the semester, verified, then the entitlement. Each renewal is invoiced before its semester, and a cancelled product runs to the end of the semester paid for (BP-1 §6.4 to §6.7). | The owner's correction: "immediately before approved for use, and not after the semester". |
+| R2 | **The programme count is taken at the semester's official end,** with the student count. | One measurement point, the same as the students'. |
+| R3 | **VAT, withholding and the yearly review cap stay** as B13 and B14 had them. | The answers didn't change them. |
+| R4 | **The volume bands go,** with the per-product rates. | One per-student rate leaves nothing to band. They can return as tiers of `Rs` if the owner wants them. |
+
+**Still to decide:** which of UniVarse's nine products are core and which optional (BP-1 §20), the per-student rate, the tier thresholds and prices, and each optional product's fee. The starting price book above is kept as the reasoning it was, not as prices.
+
 ## Acceptance criteria (for the build specs)
 
-1. **The computation:** golden fixtures for B6 (bands crossed and not, the minimum fee, usage lines, rounding, VAT), as a pure function; the same input gives the same kobo on every run.
+1. **The computation:** golden fixtures for the amended B6 (the programme tier at and across a threshold, optional products, usage lines, students carried forward, rounding, VAT), as a pure function; the same input gives the same kobo on every run.
 2. **The count:** a registration cancelled within 14 days doesn't count; a late one does; a student with two registrations counts once; the console's data holds numbers only (a test), and the institution's list matches the number.
 3. **Immutability:** an invoice can't be changed (the database refuses); a correction is a credit note plus a new invoice, both audited.
 4. **The price book:** a version can't take effect mid-semester; a change without a second approver is refused; each invoice names its version.
 5. **Payments:** a gateway payment credits only after server-side verification or a signed webhook, once (a replay does nothing); a manual payment needs step-up and is audited.
-6. **The billing hold:** with it on, a new admission cycle and a new registration are refused with a clear message; sign-in, results, transcripts and existing records still work (an E2E); paying lifts it.
+6. **Restrictions (amended B11):** a restriction applies only as the contract sets it, product by product; sign-in, results, transcripts and existing records always work (an E2E); paying lifts it.
 7. **Cross-tenant and unauthorised cases** on every route, as everywhere.
 
 ## The owner's steps
