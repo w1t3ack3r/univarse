@@ -61,6 +61,26 @@ test('[W6] a user without the permission does not see the gated item', async ({ 
   await expect(nav.getByRole('link', { name: 'Users' })).toHaveCount(0);
 });
 
+test('[W6] the two-step card: on a phone the action takes its own line under the text; wider, it sits beside it', async ({ page }) => {
+  const u = await makeUser('demo-uni', { role: 'LECTURER' });
+  await signIn(page, DEMO, u.username);
+  await expect(page).toHaveURL(`${DEMO}/workspace`);
+  const row = page.locator('.list__row--flat');
+  const text = await row.locator('.list__text').boundingBox();
+  const button = await row.getByRole('link', { name: 'Turn it on' }).boundingBox();
+  const box = await row.boundingBox();
+  if (!text || !button || !box) throw new Error('the two-step card is missing');
+  expect(button.height).toBeGreaterThanOrEqual(44); // a full touch target either way
+  if ((page.viewportSize()?.width ?? 0) < 520) {
+    expect(button.y).toBeGreaterThanOrEqual(text.y + text.height); // below the sentence, not squeezing it
+    expect(Math.abs(button.x - text.x)).toBeLessThanOrEqual(1); // starts where the text starts
+    expect(Math.abs(button.x + button.width - (box.x + box.width))).toBeLessThanOrEqual(1); // and reaches the edge
+    expect(text.width).toBeGreaterThan(box.width * 0.6); // the sentence keeps a readable measure
+  } else {
+    expect(button.y).toBeLessThan(text.y + text.height); // beside the text, as before
+  }
+});
+
 test('[W10][W5] login with an authenticator code; a wrong code gets the generic error', async ({ page }) => {
   const u = await makeUser('demo-uni', { role: 'STUDENT', mfa: true });
   await clearReplayGuard('demo-uni', u);
