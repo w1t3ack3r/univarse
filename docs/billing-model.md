@@ -1443,11 +1443,11 @@ They must not be scattered throughout application code.
 
 ## 20.1 The Starting Price Sheet
 
-**Decided by the owner on 2026-11-11:** the core and optional products (Section 6), the per-student rate, and optional fees flat per programme tier. **The rest is a draft for the owner's approval**, marked *draft*. All amounts are per semester and before VAT; the price book holds them as data (versioned, two-person approval), so later changes need no release.
+**Approved by the owner on 2026-11-11, all as written:** the core and optional products (Section 6), the per-student rate, optional fees flat per programme tier, and every amount below. All amounts are per semester and before VAT; the price book holds them as data (versioned, two-person approval), so later changes need no release.
 
-**Per-student rate (decided):** **₦5,000** per billable student per semester (₦10,000 a session).
+**Per-student rate:** **₦5,000** per billable student per semester (₦10,000 a session).
 
-**Programme tiers** (*draft*; thresholds as in Section 5.3):
+**Programme tiers** (thresholds as in Section 5.3):
 
 | Tier | Programmes | Tier charge per semester | Onboarding fee (one-off) |
 |---|---:|---:|---:|
@@ -1457,7 +1457,7 @@ They must not be scattered throughout application code.
 | Enterprise | 51–100 | ₦2,000,000 | ₦5,000,000 |
 | Custom | above 100 | quoted | quoted |
 
-**Optional products, per semester by tier** (*draft*): the starting price book's per-student rate for each product (spec 0030), times a typical size per tier (about 1,000, 3,000, 8,000 and 20,000 students), rounded.
+**Optional products, per semester by tier:** the starting price book's per-student rate for each product (spec 0030), times a typical size per tier (about 1,000, 3,000, 8,000 and 20,000 students), rounded.
 
 | Product | Starter | Growth | Professional | Enterprise |
 |---|---:|---:|---:|---:|
@@ -1466,9 +1466,9 @@ They must not be scattered throughout application code.
 | Student Affairs | ₦300,000 | ₦900,000 | ₦2,400,000 | ₦6,000,000 |
 | Reporting | ₦200,000 | ₦600,000 | ₦1,600,000 | ₦4,000,000 |
 
-**Charged by use** (*draft*): Admissions **₦400 per applicant** per cycle; Live **10 hours per student per semester included**, then **₦20 per student-hour**; SMS at **cost plus 20%**.
+**Charged by use:** Admissions **₦400 per applicant** per cycle; Live **10 hours per student per semester included**, then **₦20 per student-hour**; SMS at **cost plus 20%**.
 
-**Free and discounted** (*draft*): the pilot's first session free (Section 7.5); a **small-institution rate of ₦3,500** per student for a Starter-tier institution with up to 1,000 billable students; training sandboxes never billed.
+**Free and discounted:** the pilot's first session free (Section 7.5); a **small-institution rate of ₦3,500** per student for a Starter-tier institution with up to 1,000 billable students; training sandboxes never billed.
 
 **Worked semester invoices** (tax at 7.5%, `[VERIFY]`):
 

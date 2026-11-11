@@ -101,7 +101,7 @@ The owner wrote a fuller billing policy, [BP-1](../billing-model.md), and decide
 | R3 | **VAT, withholding and the yearly review cap stay** as B13 and B14 had them. | The answers didn't change them. |
 | R4 | **The volume bands go,** with the per-product rates. | One per-student rate leaves nothing to band. They can return as tiers of `Rs` if the owner wants them. |
 
-**Decided on 2026-11-11:** core is Core, Academics, Bursary, Admissions and Helpdesk & Comms; optional is Teaching & Learning (with Live), Assessment, Student Affairs and Reporting; the per-student rate is **₦5,000 a semester**; optional fees are **flat per programme tier**. The starting price sheet is [BP-1 §20.1](../billing-model.md), where the tier charges, optional fees, usage rates, onboarding fees and the small-institution rate are a draft for the owner's approval. The starting price book above is kept as the reasoning it was, not as prices.
+**Decided on 2026-11-11:** core is Core, Academics, Bursary, Admissions and Helpdesk & Comms; optional is Teaching & Learning (with Live), Assessment, Student Affairs and Reporting; the per-student rate is **₦5,000 a semester**; optional fees are **flat per programme tier**. The starting price sheet, [BP-1 §20.1](../billing-model.md), was approved the same day: the tier charges, optional fees, usage rates, onboarding fees and the small-institution rate. The starting price book above is kept as the reasoning it was, not as prices.
 
 ## Acceptance criteria (for the build specs)
 
