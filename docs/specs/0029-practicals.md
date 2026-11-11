@@ -1,7 +1,7 @@
 # Spec 0029: Practicals: blended laboratory practicals, simulations and virtual labs
 
-**Status:** **Approved by the owner on 2026-11-02, all as written:** Q1 to Q12 and the phasing. Written the same day at the owner's request, after a discussion of online practicals for Phase 4c. Nothing is built from it until its phase starts; each part then gets its own build spec.
-**Phase:** spread over 4b, 4c and 7 ([18](../18-roadmap.md)); its own lab player after GA.
+**Status:** **Off the roadmap, a future consideration** (the owner, 2026-11-11). Nothing in this spec is planned or built, and no phase carries it; its research and decisions are kept for if it returns. It returns only by a new decision on its scope and phase, with the licences below re-checked (they were found on 2026-11-02 and change: PhET's did in March 2026). *Before:* approved by the owner on 2026-11-02 (Q1 to Q12 and the phasing).
+**Phase:** none (it was 4b, 4c and 7 until 2026-11-11). Listed under [01 §5.5](../01-product-brief.md) and the roadmap's deferred items.
 **Builds on:**
 
 - [01 §5.1](../01-product-brief.md) (Teaching & Learning) and [01 §5.5](../01-product-brief.md) ("3D virtual labs", deferred, with the hook "embeddable interactive content (sandboxed)"), which this spec replaces with a plan;
@@ -63,7 +63,7 @@ A licence is recorded per item, and nothing enters the library without one that 
 | **P4** | LTI 1.3 tools (Q9), with the console's tool status | Phase 7 | +1.5 weeks |
 | **P5** | Our own virtual lab player (Q10) | after GA, its own spec | to estimate |
 
-So Phase 4b moves from about 7 weeks to about 9, Phase 4c from about 5 to about 5.5, and Phase 7 from about 6 to about 7.5.
+These estimates were withdrawn with the spec on 2026-11-11: Phases 4b, 4c and 7 are back to about 7, 5 and 6 weeks.
 
 ## Acceptance criteria (for the build specs)
 
@@ -78,7 +78,7 @@ So Phase 4b moves from about 7 weeks to about 9, Phase 4c from about 5 to about 
 
 ## The owner's steps
 
-**Deferred by the owner on 2026-11-07:** the steps below are taken up when Phase 4b starts, not before.
+**None while it's off the roadmap** (2026-11-11). If it returns, these are where it stood:
 
 - ~~Approve or change Q1 to Q12 and the phasing.~~ Done: all approved on 2026-11-02.
 - **PhET:** decide whether to ask for a commercial partnership (phet-partnerships@colorado.edu) for the sims published after 29 March 2026; without it, the library keeps the historical versions.
