@@ -40,7 +40,7 @@ An institution signs a contract, chooses a bundle or products, and pays a **one-
 | B15 | **Free and discounted:** the **pilot** institution's first session is free (invoiced at ₦0 with a 100% discount line, so the record exists); the **training sandbox** (spec 0025 E17) is never billed; a **small-institution** Essentials price lives in the price book. Core is always included. | Win the first institutions without giving away the product most expensive to run (Academics) for good. |
 | B16 | **Not in scope now:** collecting UniVarse's fee as a split of students' online payments. It would keep UniVarse from holding institutions' money (it would take only its own fee), but it needs legal and finance review first. | The owner's idea for later; recorded so it isn't lost. |
 
-## The starting price book (assumptions, per active student)
+## The starting price book (assumptions, per active student; superseded on 2026-11-11 by [BP-1 §20.1](../billing-model.md))
 
 Rates are per **session**; each semester bills half.
 
@@ -101,7 +101,7 @@ The owner wrote a fuller billing policy, [BP-1](../billing-model.md), and decide
 | R3 | **VAT, withholding and the yearly review cap stay** as B13 and B14 had them. | The answers didn't change them. |
 | R4 | **The volume bands go,** with the per-product rates. | One per-student rate leaves nothing to band. They can return as tiers of `Rs` if the owner wants them. |
 
-**Still to decide:** which of UniVarse's nine products are core and which optional (BP-1 §20), the per-student rate, the tier thresholds and prices, and each optional product's fee. The starting price book above is kept as the reasoning it was, not as prices.
+**Decided on 2026-11-11:** core is Core, Academics, Bursary, Admissions and Helpdesk & Comms; optional is Teaching & Learning (with Live), Assessment, Student Affairs and Reporting; the per-student rate is **₦5,000 a semester**; optional fees are **flat per programme tier**. The starting price sheet, [BP-1 §20.1](../billing-model.md), was approved the same day: the tier charges, optional fees, usage rates, onboarding fees and the small-institution rate. The starting price book above is kept as the reasoning it was, not as prices.
 
 ## Acceptance criteria (for the build specs)
 
