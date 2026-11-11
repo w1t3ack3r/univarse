@@ -4,7 +4,7 @@
 // the API's own functions (plain source, no decorators), so they match the server exactly.
 import { expect, type Page } from '@playwright/test';
 import { createPlatformClient } from '@univarse/db';
-import { randomBytes } from 'node:crypto';
+import { randomBytes, randomInt } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { parseEnv } from 'node:util';
 import { expectAccessible } from './a11y';
@@ -106,3 +106,9 @@ export async function enrol(page: Page): Promise<{ secret: string; codes: string
   await expect(page.getByRole('heading', { level: 1, name: 'Platform console' })).toBeVisible();
   return { secret, codes };
 }
+
+/**
+ * A client address per test, as the web E2E does, so the suite doesn't share one address's sign-in limit. A loopback
+ * address, so it stays inside the console's allowlist (the E2E allows 127.0.0.0/8, all of loopback).
+ */
+export const randomClientIp = (): string => `127.${String(randomInt(1, 255))}.${String(randomInt(256))}.${String(randomInt(1, 255))}`;

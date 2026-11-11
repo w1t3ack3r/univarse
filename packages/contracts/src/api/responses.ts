@@ -99,7 +99,10 @@ export const UploadSlotResponse = z
   .strict();
 
 export const PublicProfileResponse = z
-  .object({ slug: z.string(), shortName: z.string(), legalName: z.string(), type: z.enum(['UNIVERSITY', 'POLYTECHNIC', 'COLLEGE_OF_EDUCATION']) })
+  .object({
+    /** Spec 0033 Q11: the institution's colour and the text colour that reads on it, or null; the logo's hash, or null. */
+    branding: z.object({ primaryColor: z.string().nullable(), textColor: z.string().nullable(), logoSha256: z.string().nullable() }).strict(),
+    slug: z.string(), shortName: z.string(), legalName: z.string(), type: z.enum(['UNIVERSITY', 'POLYTECHNIC', 'COLLEGE_OF_EDUCATION']) })
   .strict();
 
 export const LiveResponse = z.object({ status: z.literal('ok') }).strict();

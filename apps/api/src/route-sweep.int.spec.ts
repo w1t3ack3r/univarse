@@ -278,6 +278,19 @@ const DECLS: Record<RouteKey, Decl> = {
       },
     }),
   },
+  // Spec 0033 Q11: the seeded institutions have no logo; serving one is covered by tenant-logo.int.spec.ts.
+  'GET /api/v1/tenant/logo': {
+    auth: 'public',
+    classes: [],
+    strictQuery: true,
+    prepare: () => ({
+      req: { method: 'GET', host: A, url: '/api/v1/tenant/logo' },
+      verify: (r) => {
+        expectStatus(r, 404);
+        expect(json(r)).toMatchObject({ code: 'resource.not_found' });
+      },
+    }),
+  },
 
   'POST /api/v1/auth/login': {
     auth: 'public',

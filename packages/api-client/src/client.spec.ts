@@ -1,7 +1,7 @@
 // Spec 0011 OA8: the shared behaviour every call gets from the client, against a fake fetch.
 import type { SettingValue } from '@univarse/contracts';
 import { describe, expect, expectTypeOf, it } from 'vitest';
-import { answer, ApiError, contentUrl, createApi, unwrap, type paths } from './client.js';
+import { answer, ApiError, contentUrl, createApi, logoUrl, unwrap, type paths } from './client.js';
 import { getSetting, putSetting, type SettingViewOf } from './settings.js';
 
 type Handler = (req: Request) => Response | Promise<Response>;
@@ -81,6 +81,13 @@ describe('[OA8] empty, binary, cookies and CSRF', () => {
   it('[OA8] the binary download is a link built from the documented path, never fetched or parsed', () => {
     expect(contentUrl('a/b c')).toBe('/api/v1/files/a%2Fb%20c/content');
     expectTypeOf<'/api/v1/files/{id}/content'>().toExtend<keyof paths>();
+  });
+
+  it('[spec 0033 Q11] the logo is a link under its hash; anything that is not a hash is left out', () => {
+    const h = 'a'.repeat(64);
+    expect(logoUrl(h)).toBe(`/api/v1/tenant/logo?v=${h}`);
+    expect(logoUrl('../x?y')).toBe('/api/v1/tenant/logo');
+    expect(logoUrl('A'.repeat(64))).toBe('/api/v1/tenant/logo');
   });
 });
 
