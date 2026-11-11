@@ -1,7 +1,7 @@
 import { messageFor } from '@univarse/contracts';
 import { Card, Notice } from '@univarse/ui';
 import type { ReactNode } from 'react';
-import { tenantProfile } from '@/lib/tenant';
+import { brandStyle, logoUrl, tenantProfile } from '@/lib/tenant';
 
 const KIND: Record<string, string> = {
   UNIVERSITY: 'university',
@@ -15,8 +15,9 @@ const KIND: Record<string, string> = {
  */
 export default async function AuthLayout({ children }: { children: ReactNode }) {
   const { profile, code } = await tenantProfile();
+  const b = profile?.branding;
   return (
-    <div className="auth">
+    <div className="auth" style={b?.primaryColor && b.textColor ? brandStyle(b.primaryColor, b.textColor) : undefined}>
       <header className="auth__top">
         <span className="uv-pill auth__trust">
           <img src="/brand/icon-deep.svg" alt="" width={18} height={18} />
@@ -27,6 +28,7 @@ export default async function AuthLayout({ children }: { children: ReactNode }) 
         {profile ? (
           <>
             <div className="auth__hero">
+              {b?.logoSha256 ? <img className="auth__logo" src={logoUrl(b.logoSha256)} alt="" /> : null}
               <p className="auth__institution">{profile.legalName}</p>
               <p className="auth__lede">
                 Your {KIND[profile.type] ?? 'institution'} account for courses, fees, results and everything in between.

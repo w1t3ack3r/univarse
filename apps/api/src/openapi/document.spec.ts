@@ -244,10 +244,10 @@ describe('[OA3] settings: one operation, value shapes derived from the registry,
 describe('[OA5][OA6] authentication, step-up, CSRF and path parameters as enforced', () => {
   it('[OA5] public operations have no security; MFA verify uses the challenge cookie; the rest the session', () => {
     expect(ids((o) => (o.security as unknown[]).length === 0)).toEqual(
-      ['confirmActivation', 'confirmContactCorrection', 'confirmPasswordReset', 'live', 'login', 'publicProfile', 'ready', 'requestActivation', 'requestPasswordReset', 'undoContactChange'].sort(),
+      ['confirmActivation', 'confirmContactCorrection', 'confirmPasswordReset', 'live', 'login', 'publicProfile', 'ready', 'tenantLogo', 'requestActivation', 'requestPasswordReset', 'undoContactChange'].sort(),
     );
     expect(byId('verifyMfa').security).toEqual([{ mfaChallenge: [] }]);
-    expect(ids((o) => JSON.stringify(o.security) === '[{"session":[]}]')).toHaveLength(ops.length - 11);
+    expect(ids((o) => JSON.stringify(o.security) === '[{"session":[]}]')).toHaveLength(ops.length - 12);
   });
 
   it('[OA5] x-step-up is derived from @RequireStepUp and the permission catalog, as the guard does', () => {

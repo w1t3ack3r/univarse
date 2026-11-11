@@ -41,6 +41,11 @@ export interface ApiOperation {
   /** A binary success: the media types the body may have (OA6). */
   readonly binary?: readonly string[];
   /**
+   * With `binary`: a public image shown inline, not a download (spec 0033 Q11). No Content-Disposition; its content
+   * hash is the ETag (304 on If-None-Match), and asked for under that hash (`?v=`) it may be cached as immutable.
+   */
+  readonly image?: true;
+  /**
    * Errors the use case produces, by status. Errors that follow from the route itself (tenant, product,
    * authentication, permission, step-up, validation, CSRF, rate limit, path parameters, If-Match and
    * 500) are derived by the generator and must not be repeated here.

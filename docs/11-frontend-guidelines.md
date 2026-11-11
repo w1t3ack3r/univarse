@@ -27,7 +27,7 @@ middleware.ts                # session presence check + redirects, security head
 ```
 
 - **One workspace, permission-driven.** Navigation items declare the permission they need (`requires: 'results.scoresheet.view'`). A page renders only if the user holds the permission in some scope. The API remains the real enforcement point.
-- Tenant branding (logo, name, colors) is loaded server-side from `/api/v1/tenant/public-profile` and applied as CSS variables.
+- Tenant branding (logo, name, colors) is loaded server-side from `/api/v1/tenant/public-profile` and applied as CSS variables (`--uv-brand`, `--uv-on-brand`) on the sign-in and workspace roots ([spec 0033](specs/0033-tenant-registry.md) Q11). The colour is only ever paired with the text colour the API sends with it (chosen in `packages/domain`, 4.5:1 or more); on a branded surface the text, muted text and focus ring all use it. The logo is an `<img alt="">` from `logoUrl(hash)` beside the institution's name.
 
 ## 2. Rendering & data fetching
 

@@ -64,6 +64,13 @@ export function registerPlatformRefusal(app: FastifyInstance): void {
   });
 }
 
+/**
+ * Spec 0033 Q11: the one cache policy a route may keep. Only an image, asked for under its own content hash, so a new
+ * version is a new URL; everything else, and anything a route sets otherwise, is `no-store`.
+ */
+export const IMMUTABLE_IMAGE = 'public, max-age=31536000, immutable';
+const CACHEABLE_TYPES = new Set(['image/png', 'image/webp']);
+
 /** API security headers (docs/08-security.md §6). The web app sets its own CSP with nonces. */
 export function registerSecurityHeaders(app: FastifyInstance, opts: { production: boolean }): void {
   app.addHook('onSend', async (req, reply, payload) => {
@@ -74,7 +81,8 @@ export function registerSecurityHeaders(app: FastifyInstance, opts: { production
     // `sandbox`: the API never serves anything a browser should run; this also covers file downloads
     // (spec 0010 FU5). Set here, after handlers, so no route can weaken it.
     void reply.header('content-security-policy', "default-src 'none'; frame-ancestors 'none'; sandbox");
-    void reply.header('cache-control', 'no-store');
+    const keep = reply.getHeader('cache-control') === IMMUTABLE_IMAGE && reply.statusCode === 200 && CACHEABLE_TYPES.has(String(reply.getHeader('content-type')));
+    if (!keep) void reply.header('cache-control', 'no-store');
     if (opts.production) {
       void reply.header('strict-transport-security', 'max-age=63072000; includeSubDomains; preload');
     }

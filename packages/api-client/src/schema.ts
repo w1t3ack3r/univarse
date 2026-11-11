@@ -467,6 +467,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/tenant/logo": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The institution’s logo for this host (binary); 304 on a matching ETag */
+        get: operations["tenantLogo"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/tenant/public-profile": {
         parameters: {
             query?: never;
@@ -4950,6 +4967,118 @@ export interface operations {
             };
         };
     };
+    tenantLogo: {
+        parameters: {
+            query?: {
+                v?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    "Content-Length": string;
+                    "X-Content-Type-Options": "nosniff";
+                    /** @description Sandboxed: nothing in the file can run. */
+                    "Content-Security-Policy": string;
+                    /** @description Immutable only when asked for under its own hash (`?v=`). */
+                    "Cache-Control": "no-store" | "public, max-age=31536000, immutable";
+                    /** @description The content’s SHA-256; send it back as If-None-Match. */
+                    ETag: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "image/png": string;
+                    "image/webp": string;
+                };
+            };
+            /** @description Not modified: the browser has this version. */
+            304: {
+                headers: {
+                    /** @description The content’s SHA-256; send it back as If-None-Match. */
+                    ETag: string;
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description request.invalid */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 400;
+                        /** @enum {unknown} */
+                        code?: "request.invalid";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description resource.not_found, tenant.not_found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 404;
+                        /** @enum {unknown} */
+                        code?: "resource.not_found" | "tenant.not_found";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description tenant.suspended */
+            423: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 423;
+                        /** @enum {unknown} */
+                        code?: "tenant.suspended";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description server.internal */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 500;
+                        /** @enum {unknown} */
+                        code?: "server.internal";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description server.busy */
+            503: {
+                headers: {
+                    /** @description Seconds to wait before retrying. */
+                    "Retry-After": string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 503;
+                        /** @enum {unknown} */
+                        code?: "server.busy";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
     publicProfile: {
         parameters: {
             query?: never;
@@ -4966,6 +5095,11 @@ export interface operations {
                 };
                 content: {
                     "application/json": {
+                        branding: {
+                            primaryColor: string | null;
+                            textColor: string | null;
+                            logoSha256: string | null;
+                        };
                         slug: string;
                         shortName: string;
                         legalName: string;

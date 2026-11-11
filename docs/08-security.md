@@ -138,7 +138,7 @@ Revisit the threat model at the start of every roadmap phase. New modules add ro
 | `Permissions-Policy` | `camera=(), microphone=(), geolocation=(), payment=(self)` |
 | `Cross-Origin-Opener-Policy` | `same-origin` |
 | `Cross-Origin-Resource-Policy` | `same-origin` (API) |
-| `Cache-Control` | `no-store` on authenticated API responses and pages with personal data |
+| `Cache-Control` | `no-store` on every API response, set after the handler. One exception: the institution's logo, a public 200 PNG or WebP asked for under its own content hash, is `public, max-age=31536000, immutable` ([spec 0033](specs/0033-tenant-registry.md) Q-C1) |
 
 **HSTS on the local stack ([spec 0019](specs/0019-local-production-stack.md) B1):** Caddy sets `max-age=63072000; includeSubDomains`, with no `preload`, on every response, replacing what the app sent. **Production's value, `preload` included, is an open decision before the pilot:** preloading is hard to reverse, and `includeSubDomains` already commits every subdomain to HTTPS. Before production, every affected subdomain must be shown to serve HTTPS, with no legitimate service relying on HTTP.
 
