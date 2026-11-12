@@ -171,7 +171,6 @@ Each roadmap line checked against the repository, CI and the decision log.
 | **S8** Shards and migrations | The shard view; migration runs per shard; with [spec 0036](specs/0036-hybrid-tenancy.md) (draft): shard kinds and capacity, ready dedicated databases, placement by level | to write |
 
 - **Carried from Phase 0 (owner decision 2026-10-28):** a one-by-one review of the pinned postgres image's 86 HIGH findings: each one reachable or not from how the stack runs PostgreSQL, and what follows. Recheck its 2 assessed CRITICALs, and move the pin when Debian ships the libxml2 fix.
-- **Hosting ([spec 0035](specs/0035-hosting-digitalocean.md), draft):** DigitalOcean, staging first (one Droplet running the stack as it runs locally, made-up data only), production in a later spec; it amends ADR-030 when approved.
 - **Out of Phase 1, with their triggers (spec 0025):** custom domains (TXT verification, on-demand TLS) wait for hosting (Phase 8); platform invoices and usage wait for students to count (Phase 4); the support channel, plans, and the compliance and operations features are Phase 1b; WebAuthn stays Phase 8. Console screens that watch something built later arrive with it: Phase 2 (the training sandbox, the import monitor), Phase 3 (messaging delivery, integration status) and Phase 6 (the verification monitor).
 
 **Exit:**
