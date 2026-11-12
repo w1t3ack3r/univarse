@@ -16,7 +16,8 @@ const reuse = !process.env.CI;
 export default defineConfig({
   testDir: './e2e',
   testMatch: image ? 'frame.e2e.ts' : '**/*.e2e.ts',
-  ...(image ? {} : { globalTeardown: './e2e/global-teardown.ts' }), // retires the members the journeys made
+  // The worker runs provisioning for the journeys (spec 0034); the teardown retires the members and institutions they made.
+  ...(image ? {} : { globalSetup: './e2e/global-setup.ts', globalTeardown: './e2e/global-teardown.ts' }),
   fullyParallel: false, // the journeys run in order; each test signs in from its own address (fixtures.randomClientIp)
   workers: 1,
   retries: process.env.CI ? 1 : 0,

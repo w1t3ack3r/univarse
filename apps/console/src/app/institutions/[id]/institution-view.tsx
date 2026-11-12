@@ -13,6 +13,8 @@ import { OWNERSHIP, STATUS, TYPE } from '../labels';
 import { BrandingSection } from './branding';
 import { ProductsSection } from './products';
 import { ProfileForm, RegulatoryForm } from './forms';
+import { GoLiveSection } from './go-live';
+import { ProvisioningSection } from './provisioning';
 
 export type Tenant = PlatformTenantDetail;
 
@@ -48,6 +50,8 @@ export function InstitutionView() {
   const closed = t?.status === 'ARCHIVED' || t?.status === 'PURGED';
   const canEdit = me.permissions.includes('platform.tenant.edit') && !closed;
   const canEntitle = me.permissions.includes('platform.tenant.entitlements') && !closed;
+  const canProvision = me.permissions.includes('platform.tenant.provision');
+  const canGoLive = me.permissions.includes('platform.tenant.go_live');
 
   const load = useCallback(() => {
     api<Tenant>('GET', `/tenants/${id}`)
@@ -111,6 +115,7 @@ export function InstitutionView() {
           </Fact>
           <Fact term="Domains">{t.domains.length ? t.domains.map((d) => d.hostname).join(', ') : 'None'}</Fact>
           <Fact term="Created">{when(t.createdAt)}</Fact>
+          {t.template ? <Fact term="Template">{t.template}</Fact> : null}
         </dl>
         <p className="pc-note">
           {me.permissions.includes('platform.audit.read') ? (
@@ -126,6 +131,9 @@ export function InstitutionView() {
           ) : null}
         </p>
       </section>
+
+      <ProvisioningSection tenant={t} canProvision={canProvision} changing={changing} />
+      {t.status === 'ONBOARDING' ? <GoLiveSection tenant={t} canGoLive={canGoLive} changing={changing} /> : null}
 
       <ProductsSection tenant={t} canEntitle={canEntitle} changing={changing} />
 

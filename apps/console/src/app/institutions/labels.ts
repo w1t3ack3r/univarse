@@ -36,3 +36,42 @@ export const PRODUCT: Readonly<Record<string, { name: string; about: string }>> 
   helpdesk: { name: 'Helpdesk', about: 'Announcements and support between users and the ICT unit.' },
   reporting: { name: 'Reporting', about: 'Dashboards and reports for management.' },
 };
+
+/** Spec 0034 Q5: provisioning's eight steps, as staff read them while one runs. */
+export const STEP: Readonly<Record<string, { label: string; about: string }>> = {
+  place: { label: 'Place', about: 'Check its database answers, then mark it as being provisioned.' },
+  key: { label: 'Data key', about: 'Create the key that protects its data, in Vault.' },
+  seed: { label: 'Roles', about: 'Set up its organisation root and the system roles.' },
+  template: { label: 'Template', about: 'Apply the settings its template defines.' },
+  host: { label: 'Address', about: 'Give it its own web address.' },
+  products: { label: 'Products', about: 'Grant the products chosen; switch Core on.' },
+  invite: { label: 'Invitation', about: 'Create the first administrator’s account and email them.' },
+  done: { label: 'Onboarding', about: 'Hand it over: the administrator can now activate.' },
+};
+
+/** Spec 0034 Q4: a failed step's fixed code, and what to do about it. */
+export const PROVISIONING_ERROR: Readonly<Record<string, string>> = {
+  no_shard: 'No database is available for new institutions. Add or reactivate a shard, then resume.',
+  shard_unavailable: 'Its database didn’t answer. Check the database is running, then resume.',
+  key_unavailable: 'Vault didn’t answer, or refused the key. Check Vault is unsealed, then resume.',
+  invite_unreadable: 'The administrator’s details couldn’t be opened. Check the worker has the provisioning key, then resume.',
+  state_conflict: 'The institution changed while it was being provisioned (its status, or its address is taken). Look at the audit log before resuming.',
+  database: 'The database refused a change, even after retrying. Check its health, then resume.',
+  unexpected: 'Something unexpected stopped this step. Check the worker’s log for this institution, then resume.',
+};
+
+/** Spec 0034 Q6. */
+export const TEMPLATE: Readonly<Record<string, { label: string; about: string }>> = {
+  university: { label: 'University (NUC)', about: 'NUC’s structure: units per semester for now; grading and sessions arrive with Academics.' },
+  polytechnic: { label: 'Polytechnic (NBTE)', about: 'NBTE’s structure: units per semester for now; ND and HND grading arrive with Academics.' },
+  'college-of-education': { label: 'College of education (NCCE)', about: 'NCCE’s structure: units per semester for now; grading arrives with Academics.' },
+};
+
+/** Spec 0034 Q9: the go-live checklist's items. */
+export const GO_LIVE: Readonly<Record<string, { label: string; todo: string; done: string }>> = {
+  admin_ready: { label: 'The administrator is ready', todo: 'Waiting for them to activate their account and set up an authenticator. Checked every minute.', done: 'Activated, with an authenticator.' },
+  products: { label: 'A product beyond Core', todo: 'Grant at least one product in', done: 'Granted.' },
+  branding: { label: 'Its colour', todo: 'Set it (a logo is optional) in', done: 'Set.' },
+  regulatory: { label: 'Regulatory details', todo: 'Record its state and operating status in', done: 'Recorded.' },
+  dpa: { label: 'Data processing agreement', todo: 'Record the signed agreement:', done: 'Recorded.' },
+};

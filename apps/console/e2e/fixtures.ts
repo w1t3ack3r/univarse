@@ -35,6 +35,8 @@ export async function makeMember(role: 'OWNER' | 'SUPPORT' | 'READ_ONLY'): Promi
 
 /** Every institution a run makes has this prefix, so the teardown removes exactly those. */
 export const E2E_TENANT_PREFIX = 'e2e-reg-';
+/** Spec 0034: the institutions the journeys provision through the console; the teardown prunes both sides of them. */
+export const E2E_PROVISIONED_PREFIX = 'e2e-prov-';
 
 const migratorUrl = () => (parseEnv(readFileSync(new URL('../../../.env', import.meta.url), 'utf8')) as Record<string, string | undefined>).PLATFORM_MIGRATOR_URL!;
 

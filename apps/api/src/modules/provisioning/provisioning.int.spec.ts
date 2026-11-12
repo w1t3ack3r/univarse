@@ -21,6 +21,7 @@ import { createPlatformApp } from '../../platform/platform-app.js';
 import { CONSOLE_DB } from '../../platform/platform-config.js';
 import { ShardRegistry } from '../../shared/db/db.module.js';
 import { platformTestConfig } from '../../testing/platform-env.js';
+import { pruneTestTenants } from '../../testing/tenant-cleanup.js';
 import { WorkerModule } from '../../worker.module.js';
 import { OnboardingCheck } from './onboarding-check.js';
 import { PROVISIONING_QUEUE, ProvisioningQueue, QUEUE_PREFIX } from './provisioning-queue.js';
@@ -180,11 +181,9 @@ beforeAll(async () => {
 afterAll(async () => {
   await db.platformSession.updateMany({ where: { userId: { in: [...staffIds] }, revokedAt: null }, data: { revokedAt: new Date(), revokeReason: 'test_retired' } });
   await db.platformUser.updateMany({ where: { id: { in: [...staffIds] } }, data: { role: 'READ_ONLY', isActive: false } });
-  // Archived and unreachable: the onboarding check and the outbox skip them, and their hosts are free again.
-  await migrator.tenantDomain.deleteMany({ where: { tenantId: { in: [...tenantIds] } } });
-  await migrator.tenant.updateMany({ where: { id: { in: [...tenantIds] } }, data: { status: 'ARCHIVED' } });
-  await migrator.provisioningJob.updateMany({ where: { tenantId: { in: [...tenantIds] }, status: { in: ['QUEUED', 'RUNNING'] } }, data: { status: 'FAILED', errorStep: 'place', errorCode: 'unexpected' } });
+  // Every institution these tests made, both sides of it (each has a slug starting `prov-`).
   await migrator.$disconnect();
+  await pruneTestTenants({ platformMigratorUrl: process.env.PLATFORM_MIGRATOR_URL, tenantMigratorUrl: process.env.TENANT_POOL_01_MIGRATOR_URL }, 'prov-');
   await worker.close();
   await app.close();
 });

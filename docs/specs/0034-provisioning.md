@@ -1,6 +1,6 @@
 # Spec 0034: Phase 1's S5, provisioning
 
-**Status:** **Approved by the owner on 2026-11-12, all as written:** Q1 to Q16. PR A (the backend) built; Q-A1 to Q-A14 for approval.
+**Status:** **Approved by the owner on 2026-11-12, all as written:** Q1 to Q16, and Q-A1 to Q-A14 (with #175). PR A (the backend) merged (#175); PR B (the console's screens and J1) built, Q-B1 to Q-B9 for approval; PR C (the stack) next.
 **Phase:** 1, slice **S5** of [spec 0025](0025-phase-1-control-plane.md) (A8, A9, E6, E13).
 **Builds on:**
 
@@ -118,7 +118,7 @@ In this PR: [18](../18-roadmap.md). In the implementation PRs: [03](../03-domain
 - **Mutations: 17 tried, 16 caught.** The first run left five survivors; four were gaps in the tests, now closed: an invite step re-run after its email committed, a setting changed after provisioning, a tenant suspended mid-way, and a replay while the key is off. The survivor left is equivalent: resume's status check is repeated by its guarded update, and both stay.
 - **Development database:** `backup-checks.int.spec.ts`'s `verify-chains` and `verify-unwrap` now take 31 and 40 s locally, over their 30 s timeout: the database holds about 1 380 tenants, 1 339 of them left OFFBOARDING by older suites. They pass with a longer timeout, and on CI's fresh database.
 
-**Decisions made while building, for approval:**
+**Decisions made while building:** **approved by the owner on 2026-11-12, all as written** (Q-A1 to Q-A14; Q-A11 is replaced by Q-B7).
 
 | # | Decision | Why |
 | --- | --- | --- |
@@ -136,4 +136,33 @@ In this PR: [18](../18-roadmap.md). In the implementation PRs: [03](../03-domain
 | Q-A12 | **The institution's detail gains `template`.** | PR B shows it. |
 | Q-A13 | **BullMQ's optional native accelerator stays unbuilt** (`msgpackr-extract`'s install script isn't allowed to run); BullMQ uses its JavaScript path. | No new install scripts (docs/09 §1); a provisioning is a handful of small messages. |
 | Q-A14 | **The invite is bound to the institution's id,** not the job's: the id is chosen before either row is written, and there's one job per institution. | Sealing happens before the transaction, so no Vault call holds it open. |
+
+## PR B: what was built
+
+**Built** ([the console's design context](../../apps/console/DESIGN.md): extended, not redesigned):
+- **New institution** (`/institutions/new`, from a lime action on Institutions, for those who may provision): the institution, its first administrator and its products in three titled groups, and beside them the eight steps it will run. The type proposes its template until a template is chosen by hand; the subdomain is checked by the platform's own rule as it's typed. One idempotency key per form; step-up on create.
+- **Provisioning**, on the institution's page: the eight steps as a live track, refreshed every 2 seconds while it runs; a stopped step's plain explanation and **Resume from "…"**; once finished, a line saying when, from which template and to whom the invitation went, with the steps folded away.
+- **Going live**, on an onboarding institution's page: the computed checklist (each item with what it needs and a link to where it's fixed), the DPA form, and **Take {name} live**, disabled with its reason until every item passes.
+- **The institution's facts** gain its template; the step-up dialog's wording now fits any sensitive change.
+- **Tests:** the J1 journey (`provisioning.e2e.ts`), with a worker started by the console E2E's global setup; `pruneTestTenants()` (`apps/api/src/testing/tenant-cleanup.ts`), used by the console E2E's teardown and the provisioning integration tests.
+- **Docs:** the console's DESIGN.md (the step track, composed forms, checklists).
+
+**Evidence:**
+- **E2E:** all 34 console journeys pass, desktop and phone, with axe. J1 itself, from the form to live, takes 23 seconds on desktop and 22 on a phone, against the 10 minutes in spec 0025.
+- **Design:** one screenshot round at 1280 px and 360 px, with every finding fixed together, then one confirming round; no sideways scroll at 360 px; the design detector's only finding in the new code (a 1 px radius) removed.
+- **The integration tests** still pass (14), and leave no institution behind.
+
+**Decisions made while building, for approval:**
+
+| # | Decision | Why |
+| --- | --- | --- |
+| Q-B1 | **In J1, the administrator's readiness is set on the tenant side directly,** exactly as the worker's check reads it; their activation and authenticator are the web app's own journey (`flows.e2e.ts`). The invitation itself is read from Mailpit (its username and its link). | The console's E2E starts no tenant web app or API. Starting both for one step would double the suite's processes for what the web app's journey already proves. |
+| Q-B2 | **A finished provisioning folds its steps away;** once live, the section goes. | The checklist is what matters then; the audit log keeps every step. |
+| Q-B3 | **Polling pauses while the tab is hidden,** and the page reads the institution again when the job finishes. | No requests from a tab nobody's looking at; the status, address and products change when it finishes. |
+| Q-B4 | **The checklist's "fix it" links show only to those who can fix it;** the DPA form is a disclosure under the checklist. | A link to a form the reader can't see would lead nowhere. |
+| Q-B5 | **The step-up dialog says "Changes like this need a code from your authenticator app",** instead of "This changes who can reach the platform". | The old wording was written for staff changes; it now appears for institutions too. |
+| Q-B6 | **The form's idempotency key is renewed after a refusal** (a 4xx after step-up), and kept after a network failure. | A refused request was never recorded, so the corrected one is new; a request that may have landed is retried as the same one (Q12). |
+| Q-B7 | **Test clean-up removes provisioned institutions on both sides** (`pruneTestTenants`), replacing Q-A11's archiving. It accepts only an `e2e-` or `prov-` prefix. | Archiving had left 307 institutions in the development database by the end of PR A. |
+| Q-B8 | **The console's E2E starts its own worker** (queue every 0.5 s, readiness every 1 s), as the web app's E2E does. | J1 needs provisioning to run; the image-only frame tests don't start one. |
+| Q-B9 | **The console uses the domain's own rules** (the slug, the steps, the templates) rather than copies. | One definition of each; the form can't drift from the API. |
 

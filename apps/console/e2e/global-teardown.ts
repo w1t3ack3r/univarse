@@ -6,7 +6,8 @@ import { createPlatformClient } from '@univarse/db';
 import { existsSync, readFileSync } from 'node:fs';
 import { parseEnv } from 'node:util';
 import { pruneRetiredTestStaff } from '../../api/src/testing/staff-cleanup.js';
-import { consoleEnv, E2E_PREFIX, E2E_TENANT_PREFIX } from './fixtures';
+import { pruneTestTenants } from '../../api/src/testing/tenant-cleanup.js';
+import { consoleEnv, E2E_PREFIX, E2E_PROVISIONED_PREFIX, E2E_TENANT_PREFIX } from './fixtures';
 
 const rootEnv = new URL('../../../.env', import.meta.url);
 
@@ -20,8 +21,11 @@ export default async function globalTeardown(): Promise<void> {
     await db.$disconnect();
   }
   if (!existsSync(rootEnv)) return;
-  const migrator = parseEnv(readFileSync(rootEnv, 'utf8')).PLATFORM_MIGRATOR_URL;
+  const env = parseEnv(readFileSync(rootEnv, 'utf8'));
+  const migrator = env.PLATFORM_MIGRATOR_URL;
   await pruneRetiredTestStaff(migrator);
+  // Spec 0034: provisioned institutions have rows on both sides, and a key and a job that block a plain delete.
+  await pruneTestTenants({ platformMigratorUrl: migrator, tenantMigratorUrl: env.TENANT_POOL_01_MIGRATOR_URL }, E2E_PROVISIONED_PREFIX);
   if (!migrator) return;
   const owner = createPlatformClient(migrator);
   try {

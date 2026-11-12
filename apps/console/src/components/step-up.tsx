@@ -93,8 +93,8 @@ export function StepUpProvider({ children }: { children: ReactNode }) {
             Confirm it’s you
           </h2>
           <p className="pc-card__lead">
-            This changes who can reach the platform. Once you confirm, you won’t be asked again for
-            5 minutes.
+            Changes like this need a code from your authenticator app. Once you confirm, you won’t be asked again
+            for 5 minutes.
           </p>
           {error ? <Notice requestId={error.requestId}>{error.message}</Notice> : null}
           {recovery ? (
