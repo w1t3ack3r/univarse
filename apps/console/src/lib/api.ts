@@ -28,7 +28,7 @@ export async function api<T>(
   method: 'GET' | 'POST' | 'PUT' | 'DELETE',
   path: string,
   body?: unknown,
-  opts: { ifMatch?: string } = {},
+  opts: { ifMatch?: string; idempotencyKey?: string } = {},
 ): Promise<T> {
   let res: Response;
   try {
@@ -39,6 +39,7 @@ export async function api<T>(
       headers: {
         ...(body === undefined ? {} : { 'content-type': 'application/json' }),
         ...(opts.ifMatch ? { 'if-match': opts.ifMatch } : {}),
+        ...(opts.idempotencyKey ? { 'idempotency-key': opts.idempotencyKey } : {}),
       },
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     });

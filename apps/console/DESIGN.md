@@ -312,6 +312,15 @@ Plain bars in the three chart fills, a labelled axis and maximum, a legend, a re
 ### Branding Preview
 An institution's colour as a swatch beside its hex value, and a preview showing the colour, its computed text colour and the logo together, exactly as they'll sit on that institution's sign-in page.
 
+### Step Track (spec 0034)
+Provisioning's eight steps on one vertical rail: a 24px mark per step, the rail deep where the steps before are done. Done is a deep mark with a white check, running is a turning deep-and-sage ring (still under reduced motion, the word "Running" beside it), stopped is a danger mark with "Stopped here", pending an open ring with a muted label. Each step has its label (600) and a one-line plain explanation. The same track previews the steps on the New institution form and shows them live (refreshed every 2 seconds) on the institution's page; once finished it folds behind "Show the steps".
+
+### Composing Forms (New institution)
+A long form is split into titled white groups (`pc-group`: 22px cards, the legend set as a title inside), with two-column field pairs that stack under 15rem. Beside it on wide screens (≥1000px), a sage aside (`deep-soft`) says what will happen, sticky while the form scrolls. Choices are offwhite rows that turn lime-wash when ticked; a locked choice (Core) stays ticked and disabled. One lime action at the end, with a note that step-up will follow.
+
+### Checklists (Going live)
+A white row list, one row per computed item: an open ring or a deep check, the item, what it needs (with a link to where it's fixed, for those who may fix it), and a "Done" or "To do" chip aligned at the top right. The action under it is disabled with its reason beside it until every item passes.
+
 ### Loading and Empty
 While the platform API answers, a skeleton keeps the page's shape with no content. An empty list is a white card with one muted, centred sentence saying what will appear there.
 

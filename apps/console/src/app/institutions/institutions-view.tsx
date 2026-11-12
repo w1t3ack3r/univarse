@@ -1,7 +1,7 @@
 'use client';
 
 import type { PlatformTenantList } from '@univarse/contracts';
-import { Button, Notice } from '@univarse/ui';
+import { Button, buttonClass, Notice } from '@univarse/ui';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
@@ -95,6 +95,11 @@ export function InstitutionsView() {
             )}
           </p>
         </div>
+        {me.permissions.includes('platform.tenant.provision') ? (
+          <Link className={buttonClass('action')} href="/institutions/new">
+            New institution
+          </Link>
+        ) : null}
       </div>
 
       <div className="pc-filters pc-filters--narrow">
