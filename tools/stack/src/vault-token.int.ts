@@ -119,7 +119,7 @@ describe('[0023] the tokens on a real Vault', () => {
     if (!own.ok) console.log(`[vault-token.int] a dead token renewing itself: ${JSON.stringify(own.failure)}`);
     // T4: re-issued at the normal period, saved, and working through the app's own provider.
     const c = configure(docker, d, TARGET);
-    expect(c.reissued).toEqual(['app', 'backup', 'console']);
+    expect(c.reissued).toEqual(['app', 'backup', 'console', 'provisioning-seal', 'provisioning-open']);
     const fresh = loadVaultInit(d);
     expect(fresh.appToken).not.toBe(dead.appToken);
     expect(fresh.appTokenAccessor).not.toBe(dead.appTokenAccessor);
