@@ -575,9 +575,12 @@ describe('[IO17] only the worker holds the relay role credentials', () => {
       readFileSync(new URL('../../../../../.env.worker', import.meta.url), 'utf8'),
     );
     expect(Object.keys(root).filter((k) => k.includes('RELAY'))).toEqual([]);
+    // Spec 0034 Q7: and the provisioning key's decrypting side, the worker's alone too.
     expect(Object.keys(worker).sort()).toEqual([
       'PGBOUNCER_PLATFORM_RELAY_URL',
       'PLATFORM_RELAY_URL',
+      'PROVISIONING_KEY_PROVIDER',
+      'PROVISIONING_LOCAL_KEK',
     ]);
     // What the API loads in development starts; plus the worker's file, it refuses (without echoing the value).
     const preload = { ...process.env, ...root, NODE_ENV: 'test' };

@@ -74,6 +74,8 @@ model Tenant {
   suspendedReason      String?         @map("suspended_reason")
   offboardingStartedAt DateTime?       @map("offboarding_started_at") @db.Timestamptz(3)
   purgeAfter           DateTime?       @map("purge_after") @db.Timestamptz(3)
+  /// Spec 0034 Q6: the template it was provisioned from, as `polytechnic@1`. Null for the seed's and the drill's.
+  template             String?
   createdAt            DateTime        @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt            DateTime        @updatedAt @map("updated_at") @db.Timestamptz(3)
   version              Int             @default(0)
@@ -86,6 +88,9 @@ model Tenant {
   keyDestructions KeyDestruction[]
   regulatoryProfile TenantRegulatoryProfile?
   branding TenantBranding?
+  provisioningJob ProvisioningJob?
+  dpa TenantDpa?
+  onboarding TenantOnboarding?
 
   @@map("tenant")
 }
@@ -126,6 +131,93 @@ model TenantBranding {
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@map("tenant_branding")
+}
+
+enum ProvisioningJobStatus {
+  QUEUED
+  RUNNING
+  FAILED
+  DONE
+}
+
+enum ProvisioningStepStatus {
+  RUNNING
+  DONE
+  FAILED
+}
+
+/// Spec 0034 Q3, Q4: the system of record for a provisioning; BullMQ only schedules it. One per tenant.
+model ProvisioningJob {
+  id              String                @id @default(dbgenerated("uuidv7()")) @db.Uuid
+  tenantId        String                @unique @map("tenant_id") @db.Uuid
+  template        String
+  templateVersion Int                   @map("template_version")
+  /// The products to entitle (Q5 step 6), core included.
+  products        String[]
+  status          ProvisioningJobStatus @default(QUEUED)
+  requestedBy     String                @map("requested_by") @db.Uuid
+  /// Q12: a repeated key from the same member returns the first answer.
+  idempotencyKey  String                @map("idempotency_key") @db.Uuid
+  /// Q7: the IT Admin's details, sealed for the worker only; wiped by the invite step.
+  inviteEnc       String?               @map("invite_enc")
+  /// Q7: what the console may show of the address.
+  inviteMasked    String                @map("invite_masked")
+  /// The step that failed last, and its fixed code (never a message).
+  errorStep       String?               @map("error_step")
+  errorCode       String?               @map("error_code")
+  createdAt       DateTime              @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime              @updatedAt @map("updated_at") @db.Timestamptz(3)
+  finishedAt      DateTime?             @map("finished_at") @db.Timestamptz(3)
+  version         Int                   @default(0)
+
+  tenant Tenant              @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  steps  ProvisioningStep[]
+
+  @@unique([requestedBy, idempotencyKey])
+  @@index([status])
+  @@map("provisioning_job")
+}
+
+model ProvisioningStep {
+  id         String                 @id @default(dbgenerated("uuidv7()")) @db.Uuid
+  jobId      String                 @map("job_id") @db.Uuid
+  step       String
+  status     ProvisioningStepStatus
+  attempts   Int                    @default(1)
+  errorCode  String?                @map("error_code")
+  startedAt  DateTime               @default(now()) @map("started_at") @db.Timestamptz(3)
+  finishedAt DateTime?              @map("finished_at") @db.Timestamptz(3)
+
+  job ProvisioningJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@unique([jobId, step])
+  @@map("provisioning_step")
+}
+
+/// Spec 0034 Q10: the DPA, recorded by hand until S11's registers extend this table.
+model TenantDpa {
+  tenantId   String   @id @map("tenant_id") @db.Uuid
+  dpaVersion String   @map("dpa_version")
+  signedOn   DateTime @map("signed_on") @db.Date
+  reference  String
+  recordedBy String   @map("recorded_by") @db.Uuid
+  recordedAt DateTime @default(now()) @map("recorded_at") @db.Timestamptz(3)
+  version    Int      @default(1)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@map("tenant_dpa")
+}
+
+/// Spec 0034 Q9: facts the worker reports from the tenant side, with no personal data.
+model TenantOnboarding {
+  tenantId     String    @id @map("tenant_id") @db.Uuid
+  adminReadyAt DateTime? @map("admin_ready_at") @db.Timestamptz(3)
+  checkedAt    DateTime  @default(now()) @map("checked_at") @db.Timestamptz(3)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@map("tenant_onboarding")
 }
 
 enum DomainKind {

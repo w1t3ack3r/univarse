@@ -92,6 +92,32 @@ const verificationRun = z.strictObject({
 const securityLevelCounts = z.strictObject({ act: z.number().int(), watch: z.number().int(), note: z.number().int() });
 const institution = z.strictObject({ id: z.uuid(), slug: z.string().nullable(), name: z.string().nullable() });
 
+/** Spec 0034. */
+const provisioningStepKey = z.enum(['place', 'key', 'seed', 'template', 'host', 'products', 'invite', 'done']);
+const provisioningError = z.enum(['no_shard', 'shard_unavailable', 'key_unavailable', 'invite_unreadable', 'state_conflict', 'database', 'unexpected']);
+const provisioningView = z.strictObject({
+  jobId: z.uuid(),
+  tenantId: z.uuid(),
+  template: z.string(),
+  status: z.enum(['QUEUED', 'RUNNING', 'FAILED', 'DONE']),
+  /** Q7: the IT Admin's address as the console may show it. */
+  invite: z.string(),
+  steps: z.array(
+    z.strictObject({
+      step: provisioningStepKey,
+      status: z.enum(['PENDING', 'RUNNING', 'DONE', 'FAILED']),
+      attempts: z.number().int(),
+      errorCode: provisioningError.nullable(),
+      startedAt: z.iso.datetime().nullable(),
+      finishedAt: z.iso.datetime().nullable(),
+    }),
+  ),
+  error: z.strictObject({ step: provisioningStepKey, code: provisioningError }).nullable(),
+  createdAt: z.iso.datetime(),
+  finishedAt: z.iso.datetime().nullable(),
+});
+const goLiveItem = z.enum(['admin_ready', 'products', 'branding', 'regulatory', 'dpa']);
+
 const reviewedMember = z.strictObject({
   id: z.uuid(),
   displayName: z.string(),
@@ -174,6 +200,49 @@ export const PlatformOps = {
         version: z.number().int(),
       }),
       branding: z.strictObject({ primaryColor: z.string().nullable(), textColor: z.string().nullable(), logoSha256: z.string().nullable() }),
+      /** Spec 0034 Q6: the template it was provisioned from (`polytechnic@1`); null for the seed's. */
+      template: z.string().nullable(),
+    }),
+  },
+  /** Spec 0034 Q5, Q13: creating starts a provisioning. The IT Admin's details go no further than the sealed invite. */
+  createTenant: {
+    body: z.strictObject({
+      slug: z.string().trim().min(3).max(40),
+      legalName: z.string().trim().min(3).max(200),
+      shortName: z.string().trim().min(2).max(40),
+      type: tenantType,
+      ownership: tenantOwnership,
+      template: z.enum(['university', 'polytechnic', 'college-of-education']),
+      state: z.enum(NIGERIAN_STATES).nullable(),
+      /** Entitled at step 6; core is always included. */
+      products: z.array(z.string().regex(/^[a-z_]{2,40}$/)).max(20),
+      admin: z.strictObject({
+        displayName,
+        email,
+        username: z
+          .string()
+          .trim()
+          .toUpperCase()
+          .pipe(z.string().regex(/^[A-Z0-9][A-Z0-9/._-]{2,39}$/, 'letters, digits and / . _ -, 3 to 40')),
+      }),
+    }),
+    response: z.strictObject({ tenantId: z.uuid(), jobId: z.uuid() }),
+  },
+  provisioning: { response: provisioningView },
+  goLive: {
+    response: z.strictObject({
+      status: tenantStatus,
+      items: z.array(z.strictObject({ item: goLiveItem, passed: z.boolean() })),
+      ready: z.boolean(),
+      dpa: z.strictObject({ dpaVersion: z.string(), signedOn: z.iso.date(), reference: z.string(), recordedAt: z.iso.datetime(), version: z.number().int() }).nullable(),
+    }),
+  },
+  /** Q10. `signedOn` can't be in the future; that is checked against the server's date. */
+  tenantDpa: {
+    body: z.strictObject({
+      dpaVersion: z.string().trim().min(1).max(40),
+      signedOn: z.iso.date(),
+      reference: z.string().trim().min(3).max(200),
     }),
   },
   tenantProfile: { body: z.strictObject({ legalName: z.string().trim().min(3).max(200), shortName: z.string().trim().min(2).max(40), ownership: tenantOwnership, type: tenantType }) },
@@ -250,3 +319,6 @@ export type PlatformAuditLog = z.infer<typeof PlatformOps.audit.response>;
 export type PlatformChainStatus = z.infer<typeof PlatformOps.auditVerification.response>;
 export type PlatformSecuritySummary = z.infer<typeof PlatformOps.security.response>;
 export type PlatformAccessReview = z.infer<typeof PlatformOps.accessReview.response>;
+export type PlatformCreateTenant = z.infer<typeof PlatformOps.createTenant.body>;
+export type PlatformProvisioning = z.infer<typeof PlatformOps.provisioning.response>;
+export type PlatformGoLive = z.infer<typeof PlatformOps.goLive.response>;

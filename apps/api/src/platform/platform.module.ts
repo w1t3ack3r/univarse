@@ -13,7 +13,9 @@ import { PlatformIdentity } from './identity/identity.service.js';
 import { PLATFORM_MAILER, PlatformMailRelay } from './identity/mail.js';
 import { PlatformSessions } from './identity/sessions.js';
 import { PlatformStaff } from './identity/staff.service.js';
-import { CONSOLE_DB, consoleKeyProvider, PLATFORM_CONFIG, type PlatformConfig } from './platform-config.js';
+import { CONSOLE_DB, consoleKeyProvider, PLATFORM_CONFIG, provisioningKeyProvider, type PlatformConfig } from './platform-config.js';
+import { PlatformProvisioningController } from './provisioning/provisioning.controller.js';
+import { PlatformProvisioning, PROVISIONING_KEYS } from './provisioning/provisioning.service.js';
 import { PlatformHealthController } from './platform-health.controller.js';
 import { PlatformTenantsController } from './registry/tenant-registry.controller.js';
 import { TenantRegistry } from './registry/tenant-registry.service.js';
@@ -36,6 +38,7 @@ export const PLATFORM_CONTROLLERS = [
   PlatformAccountController,
   PlatformStaffController,
   PlatformTenantsController,
+  PlatformProvisioningController,
   PlatformAuditController,
   PlatformSecurityController,
   PlatformAccessReviewController,
@@ -48,6 +51,8 @@ export interface PlatformOverrides {
   /** Tests only: a mailer that records instead of sending, and a key provider without Vault. */
   readonly mailer?: Mailer;
   readonly keys?: KeyProvider;
+  /** Tests only: the provisioning key (spec 0034 Q7); null turns provisioning off. */
+  readonly provisioningKeys?: KeyProvider | null;
   readonly onShutdown?: () => Promise<void>;
   /** Spec 0028 Q3: keep the console's Vault token alive (renewed at start, then every 6 h). Only platform.ts sets it. */
   readonly renewVaultToken?: boolean;
@@ -66,6 +71,7 @@ export class PlatformModule {
         { provide: PLATFORM_CONFIG, useValue: config },
         { provide: CONSOLE_DB, useFactory: () => createPlatformClient(config.CONSOLE_DATABASE_URL) },
         { provide: CONSOLE_KEYS, useFactory: () => overrides.keys ?? consoleKeyProvider(config) },
+        { provide: PROVISIONING_KEYS, useFactory: () => (overrides.provisioningKeys !== undefined ? overrides.provisioningKeys : provisioningKeyProvider(config)) },
         { provide: PLATFORM_MAILER, useFactory: () => overrides.mailer ?? new SmtpMailer(config.SMTP_URL, config.MAIL_FROM) },
         { provide: APP_FILTER, useClass: ProblemFilter },
         // Spec 0028 Q12: deny by default; every route's declaration is read here.
@@ -74,6 +80,7 @@ export class PlatformModule {
         PlatformCredentials,
         PlatformIdentity,
         TenantRegistry,
+        PlatformProvisioning,
         PlatformContact,
         PlatformStaff,
         PlatformMailRelay,

@@ -160,7 +160,7 @@ Alternatives considered: option — why not.
 **Consequences:** One platform-wide key until KMS exists: a leaked key exposes **all tenants'** TOTP secrets, there is no per-tenant crypto-shredding on offboarding, and rotation means re-encrypting every value. Mitigations: the key lives only in the secret manager, never in the DB; AAD binding; rotation path ready. **Exit criteria (before staging):** per-tenant DEKs, wrapped by a KMS key (KEK), unwrapped in memory with a TTL cache. New format `v2:<kekId>:<wrappedDekRef>:…`, a background re-encryption of `v1` values, and a test proving a tenant's values become undecryptable when its DEK is destroyed. The `v1` format keeps the key ID, so existing values remain decryptable during migration.
 
 ## ADR-019 — Phase 0 outbox worker without BullMQ
-**Status:** Accepted (2026-10-04). Defers part of ADR-008. **Owner decision (2026-10-23):** stays deferred; Phase 0 closes without it. Built in **Phase 1** with the provisioning job, the first job its revisit trigger names ([18](18-roadmap.md)).
+**Status:** Accepted (2026-10-04). Defers part of ADR-008. **Owner decision (2026-10-23):** stays deferred; Phase 0 closes without it. Built in **Phase 1** with the provisioning job, the first job its revisit trigger names ([18](18-roadmap.md)). **Superseded for new jobs by [ADR-036](#adr-036--bullmq-arrives-for-provisioning-with-postgres-as-the-system-of-record-the-provisioning-key-is-split) (2026-11-12);** the tenant outbox keeps its Postgres claim.
 **Context:** ADR-008 plans outbox rows relayed to BullMQ. Phase 0 has one side effect (email) and must make it durable now (spec 0001 R15a). BullMQ adds a second persistence layer (Valkey) and relay code before there's any fan-out need.
 **Decision:** A worker entrypoint claims due `outbox_event` rows directly with `SELECT … FOR UPDATE SKIP LOCKED` under each tenant's RLS context, with exponential backoff and a dead state after 8 attempts (spec 0002 Part B). Payloads are field-encrypted and wiped after delivery.
 **Consequences:** Postgres is the only system of record for side effects, and claiming is transactional. Polling adds latency (seconds) and load proportional to the poll interval times the number of tenants. **Revisit trigger:** more than one job type that needs priorities, fan-out or rate-limited queues, or polling load that becomes visible in DB metrics.
@@ -578,3 +578,22 @@ Alternatives considered: option — why not.
 - One more Vault key and token to provision, renew (spec 0023) and back up with the stack.
 
 **Alternatives considered:** the tenant KEK (it would hand the platform API the tenant API's most powerful secret); a key in the platform API's env file (on disk, outside Vault's audit); the tenant worker sending console mail (it would couple the two, and read platform rows). Each is rejected in spec 0028's Q table.
+
+## ADR-036 — BullMQ arrives for provisioning, with Postgres as the system of record; the provisioning key is split
+**Status:** Accepted (2026-11-12) with [spec 0034](specs/0034-provisioning.md) Q3, Q7 and Q16. **Implemented** in its PR A (development and tests); the stack's Vault key, its two tokens and Valkey's `noeviction` arrive with PR C. Closes [ADR-019](#adr-019--phase-0-outbox-worker-without-bullmq)'s deferral.
+
+**Context:**
+- Provisioning is the first job ADR-019's revisit trigger names: named steps with retries, run once each, resumable after any crash. S6's announcements (a fan-out to every IT Admin) are the next.
+- The console asks for the job, but holds no tenant credential (spec 0025 A2); the worker, which runs it, must not be able to read the console's secrets (ADR-035).
+- The first IT Admin's name and email have to travel from the console to the worker, and may wait days in a failed job.
+
+**Decision:**
+- **BullMQ in the worker, one queue per kind of job, with Postgres as the system of record.** `provisioning_job` and `provisioning_step` hold every state; the job row is its own outbox. A relay in the worker queues every job that should be running, with BullMQ's job id equal to the row's id, so queuing one twice is harmless. BullMQ only schedules: one job at a time, its own key prefix (`uv-bull`) in the shared Valkey, which runs `noeviction`.
+- **The invite is sealed with its own Transit key, `univarse-provisioning`,** in an envelope bound to the institution. On the stack the platform API's token may only encrypt with it and the worker's only decrypt; development and tests use one local key in `.env.console` and `.env.worker`. The invite step wipes it. Only the worker may hold the decrypting side: every other process refuses to start with it set.
+
+**Consequences:**
+- A Valkey that loses everything loses no provisioning: the next relay pass queues the jobs again, and every step is idempotent.
+- The platform database never holds the administrator's address in a readable form, and neither process gains the other's secrets.
+- One more Vault key and two more tokens to provision, renew and back up with the stack (PR C). A new dependency (BullMQ, with its optional native accelerator left unbuilt: it falls back to JavaScript).
+
+**Alternatives considered:** keep polling Postgres (ADR-019's way: no queue to build once for S6's fan-out, and A8 was approved); a plain column the console may insert but not read (readable in the database and every backup while a failed job waits); the tenant KEK or the console's key (each would hand one process the other's secret); a separate `provisioner` container (a tenth container on an 8 GB machine, for a job that runs a few times a year).

@@ -113,7 +113,7 @@ Mutation checks were run on the auth slice (2026-09-30). Disabling the permissio
 
 | # | Journey |
 |---|---------|
-| J1 | Platform: create tenant → provisioning completes → institution admin activates account + sets up MFA |
+| J1 | Platform: create tenant → provisioning completes → institution admin activates account + sets up MFA → the checklist passes → live ([spec 0034](specs/0034-provisioning.md) Q15; the backend's steps, resume and cross-tenant digest in `provisioning.int.spec.ts`, the journey in PR B) |
 | J2 | Institution setup: import org units, programmes, courses, curriculum → activate session/semester |
 | J3 | Applicant: sign up → fill form → pay form fee (gateway test mode + simulated webhook) → submit → appear on merit list → accept offer → pay acceptance fee → enrolment → matric number issued |
 | J4 | Student: activate → pay school fees → register courses (with carryover) → adviser approves → print course form |

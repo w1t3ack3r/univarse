@@ -1,6 +1,7 @@
 import { MAX_TENANT_CACHE_TTL_MS } from '@univarse/contracts';
 import { graceProblem, RETIRED_KEY_GRACE_MS } from '@univarse/crypto';
 import { z } from 'zod';
+import { provisioningKeySettingsProblems } from '../shared/crypto/provisioning-key.js';
 
 // Boot-time config validation: the app refuses to start on invalid config (docs/02 §11).
 const schema = z.object({
@@ -93,6 +94,27 @@ const schema = z.object({
   /** Per-scan timeout; a timeout is retried, never treated as clean (FU3). */
   CLAMD_TIMEOUT_MS: z.coerce.number().int().min(1_000).max(120_000).default(30_000),
   FILE_SCAN_INTERVAL_MS: z.coerce.number().int().min(250).default(2_000),
+  /**
+   * Spec 0034 Q7: the provisioning key, for the WORKER only (it opens the IT Admin's sealed details). In .env.worker,
+   * like the relay's role; every other process refuses to start with it set. Unset: the worker runs no provisioning.
+   */
+  PROVISIONING_KEY_PROVIDER: z.enum(['vault', 'local']).optional(),
+  PROVISIONING_VAULT_TOKEN: z.string().min(8).optional(),
+  PROVISIONING_LOCAL_KEK: z.string().min(40).optional(),
+  /** Spec 0034 Q5: a provisioned institution's address is `<slug>.<TENANT_DOMAIN>` (the seed's domain, spec 0019 D6). */
+  TENANT_DOMAIN: z
+    .string()
+    .regex(/^[a-z0-9-]+(\.[a-z0-9-]+)+$/)
+    .default('univarse.localhost'),
+  /** The origin in emails, with `{host}` for the institution's address: the dev edge's port locally, https on the stack. */
+  TENANT_LINK_ORIGIN: z
+    .string()
+    .regex(/^https?:\/\/\{host\}(:\d{1,5})?$/)
+    .default('http://{host}:4180'),
+  /** Spec 0034 Q3: how often the worker's relay queues the provisionings that should be running. */
+  PROVISIONING_RELAY_INTERVAL_MS: z.coerce.number().int().min(0).default(5_000),
+  /** Spec 0034 Q9: how often the worker looks for onboarding institutions whose administrator is ready. */
+  ONBOARDING_CHECK_INTERVAL_MS: z.coerce.number().int().min(0).default(60_000),
   SMTP_URL: z.string().startsWith('smtp').default('smtp://127.0.0.1:1025'),
   MAIL_FROM: z.string().default('UniVarse <no-reply@univarse.localhost>'),
 });
@@ -111,6 +133,10 @@ export function loadConfig(
   const issues = parsed.success ? [] : parsed.error.issues.map((i) => `  - ${i.path.join('.')}: ${i.message}`);
   if (kind !== 'worker' && env.PLATFORM_RELAY_URL !== undefined)
     issues.push('  - PLATFORM_RELAY_URL: set, but only the worker may hold the relay role (spec 0016 IO17); it belongs in .env.worker');
+  for (const k of ['PROVISIONING_KEY_PROVIDER', 'PROVISIONING_VAULT_TOKEN', 'PROVISIONING_LOCAL_KEK'] as const)
+    if (kind !== 'worker' && env[k] !== undefined)
+      issues.push(`  - ${k}: set, but only the worker may hold the provisioning key (spec 0034 Q7); it belongs in .env.worker`);
+  if (parsed.success && kind === 'worker') for (const p of provisioningKeySettingsProblems(parsed.data)) issues.push(`  - ${p}`);
   if (!parsed.success || issues.length > 0) throw new Error(`Invalid configuration:\n${issues.join('\n')}`);
   return parsed.data;
 }

@@ -133,17 +133,37 @@ describe('[P5] the console role, in the database', () => {
         platform_security_event_rollup: 'SIU',
         platform_session: 'SIU',
         platform_user: 'SIU',
+        // Spec 0034: the job by column (inserted, read without its invite, updated to resume); the rest whole-table.
+        provisioning_job: 'U',
+        provisioning_step: 'S',
         // `tenant`, `shard`, `tenant_domain` and `tenant_data_key` are granted by column, so they don't count as whole-table SELECT.
         tenant: 'U',
         tenant_branding: 'SIU',
+        tenant_dpa: 'SIU',
+        tenant_onboarding: 'S',
         tenant_product: 'SIU',
         tenant_regulatory_profile: 'SIU',
       });
+      // Spec 0034 Q-A2, Q7: a new institution can only start REQUESTED, and the sealed invite is never read back.
+      for (const [table, column, privilege, expected] of [
+        ['tenant', 'slug', 'INSERT', true],
+        ['tenant', 'status', 'INSERT', false],
+        ['tenant', 'tier', 'INSERT', false],
+        ['tenant', 'version', 'INSERT', false],
+        ['provisioning_job', 'status', 'INSERT', false],
+        ['provisioning_job', 'version', 'INSERT', false],
+        ['provisioning_job', 'invite_enc', 'INSERT', true],
+        ['provisioning_job', 'invite_enc', 'SELECT', false],
+        ['provisioning_job', 'invite_enc', 'UPDATE', false],
+      ] as const) {
+        const [row] = await db.$queryRawUnsafe<{ ok: boolean }[]>(`SELECT has_column_privilege(current_user, '${table}', '${column}', '${privilege}') AS ok`);
+        expect([table, column, privilege, row?.ok]).toEqual([table, column, privilege, expected]);
+      }
       // Spec 0033 Q3: the columns of the tenant registry the console reads, by name, and never a secret.
       const tenantColumns = await db.$queryRaw<{ column_name: string }[]>`
         SELECT column_name FROM information_schema.columns
          WHERE table_name = 'tenant' AND has_column_privilege(current_user, 'tenant', column_name, 'SELECT') ORDER BY column_name`;
-      expect(tenantColumns.map((c) => c.column_name)).toEqual(['created_at', 'id', 'legal_name', 'offboarding_started_at', 'ownership', 'purge_after', 'shard_id', 'short_name', 'slug', 'status', 'suspended_reason', 'tier', 'type', 'updated_at', 'version']);
+      expect(tenantColumns.map((c) => c.column_name)).toEqual(['created_at', 'id', 'legal_name', 'offboarding_started_at', 'ownership', 'purge_after', 'shard_id', 'short_name', 'slug', 'status', 'suspended_reason', 'template', 'tier', 'type', 'updated_at', 'version']);
       for (const [table, column] of [['shard', 'secret_ref'], ['tenant_domain', 'verification_token'], ['tenant_data_key', 'wrapped_dek']] as const) {
         const [row] = await db.$queryRawUnsafe<{ ok: boolean }[]>(`SELECT has_column_privilege(current_user, '${table}', '${column}', 'SELECT') AS ok`);
         expect([table, column, row?.ok]).toEqual([table, column, false]);

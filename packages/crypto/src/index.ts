@@ -5,3 +5,4 @@ export * from './keys.js';
 export * from './platform-audit.js';
 export * from './providers.js';
 export * from './token-renewal.js';
+export * from './sealed-invite.js';

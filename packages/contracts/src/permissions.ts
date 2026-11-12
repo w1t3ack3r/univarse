@@ -38,6 +38,31 @@ export const isPermission = (p: string): p is Permission => Object.hasOwn(PERMIS
 /** Granted to every seeded role, on top of its own list (spec 0010 D2: everyone manages their own files). */
 export const EVERY_ROLE_PERMISSIONS: readonly Permission[] = ['files.file.upload', 'files.file.read', 'files.file.delete'];
 
+/**
+ * The system roles every institution starts with (docs/03 §2), as [key, name]: the seed and provisioning's seed step
+ * (spec 0034 Q5) create the same ones. Permissions are attached as modules land.
+ */
+export const SYSTEM_ROLES: readonly (readonly [key: string, name: string])[] = [
+  ['INSTITUTION_ADMIN', 'Institution Administrator'],
+  ['REGISTRAR', 'Registrar'],
+  ['EXAMS_RECORDS_OFFICER', 'Exams & Records Officer'],
+  ['ADMISSIONS_OFFICER', 'Admissions Officer'],
+  ['BURSAR', 'Bursar'],
+  ['BURSARY_OFFICER', 'Bursary Officer'],
+  ['DEAN', 'Dean'],
+  ['HOD', 'Head of Department'],
+  ['LEVEL_ADVISER', 'Level Adviser'],
+  ['LECTURER', 'Lecturer'],
+  ['STUDENT_AFFAIRS_OFFICER', 'Student Affairs Officer'],
+  ['HOSTEL_OFFICER', 'Hostel Officer'],
+  ['LIBRARIAN', 'Librarian'],
+  ['CLEARANCE_OFFICER', 'Clearance Officer'],
+  ['MANAGEMENT_VIEWER', 'Management (read-only)'],
+  ['HELPDESK_AGENT', 'Helpdesk Agent'],
+  ['STUDENT', 'Student'],
+  ['APPLICANT', 'Applicant'],
+];
+
 /** Default grants for seeded system roles. Tenants may extend roles later. */
 export const SYSTEM_ROLE_PERMISSIONS: Readonly<Record<string, readonly Permission[]>> = {
   INSTITUTION_ADMIN: [

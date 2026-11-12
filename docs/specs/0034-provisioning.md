@@ -1,6 +1,6 @@
 # Spec 0034: Phase 1's S5, provisioning
 
-**Status:** Draft for the owner's approval (2026-11-12): Q1 to Q16.
+**Status:** **Approved by the owner on 2026-11-12, all as written:** Q1 to Q16. PR A (the backend) built; Q-A1 to Q-A14 for approval.
 **Phase:** 1, slice **S5** of [spec 0025](0025-phase-1-control-plane.md) (A8, A9, E6, E13).
 **Builds on:**
 
@@ -85,3 +85,55 @@ In this PR: [18](../18-roadmap.md). In the implementation PRs: [03](../03-domain
 - **Grading schemes, session structure and carry-over rules as settings** (Academics, Phase 3; Q6).
 - **The training sandbox** (E17, Phase 2).
 - **The NDPA registers** beyond the DPA record (S11).
+
+## PR A: what was built
+
+**Built:**
+- **Domain** (`packages/domain/src/platform/provisioning.ts`): the slug rule, the eight steps and their order, the fixed error codes, the three templates (`university@1`, `polytechnic@1`, `college-of-education@1`), the go-live checklist and the masked email; the two permissions.
+- **Database:** `provisioning_job`, `provisioning_step`, `tenant_dpa`, `tenant_onboarding` and `tenant.template`, with checks that keep error codes to the fixed list and a finished job free of its invite; grants by column for the console and the worker.
+- **The invite's envelope** (`packages/crypto`, `sealInvite` and `openInvite`): a fresh key wraps the details with AES-256-GCM, the provisioning key wraps that key, both bound to the institution.
+- **The console's side** (`apps/api/src/platform/provisioning`): create (202, `Idempotency-Key`), the provisioning view, resume, the checklist, the DPA and go live.
+- **The worker's side** (`apps/api/src/modules/provisioning`): the runner and its eight steps, the BullMQ queue and its relay, and the onboarding check.
+- **Shared:** the seed's tenant base moved into `seedTenantBase()` (`packages/db`), and the system roles into `packages/contracts`, so the seed and provisioning start an institution the same way.
+- **Settings:** the provisioning key on both sides (worker-only for the decrypting side), `TENANT_DOMAIN`, `TENANT_LINK_ORIGIN`, and `db:setup` writing one local development key to `.env.console` and `.env.worker`.
+- **Docs:** 03, 05, 06, 07, 08 (T33), 10, 12 and 19 (ADR-036; ADR-019 superseded for new jobs).
+
+**Evidence:**
+- **Integration** (`provisioning.int.spec.ts`, 14 tests, real Postgres, Vault and Valkey):
+  - who may create, and the idempotency key;
+  - the slug's three refusals, and an unknown product;
+  - 503 and nothing written without the key, while a replay is still answered;
+  - the request's single transaction, and an invite the console role can't select;
+  - the eight steps end to end, with no demo account;
+  - every step run again after a simulated kill (the invite step's included, after its email committed): no duplicate role, key, host or email, and a setting the institution changed since is kept;
+  - a tenant in the wrong status, before the first step or mid-way, stops the job before anything is written;
+  - a failure, then resume;
+  - demo-uni's and test-poly's digests unchanged after provisioning another;
+  - a host held by another institution stops the job;
+  - the relay after an emptied queue, and the consumer running the job;
+  - the whole go-live checklist, the DPA, the onboarding check and going live.
+- **Unit:** the domain's rules (5), the envelope (2), the settings on both sides (5); the audit-label scan names all 11 new actions.
+- **Checks:** lint and typecheck on every touched package; `pnpm rls:check` passes.
+- **The rest of the integration suite** (557 tests, run serially; the file-scan tests with ClamAV started, then stopped): passes. Updated to match this slice: the console role's exact grants (with the new checks that it can't insert a tenant's `status`, `tier` or `version`, or read the invite), and `.env.worker`'s keys. Found and fixed: the audit metadata recorded the template as `polytechnic@1`, and the "no email in the audit" check rightly flags any `@`; it's now the template and its version as two fields. The rows written before the fix stay in the development database (the chain is append-only); CI's is fresh.
+- **Mutations: 17 tried, 16 caught.** The first run left five survivors; four were gaps in the tests, now closed: an invite step re-run after its email committed, a setting changed after provisioning, a tenant suspended mid-way, and a replay while the key is off. The survivor left is equivalent: resume's status check is repeated by its guarded update, and both stay.
+- **Development database:** `backup-checks.int.spec.ts`'s `verify-chains` and `verify-unwrap` now take 31 and 40 s locally, over their 30 s timeout: the database holds about 1 380 tenants, 1 339 of them left OFFBOARDING by older suites. They pass with a longer timeout, and on CI's fresh database.
+
+**Decisions made while building, for approval:**
+
+| # | Decision | Why |
+| --- | --- | --- |
+| Q-A1 | **The shard is chosen in the console's request,** not at the "place" step: a tenant row needs its shard. "Place" checks the shard answers before anything is written to it, then moves REQUESTED → PROVISIONING. | The same rule (Q11), at the only point it can apply; nothing reaches the shard before it's proven reachable. |
+| Q-A2 | **The console inserts the tenant and the job as named columns,** in a parameterised statement: `status`, `tier` and `version` are the database's defaults, and the console role holds no `INSERT` on them. | The console can only ever create an institution REQUESTED, with a job QUEUED. Prisma's insert would have named those columns, and granting them would have let the console create an ACTIVE institution. |
+| Q-A3 | **The idempotency key lives on the job,** unique per member and kept for good (not 24 hours); a replay answers the first ids, with `Idempotent-Replayed: true`. Another member's same key is their own request. | Nothing else needs a stored response here, and a provisioning is never retried a day later by accident. |
+| Q-A4 | **The template step writes a setting only if the institution has no row for it,** and records the template on the tenant at creation. | A re-run never overwrites a setting the institution changed afterwards. |
+| Q-A5 | **The invite email carries no code:** it names the account and links to the institution's activation page, where the administrator asks for their own code. | Codes last 15 minutes; an invite may be read days later. The activation flow is unchanged, and the address is proven by the code. |
+| Q-A6 | **"The administrator is ready" is found by the worker,** every minute, for each onboarding institution: an active INSTITUTION_ADMIN with a confirmed authenticator, recorded once with no personal data. | No tenant-side code changes, and nothing personal crosses to the platform database. A minute's delay on a checklist is fine. |
+| Q-A7 | **The worker writes platform rows as `univarse_app_platform`,** the role it already uses, with grants by column on the new tables. | A dedicated provisioning role would need the stack, PgBouncer and the backups changed for one job; recorded for S7, whose purge needs a stronger separation. |
+| Q-A8 | **Provisioning is optional per process:** without its key the worker logs that it's off and creating answers 503; nothing else changes. | Existing development setups and the stack keep working until they get the key (your main checkout: `pnpm db:setup`, which keeps every existing secret; the stack: PR C). |
+| Q-A9 | **A step retries twice in place** (after 0.5 s and 2 s) for a Vault or database blip, then the job fails; BullMQ never retries on its own. | The rows decide every state, so retries are counted there, where the console shows them. |
+| Q-A10 | **The username is stored upper-case and the email lower-case,** as sign-in normalises them; the username is 3 to 40 of `A–Z 0–9 / . _ -`. | The administrator signs in with exactly what the console entered. |
+| Q-A11 | **The tests' institutions are archived, and their hosts released, at the end;** their tenant-side rows stay. | The tenant audit chain is append-only, and archived institutions are skipped by every loop. |
+| Q-A12 | **The institution's detail gains `template`.** | PR B shows it. |
+| Q-A13 | **BullMQ's optional native accelerator stays unbuilt** (`msgpackr-extract`'s install script isn't allowed to run); BullMQ uses its JavaScript path. | No new install scripts (docs/09 §1); a provisioning is a handful of small messages. |
+| Q-A14 | **The invite is bound to the institution's id,** not the job's: the id is chosen before either row is written, and there's one job per institution. | Sealing happens before the transaction, so no Vault call holds it open. |
+

@@ -104,13 +104,17 @@ async function main() {
   generated.PGBOUNCER_ADMIN_URL = url(PGBOUNCER_ADMIN, adminPassword, 'pgbouncer', bouncer);
   writeEnv(generated, WORKER_ONLY_KEYS);
   // Spec 0016 IO17: the relay's URLs go to .env.worker only, which only the worker entrypoint loads.
+  // Spec 0034 Q7: the development provisioning key, one local key in both files (the stack splits it in Vault).
+  const provisioningKek = provisioningLocalKek();
   writeWorkerEnv({
     PLATFORM_RELAY_URL: url(ROLES.relayPlatform, passwords.relayPlatform, 'univarse_platform'),
     PGBOUNCER_PLATFORM_RELAY_URL: url(ROLES.relayPlatform, passwords.relayPlatform, 'univarse_platform', bouncer),
+    PROVISIONING_KEY_PROVIDER: 'local',
+    PROVISIONING_LOCAL_KEK: provisioningKek,
   });
   console.log(`  ✓ wrote the relay's connection strings to ${WORKER_ENV_PATH} (git-ignored, worker only)`);
   // Spec 0027 P5: the console role's URL goes to .env.console only, which only the platform API's entrypoint loads.
-  writeOwnEnv(CONSOLE_ENV_PATH, 'the PLATFORM API only (spec 0027 P5, spec 0028)', consoleEnv(url(CONSOLE_ROLE, consolePassword, 'univarse_platform')));
+  writeOwnEnv(CONSOLE_ENV_PATH, 'the PLATFORM API only (spec 0027 P5, spec 0028)', consoleEnv(url(CONSOLE_ROLE, consolePassword, 'univarse_platform'), provisioningKek));
   console.log(`  ✓ wrote the console role's connection string to ${CONSOLE_ENV_PATH} (git-ignored, platform API only)`);
   console.log(`  ✓ wrote connection strings to ${ROOT_ENV_PATH} (git-ignored)`);
   console.log('\nNext: pnpm db:migrate && pnpm rls:check');
@@ -143,7 +147,7 @@ function writeWorkerEnv(values: Record<string, string>) {
  * already has them: a new one would make every staff authenticator, recovery code and known device stop working. The
  * console key is local in development; the stack uses its own Vault Transit key (Q3).
  */
-function consoleEnv(databaseUrl: string): Record<string, string> {
+function consoleEnv(databaseUrl: string, provisioningKek: string): Record<string, string> {
   const existing = parseEnv(readIfExists(CONSOLE_ENV_PATH) ?? '');
   return {
     CONSOLE_DATABASE_URL: databaseUrl,
@@ -151,7 +155,20 @@ function consoleEnv(databaseUrl: string): Record<string, string> {
     CONSOLE_KEY_PROVIDER: 'local',
     CONSOLE_LOCAL_KEK: existing.CONSOLE_LOCAL_KEK ?? randomBytes(32).toString('base64'),
     SMTP_URL: 'smtp://127.0.0.1:1025',
+    PROVISIONING_KEY_PROVIDER: 'local',
+    PROVISIONING_LOCAL_KEK: provisioningKek,
   };
+}
+
+/**
+ * Spec 0034 Q7: kept when either file has it, so an invite sealed before a re-run still opens. In development the two
+ * processes share one local key; the stack gives each its own Vault token, one that only encrypts and one that only
+ * decrypts.
+ */
+function provisioningLocalKek(): string {
+  const worker = parseEnv(readIfExists(WORKER_ENV_PATH) ?? '');
+  const console_ = parseEnv(readIfExists(CONSOLE_ENV_PATH) ?? '');
+  return worker.PROVISIONING_LOCAL_KEK ?? console_.PROVISIONING_LOCAL_KEK ?? randomBytes(32).toString('base64');
 }
 
 /** An env file only one process loads, owner-only. */
