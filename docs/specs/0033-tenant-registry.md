@@ -1,6 +1,6 @@
 # Spec 0033: Phase 1's S4, the tenant registry
 
-**Status:** **Approved by the owner on 2026-11-09, all as written:** Q1 to Q17, Q-A1 to Q-A7 and Q-B1 to Q-B6. PR A (#164) and PR B (#165) merged; PR C built, Q-C1 to Q-C5 approved on 2026-11-11; the release next.
+**Status:** **Done (2026-11-11).** Approved by the owner on 2026-11-09, all as written: Q1 to Q17, Q-A1 to Q-A7 and Q-B1 to Q-B6; Q-C1 to Q-C5 approved on 2026-11-11. All three PRs merged (#164, #165, #167), released as `3b14a76` and deployed; the owner's check in criterion 14 passed on the stack.
 **Phase:** 1, slice **S4** of [spec 0025](0025-phase-1-control-plane.md) (E7, E26, and spec 0003's platform side).
 **Builds on:**
 
@@ -74,7 +74,7 @@ T26 (a platform insider changing entitlements) gets S4's controls added: the per
 
 - Approve or change Q1 to Q17.
 - Check Q7's `[VERIFY]` items with a registrar when you can. It doesn't block the build.
-- After the PRs: the release and the deploy, then the check in criterion 14.
+- ~~After the PRs: the release and the deploy, then the check in criterion 14.~~ Done on 2026-11-11: released as `3b14a76`, deployed, and the owner saw an institution's colour and logo on its own sign-in page and not on another's.
 
 ## Affected docs
 
