@@ -102,3 +102,17 @@ describe('[spec 0028 Q3, Q6] the console key and pepper', () => {
     expect(loadPlatformConfig({ ...OWN, NODE_ENV: 'development', CONSOLE_KEY_PROVIDER: 'local', CONSOLE_LOCAL_KEK: 'k'.repeat(44) }).CONSOLE_KEY_PROVIDER).toBe('local');
   });
 });
+
+describe('[spec 0034 Q7] the provisioning key, on the console side', () => {
+  it('unset: provisioning is off and nothing else is refused', () => {
+    expect(loadPlatformConfig({ ...OWN, NODE_ENV: 'development' }).PROVISIONING_KEY_PROVIDER).toBeUndefined();
+  });
+
+  it('set: complete, never local in production, never over plaintext Vault in production', () => {
+    expect(() => loadPlatformConfig({ ...OWN, NODE_ENV: 'development', PROVISIONING_KEY_PROVIDER: 'local' })).toThrow(/PROVISIONING_LOCAL_KEK: required/);
+    expect(() => loadPlatformConfig({ ...OWN, NODE_ENV: 'development', PROVISIONING_KEY_PROVIDER: 'vault' })).toThrow(/PROVISIONING_VAULT_TOKEN: required/);
+    const prod = { ...OWN, NODE_ENV: 'production', CONSOLE_ALLOWLIST: '172.31.218.1' };
+    expect(() => loadPlatformConfig({ ...prod, PROVISIONING_KEY_PROVIDER: 'local', PROVISIONING_LOCAL_KEK: 'k'.repeat(44) })).toThrow(/local is refused in production/);
+    expect(loadPlatformConfig({ ...prod, PROVISIONING_KEY_PROVIDER: 'vault', PROVISIONING_VAULT_TOKEN: 'hvs.provisioning-seal' }).PROVISIONING_KEY_PROVIDER).toBe('vault');
+  });
+});

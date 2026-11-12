@@ -1,5 +1,6 @@
 import { BlockList, isIP } from 'node:net';
 import { keyProviderFrom, vaultAddrProblem, type KeyProvider } from '@univarse/crypto';
+import { provisioningKeyFrom, provisioningKeySettingsProblems } from '../shared/crypto/provisioning-key.js';
 import { z } from 'zod';
 
 /**
@@ -42,6 +43,13 @@ const schema = z.object({
   CONSOLE_VAULT_TOKEN: z.string().min(8).optional(),
   VAULT_TRANSIT_MOUNT: z.string().regex(/^[a-z0-9_-]{1,64}$/).default('transit'),
   CONSOLE_LOCAL_KEK: z.string().min(40).optional(),
+  /**
+   * Spec 0034 Q7: the key the first IT Admin's details are sealed with, for the worker only. On the stack this
+   * process's token may encrypt with it and never decrypt. Unset: provisioning is unavailable (503), nothing else is.
+   */
+  PROVISIONING_KEY_PROVIDER: z.enum(['vault', 'local']).optional(),
+  PROVISIONING_VAULT_TOKEN: z.string().min(8).optional(),
+  PROVISIONING_LOCAL_KEK: z.string().min(40).optional(),
   /** Spec 0028 Q4: the console's mail, sent by its own relay (Mailpit locally). */
   SMTP_URL: z.string().regex(/^smtps?:\/\//),
   MAIL_FROM: z.string().min(3).default('UniVarse Platform <no-reply@univarse.localhost>'),
@@ -77,7 +85,7 @@ export function loadPlatformConfig(env: NodeJS.ProcessEnv = process.env): Platfo
   for (const k of foreignCredentials(env)) issues.push(`  - ${k}: set, but the platform API holds no tenant or app credential (spec 0027 P5)`);
   if (parsed.success && parsed.data.NODE_ENV === 'production' && parsed.data.CONSOLE_ALLOWLIST.length === 0)
     issues.push('  - CONSOLE_ALLOWLIST: required in production (spec 0027 P4)');
-  if (parsed.success) for (const p of consoleKeyProblems(parsed.data)) issues.push(`  - ${p}`);
+  if (parsed.success) for (const p of [...consoleKeyProblems(parsed.data), ...provisioningKeyProblems(parsed.data)]) issues.push(`  - ${p}`);
   if (!parsed.success || issues.length > 0) throw new Error(`Invalid platform API configuration:\n${issues.join('\n')}`);
   const config = parsed.data;
   return config.CONSOLE_ALLOWLIST.length > 0 ? config : { ...config, CONSOLE_ALLOWLIST: ['127.0.0.1', '::1'] };
@@ -97,6 +105,11 @@ function consoleKeyProblems(c: z.infer<typeof schema>): string[] {
   return problems;
 }
 
+/** Spec 0034 Q7: the provisioning key's settings, when given, are complete; `local` never in production. */
+function provisioningKeyProblems(c: z.infer<typeof schema>): string[] {
+  return provisioningKeySettingsProblems(c);
+}
+
 /** The Transit key staff TOTP secrets are encrypted with (spec 0028 Q3): the console's own, never the tenant KEK. */
 export const CONSOLE_KEK = 'univarse-console-kek';
 
@@ -111,6 +124,11 @@ export function consoleKeyProvider(c: PlatformConfig): KeyProvider {
     VAULT_TRANSIT_KEY: CONSOLE_KEK,
     LOCAL_KEK: c.CONSOLE_LOCAL_KEK,
   });
+}
+
+/** The provisioning key's provider, or null when provisioning isn't set up here (spec 0034 Q7). */
+export function provisioningKeyProvider(c: PlatformConfig): KeyProvider | null {
+  return provisioningKeyFrom(c);
 }
 
 /**

@@ -60,6 +60,38 @@ describe('[IO17] only the worker may hold PLATFORM_RELAY_URL', () => {
   });
 });
 
+describe('[spec 0034 Q7] only the worker may hold the provisioning key', () => {
+  const KEY = { PROVISIONING_KEY_PROVIDER: 'local', PROVISIONING_LOCAL_KEK: 'k'.repeat(44) };
+
+  it('the API refuses to start with any of its settings, by name, never showing a value', () => {
+    for (const [k, v] of Object.entries({ ...KEY, PROVISIONING_VAULT_TOKEN: 'hvs.provisioning-open' })) {
+      let message = '';
+      try {
+        loadConfig({ ...BASE, [k]: v });
+      } catch (err) {
+        message = (err as Error).message;
+      }
+      expect(message).toMatch(new RegExp(`${k}: set, but only the worker may hold the provisioning key`));
+      expect(message).not.toContain(v);
+    }
+  });
+
+  it('the worker accepts a complete key, refuses an incomplete one, and runs without one', () => {
+    expect(loadConfig({ ...BASE, ...KEY }, 'worker').PROVISIONING_KEY_PROVIDER).toBe('local');
+    expect(() => loadConfig({ ...BASE, PROVISIONING_KEY_PROVIDER: 'local' }, 'worker')).toThrow(/PROVISIONING_LOCAL_KEK: required/);
+    expect(() => loadConfig({ ...BASE, PROVISIONING_KEY_PROVIDER: 'vault', VAULT_ADDR: 'http://127.0.0.1:8200' }, 'worker')).toThrow(/PROVISIONING_VAULT_TOKEN: required/);
+    expect(() => loadConfig({ ...BASE, ...KEY, NODE_ENV: 'production' }, 'worker')).toThrow(/local is refused in production/);
+    expect(loadConfig(BASE, 'worker').PROVISIONING_KEY_PROVIDER).toBeUndefined();
+  });
+
+  it('[Q5] the tenant domain and the link origin are shaped, with a placeholder for the host', () => {
+    expect(loadConfig(BASE).TENANT_LINK_ORIGIN).toBe('http://{host}:4180');
+    expect(loadConfig({ ...BASE, TENANT_LINK_ORIGIN: 'https://{host}' }).TENANT_LINK_ORIGIN).toBe('https://{host}');
+    expect(() => loadConfig({ ...BASE, TENANT_LINK_ORIGIN: 'https://evil.example/{host}' })).toThrow(/TENANT_LINK_ORIGIN/);
+    expect(() => loadConfig({ ...BASE, TENANT_DOMAIN: 'localhost' })).toThrow(/TENANT_DOMAIN/);
+  });
+});
+
 describe('[D15] the retired-key grace period', () => {
   it('[D15] defaults to one hour; below the writer bound plus 60 s the process refuses to start', () => {
     expect(loadConfig(BASE).RETIRED_KEY_GRACE_MS).toBe(60 * 60_000);

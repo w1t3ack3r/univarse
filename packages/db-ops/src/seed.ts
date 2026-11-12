@@ -3,8 +3,8 @@
  * roles and password-less demo accounts. Uses the APP roles, so it goes through RLS like the real app. Run by
  * `pnpm db:seed` (scripts/seed.ts) and by the migrate image (spec 0019), compiled.
  */
-import { EVERY_ROLE_PERMISSIONS, SYSTEM_ROLE_PERMISSIONS, type ProductKey } from '@univarse/contracts';
-import { createPlatformClient, createTenantShardClient, withTenantTx } from '@univarse/db';
+import type { ProductKey } from '@univarse/contracts';
+import { createPlatformClient, createTenantShardClient, seedTenantBase, withTenantTx } from '@univarse/db';
 import { TENANTS } from './seed-tenants.js';
 
 /** The development domain; the stack seeds `stack.univarse.localhost` (spec 0019 D6). */
@@ -18,28 +18,6 @@ const PLANS: Record<(typeof TENANTS)[number]['slug'], Partial<Record<ProductKey,
   'test-poly': { core: true, admissions: true },
   'paused-uni': { core: true },
 };
-
-// System roles seeded per tenant (docs/03 §2). Permissions are attached as modules land.
-const SYSTEM_ROLES: [string, string][] = [
-  ['INSTITUTION_ADMIN', 'Institution Administrator'],
-  ['REGISTRAR', 'Registrar'],
-  ['EXAMS_RECORDS_OFFICER', 'Exams & Records Officer'],
-  ['ADMISSIONS_OFFICER', 'Admissions Officer'],
-  ['BURSAR', 'Bursar'],
-  ['BURSARY_OFFICER', 'Bursary Officer'],
-  ['DEAN', 'Dean'],
-  ['HOD', 'Head of Department'],
-  ['LEVEL_ADVISER', 'Level Adviser'],
-  ['LECTURER', 'Lecturer'],
-  ['STUDENT_AFFAIRS_OFFICER', 'Student Affairs Officer'],
-  ['HOSTEL_OFFICER', 'Hostel Officer'],
-  ['LIBRARIAN', 'Librarian'],
-  ['CLEARANCE_OFFICER', 'Clearance Officer'],
-  ['MANAGEMENT_VIEWER', 'Management (read-only)'],
-  ['HELPDESK_AGENT', 'Helpdesk Agent'],
-  ['STUDENT', 'Student'],
-  ['APPLICANT', 'Applicant'],
-];
 
 const DEMO_USERS = [
   { username: 'ADMIN001', emailLocal: 'ict.admin', displayName: 'Ngozi Adeyemi', role: 'INSTITUTION_ADMIN' },
@@ -92,24 +70,8 @@ export async function seed({ platformUrl, tenantUrl, domain = DEV_DOMAIN, log = 
     });
 
     await withTenantTx(shardClient, tenant.id, async (tx) => {
-      const root = await tx.orgUnit.upsert({
-        where: { tenantId_code: { tenantId: tenant.id, code: 'ROOT' } },
-        update: {},
-        create: { tenantId: tenant.id, code: 'ROOT', name: t.legalName, kind: 'ACADEMIC', type: 'INSTITUTION', path: '/' },
-      });
-      if (root.path === '/') {
-        await tx.orgUnit.update({ where: { id: root.id }, data: { path: `/${root.id}/` } });
-      }
-      const roleIds = new Map<string, string>();
-      for (const [key, name] of SYSTEM_ROLES) {
-        const permissions = [...new Set([...(SYSTEM_ROLE_PERMISSIONS[key] ?? []), ...EVERY_ROLE_PERMISSIONS])];
-        const role = await tx.role.upsert({
-          where: { tenantId_key: { tenantId: tenant.id, key } },
-          update: { name, permissions },
-          create: { tenantId: tenant.id, key, name, isSystem: true, permissions },
-        });
-        roleIds.set(key, role.id);
-      }
+      // The base a provisioned institution gets too (spec 0034 Q5); then, for the demo tenants only, their accounts.
+      const roleIds = await seedTenantBase(tx, tenant.id, t.legalName);
 
       // Demo accounts: NO passwords. Activate via /api/v1/auth/activation/* (code arrives in Mailpit).
       for (const u of DEMO_USERS) {

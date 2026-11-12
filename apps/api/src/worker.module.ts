@@ -21,6 +21,12 @@ import { MAILER, SmtpMailer, type Mailer } from './shared/infra/mailer.js';
 import { PlatformInvalidationRelay } from './shared/infra/platform-invalidation-relay.js';
 import { shutdownHook } from './shared/observability/shutdown-hook.js';
 import { OutboxWorker } from './shared/outbox/outbox-worker.js';
+import { Outbox } from './shared/outbox/outbox.js';
+import { keyProviderFrom, type KeyProvider } from '@univarse/crypto';
+import { provisioningKeyFrom } from './shared/crypto/provisioning-key.js';
+import { OnboardingCheck } from './modules/provisioning/onboarding-check.js';
+import { ProvisioningQueue } from './modules/provisioning/provisioning-queue.js';
+import { PROVISIONING_OPEN_KEYS, ProvisioningRunner, TENANT_KEYS } from './modules/provisioning/provisioning-runner.js';
 
 export interface WorkerOverrides {
   /** Tests capture outbound email instead of sending via SMTP. */
@@ -33,6 +39,15 @@ export interface WorkerOverrides {
   readonly renewVaultToken?: boolean;
   /** Spec 0031 Q9: count security events for the console. Only the real process sets it. */
   readonly recordSecurityEvents?: boolean;
+  /**
+   * Spec 0034 Q7: tests give the provisioning key directly; null leaves provisioning off. Otherwise it comes from the
+   * worker's own settings (.env.worker), and the worker runs no provisioning without them.
+   */
+  readonly provisioningKeys?: KeyProvider | null;
+  /** Tests: the tenant KEK provider for the key step, without Vault. */
+  readonly tenantKeys?: KeyProvider;
+  /** Tests: no waiting between a step's retries. */
+  readonly provisioningRetryDelays?: readonly number[];
 }
 
 /**
@@ -92,6 +107,9 @@ export class WorkerModule {
         ClamdScanner,
         FileScanWorker,
         ContactBlanker,
+        // Spec 0034: the go-live checklist's administrator fact, always; provisioning itself only with its key.
+        OnboardingCheck,
+        ...provisioningProviders(config, overrides),
         // Spec 0016: the platform invalidation relay, on its own role's connection. Only the worker process has
         // PLATFORM_RELAY_URL (loadConfig refuses it elsewhere), so the keys CLI never gets one.
         ...(config.PLATFORM_RELAY_URL ? [relayProvider(config.PLATFORM_RELAY_URL)] : []),
@@ -100,6 +118,19 @@ export class WorkerModule {
       exports: [APP_CONFIG],
     };
   }
+}
+
+function provisioningProviders(config: AppConfig, overrides: WorkerOverrides) {
+  const inviteKeys = overrides.provisioningKeys !== undefined ? overrides.provisioningKeys : provisioningKeyFrom(config);
+  if (!inviteKeys) return [];
+  return [
+    { provide: PROVISIONING_OPEN_KEYS, useValue: inviteKeys },
+    { provide: TENANT_KEYS, useFactory: () => overrides.tenantKeys ?? keyProviderFrom(config) },
+    { provide: 'PROVISIONING_RETRY_DELAYS', useValue: overrides.provisioningRetryDelays ?? [500, 2_000] },
+    Outbox,
+    ProvisioningRunner,
+    ProvisioningQueue,
+  ];
 }
 
 function relayProvider(url: string) {

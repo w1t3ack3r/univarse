@@ -95,6 +95,7 @@ export class TenantRegistry {
         ...SUMMARY,
         version: true,
         suspendedReason: true,
+        template: true,
         createdAt: true,
         updatedAt: true,
         shard: { select: { name: true, kind: true, region: true } },
@@ -141,6 +142,7 @@ export class TenantRegistry {
         version: regulatory?.version ?? 0,
       },
       branding: { primaryColor: primary, textColor: primary ? textColorOn(primary) : null, logoSha256: branding?.logoSha256 ?? null },
+      template: t.template,
     };
   }
 

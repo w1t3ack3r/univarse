@@ -46,6 +46,7 @@
     "@univarse/crypto": "workspace:*",
     "@univarse/db": "workspace:*",
     "@univarse/domain": "workspace:*",
+    "bullmq": "^5.81.5",
     "fastify": "5.12.7",
     "import-in-the-middle": "^3.5.2",
     "ioredis": "^5.11.1",

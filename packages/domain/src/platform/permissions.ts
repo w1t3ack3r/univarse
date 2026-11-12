@@ -15,6 +15,8 @@ export const PLATFORM_PERMISSIONS = [
   'platform.tenant.read',
   'platform.tenant.edit',
   'platform.tenant.entitlements',
+  'platform.tenant.provision',
+  'platform.tenant.go_live',
 ] as const;
 export type PlatformPermission = (typeof PLATFORM_PERMISSIONS)[number];
 
@@ -34,6 +36,8 @@ export const PLATFORM_PERMISSION_CATALOG: Readonly<Record<PlatformPermission, { 
   'platform.tenant.read': { stepUp: false, description: 'The institutions: list, detail and search. No personal data.' },
   'platform.tenant.edit': { stepUp: true, description: "An institution's profile, regulatory profile and branding." },
   'platform.tenant.entitlements': { stepUp: true, description: 'Grant or revoke a product for an institution.' },
+  'platform.tenant.provision': { stepUp: true, description: 'Create an institution, or resume its failed provisioning (spec 0034 Q1).' },
+  'platform.tenant.go_live': { stepUp: true, description: "Record an institution's DPA, and take it live (spec 0034 Q1)." },
 });
 
 /** The roles' grants, in code (A5): a change here is a reviewed change, never data. Only OWNER manages staff. */
@@ -50,8 +54,22 @@ export const PLATFORM_ROLE_PERMISSIONS: Readonly<Record<PlatformRole, readonly P
     'platform.tenant.read',
     'platform.tenant.edit',
     'platform.tenant.entitlements',
+    'platform.tenant.provision',
+    'platform.tenant.go_live',
   ],
-  SUPER_ADMIN: ['platform.self', 'platform.staff.read', 'platform.audit.read', 'platform.audit.verify', 'platform.security.read', 'platform.access_review.read', 'platform.tenant.read', 'platform.tenant.edit', 'platform.tenant.entitlements'],
+  SUPER_ADMIN: [
+    'platform.self',
+    'platform.staff.read',
+    'platform.audit.read',
+    'platform.audit.verify',
+    'platform.security.read',
+    'platform.access_review.read',
+    'platform.tenant.read',
+    'platform.tenant.edit',
+    'platform.tenant.entitlements',
+    'platform.tenant.provision',
+    'platform.tenant.go_live',
+  ],
   SUPPORT: ['platform.self', 'platform.tenant.read'],
   FINANCE: ['platform.self', 'platform.tenant.read'],
   READ_ONLY: ['platform.self', 'platform.staff.read', 'platform.audit.read', 'platform.security.read', 'platform.access_review.read', 'platform.tenant.read'],
