@@ -30,6 +30,16 @@ export const APP_POLICY_HCL = `path "${MOUNT}/encrypt/${KEK}" { capabilities = [
 export const CONSOLE_KEK = 'univarse-console-kek';
 export const CONSOLE_POLICY = 'univarse-console';
 export const CONSOLE_POLICY_HCL = `path "${MOUNT}/encrypt/${CONSOLE_KEK}" { capabilities = ["update"] }\npath "${MOUNT}/decrypt/${CONSOLE_KEK}" { capabilities = ["update"] }\n${SELF_HCL}`;
+/**
+ * Spec 0034 Q7: the provisioning key. The first IT Admin's details are sealed with it by the platform API and opened by
+ * the worker, and each holds only its half: the seal policy may encrypt and never decrypt, the open policy the reverse.
+ * Neither can use the tenant KEK or the console's key, and the app's token can't use this one.
+ */
+export const PROVISIONING_KEK = 'univarse-provisioning';
+export const PROVISIONING_SEAL_POLICY = 'univarse-provisioning-seal';
+export const PROVISIONING_SEAL_POLICY_HCL = `path "${MOUNT}/encrypt/${PROVISIONING_KEK}" { capabilities = ["update"] }\n${SELF_HCL}`;
+export const PROVISIONING_OPEN_POLICY = 'univarse-provisioning-open';
+export const PROVISIONING_OPEN_POLICY_HCL = `path "${MOUNT}/decrypt/${PROVISIONING_KEK}" { capabilities = ["update"] }\n${SELF_HCL}`;
 /** Spec 0020 B-4: the backup's policy: a Raft snapshot, read (no Transit, no restore), and its own renewal (T1). */
 export const BACKUP_POLICY = 'univarse-backup';
 export const BACKUP_POLICY_HCL = `path "sys/storage/raft/snapshot" { capabilities = ["read"] }\n${SELF_HCL}`;
@@ -59,6 +69,12 @@ export interface VaultInit {
   /** Spec 0028 Q3: the platform API's, for the console key only; absent until the first deploy with S2. */
   readonly consoleToken?: string;
   readonly consoleTokenAccessor?: string;
+  /** Spec 0034 Q7: the platform API's, encrypt-only with the provisioning key; absent until the first deploy with S5. */
+  readonly provisioningSealToken?: string;
+  readonly provisioningSealTokenAccessor?: string;
+  /** Spec 0034 Q7: the worker's, decrypt-only with the provisioning key; absent until the first deploy with S5. */
+  readonly provisioningOpenToken?: string;
+  readonly provisioningOpenTokenAccessor?: string;
 }
 
 /** The stack's periodic tokens, by their fields in vault-init.json (spec 0023; the console's, spec 0028 Q3). */
@@ -66,6 +82,8 @@ export const TOKENS = [
   { name: 'app', token: 'appToken', accessor: 'appTokenAccessor', policy: 'univarse-app' },
   { name: 'backup', token: 'backupToken', accessor: 'backupTokenAccessor', policy: BACKUP_POLICY },
   { name: 'console', token: 'consoleToken', accessor: 'consoleTokenAccessor', policy: CONSOLE_POLICY },
+  { name: 'provisioning-seal', token: 'provisioningSealToken', accessor: 'provisioningSealTokenAccessor', policy: PROVISIONING_SEAL_POLICY },
+  { name: 'provisioning-open', token: 'provisioningOpenToken', accessor: 'provisioningOpenTokenAccessor', policy: PROVISIONING_OPEN_POLICY },
 ] as const;
 export type TokenName = (typeof TOKENS)[number]['name'];
 
@@ -196,11 +214,15 @@ export function configure(run: Runner = docker, dir = STACK_DIR, target: VaultTa
     must(['write', '-f', `${MOUNT}/keys/${KEK}`, 'type=aes256-gcm96', 'derived=true'], 'creating the KEK');
   if (vaultCli(run, ['read', '-format=json', `${MOUNT}/keys/${CONSOLE_KEK}`], root, undefined, target).status !== 0)
     must(['write', '-f', `${MOUNT}/keys/${CONSOLE_KEK}`, 'type=aes256-gcm96', 'derived=true'], "creating the console's key");
+  if (vaultCli(run, ['read', '-format=json', `${MOUNT}/keys/${PROVISIONING_KEK}`], root, undefined, target).status !== 0)
+    must(['write', '-f', `${MOUNT}/keys/${PROVISIONING_KEK}`, 'type=aes256-gcm96', 'derived=true'], 'creating the provisioning key');
   // The policies are rewritten every time, so an existing token gains a policy's new paths (T1) at the next deploy:
   // a token's policies are evaluated by name.
   must(['policy', 'write', POLICY, '-'], 'writing the app policy', APP_POLICY_HCL);
   must(['policy', 'write', BACKUP_POLICY, '-'], 'writing the backup policy', BACKUP_POLICY_HCL);
   must(['policy', 'write', CONSOLE_POLICY, '-'], 'writing the console policy', CONSOLE_POLICY_HCL);
+  must(['policy', 'write', PROVISIONING_SEAL_POLICY, '-'], 'writing the provisioning seal policy', PROVISIONING_SEAL_POLICY_HCL);
+  must(['policy', 'write', PROVISIONING_OPEN_POLICY, '-'], 'writing the provisioning open policy', PROVISIONING_OPEN_POLICY_HCL);
   const create = (p: string, what: string) => {
     const a = (JSON.parse(must(['token', 'create', '-policy', p, '-no-default-policy', '-period', opts.period ?? TOKEN_PERIOD, '-orphan', '-format=json'], what).stdout) as { auth: { client_token: string; accessor: string } }).auth;
     return { token: a.client_token, accessor: a.accessor };
@@ -325,7 +347,12 @@ export function ensureVault(run: Runner = docker, dir = STACK_DIR, target: Vault
   return { ...configured, renewal: renewTokens(run, dir, target) };
 }
 
-export const tokensOf = (v: VaultInit): VaultTokens => ({ appToken: v.appToken, ...(v.consoleToken ? { consoleToken: v.consoleToken } : {}) });
+export const tokensOf = (v: VaultInit): VaultTokens => ({
+  appToken: v.appToken,
+  ...(v.consoleToken ? { consoleToken: v.consoleToken } : {}),
+  ...(v.provisioningSealToken ? { provisioningSealToken: v.provisioningSealToken } : {}),
+  ...(v.provisioningOpenToken ? { provisioningOpenToken: v.provisioningOpenToken } : {}),
+});
 
 /**
  * The tokens the env files carry: vault-init.json's whenever it exists, so a deploy that stops before its Vault step

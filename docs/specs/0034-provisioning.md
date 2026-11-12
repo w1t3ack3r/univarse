@@ -1,6 +1,6 @@
 # Spec 0034: Phase 1's S5, provisioning
 
-**Status:** **Approved by the owner on 2026-11-12, all as written:** Q1 to Q16, and Q-A1 to Q-A14 (with #175). PR A (the backend) merged (#175); PR B (the console's screens and J1) built, Q-B1 to Q-B9 for approval; PR C (the stack) next.
+**Status:** **Approved by the owner on 2026-11-12, all as written:** Q1 to Q16, and Q-A1 to Q-A14 (with #175). PR A (the backend) merged (#175); PR B (the console's screens and J1) merged (#176), Q-B1 to Q-B9 approved; PR C (the stack) built, Q-C1 to Q-C6 for approval; the release next.
 **Phase:** 1, slice **S5** of [spec 0025](0025-phase-1-control-plane.md) (A8, A9, E6, E13).
 **Builds on:**
 
@@ -152,7 +152,7 @@ In this PR: [18](../18-roadmap.md). In the implementation PRs: [03](../03-domain
 - **Design:** one screenshot round at 1280 px and 360 px, with every finding fixed together, then one confirming round; no sideways scroll at 360 px; the design detector's only finding in the new code (a 1 px radius) removed.
 - **The integration tests** still pass (14), and leave no institution behind.
 
-**Decisions made while building, for approval:**
+**Decisions made while building:** **approved by the owner on 2026-11-12, all as written** (Q-B1 to Q-B9).
 
 | # | Decision | Why |
 | --- | --- | --- |
@@ -165,4 +165,32 @@ In this PR: [18](../18-roadmap.md). In the implementation PRs: [03](../03-domain
 | Q-B7 | **Test clean-up removes provisioned institutions on both sides** (`pruneTestTenants`), replacing Q-A11's archiving. It accepts only an `e2e-` or `prov-` prefix. | Archiving had left 307 institutions in the development database by the end of PR A. |
 | Q-B8 | **The console's E2E starts its own worker** (queue every 0.5 s, readiness every 1 s), as the web app's E2E does. | J1 needs provisioning to run; the image-only frame tests don't start one. |
 | Q-B9 | **The console uses the domain's own rules** (the slug, the steps, the templates) rather than copies. | One definition of each; the form can't drift from the API. |
+
+## PR C: what was built
+
+**Built** (`tools/stack`, and the two processes' token renewal):
+- **Vault:** the `univarse-provisioning` Transit key (derived, like the others), and two policies: `univarse-provisioning-seal` (encrypt only) and `univarse-provisioning-open` (decrypt only), each with its own renewal and nothing else. Two periodic tokens, created by the deploy's Vault step on a stack from before S5, kept, renewed and re-issued like the others.
+- **The env files:** `platform-api.env` gets the seal token, `worker.env` the open token, `TENANT_DOMAIN` (the stack's domain) and `TENANT_LINK_ORIGIN` (`https://{host}`); no other file gets either token.
+- **Valkey:** `maxmemory-policy noeviction`, pinned.
+- **The deploy:** a seal token issued recreates the platform API, an open token the worker, before the smoke check.
+- **The smoke check:** after every deploy, the seal token seals and can't open, the open token opens what was sealed and can't seal, the app token can't use the key, and neither half can use the tenant KEK.
+- **Renewal:** the platform API and the worker renew their provisioning token every 6 hours, as they renew their others.
+
+**Evidence:**
+- **The stack's unit tests:** 608 pass. New: the split in the env files, the two policies' halves, the Vault step on a stack from before S5, the deploy's recreations (and a failure), and the smoke's verdict on each way the split can be wrong.
+- **A real Vault:** `vault-token.int.ts` (CI) seals and opens a real invite through the app's own envelope with each token, and tries every refusal: the seal token can't open, the open token can't seal, the app's and the console's tokens can't touch the key, and neither half can use the tenant KEK.
+- **The API's unit tests** pass with the renewal change. (`policy-guard.spec.ts` timed out once under the full parallel run, then passed alone: it scans the source and isn't touched here.)
+- **Mutations: 7 tried, 7 caught:** a seal policy that can decrypt, the worker given the seal token, the platform API given none, Valkey allowed to evict, the deploy not recreating the worker, the smoke check ignoring a seal token that decrypts, and the open token never created.
+- **The stack itself** is proved by the release, the deploy and its smoke check.
+
+**Decisions made while building, for approval:**
+
+| # | Decision | Why |
+| --- | --- | --- |
+| Q-C1 | **Two tokens, one per half,** rather than one token with both. | Q7's split, held by Vault: neither process can do the other's half even if its own code is wrong. |
+| Q-C2 | **The provisioning settings are left out of an env file until Vault has made its token.** | A worker or platform API from before the Vault step starts with provisioning off (it says so), instead of refusing to start. |
+| Q-C3 | **Each process renews its provisioning token in-process,** beside its other token. | The tokens are periodic (32 days); the deploy renews them too, and the smoke check fails under 7 days (spec 0023). |
+| Q-C4 | **The deploy recreates only what holds a new token:** the platform API for the seal token, the worker for the open one, once even if the app token was re-issued too. | A restart keeps the old environment; nothing else needs to move. |
+| Q-C5 | **The smoke check proves the split live after every deploy,** not only the tests. | A policy edited by hand in Vault would otherwise go unnoticed until an invite leaked or failed. |
+| Q-C6 | **On the stack, invitations link over HTTPS to the institution's own address** (`https://<slug>.stack.univarse.localhost/activate`). | The edge serves every tenant host under the stack CA's wildcard. |
 

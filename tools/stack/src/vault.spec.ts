@@ -12,6 +12,9 @@ import {
   configure,
   CONSOLE_KEK,
   CONSOLE_POLICY_HCL,
+  PROVISIONING_KEK,
+  PROVISIONING_OPEN_POLICY_HCL,
+  PROVISIONING_SEAL_POLICY_HCL,
   ensureVault,
   envTokens,
   initialise,
@@ -93,7 +96,7 @@ function fakeVault(o: { sealed?: boolean; initialized?: boolean; lookupError?: s
   return { run, calls, live, policies };
 }
 const TARGET = { container: 'v', tls: false };
-function stackDir(tokens: Partial<Record<'appToken' | 'backupToken' | 'consoleToken' | 'appTokenAccessor' | 'backupTokenAccessor', string>> = {}) {
+function stackDir(tokens: Partial<Record<'appToken' | 'backupToken' | 'consoleToken' | 'provisioningSealToken' | 'provisioningOpenToken' | 'appTokenAccessor' | 'backupTokenAccessor', string>> = {}) {
   const dir = mkdtempSync(join(tmpdir(), 'uv-vault-'));
   writeFileSync(join(dir, 'vault-init.json'), JSON.stringify({ unsealKey: 'UNSEAL', rootToken: ROOT, appToken: '', ...tokens }));
   return dir;
@@ -107,6 +110,8 @@ const noTokenInArguments = (v: ReturnType<typeof fakeVault>, extra: string[] = [
 const APP = 'hvs.APPAPPAPPAPPAPPAPP';
 const BACKUP = 'hvs.BACKUPBACKUPBACKUP';
 const CONSOLE = 'hvs.CONSOLECONSOLECONS';
+const SEAL = 'hvs.SEALSEALSEALSEALSE';
+const OPEN = 'hvs.OPENOPENOPENOPENOP';
 const DEAD = 'hvs.DEADDEADDEADDEAD';
 
 describe('[0023 T1] the policies', () => {
@@ -139,12 +144,12 @@ describe('[0023 T4][T6] configure: create, keep, backfill, re-issue', () => {
     const v = fakeVault({ initialized: false });
     const dir = mkdtempSync(join(tmpdir(), 'uv-vault-'));
     const done = initialise(v.run, dir, TARGET);
-    expect([done.reissued, done.created]).toEqual([[], ['app', 'backup', 'console']]);
+    expect([done.reissued, done.created]).toEqual([[], ['app', 'backup', 'console', 'provisioning-seal', 'provisioning-open']]);
     const s = saved(dir);
     expect(s.appToken).toMatch(/^hvs\.NEWTOKEN/);
     expect(s.backupToken).toMatch(/^hvs\.NEWTOKEN/);
     expect(s.consoleToken).toMatch(/^hvs\.NEWTOKEN/);
-    expect([s.appTokenAccessor, s.backupTokenAccessor, s.consoleTokenAccessor]).toEqual(['accessor-1', 'accessor-2', 'accessor-3']);
+    expect([s.appTokenAccessor, s.backupTokenAccessor, s.consoleTokenAccessor, s.provisioningSealTokenAccessor, s.provisioningOpenTokenAccessor]).toEqual(['accessor-1', 'accessor-2', 'accessor-3', 'accessor-4', 'accessor-5']);
     for (const c of v.calls.filter((x) => x.args.includes('create'))) expect(c.args).toEqual(expect.arrayContaining(['-no-default-policy', '-period', '768h', '-orphan']));
     noTokenInArguments(v);
   });
@@ -153,7 +158,7 @@ describe('[0023 T4][T6] configure: create, keep, backfill, re-issue', () => {
     const v = fakeVault({ initialized: false });
     initialise(v.run, mkdtempSync(join(tmpdir(), 'uv-vault-')), TARGET, { period: '5s' });
     const creates = v.calls.filter((c) => c.args.includes('create'));
-    expect(creates.length).toBe(3);
+    expect(creates.length).toBe(5);
     expect(creates.every((c) => c.args.includes('5s'))).toBe(true);
   });
 
@@ -162,7 +167,9 @@ describe('[0023 T4][T6] configure: create, keep, backfill, re-issue', () => {
     v.live.set(APP, 'accessor-app');
     v.live.set(BACKUP, 'accessor-backup');
     v.live.set(CONSOLE, 'accessor-console');
-    const dir = stackDir({ appToken: APP, backupToken: BACKUP, consoleToken: CONSOLE });
+    v.live.set(SEAL, 'accessor-seal');
+    v.live.set(OPEN, 'accessor-open');
+    const dir = stackDir({ appToken: APP, backupToken: BACKUP, consoleToken: CONSOLE, provisioningSealToken: SEAL, provisioningOpenToken: OPEN });
     const done = configure(v.run, dir, TARGET);
     expect([done.reissued, done.created]).toEqual([[], []]);
     expect(saved(dir)).toMatchObject({ appToken: APP, appTokenAccessor: 'accessor-app', backupToken: BACKUP, backupTokenAccessor: 'accessor-backup', consoleToken: CONSOLE, consoleTokenAccessor: 'accessor-console' });
@@ -173,7 +180,24 @@ describe('[0023 T4][T6] configure: create, keep, backfill, re-issue', () => {
       [['VAULT_TOKEN'], APP],
       [['VAULT_TOKEN'], BACKUP],
       [['VAULT_TOKEN'], CONSOLE],
+      [['VAULT_TOKEN'], SEAL],
+      [['VAULT_TOKEN'], OPEN],
     ]);
+    noTokenInArguments(v, [APP, BACKUP, CONSOLE, SEAL, OPEN]);
+  });
+
+  it('[0034 Q7] a stack from before S5: the two provisioning tokens are created, each with its own half of the key', () => {
+    const v = fakeVault();
+    v.live.set(APP, 'accessor-app');
+    v.live.set(BACKUP, 'accessor-backup');
+    v.live.set(CONSOLE, 'accessor-console');
+    const dir = stackDir({ appToken: APP, backupToken: BACKUP, consoleToken: CONSOLE });
+    const done = configure(v.run, dir, TARGET);
+    expect([done.reissued, done.created]).toEqual([[], ['provisioning-seal', 'provisioning-open']]);
+    expect(v.calls.filter((c) => c.args.includes('create')).map((c) => c.args[c.args.indexOf('-policy') + 1])).toEqual(['univarse-provisioning-seal', 'univarse-provisioning-open']);
+    const s = saved(dir);
+    expect([s.provisioningSealToken, s.provisioningOpenToken]).toEqual([expect.stringMatching(/^hvs\.NEWTOKEN/), expect.stringMatching(/^hvs\.NEWTOKEN/)]);
+    expect(s.provisioningSealToken).not.toBe(s.provisioningOpenToken);
     noTokenInArguments(v, [APP, BACKUP, CONSOLE]);
   });
 
@@ -183,9 +207,9 @@ describe('[0023 T4][T6] configure: create, keep, backfill, re-issue', () => {
     v.live.set(BACKUP, 'accessor-backup');
     const dir = stackDir({ appToken: APP, appTokenAccessor: 'accessor-app', backupToken: BACKUP, backupTokenAccessor: 'accessor-backup' });
     const done = configure(v.run, dir, TARGET);
-    expect([done.reissued, done.created]).toEqual([[], ['console']]);
+    expect([done.reissued, done.created]).toEqual([[], ['console', 'provisioning-seal', 'provisioning-open']]);
     expect(saved(dir).consoleToken).toMatch(/^hvs\.NEWTOKEN/);
-    expect(v.calls.filter((c) => c.args.includes('create')).map((c) => c.args[c.args.indexOf('-policy') + 1])).toEqual(['univarse-console']);
+    expect(v.calls.filter((c) => c.args.includes('create')).map((c) => c.args[c.args.indexOf('-policy') + 1])).toEqual(['univarse-console', 'univarse-provisioning-seal', 'univarse-provisioning-open']);
     noTokenInArguments(v, [APP, BACKUP]);
   });
 
@@ -221,10 +245,15 @@ describe('[0023 T3] renewal', () => {
     v.live.set(APP, 'a');
     v.live.set(BACKUP, 'b');
     v.live.set(CONSOLE, 'c');
-    const r = renewTokens(v.run, stackDir({ appToken: APP, backupToken: BACKUP, consoleToken: CONSOLE }), TARGET);
-    expect(r).toEqual({ ok: true, lines: ['app token: renewed, 32.0 days', 'backup token: renewed, 32.0 days', 'console token: renewed, 32.0 days'] });
-    expect(v.calls.filter((c) => c.args.includes('renew')).map((c) => c.env)).toEqual([['VAULT_TOKEN'], ['VAULT_TOKEN'], ['VAULT_TOKEN']]);
-    noTokenInArguments(v, [APP, BACKUP, CONSOLE]);
+    v.live.set(SEAL, 's');
+    v.live.set(OPEN, 'o');
+    const r = renewTokens(v.run, stackDir({ appToken: APP, backupToken: BACKUP, consoleToken: CONSOLE, provisioningSealToken: SEAL, provisioningOpenToken: OPEN }), TARGET);
+    expect(r).toEqual({
+      ok: true,
+      lines: ['app token: renewed, 32.0 days', 'backup token: renewed, 32.0 days', 'console token: renewed, 32.0 days', 'provisioning-seal token: renewed, 32.0 days', 'provisioning-open token: renewed, 32.0 days'],
+    });
+    expect(v.calls.filter((c) => c.args.includes('renew')).map((c) => c.env)).toEqual(Array(5).fill(['VAULT_TOKEN']));
+    noTokenInArguments(v, [APP, BACKUP, CONSOLE, SEAL, OPEN]);
   });
 
   it("a refused renewal is reported, never thrown, and doesn't stop the other token's", () => {
@@ -298,5 +327,20 @@ describe('[0023] the backup renews its own token before its snapshot', () => {
 
   it("any other renewal failure doesn't cost the day's set: the snapshot decides", () => {
     expect(renewBeforeSnapshot(fakeVault().run, DEAD, TARGET)).toBeNull(); // the fake answers "permission denied"
+  });
+});
+
+describe('[0034 Q7] the provisioning policies: one half each', () => {
+  it('the seal policy encrypts with the provisioning key and never decrypts; the open policy the reverse; neither touches another key', () => {
+    expect(PROVISIONING_SEAL_POLICY_HCL).toContain(`path "transit/encrypt/${PROVISIONING_KEK}"`);
+    expect(PROVISIONING_SEAL_POLICY_HCL).not.toContain('decrypt');
+    expect(PROVISIONING_OPEN_POLICY_HCL).toContain(`path "transit/decrypt/${PROVISIONING_KEK}"`);
+    expect(PROVISIONING_OPEN_POLICY_HCL).not.toContain('encrypt');
+    for (const hcl of [PROVISIONING_SEAL_POLICY_HCL, PROVISIONING_OPEN_POLICY_HCL]) {
+      expect(hcl).not.toContain('univarse-kek');
+      expect(hcl).not.toContain(CONSOLE_KEK);
+      expect(hcl.match(/^path "transit\//gm)).toHaveLength(1);
+    }
+    for (const hcl of [APP_POLICY_HCL, CONSOLE_POLICY_HCL]) expect(hcl).not.toContain(PROVISIONING_KEK);
   });
 });

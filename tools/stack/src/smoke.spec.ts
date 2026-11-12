@@ -2,7 +2,7 @@
 // runs after every deploy (smoke.ts); this pins what it refuses.
 import { describe, expect, it } from 'vitest';
 import { nextEntry, WAIVER_STATEMENT } from './ledger/chain.js';
-import { allowlistProblems, auditProblems, HSTS, hstsProblems, keySeparationProblems, PROBES, tokenReport, waiverNotice } from './smoke.js';
+import { allowlistProblems, auditProblems, HSTS, hstsProblems, keySeparationProblems, PROBES, provisioningSplitProblems, tokenReport, waiverNotice } from './smoke.js';
 
 describe('[LS7] HSTS at the edge (B1)', () => {
   it('[LS7] one header with the stack value passes', () => {
@@ -132,5 +132,25 @@ describe('[spec 0027 P4] the console allowlist, both layers', () => {
     expect(edge).toMatch(/ca\b/);
     expect(edge).not.toMatch(/rejectUnauthorized/);
     expect(PROBES.app('172.31.218.1')).toMatch(/host:'platform-api',port:8081.*'x-forwarded-for':'172\.31\.218\.1'/);
+  });
+});
+
+describe('[0034 Q7] the provisioning key’s split, as the smoke check judges it', () => {
+  const good = { sealEncrypts: true, openDecrypts: true, sealDecrypts: false, openEncrypts: false, appUsesKey: false, halvesUseTenantKek: false };
+  it('passes only when each half does its own part and nothing else', () => {
+    expect(provisioningSplitProblems(good)).toEqual([]);
+  });
+  it('names each way it can be wrong', () => {
+    for (const [k, v, said] of [
+      ['sealEncrypts', false, /seal token could not encrypt/],
+      ['openDecrypts', false, /open token could not decrypt/],
+      ['sealDecrypts', true, /seal token could decrypt/],
+      ['openEncrypts', true, /open token could encrypt/],
+      ['appUsesKey', true, /app token could use the provisioning key/],
+      ['halvesUseTenantKek', true, /could use the tenant KEK/],
+    ] as const) {
+      const p = provisioningSplitProblems({ ...good, [k]: v });
+      expect([k, p.length, said.test(p[0] ?? '')]).toEqual([k, 1, true]);
+    }
   });
 });
