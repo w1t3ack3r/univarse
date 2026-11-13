@@ -46,6 +46,9 @@ describe('platform permissions (spec 0028 Q12)', () => {
     expect(holders('platform.tenant.go_live')).toEqual(['OWNER', 'SUPER_ADMIN']);
     expect(PLATFORM_PERMISSION_CATALOG['platform.tenant.provision'].stepUp).toBe(true);
     expect(PLATFORM_PERMISSION_CATALOG['platform.tenant.go_live'].stepUp).toBe(true);
+    // Spec 0037 Q1.
+    expect(holders('platform.approval.decide')).toEqual(['OWNER', 'SUPER_ADMIN']);
+    expect(PLATFORM_PERMISSION_CATALOG['platform.approval.decide'].stepUp).toBe(true);
     expect(PLATFORM_PERMISSION_CATALOG['platform.access_review.attest'].stepUp).toBe(true);
     expect(PLATFORM_PERMISSION_CATALOG['platform.audit.read'].stepUp).toBe(false);
   });

@@ -1,6 +1,6 @@
 'use client';
 
-import type { PlatformChainStatus } from '@univarse/contracts';
+import type { PlatformChainStatus, PlatformInbox } from '@univarse/contracts';
 import { Button, LogOut, Notice, Search } from '@univarse/ui';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
@@ -109,8 +109,11 @@ function SignedInHeader({ me }: { me: Me }) {
   const router = useRouter();
   const path = usePathname();
   const [leaving, setLeaving] = useState(false);
+  const inboxCount = useInboxCount(path);
   const tabs = [
     { href: '/', label: 'Overview' },
+    { href: '/inbox', label: 'Inbox', count: inboxCount },
+    ...(me.permissions.includes('platform.approval.decide') || me.permissions.includes('platform.staff.manage') ? [{ href: '/approvals', label: 'Approvals' }] : []),
     ...(me.permissions.includes('platform.tenant.read') ? [{ href: '/institutions', label: 'Institutions' }] : []),
     { href: '/account', label: 'Your account' },
     ...(me.permissions.includes('platform.staff.read') ? [{ href: '/staff', label: 'Staff' }] : []),
@@ -166,11 +169,40 @@ function SignedInHeader({ me }: { me: Me }) {
             aria-current={path === t.href || (t.href !== '/' && path.startsWith(`${t.href}/`)) ? 'page' : undefined}
           >
             {t.label}
+            {'count' in t && t.count ? (
+              <span className="pc-count" aria-label={`${String(t.count)} waiting`}>
+                {t.count > 99 ? '99+' : t.count}
+              </span>
+            ) : null}
           </Link>
         ))}
       </nav>
     </header>
   );
+}
+
+/**
+ * Spec 0037 Q15: how many things wait in the inbox, on its tab: read on every page change and every minute. A failed
+ * read shows no count rather than a wrong one; the inbox page itself reports errors.
+ */
+function useInboxCount(path: string): number {
+  const [count, setCount] = useState(0);
+  useEffect(() => {
+    let live = true;
+    const read = () =>
+      void api<PlatformInbox>('GET', '/inbox')
+        .then((r) => {
+          if (live) setCount(r.count);
+        })
+        .catch(() => undefined);
+    read();
+    const timer = setInterval(read, 60_000);
+    return () => {
+      live = false;
+      clearInterval(timer);
+    };
+  }, [path]);
+  return count;
 }
 
 /** While the platform API answers: the page's shape, no content. */

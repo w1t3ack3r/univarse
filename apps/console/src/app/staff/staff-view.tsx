@@ -156,6 +156,13 @@ export function StaffView() {
                                 `${m.displayName} is now ${ROLE_LABEL[role] ?? role}.`,
                               )
                             }
+                            onRequestOwner={(reason) =>
+                              change(
+                                `role:${m.id}`,
+                                () => api('POST', '/approvals', { kind: 'staff.make_owner', payload: { memberId: m.id }, reason }),
+                                `Your request to make ${m.displayName} an owner waits for a second person, in Approvals. It expires in 24 hours.`,
+                              )
+                            }
                           />
                           <CorrectAddress
                             member={m}
@@ -238,10 +245,14 @@ function RoleSelect({
   id,
   value,
   onChange,
+  roles = ROLES,
+  hint,
 }: {
   id: string;
   value: string;
   onChange: (v: string) => void;
+  roles?: readonly string[];
+  hint?: string | undefined;
 }) {
   return (
     <div className="uv-field">
@@ -249,7 +260,7 @@ function RoleSelect({
         Role
       </label>
       <span className="uv-field__hint" id={`${id}-hint`}>
-        {ROLE_HINT[value]}
+        {hint ?? ROLE_HINT[value]}
       </span>
       <div className="uv-field__control">
         <select
@@ -260,7 +271,7 @@ function RoleSelect({
           onChange={(e) => onChange(e.target.value)}
           aria-describedby={`${id}-hint`}
         >
-          {ROLES.map((r) => (
+          {roles.map((r) => (
             <option key={r} value={r}>
               {ROLE_LABEL[r]}
             </option>
@@ -271,29 +282,60 @@ function RoleSelect({
   );
 }
 
+/**
+ * A role change. Making someone an OWNER is a request instead (spec 0037 Q4): it says why, waits for a second person,
+ * and runs only when they approve it.
+ */
 function RoleChange({
   member,
   busy,
   onChange,
+  onRequestOwner,
 }: {
   member: Member;
   busy: boolean;
   onChange: (role: string) => Promise<boolean>;
+  onRequestOwner: (reason: string) => Promise<boolean>;
 }) {
   const [role, setRole] = useState(member.role);
+  const toOwner = role === 'OWNER' && member.role !== 'OWNER';
   return (
     <form
       method="post"
-      className="pc-inline-form"
+      className="pc-form"
       onSubmit={(e) => {
         e.preventDefault();
-        void onChange(role);
+        if (toOwner) {
+          const form = e.currentTarget;
+          void onRequestOwner(field(new FormData(form), 'reason')).then((ok) => {
+            if (ok) {
+              form.reset();
+              setRole(member.role);
+            }
+          });
+        } else void onChange(role);
       }}
     >
-      <RoleSelect id={`role-${member.id}`} value={role} onChange={setRole} />
-      <Button type="submit" variant="quiet" pending={busy} disabled={role === member.role}>
-        Change role
-      </Button>
+      <RoleSelect
+        id={`role-${member.id}`}
+        value={role}
+        onChange={setRole}
+        hint={toOwner ? `${ROLE_HINT.OWNER ?? ''} This needs a second person: an owner or super admin approves it before it happens.` : undefined}
+      />
+      {toOwner ? (
+        <div className="uv-field">
+          <label className="uv-field__label" htmlFor={`owner-reason-${member.id}`}>
+            Why should {member.displayName} be an owner?
+          </label>
+          <textarea id={`owner-reason-${member.id}`} name="reason" className="uv-field__input pc-textarea" rows={2} minLength={3} maxLength={500} required />
+          <p className="pc-note">The person who decides reads this. Don’t include anyone’s personal details.</p>
+        </div>
+      ) : null}
+      <div className="pc-row-actions pc-row-actions--start">
+        <Button type="submit" variant="quiet" pending={busy} disabled={role === member.role}>
+          {toOwner ? 'Ask for an approval' : 'Change role'}
+        </Button>
+      </div>
     </form>
   );
 }
@@ -384,7 +426,13 @@ function Invite({
           spellCheck={false}
           required
         />
-        <RoleSelect id="invite-role" value={role} onChange={setRole} />
+        <RoleSelect
+          id="invite-role"
+          value={role}
+          onChange={setRole}
+          roles={ROLES.filter((r) => r !== 'OWNER')}
+          hint={`${ROLE_HINT[role] ?? ''} To add an owner, invite them with another role, then make them an owner: that needs a second person.`}
+        />
         <div className="pc-row-actions pc-row-actions--start">
           <Button type="submit" pending={busy}>
             Send the invitation

@@ -127,6 +127,46 @@ const reviewedMember = z.strictObject({
   lastLoginAt: z.iso.datetime().nullable(),
 });
 
+/** Spec 0037 Q2, Q3 (E4): a two-person request, as the console shows it. */
+const approvalKind = z.enum(['staff.make_owner']);
+const approvalStatus = z.enum(['PENDING', 'APPROVED', 'REJECTED', 'EXPIRED', 'CANCELLED', 'EXECUTED', 'FAILED']);
+const approvalFailure = z.enum(['subject_gone', 'subject_inactive', 'already_done', 'state_conflict']);
+const person = z.strictObject({ id: z.uuid(), name: z.string().nullable() });
+const approvalView = z.strictObject({
+  id: z.uuid(),
+  kind: approvalKind,
+  /** Exactly what will run. */
+  payload: z.record(z.string(), z.unknown()),
+  /** SHA-256 of the payload's canonical form: the approver sends this back (Q3). */
+  payloadHash: z.string(),
+  /** The member the payload names, who can't approve it. */
+  subject: person.nullable(),
+  reason: z.string(),
+  /** A PENDING request past its expiry reads as EXPIRED. */
+  status: approvalStatus,
+  requestedBy: person,
+  requestedAt: z.iso.datetime(),
+  expiresAt: z.iso.datetime(),
+  decidedBy: person.nullable(),
+  decidedAt: z.iso.datetime().nullable(),
+  executedAt: z.iso.datetime().nullable(),
+  failureCode: approvalFailure.nullable(),
+  /** Whether the signed-in member may approve or reject it now, and may cancel it. */
+  canDecide: z.boolean(),
+  canCancel: z.boolean(),
+});
+const approvalRequest = z.discriminatedUnion('kind', [
+  z.strictObject({ kind: z.literal('staff.make_owner'), payload: z.strictObject({ memberId: z.uuid() }), reason: z.string().trim().min(3).max(500) }),
+]);
+
+/** Spec 0037 Q15 (E25): one thing in the inbox. Computed when read; it leaves when its cause is resolved. */
+const inboxItem = z.discriminatedUnion('type', [
+  z.strictObject({ type: z.literal('approval_waiting'), approvalId: z.uuid(), kind: approvalKind, requestedBy: person, expiresAt: z.iso.datetime() }),
+  z.strictObject({ type: z.literal('approval_decided'), approvalId: z.uuid(), kind: approvalKind, status: approvalStatus, decidedAt: z.iso.datetime() }),
+  z.strictObject({ type: z.literal('provisioning_failed'), tenant: institution, step: provisioningStepKey, code: provisioningError, failedAt: z.iso.datetime() }),
+  z.strictObject({ type: z.literal('security_act'), event: z.string(), count: z.number().int(), lastSeenAt: z.iso.datetime(), tenant: institution.nullable() }),
+]);
+
 export const PlatformOps = {
   activate: { body: z.strictObject({ email, code, password }), response: z.strictObject({ next: PlatformNext }) },
   login: { body: z.strictObject({ email, password }), response: z.strictObject({ next: PlatformNext }) },
@@ -174,6 +214,12 @@ export const PlatformOps = {
   staff: { response: z.strictObject({ data: z.array(PlatformMember) }) },
   invite: { body: z.strictObject({ email, displayName, role }), response: PlatformMember },
   changeRole: { body: z.strictObject({ role }), response: PlatformMember },
+  /** Spec 0037. */
+  approvals: { response: z.strictObject({ data: z.array(approvalView) }) },
+  approval: { response: approvalView },
+  requestApproval: { body: approvalRequest, response: approvalView },
+  approve: { body: z.strictObject({ payloadHash: z.string().regex(/^[0-9a-f]{64}$/) }), response: approvalView },
+  inbox: { response: z.strictObject({ items: z.array(inboxItem), count: z.number().int() }) },
   /** Spec 0033. Strict: any other parameter is a 400. The slug appears in no body, so nothing can change it. */
   tenants: {
     query: z.strictObject({ cursor: Cursor.optional(), limit: PageLimit.optional(), status: tenantStatus.optional(), type: tenantType.optional(), q: z.string().trim().min(2).max(80).optional() }),
@@ -322,3 +368,7 @@ export type PlatformAccessReview = z.infer<typeof PlatformOps.accessReview.respo
 export type PlatformCreateTenant = z.infer<typeof PlatformOps.createTenant.body>;
 export type PlatformProvisioning = z.infer<typeof PlatformOps.provisioning.response>;
 export type PlatformGoLive = z.infer<typeof PlatformOps.goLive.response>;
+export type PlatformApproval = z.infer<typeof PlatformOps.approval.response>;
+export type PlatformApprovalRequest = z.infer<typeof PlatformOps.requestApproval.body>;
+export type PlatformInbox = z.infer<typeof PlatformOps.inbox.response>;
+export type PlatformInboxItem = PlatformInbox['items'][number];

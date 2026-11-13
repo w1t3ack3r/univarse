@@ -194,6 +194,49 @@ model ProvisioningStep {
   @@map("provisioning_step")
 }
 
+enum ApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  EXPIRED
+  CANCELLED
+  EXECUTED
+  FAILED
+}
+
+/// Spec 0037 Q2, Q3 (E4): one two-person request. The payload and its hash never change, and the status moves forward
+/// once (a trigger). A PENDING request past its expiry reads as EXPIRED; nothing has to run.
+model PlatformApproval {
+  id          String         @id @default(dbgenerated("uuidv7()")) @db.Uuid
+  /// One of packages/domain APPROVAL_KINDS.
+  kind        String
+  /// What will run, exactly: ids and choices, never personal data.
+  payload     Json
+  /// SHA-256 of the payload's canonical form; the approver sends back the one they were shown.
+  payloadHash String         @map("payload_hash")
+  /// The member the payload names, who can't approve it.
+  subjectId   String?        @map("subject_id") @db.Uuid
+  reason      String
+  status      ApprovalStatus @default(PENDING)
+  requestedBy String         @map("requested_by") @db.Uuid
+  decidedBy   String?        @map("decided_by") @db.Uuid
+  decidedAt   DateTime?      @map("decided_at") @db.Timestamptz(3)
+  executedAt  DateTime?      @map("executed_at") @db.Timestamptz(3)
+  /// A fixed code when the execution found things changed (never a message).
+  failureCode String?        @map("failure_code")
+  expiresAt   DateTime       @map("expires_at") @db.Timestamptz(3)
+  createdAt   DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime       @updatedAt @map("updated_at") @db.Timestamptz(3)
+  version     Int            @default(0)
+
+  requester PlatformUser  @relation("ApprovalRequester", fields: [requestedBy], references: [id], onDelete: Restrict)
+  decider   PlatformUser? @relation("ApprovalDecider", fields: [decidedBy], references: [id], onDelete: Restrict)
+
+  @@index([status, expiresAt])
+  @@index([requestedBy])
+  @@map("platform_approval")
+}
+
 /// Spec 0034 Q10: the DPA, recorded by hand until S11's registers extend this table.
 model TenantDpa {
   tenantId   String   @id @map("tenant_id") @db.Uuid
@@ -276,6 +319,8 @@ model PlatformUser {
   oneTimeCodes   PlatformOneTimeCode[]
   knownDevices   PlatformKnownDevice[]
   contactChanges PlatformContactChange[]
+  approvalsRequested PlatformApproval[] @relation("ApprovalRequester")
+  approvalsDecided   PlatformApproval[] @relation("ApprovalDecider")
 
   @@map("platform_user")
 }

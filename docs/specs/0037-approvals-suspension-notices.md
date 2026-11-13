@@ -1,6 +1,6 @@
 # Spec 0037: Phase 1's S6, approvals, suspension and notices
 
-**Status:** **Approved by the owner on 2026-11-13, all as written:** Q1 to Q16. PR A (the approval engine and the inbox) next.
+**Status:** **Approved by the owner on 2026-11-13, all as written:** Q1 to Q16. PR A (the approval engine and the inbox) built; Q-A1 to Q-A10 approved on 2026-11-13.
 **Phase:** 1, slice **S6** of [spec 0025](0025-phase-1-control-plane.md) (A7, E4, E12, E18, E19, E25).
 **Builds on:**
 
@@ -97,3 +97,32 @@ About **two and a half weeks** at S5's pace, the largest slice in Phase 1, as sp
 - **A public status page:** hosting. **SMS for notices:** Phase 3 with messaging (E15).
 - **Notices from an institution to its own people:** Student Affairs and Comms (Phase 5).
 - **Bounce handling:** with a real mail provider.
+
+## PR A: what was built
+
+**Built:**
+- **The rules** (`packages/domain/src/platform/approvals.ts`): the kinds (`staff.make_owner`, Q4), the payload's canonical form, the decision rules in Q3's order, the solo rule (Q5) and the expiry. The new permission `platform.approval.decide` (OWNER, SUPER_ADMIN, with step-up).
+- **The table** `platform_approval` (migration `20261113120000_approvals`), with the database holding the rules too: the decider is never the requester or the person named (checks), a decision names who and when, failures are fixed codes, and a trigger lets the request itself never change and its status move forward once, for every role. The console role inserts named columns only and updates only the decision's columns; the tenant API's platform role gets nothing.
+- **The platform API:** `GET/POST /approvals`, `GET /approvals/:id`, `POST /approvals/:id/approve` (with the hash), `/reject` and `/cancel`, and `GET /inbox`. A change to OWNER through Staff now answers `staff.owner_needs_approval`, and an invitation as OWNER `staff.owner_by_approval`.
+- **The console:** the Inbox tab for everyone, with its count; the Approvals tab for those who can ask or decide; the list (waiting for you, your requests, the rest); one request's page with the reason, the receipt of exactly what will run and its fingerprint, and the decision; the Staff page's role change turning into a request when Owner is chosen. Designed to the console's DESIGN.md, which now describes the receipt and the counts.
+
+**Evidence:**
+- **Domain:** 106 tests, with the decision rules, the solo rule, the canonical form (a property test) and every kind's permissions catalogued.
+- **Integration** (`approvals.int.spec.ts`, the real platform database through the platform API's HTTP stack): 12 tests. A second member approves the shown hash after a step-up and the payload runs once; the requester, the person named, a swapped hash, a repeat, an expired request, a cancelled one and a rejected one are refused; a changed world fails with a fixed code; a requester demoted since gets nothing done; SUPPORT, FINANCE and READ_ONLY see and decide nothing (404); the grants and the trigger hold for the console role and the tables' owner; the inbox shows each item to the right person and drops it when resolved. The identity tests (19) pass with the OWNER changes.
+- **E2E** (`approvals.e2e.ts`, desktop and phone, axe on every screen): an OWNER asks from Staff, a SUPER_ADMIN in a browser of their own finds it in the inbox and approves it after a step-up, and the member becomes an owner; a SUPPORT member has no Approvals tab and an empty inbox. The whole console suite passes (38).
+- **Mutations: 17 tried, 17 caught:** in the domain, dropping each of the own-request, names-you, hash, expiry and single-use checks, counting the requester or a member without an authenticator as a second person; in the API, dropping the request's permission check, the hash, the requester's recheck, the visibility rule and the duplicate check, the two OWNER guards on Staff, and the inbox's own-request, security-permission and "act"-level filters.
+
+**Decisions made while building, approved by the owner on 2026-11-13:**
+
+| # | Decision | Why |
+| --- | --- | --- |
+| Q-A1 | **An invitation can't make an OWNER.** Invite with another role, then ask for an approval. | Otherwise one OWNER could add another alone, the very thing Q4 stops. |
+| Q-A2 | **One route makes every request** (`POST /approvals`, declared `platform.self`); the service checks the kind's own request permission with the catalogue's step-up rule, as the guard would. | Each later kind needs its own permission; one route keeps the engine one engine. The route sweep still sees a declaration. |
+| Q-A3 | **The requester's right is checked again at approval.** Demoted or removed since, the request fails (`state_conflict`) and nothing runs. | A member who lost a right shouldn't get it used by proxy. |
+| Q-A4 | **A request that would change nothing is refused at the asking** (`approval.not_applicable`), and so is a second identical request while one waits. | Nobody spends a second person's attention on a no-op or a duplicate. |
+| Q-A5 | **Expiry is read, not run:** a `PENDING` request past its time reads as `EXPIRED` everywhere and can't be decided; no job rewrites it. | Nothing to schedule, and no window where a sweep hasn't run yet. |
+| Q-A6 | **Only members with an authenticator count as a possible second person.** | One who hasn't set one up can't sign in to decide. |
+| Q-A7 | **Who's told:** every possible approver is emailed when a request is made (the kind only, no details), and the requester when it's decided. The reason stays in the request's row, never in the audit chain (free text); the payload's hash goes in. | People act on what they're told, and the audit chain holds ids only. |
+| Q-A8 | **The inbox count sits on the Inbox tab, not the platform bar.** | The bar is drawn before the console knows who's signed in; the tabs are the signed-in header. |
+| Q-A9 | **A rejection needs no reason and no hash.** | Rejecting runs nothing; the requester can ask the person who rejected. |
+| Q-A10 | **The test clean-up removes a retired test member's requests first** (as the migrator), since a request names its members with a restricting key. | Members are never deleted for real; only the tests' are, and the key must not block that. |

@@ -29,6 +29,8 @@ const LEVELS: Readonly<Record<string, SecurityLevel>> = Object.freeze({
   'auth.rate_limited': 'note',
   'platform.rate_limited': 'note',
   'platform.staff.changed': 'note',
+  'platform.approval.requested': 'note',
+  'platform.approval.decided': 'note',
 });
 
 export const securityLevel = (event: string): SecurityLevel => LEVELS[event] ?? 'watch';

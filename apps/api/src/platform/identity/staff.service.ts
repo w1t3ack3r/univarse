@@ -18,6 +18,12 @@ type Role = PlatformMember['role'];
 const notFound = () => new ProblemError(404, 'resource.not_found', 'Not found');
 const ownAccount = () => new ProblemError(409, 'staff.own_account', "You can't change your own role or access");
 const lastOwner = () => new ProblemError(409, 'staff.last_owner', 'The platform must keep an active owner');
+/** Spec 0037 Q4: raising a member to OWNER takes two people, through an approval; inviting one straight in, too. */
+const ownerNeedsApproval = () => new ProblemError(409, 'staff.owner_needs_approval', 'Making an owner needs an approval');
+const ownerByApproval = () =>
+  Object.assign(new ProblemError(422, 'staff.owner_by_approval', 'Invite with another role, then request an approval'), {
+    errors: [{ path: 'role', code: 'owner_by_approval', message: 'Not OWNER' }],
+  });
 
 /**
  * Q13's rule for a change that could leave the platform without an OWNER: it is refused when the target is an
@@ -70,8 +76,9 @@ export class PlatformStaff {
     this.logger.warn(securityFields('platform.staff.changed', { actorId: actor.userId, action, targetId }), 'Platform staff changed');
   }
 
-  /** Q13: a new member, with no password, and an activation code by email. */
+  /** Q13: a new member, with no password, and an activation code by email. Never as OWNER (spec 0037 Q4). */
   async invite(actor: PlatformActor, input: { email: string; displayName: string; role: Role }, meta: RequestMeta): Promise<PlatformMember> {
+    if (input.role === 'OWNER') throw ownerByApproval();
     const id = await this.db.$transaction(async (tx) => {
       await this.lockStaff(tx);
       const held = await tx.platformContactChange.findFirst({ where: { oldAddress: input.email, status: 'CONFIRMED', undoUntil: { gt: new Date() } }, select: { id: true } }); // an undo may need it back (spec 0032 Q6)
@@ -86,7 +93,7 @@ export class PlatformStaff {
     return this.member(this.db, id);
   }
 
-  /** Q13: another member's role; never one's own, and never the last active OWNER's. */
+  /** Q13: another member's role; never one's own, and never the last active OWNER's. Never to OWNER (spec 0037 Q4). */
   async changeRole(actor: PlatformActor, memberId: string, role: Role, meta: RequestMeta): Promise<PlatformMember> {
     if (memberId === actor.userId) throw ownAccount();
     await this.db.$transaction(async (tx) => {
@@ -94,6 +101,7 @@ export class PlatformStaff {
       const target = await tx.platformUser.findUnique({ where: { id: memberId } });
       if (!target) throw notFound();
       if (target.role === role) return;
+      if (role === 'OWNER') throw ownerNeedsApproval();
       if (leavesNoOwner(target, { role }, await this.activeOwners(tx))) throw lastOwner();
       await tx.platformUser.update({ where: { id: memberId }, data: { role } });
       await platformAudit(tx, { actorId: actor.userId, action: 'platform.staff.role_changed', metadata: { memberId, from: target.role, to: role } }, meta);

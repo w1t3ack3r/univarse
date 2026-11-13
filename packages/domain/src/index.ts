@@ -11,3 +11,4 @@ export * from './platform/access-review.js';
 export * from './platform/security-levels.js';
 export * from './platform/tenant-registry.js';
 export * from './platform/provisioning.js';
+export * from './platform/approvals.js';
