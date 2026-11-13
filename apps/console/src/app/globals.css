@@ -1560,3 +1560,171 @@ html {
     border-color: var(--uv-deep);
   }
 }
+
+/* ── Spec 0037 (S6 PR A): approvals and the inbox ───────────────────────────────────────────────────────────────── */
+
+/* A count on a tab or a heading: deep on sage, never colour alone (the number is the meaning). */
+.pc-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.5rem;
+  height: 1.375rem;
+  margin-left: var(--uv-space-2);
+  padding: 0 7px;
+  border-radius: var(--uv-radius-pill);
+  background: var(--uv-deep);
+  color: var(--uv-offwhite); /* 7.44:1 */
+  font-size: var(--uv-text-xs);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+.pc-back {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--uv-space-2);
+  min-height: var(--uv-tap);
+  margin-bottom: var(--uv-space-2);
+}
+
+.pc-approvals__group + .pc-approvals__group {
+  margin-top: var(--uv-space-8);
+}
+.pc-approvals__group .pc-subhead {
+  display: flex;
+  align-items: center;
+  margin-bottom: var(--uv-space-3);
+}
+.pc-approvals__group .pc-list__row .pc-status {
+  flex: none;
+}
+
+.pc-approval {
+  display: grid;
+  gap: var(--uv-space-6);
+}
+.pc-approval .pc-section__head {
+  align-items: flex-start;
+}
+
+/* Why they asked: the requester's own words, set apart as a quotation on sage. */
+.pc-approval__ask {
+  margin: 0;
+  padding: var(--uv-space-5) var(--uv-space-6);
+  border-radius: var(--uv-radius);
+  background: var(--uv-deep-soft);
+}
+.pc-approval__label {
+  font-size: var(--uv-text-xs);
+  font-weight: 600;
+  color: var(--uv-deep);
+}
+.pc-approval__reason {
+  margin: var(--uv-space-2) 0 0;
+  font-size: var(--uv-text-md);
+  line-height: 1.5;
+  max-width: 65ch;
+  overflow-wrap: anywhere;
+  white-space: pre-line;
+}
+
+/* Exactly what will run: a receipt. Labels on the left, the values as they are stored, monospaced. */
+.pc-approval__run {
+  display: grid;
+  gap: var(--uv-space-3);
+  padding: var(--uv-space-6);
+  border-radius: var(--uv-radius-card);
+  background: var(--uv-surface);
+  box-shadow: var(--uv-shadow-card);
+}
+.pc-approval__receipt {
+  display: grid;
+  margin: var(--uv-space-2) 0;
+  border-top: 1px solid var(--uv-border);
+}
+.pc-approval__pair {
+  display: grid;
+  grid-template-columns: 9rem minmax(0, 1fr);
+  gap: var(--uv-space-4);
+  padding: var(--uv-space-3) 0;
+  border-bottom: 1px solid var(--uv-border);
+}
+.pc-approval__pair dt {
+  font-size: var(--uv-text-xs);
+  font-weight: 600;
+  color: var(--uv-text-muted);
+  padding-top: 2px;
+}
+.pc-approval__pair dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.pc-approval__who {
+  display: block;
+  margin-top: 2px;
+  font-family: var(--uv-font);
+  font-size: var(--uv-text-sm);
+  font-weight: 600;
+  color: var(--uv-deep);
+}
+.pc-approval__hash {
+  letter-spacing: 0.02em;
+  word-break: break-all;
+}
+
+.pc-approval__decide {
+  display: grid;
+  gap: var(--uv-space-4);
+  padding: var(--uv-space-6);
+  border-radius: var(--uv-radius-card);
+  background: var(--uv-surface);
+  box-shadow: var(--uv-shadow-card);
+}
+/* The approve button names the person, so it may be long: it wraps rather than pushing the page sideways. */
+.pc-approval__decide .uv-btn {
+  height: auto;
+  min-height: var(--uv-tap);
+  padding-block: var(--uv-space-2);
+  flex-shrink: 1;
+  max-width: 100%;
+  line-height: 1.3;
+  white-space: normal;
+  text-align: left;
+}
+.pc-approval__you,
+.pc-approval__closed {
+  margin: 0;
+  max-width: 65ch;
+}
+.pc-approval__closed {
+  color: var(--uv-text-muted);
+}
+
+.pc-inbox__clear {
+  display: grid;
+  justify-items: center;
+  gap: var(--uv-space-3);
+}
+.pc-inbox__clear p {
+  margin: 0;
+}
+
+@media (max-width: 719px) {
+  .pc-approval__pair {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--uv-space-1);
+  }
+  .pc-approval__ask,
+  .pc-approval__run,
+  .pc-approval__decide {
+    padding: var(--uv-space-4);
+  }
+  .pc-approvals__group .pc-list__row {
+    flex-wrap: wrap;
+  }
+  .pc-approvals__group .pc-list__text {
+    flex-basis: 100%;
+  }
+}

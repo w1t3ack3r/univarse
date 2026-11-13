@@ -5,6 +5,8 @@ import { createPlatformClient } from '@univarse/db';
 import { ProblemFilter } from '../shared/errors/problem.filter.js';
 import { SmtpMailer, type Mailer } from '../shared/infra/mailer.js';
 import { shutdownHook } from '../shared/observability/shutdown-hook.js';
+import { PlatformApprovalsController, PlatformInboxController } from './approvals/approvals.controller.js';
+import { PlatformApprovals } from './approvals/approvals.service.js';
 import { PlatformAccessGuard } from './identity/access.js';
 import { CONSOLE_KEYS, PlatformCredentials } from './identity/credentials.js';
 import { PlatformAccountController, PlatformAuthController, PlatformStaffController } from './identity/identity.controller.js';
@@ -17,6 +19,7 @@ import { CONSOLE_DB, consoleKeyProvider, PLATFORM_CONFIG, provisioningKeyProvide
 import { PlatformProvisioningController } from './provisioning/provisioning.controller.js';
 import { PlatformProvisioning, PROVISIONING_KEYS } from './provisioning/provisioning.service.js';
 import { PlatformHealthController } from './platform-health.controller.js';
+import { PlatformInboxView } from './inbox/inbox.service.js';
 import { PlatformTenantsController } from './registry/tenant-registry.controller.js';
 import { TenantRegistry } from './registry/tenant-registry.service.js';
 import { ConsoleTokenRenewal, RENEW_CONSOLE_TOKEN } from './token-renewal.js';
@@ -42,6 +45,8 @@ export const PLATFORM_CONTROLLERS = [
   PlatformAuditController,
   PlatformSecurityController,
   PlatformAccessReviewController,
+  PlatformApprovalsController,
+  PlatformInboxController,
 ] as const;
 
 export interface PlatformOverrides {
@@ -92,6 +97,8 @@ export class PlatformModule {
         ChainVerification,
         PlatformSecurityView,
         PlatformAccessReviews,
+        PlatformApprovals,
+        PlatformInboxView,
         ...(overrides.extraProviders ?? []),
         ...(overrides.onShutdown ? [shutdownHook(overrides.onShutdown)] : []),
       ],

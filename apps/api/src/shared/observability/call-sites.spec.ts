@@ -84,6 +84,8 @@ describe('[OB7] the security stream', () => {
         'identity.email_change.undone',
         'platform.route_undeclared',
         'platform.staff.changed',
+        'platform.approval.requested',
+        'platform.approval.decided',
       ].sort(),
     );
   });

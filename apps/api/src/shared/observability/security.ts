@@ -28,6 +28,9 @@ export const SECURITY_EVENTS = [
   'platform.audit.chain_broken',
   // Spec 0032 T31: someone said an address change wasn't theirs.
   'identity.email_change.undone',
+  // Spec 0037 Q3 (T24): a two-person request made, and its decision.
+  'platform.approval.requested',
+  'platform.approval.decided',
 ] as const;
 
 export type SecurityEvent = (typeof SECURITY_EVENTS)[number];

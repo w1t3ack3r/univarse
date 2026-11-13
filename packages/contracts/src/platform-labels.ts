@@ -43,6 +43,10 @@ export const AUDIT_ACTION_LABELS: Readonly<Record<string, string>> = Object.free
   'platform.tenant.admin_ready': "An institution's administrator finished setting up",
   'platform.tenant.dpa_recorded': "Recorded an institution's data processing agreement",
   'platform.tenant.went_live': 'Took an institution live',
+  'platform.approval.requested': 'Asked for a two-person approval',
+  'platform.approval.approved': 'Approved a two-person request',
+  'platform.approval.rejected': 'Rejected a two-person request',
+  'platform.approval.cancelled': 'Cancelled their own approval request',
   'platform.owner.created': 'Created the first owner',
   'platform.owner.recovered': 'Recovered the owner account',
   'platform.audit.viewed': 'Viewed the audit log',
@@ -98,6 +102,8 @@ export const SECURITY_EVENT_TEXT: Readonly<Record<string, { readonly label: stri
   'auth.rate_limited': { label: 'Sign-in attempts were slowed down', todo: 'Nothing, unless it grows.' },
   'platform.rate_limited': { label: 'Console requests were slowed down', todo: 'Nothing, unless it grows.' },
   'platform.staff.changed': { label: 'A staff member’s access changed', todo: 'Check the audit log if you weren’t expecting it.' },
+  'platform.approval.requested': { label: 'Someone asked for a two-person approval', todo: 'Decide it in the inbox, or check with them if you weren’t expecting it.' },
+  'platform.approval.decided': { label: 'A two-person request was decided', todo: 'Nothing, unless you didn’t expect it: then check the audit log.' },
 });
 
 export const securityEventText = (event: string): { readonly label: string; readonly todo: string } =>
