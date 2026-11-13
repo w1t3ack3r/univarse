@@ -10,7 +10,7 @@ export const RENEW_CONSOLE_TOKEN = Symbol('RENEW_CONSOLE_TOKEN');
 @Injectable()
 export class ConsoleTokenRenewal implements OnApplicationBootstrap, OnApplicationShutdown {
   private readonly logger = new Logger('VaultToken');
-  private renewer: VaultTokenRenewer | null = null;
+  private renewers: VaultTokenRenewer[] = [];
 
   constructor(
     @Inject(PLATFORM_CONFIG) private readonly config: PlatformConfig,
@@ -18,22 +18,30 @@ export class ConsoleTokenRenewal implements OnApplicationBootstrap, OnApplicatio
   ) {}
 
   onApplicationBootstrap(): void {
-    const { CONSOLE_KEY_PROVIDER, VAULT_ADDR, CONSOLE_VAULT_TOKEN } = this.config;
-    if (!this.enabled || CONSOLE_KEY_PROVIDER !== 'vault' || !VAULT_ADDR || !CONSOLE_VAULT_TOKEN) return;
-    this.renewer = new VaultTokenRenewer({
-      addr: VAULT_ADDR,
-      token: CONSOLE_VAULT_TOKEN,
-      log: {
-        info: (name, fields, msg) => this.logger.log({ event: name, ...fields }, msg),
-        warn: (name, fields, msg) => this.logger.warn({ event: name, ...fields }, msg),
-        error: (name, fields, msg) => this.logger.error({ event: name, ...fields }, msg),
-      },
-    });
-    this.renewer.start();
+    const { CONSOLE_KEY_PROVIDER, VAULT_ADDR, CONSOLE_VAULT_TOKEN, PROVISIONING_KEY_PROVIDER, PROVISIONING_VAULT_TOKEN } = this.config;
+    if (!this.enabled || !VAULT_ADDR) return;
+    const tokens = [
+      ...(CONSOLE_KEY_PROVIDER === 'vault' && CONSOLE_VAULT_TOKEN ? [CONSOLE_VAULT_TOKEN] : []),
+      // Spec 0034 Q7: the platform API's own provisioning token (encrypt only), kept alive the same way.
+      ...(PROVISIONING_KEY_PROVIDER === 'vault' && PROVISIONING_VAULT_TOKEN ? [PROVISIONING_VAULT_TOKEN] : []),
+    ];
+    this.renewers = tokens.map(
+      (token) =>
+        new VaultTokenRenewer({
+          addr: VAULT_ADDR,
+          token,
+          log: {
+            info: (name, fields, msg) => this.logger.log({ event: name, ...fields }, msg),
+            warn: (name, fields, msg) => this.logger.warn({ event: name, ...fields }, msg),
+            error: (name, fields, msg) => this.logger.error({ event: name, ...fields }, msg),
+          },
+        }),
+    );
+    for (const r of this.renewers) r.start();
   }
 
   onApplicationShutdown(): void {
-    this.renewer?.stop();
-    this.renewer = null;
+    for (const r of this.renewers) r.stop();
+    this.renewers = [];
   }
 }

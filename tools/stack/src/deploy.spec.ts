@@ -348,6 +348,28 @@ describe('[LS3][LS4] a verified record: the order of the deploy', () => {
     expect(calls).not.toContain('smoke');
   });
 
+  it('[0034 Q7] the first deploy with S5: the seal token recreates the platform API, the open token the worker, before the smoke check', async () => {
+    await deploy(record(), COMMIT, deps({ ensureVault: () => (calls.push('ensureVault'), { appTokenReissued: false, consoleTokenIssued: false, provisioningSealIssued: true, provisioningOpenIssued: true, lines: [] }) }));
+    const recreates = calls.filter((c) => c.includes('--force-recreate'));
+    expect(recreates).toEqual(['compose:up -d --wait --force-recreate --no-deps platform-api', 'compose:up -d --wait --force-recreate --no-deps worker']);
+    for (const r of recreates) expect(calls.indexOf(r)).toBeLessThan(calls.indexOf('smoke'));
+  });
+
+  it('[0034 Q7] the open token issued with the app token re-issued: the worker is recreated once, with both', async () => {
+    await deploy(record(), COMMIT, deps({ ensureVault: () => (calls.push('ensureVault'), { appTokenReissued: true, consoleTokenIssued: false, provisioningSealIssued: false, provisioningOpenIssued: true, lines: [] }) }));
+    expect(calls.filter((c) => c.includes('--force-recreate'))).toEqual(['compose:up -d --wait --force-recreate --no-deps api worker']);
+  });
+
+  it('[0034 Q7] the worker failing to come back with its open token fails the deploy, before the smoke check', async () => {
+    const r = await deploy(record(), COMMIT, deps({
+      ensureVault: () => (calls.push('ensureVault'), { appTokenReissued: false, consoleTokenIssued: false, provisioningOpenIssued: true, lines: [] }),
+      compose: (args) => (calls.push(`compose:${args.join(' ')}`), { status: args.includes('--force-recreate') ? 1 : 0 }),
+    }));
+    expect(r.ok).toBe(false);
+    expect(r.problems.join()).toMatch(/provisioning open token/);
+    expect(calls).not.toContain('smoke');
+  });
+
   it('[LS6] a failed smoke fails the deploy and saves no state', async () => {
     const r = await deploy(record(), COMMIT, deps({ smoke: () => Promise.resolve(['web /login: HTTP 502']) }));
     expect(r).toEqual({ ok: false, problems: ['web /login: HTTP 502'] });

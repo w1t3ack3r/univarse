@@ -269,8 +269,9 @@ describe('the backup policy and token (B-4)', () => {
       if (v[0] === 'token') {
         created++;
         expect(v).toEqual(expect.arrayContaining(['-no-default-policy', '-orphan']));
-        // The backup's, then (spec 0028) the console's: each by its own policy.
-        const t = v[v.indexOf('-policy') + 1] === BACKUP_POLICY ? 'BACKUP' : 'CONSOLE';
+        // The backup's, then (spec 0028) the console's and (spec 0034) the two provisioning tokens: each by its own policy.
+        const p = v[v.indexOf('-policy') + 1];
+        const t = p === BACKUP_POLICY ? 'BACKUP' : p === 'univarse-console' ? 'CONSOLE' : p === 'univarse-provisioning-seal' ? 'SEAL' : 'OPEN';
         return { status: 0, stdout: JSON.stringify({ auth: { client_token: t, accessor: `acc-${t}` } }), stderr: '' };
       }
       throw new Error(`unscripted ${v.join(' ')}`);
@@ -280,6 +281,6 @@ describe('the backup policy and token (B-4)', () => {
     expect(writes).toContain(`${BACKUP_POLICY}: ${BACKUP_POLICY_HCL}`);
     expect(JSON.parse(readFileSync(join(dir, 'vault-init.json'), 'utf8'))).toMatchObject({ appToken: 'APP', backupToken: 'BACKUP', consoleToken: 'CONSOLE' });
     configure(run, dir, target);
-    expect(created).toBe(2);
+    expect(created).toBe(4);
   });
 });

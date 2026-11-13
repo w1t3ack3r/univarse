@@ -11,7 +11,7 @@ export const RENEW_VAULT_TOKEN = Symbol('RENEW_VAULT_TOKEN');
 @Injectable()
 export class VaultTokenRenewal implements OnApplicationBootstrap, OnApplicationShutdown {
   private readonly logger = new Logger('VaultToken');
-  private renewer: VaultTokenRenewer | null = null;
+  private renewers: VaultTokenRenewer[] = [];
 
   constructor(
     @Inject(APP_CONFIG) private readonly config: AppConfig,
@@ -19,22 +19,30 @@ export class VaultTokenRenewal implements OnApplicationBootstrap, OnApplicationS
   ) {}
 
   onApplicationBootstrap(): void {
-    const { KEY_PROVIDER, VAULT_ADDR, VAULT_TOKEN } = this.config;
-    if (!this.enabled || KEY_PROVIDER !== 'vault' || !VAULT_ADDR || !VAULT_TOKEN) return;
-    this.renewer = new VaultTokenRenewer({
-      addr: VAULT_ADDR,
-      token: VAULT_TOKEN,
-      log: {
-        info: (name, fields, msg) => this.logger.log({ event: name, ...fields }, msg),
-        warn: (name, fields, msg) => this.logger.warn({ event: name, ...fields }, msg),
-        error: (name, fields, msg) => this.logger.error({ event: name, ...fields }, msg),
-      },
-    });
-    this.renewer.start();
+    const { KEY_PROVIDER, VAULT_ADDR, VAULT_TOKEN, PROVISIONING_KEY_PROVIDER, PROVISIONING_VAULT_TOKEN } = this.config;
+    if (!this.enabled || !VAULT_ADDR) return;
+    const tokens = [
+      ...(KEY_PROVIDER === 'vault' && VAULT_TOKEN ? [VAULT_TOKEN] : []),
+      // Spec 0034 Q7: the worker's own provisioning token (decrypt only), kept alive the same way.
+      ...(PROVISIONING_KEY_PROVIDER === 'vault' && PROVISIONING_VAULT_TOKEN ? [PROVISIONING_VAULT_TOKEN] : []),
+    ];
+    this.renewers = tokens.map(
+      (token) =>
+        new VaultTokenRenewer({
+          addr: VAULT_ADDR,
+          token,
+          log: {
+            info: (name, fields, msg) => this.logger.log({ event: name, ...fields }, msg),
+            warn: (name, fields, msg) => this.logger.warn({ event: name, ...fields }, msg),
+            error: (name, fields, msg) => this.logger.error({ event: name, ...fields }, msg),
+          },
+        }),
+    );
+    for (const r of this.renewers) r.start();
   }
 
   onApplicationShutdown(): void {
-    this.renewer?.stop();
-    this.renewer = null;
+    for (const r of this.renewers) r.stop();
+    this.renewers = [];
   }
 }
