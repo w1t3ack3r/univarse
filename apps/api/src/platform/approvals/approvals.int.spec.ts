@@ -4,7 +4,7 @@
  * owner), so no test here assumes it knows every member: the solo rule (Q5) is proved in packages/domain, where the
  * staff list is the test's own.
  */
-import { randomBytes, randomInt } from 'node:crypto';
+import { randomBytes, randomInt, randomUUID } from 'node:crypto';
 import type { NestFastifyApplication } from '@nestjs/platform-fastify';
 import { createPlatformClient, type PlatformClient } from '@univarse/db';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
@@ -343,13 +343,16 @@ describe('[Q15] the inbox', () => {
 
   it('"act" security events reach those who read security, not the others', async () => {
     const inbox = app.get(PlatformInboxView);
-    const at = new Date('2100-03-01T10:00:00Z'); // far future: pruned by global setup, invisible to the owner's console
-    await db.platformSecurityEventRollup.create({ data: { minute: at, event: 'files.scan.malware_detected', source: 'api', tenantId: '00000000-0000-0000-0000-000000000000', count: 3, lastSeenAt: at } });
-    await db.platformSecurityEventRollup.create({ data: { minute: at, event: 'auth.rate_limited', source: 'api', tenantId: '00000000-0000-0000-0000-000000000000', count: 9, lastSeenAt: at } });
+    // Far future (pruned by global setup, invisible to the owner's console), under an institution id of this test's own,
+    // so another test's rows in the same window can't be counted here.
+    const at = new Date('2100-07-19T03:17:00Z');
+    const tenantId = randomUUID();
+    await db.platformSecurityEventRollup.create({ data: { minute: at, event: 'files.scan.malware_detected', source: 'api', tenantId, count: 3, lastSeenAt: at } });
+    await db.platformSecurityEventRollup.create({ data: { minute: at, event: 'auth.rate_limited', source: 'api', tenantId, count: 9, lastSeenAt: at } });
     const now = new Date(at.getTime() + 60_000);
-    const security = (r: Awaited<ReturnType<PlatformInboxView['read']>>) => r.items.filter((i) => i.type === 'security_act');
+    const security = (r: Awaited<ReturnType<PlatformInboxView['read']>>) => r.items.filter((i) => i.type === 'security_act' && i.tenant?.id === tenantId);
     expect(security(await inbox.read(actorOf(await member('OWNER')), now))).toEqual([
-      { type: 'security_act', event: 'files.scan.malware_detected', count: 3, lastSeenAt: at.toISOString(), tenant: null },
+      { type: 'security_act', event: 'files.scan.malware_detected', count: 3, lastSeenAt: at.toISOString(), tenant: { id: tenantId, slug: null, name: null } },
     ]);
     expect(security(await inbox.read(actorOf(await member('SUPPORT')), now))).toEqual([]);
   });

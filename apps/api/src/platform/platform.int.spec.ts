@@ -121,6 +121,8 @@ describe('[P5] the console role, in the database', () => {
       const held = Object.fromEntries(rows.filter((r) => r.sel || r.ins || r.upd || r.del || r.trunc).map((r) => [r.table_name, `${r.sel ? 'S' : ''}${r.ins ? 'I' : ''}${r.upd ? 'U' : ''}${r.del ? 'D' : ''}${r.trunc ? 'T' : ''}`]));
       expect(held).toEqual({
         platform_access_review: 'SI',
+        // Spec 0037: requests are read whole and inserted by column; only the decision's columns update.
+        platform_approval: 'SU',
         platform_audit_event: 'SI',
         platform_audit_verification: 'SIU',
         platform_contact_change: 'SIU',
