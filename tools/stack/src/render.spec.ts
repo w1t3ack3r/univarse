@@ -188,3 +188,34 @@ describe('[spec 0027] the platform API and the console', () => {
     expect(renderUserlist(older)).not.toContain('univarse_console');
   });
 });
+
+describe('[0034 Q7] the provisioning key, split between two processes', () => {
+  const pv = { ...v, provisioningSealToken: 'hvs.test-seal-token-000000000', provisioningOpenToken: 'hvs.test-open-token-000000000' };
+  const out = renderEnvFiles(s, pv);
+  const f = (name: string) => out[name] ?? {};
+
+  it('the platform API holds the seal token and the worker the open token, each in its own file only', () => {
+    expect(f('platform-api.env')).toMatchObject({ PROVISIONING_KEY_PROVIDER: 'vault', PROVISIONING_VAULT_TOKEN: pv.provisioningSealToken });
+    expect(f('worker.env')).toMatchObject({ PROVISIONING_KEY_PROVIDER: 'vault', PROVISIONING_VAULT_TOKEN: pv.provisioningOpenToken });
+    for (const [name, e] of Object.entries(out)) {
+      const text = envText(e);
+      expect([name, text.includes(pv.provisioningSealToken)]).toEqual([name, name === 'platform-api.env']);
+      expect([name, text.includes(pv.provisioningOpenToken)]).toEqual([name, name === 'worker.env']);
+    }
+    // The API and the keys job refuse the setting at start; they're never given it.
+    for (const name of ['api.env', 'keys.env', 'migrate.env']) expect([name, Object.keys(f(name)).filter((k) => k.startsWith('PROVISIONING_'))]).toEqual([name, []]);
+  });
+
+  it('before Vault has made the tokens, both files leave provisioning out (it is off, not refused)', () => {
+    const before = renderEnvFiles(s, v);
+    for (const name of ['platform-api.env', 'worker.env']) expect([name, Object.keys(before[name] ?? {}).filter((k) => k.startsWith('PROVISIONING_'))]).toEqual([name, []]);
+  });
+
+  it('[Q5] a new institution is addressed on the stack\'s domain, its invitation linking over HTTPS', () => {
+    expect(f('worker.env')).toMatchObject({ TENANT_DOMAIN: STACK_DOMAIN, TENANT_LINK_ORIGIN: 'https://{host}' });
+  });
+
+  it('[Q3] Valkey never evicts (BullMQ)', () => {
+    expect(renderValkeyConf(s).split('\n')).toContain('maxmemory-policy noeviction');
+  });
+});

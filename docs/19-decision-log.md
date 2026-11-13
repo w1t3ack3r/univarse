@@ -580,7 +580,7 @@ Alternatives considered: option — why not.
 **Alternatives considered:** the tenant KEK (it would hand the platform API the tenant API's most powerful secret); a key in the platform API's env file (on disk, outside Vault's audit); the tenant worker sending console mail (it would couple the two, and read platform rows). Each is rejected in spec 0028's Q table.
 
 ## ADR-036 — BullMQ arrives for provisioning, with Postgres as the system of record; the provisioning key is split
-**Status:** Accepted (2026-11-12) with [spec 0034](specs/0034-provisioning.md) Q3, Q7 and Q16. **Implemented** in its PR A (development and tests); the stack's Vault key, its two tokens and Valkey's `noeviction` arrive with PR C. Closes [ADR-019](#adr-019--phase-0-outbox-worker-without-bullmq)'s deferral.
+**Status:** Accepted (2026-11-12) with [spec 0034](specs/0034-provisioning.md) Q3, Q7 and Q16. **Implemented** in its PR A (development and tests) and PR C (the stack's Vault key, its two tokens, their renewal, the smoke check's proof, and Valkey's `noeviction`). Closes [ADR-019](#adr-019--phase-0-outbox-worker-without-bullmq)'s deferral.
 
 **Context:**
 - Provisioning is the first job ADR-019's revisit trigger names: named steps with retries, run once each, resumable after any crash. S6's announcements (a fan-out to every IT Admin) are the next.

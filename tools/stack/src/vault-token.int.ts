@@ -10,12 +10,14 @@ import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { VaultTransitProvider, wrapContext } from '../../../packages/crypto/src/providers.js';
 import { VaultTokenRenewer, type RenewerLog } from '../../../packages/crypto/src/token-renewal.js';
+import { openInvite, sealInvite } from '../../../packages/crypto/src/sealed-invite.js';
 import { THIRD_PARTY } from './config.js';
 import { docker } from './docker.js';
 import {
   classifyVaultFailure,
   configure,
   CONSOLE_KEK,
+  PROVISIONING_KEK,
   ensureVault,
   initialise,
   loadVaultInit,
@@ -117,7 +119,7 @@ describe('[0023] the tokens on a real Vault', () => {
     if (!own.ok) console.log(`[vault-token.int] a dead token renewing itself: ${JSON.stringify(own.failure)}`);
     // T4: re-issued at the normal period, saved, and working through the app's own provider.
     const c = configure(docker, d, TARGET);
-    expect(c.reissued).toEqual(['app', 'backup', 'console']);
+    expect(c.reissued).toEqual(['app', 'backup', 'console', 'provisioning-seal', 'provisioning-open']);
     const fresh = loadVaultInit(d);
     expect(fresh.appToken).not.toBe(dead.appToken);
     expect(fresh.appTokenAccessor).not.toBe(dead.appTokenAccessor);
@@ -142,6 +144,25 @@ describe('[0023] the tokens on a real Vault', () => {
     // And a ciphertext from one key never opens with the other's token.
     const tenantCipher = await tenantKey(init.appToken).wrap(secret, context);
     await expect(tenantKey(init.consoleToken ?? '').unwrap(tenantCipher, context, 20)).rejects.toThrow();
+  });
+
+  it("[0034 Q7] the provisioning key, through the app's own envelope: the platform API's token seals and can't open; the worker's opens and can't seal; no other token touches it", async () => {
+    const init = loadVaultInit(dir);
+    const key = (token: string) => new VaultTransitProvider({ addr, token, mount: 'transit', key: PROVISIONING_KEK });
+    const seal = key(init.provisioningSealToken ?? '');
+    const open = key(init.provisioningOpenToken ?? '');
+    const tenantId = randomUUID();
+    const details = { displayName: 'Ngozi Adeyemi', email: 'ngozi@unilag.test', username: 'ITADMIN' };
+    const sealed = await sealInvite(seal, tenantId, details);
+    expect(await openInvite(open, tenantId, sealed)).toEqual(details);
+    await expect(openInvite(seal, tenantId, sealed)).rejects.toThrow(); // the platform API can't read what it sealed
+    await expect(sealInvite(open, tenantId, details)).rejects.toThrow(); // the worker can't seal
+    await expect(openInvite(key(init.appToken), tenantId, sealed)).rejects.toThrow();
+    await expect(sealInvite(key(init.appToken), tenantId, details)).rejects.toThrow();
+    await expect(openInvite(key(init.consoleToken ?? ''), tenantId, sealed)).rejects.toThrow();
+    await expect(openInvite(open, randomUUID(), sealed)).rejects.toThrow(); // sealed for another institution
+    const tenantKey = (token: string) => new VaultTransitProvider({ addr, token, mount: 'transit', key: 'univarse-kek' });
+    for (const t of [init.provisioningSealToken ?? '', init.provisioningOpenToken ?? '']) await expect(tenantKey(t).wrap(randomBytes(32), wrapContext(tenantId, 1))).rejects.toThrow();
   });
 
   it("[T2] the app's renewer keeps a short-period token alive past several periods; stopped, it dies", async () => {

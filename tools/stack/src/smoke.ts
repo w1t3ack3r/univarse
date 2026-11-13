@@ -26,7 +26,7 @@ import type { Entry } from './ledger/chain.js';
 import { establishAuthority } from './ledger/ledger.js';
 import { waivedSince } from './ledger/waiver.js';
 import { loadSecrets } from './secrets.js';
-import { AUDIT_LOG, CONSOLE_KEK, loadVaultInit, SEALED_LINE, tokenReport, tokenStates, VAULT_CONTAINER, vaultCli, vaultState } from './vault.js';
+import { AUDIT_LOG, CONSOLE_KEK, loadVaultInit, PROVISIONING_KEK, SEALED_LINE, tokenReport, tokenStates, VAULT_CONTAINER, vaultCli, vaultState } from './vault.js';
 export { tokenReport } from './vault.js';
 
 interface Res {
@@ -155,6 +155,49 @@ export function keySeparationProblems(r: KeySeparation): string[] {
   if (r.consoleOnTenantKek) problems.push('the console token could wrap with the tenant KEK (spec 0028 Q3)');
   if (r.appOnConsoleKek) problems.push("the app token could wrap with the console's key (spec 0028 Q3)");
   return problems;
+}
+
+/** Spec 0034 Q7: what each token could do with the provisioning key (and, for the two halves, with the tenant KEK). */
+export interface ProvisioningSplit {
+  readonly sealEncrypts: boolean;
+  readonly openDecrypts: boolean;
+  readonly sealDecrypts: boolean;
+  readonly openEncrypts: boolean;
+  readonly appUsesKey: boolean;
+  readonly halvesUseTenantKek: boolean;
+}
+
+/** The platform API's token only seals, the worker's only opens what was sealed, and no other token touches the key. */
+export function provisioningSplitProblems(r: ProvisioningSplit): string[] {
+  const problems: string[] = [];
+  if (!r.sealEncrypts) problems.push('the provisioning seal token could not encrypt with the provisioning key');
+  if (!r.openDecrypts) problems.push('the provisioning open token could not decrypt what the seal token encrypted');
+  if (r.sealDecrypts) problems.push('the provisioning seal token could decrypt: the platform API could read an invite (spec 0034 Q7)');
+  if (r.openEncrypts) problems.push('the provisioning open token could encrypt (spec 0034 Q7)');
+  if (r.appUsesKey) problems.push('the app token could use the provisioning key (spec 0034 Q7)');
+  if (r.halvesUseTenantKek) problems.push('a provisioning token could use the tenant KEK (spec 0034 Q7)');
+  return problems;
+}
+
+/** The live input: a seal with one half, an open with the other, and each refusal tried. */
+function provisioningSplit(): string[] {
+  const { appToken, provisioningSealToken: seal, provisioningOpenToken: open } = loadVaultInit();
+  if (!seal || !open) return ['a provisioning token is missing from vault-init.json: deploy once (its Vault step creates them)'];
+  const plain = randomBytes(32).toString('base64');
+  const context = Buffer.from(`univarse:smoke:invite:${randomBytes(8).toString('hex')}`).toString('base64');
+  const encrypt = (token: string, key = PROVISIONING_KEK) => vaultCli(docker, ['write', '-format=json', `transit/encrypt/${key}`, `plaintext=${plain}`, `context=${context}`], { VAULT_TOKEN: token });
+  const decrypt = (token: string, ciphertext: string) => vaultCli(docker, ['write', '-format=json', `transit/decrypt/${PROVISIONING_KEK}`, `ciphertext=${ciphertext}`, `context=${context}`], { VAULT_TOKEN: token });
+  const sealed = encrypt(seal);
+  const ciphertext = sealed.status === 0 ? (JSON.parse(sealed.stdout) as { data: { ciphertext: string } }).data.ciphertext : '';
+  const opened = ciphertext ? decrypt(open, ciphertext) : null;
+  return provisioningSplitProblems({
+    sealEncrypts: sealed.status === 0,
+    openDecrypts: opened !== null && opened.status === 0 && (JSON.parse(opened.stdout) as { data: { plaintext: string } }).data.plaintext === plain,
+    sealDecrypts: ciphertext !== '' && decrypt(seal, ciphertext).status === 0,
+    openEncrypts: encrypt(open).status === 0,
+    appUsesKey: encrypt(appToken).status === 0 || (ciphertext !== '' && decrypt(appToken, ciphertext).status === 0),
+    halvesUseTenantKek: encrypt(seal, 'univarse-kek').status === 0 || encrypt(open, 'univarse-kek').status === 0,
+  });
 }
 
 /** The live input: a wrap and unwrap with each token where it belongs, and a wrap where it must be refused. */
@@ -379,6 +422,8 @@ export async function smoke(): Promise<string[]> {
   problems.push(...auditCheck());
   // Spec 0028 Q3: the console's key and the tenant KEK, each reachable by its own token only.
   problems.push(...keySeparation());
+  // Spec 0034 Q7: the provisioning key, split between the platform API (seal) and the worker (open).
+  problems.push(...provisioningSplit());
   // Spec 0023 T5: no token is near its end.
   const tokens = tokenReport(tokenStates());
   for (const l of tokens.lines) console.log(`[stack:smoke] ${l}`);
@@ -397,5 +442,5 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     for (const p of problems) console.error(`[stack:smoke] FAIL ${p}`);
     process.exit(1);
   }
-  console.log('[stack:smoke] PASS: HTTPS (verified), the redirect and HSTS, Vault audit (HMACs only), each Vault token on its own key only, the life left in every Vault token, health, tenant, /login, worker and relay, the console and its allowlist at both layers, JSON logs, and the hardened shape (LS1, LS6, LS7, spec 0027)');
+  console.log('[stack:smoke] PASS: HTTPS (verified), the redirect and HSTS, Vault audit (HMACs only), each Vault token on its own key only, the provisioning key’s two halves, the life left in every Vault token, health, tenant, /login, worker and relay, the console and its allowlist at both layers, JSON logs, and the hardened shape (LS1, LS6, LS7, spec 0027)');
 }
