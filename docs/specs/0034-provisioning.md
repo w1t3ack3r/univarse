@@ -1,6 +1,6 @@
 # Spec 0034: Phase 1's S5, provisioning
 
-**Status:** **Approved by the owner on 2026-11-12, all as written:** Q1 to Q16, and Q-A1 to Q-A14 (with #175). PR A (the backend) merged (#175); PR B (the console's screens and J1) merged (#176), Q-B1 to Q-B9 approved; PR C (the stack) built, Q-C1 to Q-C6 for approval; the release next.
+**Status:** **Done (2026-11-13).** Approved by the owner on 2026-11-12, all as written: Q1 to Q16, Q-A1 to Q-A14 and Q-B1 to Q-B9; Q-C1 to Q-C6 approved on 2026-11-13. All three PRs merged (#175, #176, #177), released as `8601852` and deployed; the owner's check in criterion 12 passed on the stack.
 **Phase:** 1, slice **S5** of [spec 0025](0025-phase-1-control-plane.md) (A8, A9, E6, E13).
 **Builds on:**
 
@@ -183,7 +183,7 @@ In this PR: [18](../18-roadmap.md). In the implementation PRs: [03](../03-domain
 - **Mutations: 7 tried, 7 caught:** a seal policy that can decrypt, the worker given the seal token, the platform API given none, Valkey allowed to evict, the deploy not recreating the worker, the smoke check ignoring a seal token that decrypts, and the open token never created.
 - **The stack itself** is proved by the release, the deploy and its smoke check.
 
-**Decisions made while building, for approval:**
+**Decisions made while building, approved by the owner on 2026-11-13:**
 
 | # | Decision | Why |
 | --- | --- | --- |
@@ -194,3 +194,8 @@ In this PR: [18](../18-roadmap.md). In the implementation PRs: [03](../03-domain
 | Q-C5 | **The smoke check proves the split live after every deploy,** not only the tests. | A policy edited by hand in Vault would otherwise go unnoticed until an invite leaked or failed. |
 | Q-C6 | **On the stack, invitations link over HTTPS to the institution's own address** (`https://<slug>.stack.univarse.localhost/activate`). | The edge serves every tenant host under the stack CA's wildcard. |
 
+## The release
+
+- **Released** as `8601852` on 2026-11-13 (`releases/2026-11-13-8601852.json`): every gate passed, the nine PgBouncer coverage controls proved, the five secret canaries caught, and the signature, SBOM and provenance verified offline. The zlib exceptions are still active, so the record claims no zero findings.
+- **Deployed** the same day: the provisioning migration applied, `rls:check` passed, the deploy issued the seal and open tokens and recreated the platform API and the worker, and the smoke check proved the split (criterion 5).
+- **Criterion 12:** the owner created an institution on the stack console, its IT Admin activated from Mailpit, and the owner took it live (`POST …/go-live` 204). The worker, the platform API, the API and the console logged no errors.
