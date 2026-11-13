@@ -1,6 +1,6 @@
 # Spec 0037: Phase 1's S6, approvals, suspension and notices
 
-**Status:** **Approved by the owner on 2026-11-13, all as written:** Q1 to Q16. PR A (the approval engine and the inbox) built, Q-A1 to Q-A10 for approval.
+**Status:** **Approved by the owner on 2026-11-13, all as written:** Q1 to Q16. PR A (the approval engine and the inbox) built; Q-A1 to Q-A10 approved on 2026-11-13.
 **Phase:** 1, slice **S6** of [spec 0025](0025-phase-1-control-plane.md) (A7, E4, E12, E18, E19, E25).
 **Builds on:**
 
@@ -112,7 +112,7 @@ About **two and a half weeks** at S5's pace, the largest slice in Phase 1, as sp
 - **E2E** (`approvals.e2e.ts`, desktop and phone, axe on every screen): an OWNER asks from Staff, a SUPER_ADMIN in a browser of their own finds it in the inbox and approves it after a step-up, and the member becomes an owner; a SUPPORT member has no Approvals tab and an empty inbox. The whole console suite passes (38).
 - **Mutations: 17 tried, 17 caught:** in the domain, dropping each of the own-request, names-you, hash, expiry and single-use checks, counting the requester or a member without an authenticator as a second person; in the API, dropping the request's permission check, the hash, the requester's recheck, the visibility rule and the duplicate check, the two OWNER guards on Staff, and the inbox's own-request, security-permission and "act"-level filters.
 
-**Decisions made while building, for approval:**
+**Decisions made while building, approved by the owner on 2026-11-13:**
 
 | # | Decision | Why |
 | --- | --- | --- |

@@ -145,7 +145,10 @@ describe('[Q4] OWNER only through an approval', () => {
     const target = await member('SUPPORT');
     const cookie = await session(owner);
     expect((await call('POST', `/staff/${target.id}/role`, { cookie, body: { role: 'OWNER' } })).body.code).toBe('staff.owner_needs_approval');
-    const invited = await call('POST', '/staff', { cookie, body: { email: `x-${randomBytes(4).toString('hex')}@staff.test`, displayName: 'Someone', role: 'OWNER' } });
+    // Tracked, so a run where the guard is broken (a mutation check) still retires whatever it made.
+    const inviteEmail = `x-${randomBytes(4).toString('hex')}@staff.test`;
+    emails.add(inviteEmail);
+    const invited = await call('POST', '/staff', { cookie, body: { email: inviteEmail, displayName: 'Someone', role: 'OWNER' } });
     expect([invited.status, invited.body.code]).toEqual([422, 'staff.owner_by_approval']);
     expect((await call('POST', `/staff/${target.id}/role`, { cookie, body: { role: 'READ_ONLY' } })).body.role).toBe('READ_ONLY');
     expect(await roleOf(target.id)).toBe('READ_ONLY');
