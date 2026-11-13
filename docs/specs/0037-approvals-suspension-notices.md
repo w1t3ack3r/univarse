@@ -1,6 +1,6 @@
 # Spec 0037: Phase 1's S6, approvals, suspension and notices
 
-**Status:** For approval.
+**Status:** **Approved by the owner on 2026-11-13, all as written:** Q1 to Q16. PR A (the approval engine and the inbox) next.
 **Phase:** 1, slice **S6** of [spec 0025](0025-phase-1-control-plane.md) (A7, E4, E12, E18, E19, E25).
 **Builds on:**
 
