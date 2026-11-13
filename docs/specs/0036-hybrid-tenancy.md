@@ -1,6 +1,6 @@
 # Spec 0036: Hybrid tenancy: shared pools by default, a dedicated database or cluster where it's needed
 
-**Status:** Draft for the owner's approval (2026-11-12): T1 to T14. Built later, with S8 and after S7 (T13); nothing here changes S5 as built.
+**Status:** **Approved by the owner on 2026-11-13, all as written:** T1 to T14. Built later, with S8 and after S7 (T13); nothing here changes S5 as built.
 **Phase:** design now; built in Phase 1 S8 and a slice after S7.
 **Builds on:**
 
@@ -30,7 +30,7 @@ Every institution today shares a pool database with the others, separated by `te
 | **Dedicated database** | A database of its own, on a server holding other institutions' dedicated databases | An institution that pays for it, or whose contract or regulator needs it |
 | **Dedicated cluster** | A PostgreSQL server of its own, possibly in another region or in Nigeria, with its own Vault if required (ADR-023) | The largest institutions, or data kept in Nigeria |
 
-## Decisions for approval
+## Decisions
 
 | # | Decision | Why |
 | --- | --- | --- |
