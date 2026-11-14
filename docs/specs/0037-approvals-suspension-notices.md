@@ -151,7 +151,7 @@ About **two and a half weeks** at S5's pace, the largest slice in Phase 1, as sp
   - In the web app: accepting any colour.
   - In the API: the suspend route needing only read, the service ignoring the session wait, resuming always to ACTIVE, skipping the note rule, the guard serving a suspended institution, the 423 without its institution, the worker ending no session, and the note leaking into the audit chain.
 
-**Decisions made while building, for approval:**
+**Decisions made while building, approved by the owner on 2026-11-14:**
 
 | # | Decision | Why |
 | --- | --- | --- |
