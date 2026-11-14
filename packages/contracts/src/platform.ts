@@ -456,6 +456,7 @@ export type PlatformInbox = z.infer<typeof PlatformOps.inbox.response>;
 export type PlatformInboxItem = PlatformInbox['items'][number];
 export type PlatformSuspension = z.infer<typeof suspensionView>;
 export type PlatformNotice = z.infer<typeof noticeView>;
+export type PlatformTenantSummary = z.infer<typeof tenantSummary>;
 export type PlatformNoticeSummary = z.infer<typeof noticeSummary>;
 export type PlatformNoticeDraft = z.infer<typeof noticeDraft>;
 export type PlatformSuspensionReason = z.infer<typeof suspensionReason>;

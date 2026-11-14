@@ -1139,3 +1139,105 @@
   border-radius: 0;
   background: none;
 }
+
+/* ---------- Notices from UniVarse (spec 0037 Q10) ----------
+   Calm strips, not alarms: maintenance on the info wash with a clock, announcements and release notes on sage with a
+   megaphone. The kind is a word, never colour alone. The body keeps its line breaks and wraps anything long (a link
+   is text here). Dismiss is a 44px target. */
+.auth:has(> .auth__notices) {
+  grid-template-rows: auto auto 1fr auto;
+}
+.auth__notices {
+  width: min(100%, 1120px);
+  margin: 0 auto;
+  padding: 0 clamp(16px, 4vw, 40px);
+}
+.notices {
+  margin-bottom: var(--uv-space-4);
+}
+.notices__list {
+  display: grid;
+  gap: var(--uv-space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.notice {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: var(--uv-space-3);
+  align-items: start;
+  padding: var(--uv-space-3) var(--uv-space-3) var(--uv-space-3) var(--uv-space-4);
+  border-radius: var(--uv-radius);
+  background: var(--uv-deep-soft);
+  color: var(--uv-deep);
+}
+.notice--maintenance {
+  background: var(--uv-info-bg);
+  color: var(--uv-info);
+}
+.notice__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  margin-top: 2px;
+  border-radius: var(--uv-radius-sm);
+  background: var(--uv-white);
+}
+.notice__text {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  padding-top: 2px;
+}
+.notice__text p {
+  margin: 0;
+}
+.notice__kind {
+  font-size: var(--uv-text-xs);
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+.notice__title {
+  font-weight: 600;
+  color: var(--uv-text);
+  overflow-wrap: anywhere;
+}
+.notice__window {
+  font-size: var(--uv-text-sm);
+  font-weight: 500;
+}
+.notice__text .notice__body {
+  margin-top: var(--uv-space-1);
+  font-size: var(--uv-text-sm);
+  line-height: 1.55;
+  color: var(--uv-text);
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+}
+.notice__dismiss {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  margin: -6px -4px 0 0;
+  border: 0;
+  border-radius: var(--uv-radius-sm);
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+.notice__dismiss:hover {
+  background: color-mix(in srgb, currentColor 10%, transparent);
+}
+.notice__dismiss:focus-visible {
+  outline: 3px solid var(--uv-focus);
+  outline-offset: 2px;
+}
+.notice__dismiss:disabled {
+  opacity: 0.5;
+  cursor: default;
+}

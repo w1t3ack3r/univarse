@@ -197,3 +197,16 @@ export const Refresh = (p: IconProps) => (
     <path d="M19.5 12a7.5 7.5 0 0 1-13.1 5M4.5 12a7.5 7.5 0 0 1 13.1-5M17.6 3.5V7h-3.5M6.4 20.5V17h3.5" />
   </Icon>
 );
+/** Close or dismiss. */
+export const Close = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M6.5 6.5l11 11M17.5 6.5l-11 11" />
+  </Icon>
+);
+/** A notice from the platform (spec 0037). */
+export const Megaphone = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M4 10.5v3a1.5 1.5 0 0 0 1.5 1.5H8l7 4V5L8 9H5.5A1.5 1.5 0 0 0 4 10.5Z" />
+    <path d="M8 15l1.2 4.5M18.5 9.5a3.5 3.5 0 0 1 0 5" />
+  </Icon>
+);

@@ -1,7 +1,8 @@
 import { messageFor } from '@univarse/contracts';
 import { Card, Notice } from '@univarse/ui';
 import type { ReactNode } from 'react';
-import { brandStyle, logoUrl, tenantProfile } from '@/lib/tenant';
+import { NoticeBanners } from '@/components/NoticeBanners';
+import { brandStyle, logoUrl, notices, tenantProfile } from '@/lib/tenant';
 
 const KIND: Record<string, string> = {
   UNIVERSITY: 'university',
@@ -15,6 +16,8 @@ const KIND: Record<string, string> = {
  */
 export default async function AuthLayout({ children }: { children: ReactNode }) {
   const { profile, code, suspended } = await tenantProfile();
+  // Spec 0037 Q10: maintenance shows here too, so nobody is surprised mid-sign-in. None while suspended (every request is 423).
+  const banners = profile ? await notices('everyone') : [];
   const b = profile?.branding ?? suspended;
   return (
     <div className="auth" style={b?.primaryColor && b.textColor ? brandStyle(b.primaryColor, b.textColor) : undefined}>
@@ -24,6 +27,11 @@ export default async function AuthLayout({ children }: { children: ReactNode }) 
           Secured by UniVarse
         </span>
       </header>
+      {banners.length ? (
+        <div className="auth__notices">
+          <NoticeBanners notices={banners} dismissible={false} />
+        </div>
+      ) : null}
       <main id="main" className="auth__body">
         {profile ? (
           <>

@@ -414,6 +414,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/notices": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The notices shown to you here, without those you dismissed */
+        get: operations["myNotices"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/notices/{id}/dismiss": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Hide a notice’s banner for you (it stays recorded) */
+        post: operations["dismissNotice"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/products": {
         parameters: {
             query?: never;
@@ -476,6 +510,23 @@ export interface paths {
         };
         /** The institution’s logo for this host (binary); 304 on a matching ETag */
         get: operations["tenantLogo"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tenant/notices": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The institution’s notices for everyone, signed in or not (maintenance windows) */
+        get: operations["publicNotices"];
         put?: never;
         post?: never;
         delete?: never;
@@ -4169,6 +4220,232 @@ export interface operations {
             };
         };
     };
+    myNotices: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: {
+                            /** Format: uuid */
+                            id: string;
+                            /** @enum {string} */
+                            kind: "ANNOUNCEMENT" | "MAINTENANCE" | "RELEASE_NOTE";
+                            title: string;
+                            body: string;
+                            startsAt: string | null;
+                            endsAt: string | null;
+                            /** Format: date-time */
+                            publishedAt: string;
+                        }[];
+                    };
+                };
+            };
+            /** @description auth.unauthenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 401;
+                        /** @enum {unknown} */
+                        code?: "auth.unauthenticated";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description auth.mfa_enrolment_required */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 403;
+                        /** @enum {unknown} */
+                        code?: "auth.mfa_enrolment_required";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description tenant.not_found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 404;
+                        /** @enum {unknown} */
+                        code?: "tenant.not_found";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description tenant.suspended */
+            423: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 423;
+                        /** @enum {unknown} */
+                        code?: "tenant.suspended";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description server.internal */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 500;
+                        /** @enum {unknown} */
+                        code?: "server.internal";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description server.busy */
+            503: {
+                headers: {
+                    /** @description Seconds to wait before retrying. */
+                    "Retry-After": string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 503;
+                        /** @enum {unknown} */
+                        code?: "server.busy";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    dismissNotice: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The notice id. Any value that is not a notice shown to you here, including a malformed id, is 404. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description auth.unauthenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 401;
+                        /** @enum {unknown} */
+                        code?: "auth.unauthenticated";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description auth.mfa_enrolment_required, request.csrf_rejected */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 403;
+                        /** @enum {unknown} */
+                        code?: "auth.mfa_enrolment_required" | "request.csrf_rejected";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description resource.not_found, tenant.not_found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 404;
+                        /** @enum {unknown} */
+                        code?: "resource.not_found" | "tenant.not_found";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description tenant.suspended */
+            423: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 423;
+                        /** @enum {unknown} */
+                        code?: "tenant.suspended";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description server.internal */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 500;
+                        /** @enum {unknown} */
+                        code?: "server.internal";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description server.busy */
+            503: {
+                headers: {
+                    /** @description Seconds to wait before retrying. */
+                    "Retry-After": string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 503;
+                        /** @enum {unknown} */
+                        code?: "server.busy";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
     listActiveProducts: {
         parameters: {
             query?: never;
@@ -5037,6 +5314,97 @@ export interface operations {
                         status?: 404;
                         /** @enum {unknown} */
                         code?: "resource.not_found" | "tenant.not_found";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description tenant.suspended */
+            423: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 423;
+                        /** @enum {unknown} */
+                        code?: "tenant.suspended";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description server.internal */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 500;
+                        /** @enum {unknown} */
+                        code?: "server.internal";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description server.busy */
+            503: {
+                headers: {
+                    /** @description Seconds to wait before retrying. */
+                    "Retry-After": string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 503;
+                        /** @enum {unknown} */
+                        code?: "server.busy";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    publicNotices: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: {
+                            /** Format: uuid */
+                            id: string;
+                            /** @enum {string} */
+                            kind: "ANNOUNCEMENT" | "MAINTENANCE" | "RELEASE_NOTE";
+                            title: string;
+                            body: string;
+                            startsAt: string | null;
+                            endsAt: string | null;
+                            /** Format: date-time */
+                            publishedAt: string;
+                        }[];
+                    };
+                };
+            };
+            /** @description tenant.not_found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 404;
+                        /** @enum {unknown} */
+                        code?: "tenant.not_found";
                     } & components["schemas"]["Problem"];
                 };
             };
