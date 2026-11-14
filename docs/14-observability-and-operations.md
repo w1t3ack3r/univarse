@@ -132,7 +132,7 @@ Every page links a runbook. An alert without a runbook isn't allowed in `Enforce
 ## 8. On-call & support model
 
 - Pilot: the founder is on call. Paging via Grafana OnCall / PagerDuty / Opsgenie to phone. Business-hours support for tenants, plus pages for Sev-1/2 24×7.
-- **Status page** (e.g. hosted Upptime / Instatus) at `status.univarse.ng` with per-component status and incident history.
+- **Status page** (e.g. hosted Upptime / Instatus) at `status.univarse.ng` with per-component status and incident history. Until it's hosted, incidents are run in the console ([spec 0037](specs/0037-approvals-suspension-notices.md) PR D): severity SEV1 to SEV4, an append-only timeline with public text for the affected institutions and staff-only notes, a banner at each affected institution with the latest public update (open, and for a day after resolving), the 72-hour clock when personal data may be involved, and a staff-only follow-up.
 - Tenant support tiers: L1 = the institution's own ICT helpdesk (UniVarse helpdesk module), L2 = UniVarse support (platform tickets), L3 = engineering.
 - Support SLAs by priority (P1 critical: response 1h, 24×7; P2: 4 business hours; P3: 1 business day; P4: best effort).
 

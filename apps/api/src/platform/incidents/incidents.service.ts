@@ -177,11 +177,9 @@ export class PlatformIncidents {
         select: { id: true },
       });
       await tx.platformIncidentTenant.updateMany({ where: { incidentId: id }, data: { changedAt: now } });
-      await platformAudit(
-        tx,
-        { actorId: actor.userId, action: resolved ? 'platform.incident.resolved' : 'platform.incident.updated', metadata: { incidentId: id, status: body.status, severity: body.severity, personalData: body.personalData, from: r.status } },
-        meta,
-      );
+      const metadata = { incidentId: id, status: body.status, severity: body.severity, personalData: body.personalData, from: r.status };
+      if (resolved) await platformAudit(tx, { actorId: actor.userId, action: 'platform.incident.resolved', metadata }, meta);
+      else await platformAudit(tx, { actorId: actor.userId, action: 'platform.incident.updated', metadata }, meta);
     });
     return this.get(id);
   }

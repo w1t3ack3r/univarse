@@ -203,7 +203,7 @@ describe('[Q13, Q14, T34] an incident at its institutions', () => {
     const owner = await as('OWNER');
     const opened = await cons('POST', '/incidents', { cookie: owner, body: opening([a.id]) });
     const id = opened.body.id as string;
-    const early = await cons('PUT', `/incidents/${id}/followup`, { cookie: owner, ifMatch: `"v${String(opened.body.version as number)}"`, body: { what: 'x', actions: 'y' } });
+    const early = await cons('PUT', `/incidents/${id}/followup`, { cookie: owner, ifMatch: `"v${String(opened.body.version)}"`, body: { what: 'x', actions: 'y' } });
     expect(early.body.code).toBe('incident.not_resolved');
     const resolved = await post(owner, id, opened.body.version as number, { status: 'RESOLVED', publicText: 'Fixed. Pages load normally.' });
     expect(resolved.body).toMatchObject({ status: 'RESOLVED' });
@@ -211,7 +211,7 @@ describe('[Q13, Q14, T34] an incident at its institutions', () => {
     // Still shown for a day after resolving (Q14).
     expect((await banners(a.host)).list[0]).toMatchObject({ id, status: 'RESOLVED' });
     expect((await post(owner, id, resolved.body.version as number, {})).body.code).toBe('incident.resolved');
-    const followup = await cons('PUT', `/incidents/${id}/followup`, { cookie: owner, ifMatch: `"v${String(resolved.body.version as number)}"`, body: { what: 'A pool was too small for the peak.', actions: 'Resized; alert added.' } });
+    const followup = await cons('PUT', `/incidents/${id}/followup`, { cookie: owner, ifMatch: `"v${String(resolved.body.version)}"`, body: { what: 'A pool was too small for the peak.', actions: 'Resized; alert added.' } });
     expect(followup.body.followup).toEqual({ what: 'A pool was too small for the peak.', actions: 'Resized; alert added.' });
     expect((await banners(a.host)).raw).not.toContain('pool was too small');
     const actions = (await migrator.platformAuditEvent.findMany({ where: { metadata: { path: ['incidentId'], equals: id } }, orderBy: { seq: 'asc' }, select: { action: true, metadata: true } }));

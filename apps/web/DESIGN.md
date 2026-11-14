@@ -348,6 +348,9 @@ The sign-in shell, unchanged: the institution's name leads, in its own colour. T
 ### Notices from UniVarse (spec 0037)
 A calm strip, not an alarm, at the top of the sign-in shell (maintenance) and of the workspace's content: maintenance on the info wash with a clock, announcements and release notes on sage with a megaphone, in a white icon tile. The kind leads as a small word ("Planned maintenance", "From UniVarse", "What's new"), then the title, the window in Nigerian time, and the message as plain text with its line breaks; long words and links wrap. Signed in, each has a 44 px dismiss button named for its title.
 
+### Service Status (spec 0037)
+Above any notice, an incident affecting the institution: the warning wash with an alert while open, the success wash with a check once resolved (it stays a day). The status leads in words ("Investigating", "Cause found, fixing", "Fixed, watching", "Resolved") with when it was last updated, then the title and the latest public update as plain text. Everyone sees it; it isn't dismissible.
+
 ### Step-up Dialog
 Native dialog, max 440px, 22px corners, raised shadow, 24px padding; backdrop deep at 55%. Rises 16px and fades in over 280ms.
 

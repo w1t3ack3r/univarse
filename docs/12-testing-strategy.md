@@ -122,7 +122,7 @@ Mutation checks were run on the auth slice (2026-09-30). Disabling the permissio
 | J7 | Amendment: request → approvals → student result + CGPA updated, audit shows before/after |
 | J8 | Graduation: clearance (auto bursary check) → degree audit → graduation list approved → transcript requested, paid, generated → `/verify/{code}` shows valid |
 | J9 | Hostel: apply → allocated (hold) → hold expires without payment → bed released |
-| J10 | Security: cross-tenant access attempts, step-up required on approve, suspended tenant login blocked (spec 0037 PR B: `suspension.int.spec.ts` suspends, sees 423 and the sessions ended, resumes and finds no old session working; `suspended.e2e.ts` shows the "temporarily unavailable" page). Notices (spec 0037 PR C): `notices.int.spec.ts` and `notice-fan-out.int.spec.ts` (each institution sees only its own banners; markup stays text; one email per IT Admin through its outbox; the counts), `notices.e2e.ts` in the web app and the console |
+| J10 | Security: cross-tenant access attempts, step-up required on approve, suspended tenant login blocked (spec 0037 PR B: `suspension.int.spec.ts` suspends, sees 423 and the sessions ended, resumes and finds no old session working; `suspended.e2e.ts` shows the "temporarily unavailable" page). Notices (spec 0037 PR C): `notices.int.spec.ts` and `notice-fan-out.int.spec.ts` (each institution sees only its own banners; markup stays text; one email per IT Admin through its outbox; the counts), `notices.e2e.ts` in the web app and the console. Incidents (PR D): `incidents.int.spec.ts` (only the affected institutions see the latest public text; never a note; the timeline append-only; the inbox) and `incidents.e2e.ts` in both apps |
 
 ## 6. Performance & load testing
 

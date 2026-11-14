@@ -55,3 +55,15 @@ export async function notices(scope: 'everyone' | 'mine'): Promise<NoticeList> {
     return [];
   }
 }
+
+export type IncidentList = ResponseBody<'/api/v1/tenant/incidents', 'get'>['data'];
+
+/** Spec 0037 Q14: incidents affecting this institution, for everyone there. Never worth breaking a page for. */
+export async function incidents(): Promise<IncidentList> {
+  try {
+    const res = await serverGet((api) => api.GET('/api/v1/tenant/incidents'));
+    return res.data?.data ?? [];
+  } catch {
+    return [];
+  }
+}

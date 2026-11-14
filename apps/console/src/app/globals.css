@@ -1995,3 +1995,126 @@ html {
     text-align: right;
   }
 }
+
+/*
+ * Spec 0037 Q13, Q14: an incident. Its chips side by side; the 72-hour clock as a warning band (danger once overdue),
+ * with its words leading, never colour alone; the timeline as a rail of entries, newest first, where the public text
+ * reads as the institutions read it and the staff-only note sits apart on sage, labelled as such.
+ */
+.pc-incident {
+  display: grid;
+  gap: var(--uv-space-5);
+}
+.pc-incident__chips {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: var(--uv-space-2);
+}
+.pc-incident__clock {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: var(--uv-space-3);
+  align-items: start;
+  padding: var(--uv-space-4);
+  border-radius: var(--uv-radius);
+  background: var(--uv-warning-bg);
+  color: var(--uv-warning);
+}
+.pc-incident__clock--overdue {
+  background: var(--uv-danger-bg);
+  color: var(--uv-danger);
+}
+.pc-incident__clock-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--uv-radius-sm);
+  background: var(--uv-white);
+}
+.pc-incident__clock p {
+  margin: 0;
+}
+.pc-incident__clock-head {
+  font-weight: 600;
+}
+.pc-incident__clock .pc-note {
+  color: var(--uv-text);
+}
+.pc-incident-form {
+  display: grid;
+  gap: var(--uv-space-5);
+  max-width: 44rem;
+}
+.pc-incident__post {
+  padding: var(--uv-space-5);
+  border-radius: var(--uv-radius-card);
+  background: var(--uv-surface);
+  box-shadow: var(--uv-shadow-card);
+}
+.pc-incident__pair {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr));
+  gap: var(--uv-space-4);
+}
+.pc-incident__timeline-wrap {
+  display: grid;
+  gap: var(--uv-space-3);
+  max-width: 48rem;
+}
+.pc-timeline {
+  display: grid;
+  gap: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.pc-timeline__item {
+  position: relative;
+  display: grid;
+  gap: var(--uv-space-2);
+  padding: 0 0 var(--uv-space-5) var(--uv-space-6);
+  border-left: 2px solid var(--uv-border);
+}
+.pc-timeline__item::before {
+  content: '';
+  position: absolute;
+  top: 6px;
+  left: -7px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--uv-deep);
+  box-shadow: 0 0 0 3px var(--uv-offwhite);
+}
+.pc-timeline__item:last-child {
+  border-left-color: transparent;
+}
+.pc-timeline__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--uv-space-2);
+  align-items: center;
+}
+.pc-timeline__public {
+  margin: 0;
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+}
+.pc-timeline__note {
+  padding: var(--uv-space-3) var(--uv-space-4);
+  border-radius: var(--uv-radius);
+  background: var(--uv-deep-soft);
+}
+.pc-timeline__note p {
+  margin: 0;
+}
+.pc-timeline__note-label {
+  font-size: var(--uv-text-xs);
+  font-weight: 600;
+}
+.pc-timeline__note-text {
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+}

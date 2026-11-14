@@ -1,11 +1,12 @@
 'use client';
 
 import { securityEventText, type PlatformInbox, type PlatformInboxItem } from '@univarse/contracts';
-import { Activity, ArrowRight, Building, Check, Notice, Users } from '@univarse/ui';
+import { Activity, AlertCircle, ArrowRight, Building, Check, Clock, Notice, Users } from '@univarse/ui';
 import Link from 'next/link';
 import { useEffect, useState, type ReactNode } from 'react';
 import { STEP } from '../institutions/labels';
 import { APPROVAL_KIND_LABEL, APPROVAL_STATUS, timeLeft } from '../../lib/approvals';
+import { clockText, INCIDENT_STATUS, SEVERITY } from '../../lib/incidents';
 import { api, ApiError, asApiError } from '../../lib/api';
 import { when } from '../../lib/device';
 
@@ -53,8 +54,21 @@ export function InboxView() {
   );
 }
 
-const keyOf = (i: PlatformInboxItem): string =>
-  i.type === 'approval_waiting' || i.type === 'approval_decided' ? `${i.type}:${i.approvalId}` : i.type === 'provisioning_failed' ? `${i.type}:${i.tenant.id}` : `${i.type}:${i.event}:${i.tenant?.id ?? ''}`;
+function keyOf(i: PlatformInboxItem): string {
+  switch (i.type) {
+    case 'approval_waiting':
+    case 'approval_decided':
+      return `${i.type}:${i.approvalId}`;
+    case 'provisioning_failed':
+      return `${i.type}:${i.tenant.id}`;
+    case 'security_act':
+      return `${i.type}:${i.event}:${i.tenant?.id ?? ''}`;
+    case 'incident_open':
+      return `${i.type}:${i.incidentId}`;
+    case 'maintenance_soon':
+      return `${i.type}:${i.noticeId}`;
+  }
+}
 
 function Row({ href, icon, title, meta, chip }: { href: string; icon: ReactNode; title: string; meta: string; chip?: ReactNode }) {
   return (
@@ -72,6 +86,28 @@ function Row({ href, icon, title, meta, chip }: { href: string; icon: ReactNode;
 
 function Item({ item }: { item: PlatformInboxItem }) {
   switch (item.type) {
+    case 'incident_open': {
+      const clock = item.breachDeadline ? clockText(item.breachDeadline) : null;
+      return (
+        <Row
+          href={`/incidents/${item.incidentId}`}
+          icon={<AlertCircle />}
+          title={`${SEVERITY[item.severity].label}: ${item.title}`}
+          meta={`${INCIDENT_STATUS[item.status].label}, last update ${when(item.lastUpdateAt)}.${clock ? ` Personal data may be involved: ${clock.text}.` : ''}`}
+          chip={<span className={`pc-status ${clock?.overdue ? 'pc-status--bad' : INCIDENT_STATUS[item.status].tone}`}>{clock ? 'Clock' : 'Open'}</span>}
+        />
+      );
+    }
+    case 'maintenance_soon':
+      return (
+        <Row
+          href={`/notices/${item.noticeId}`}
+          icon={<Clock />}
+          title={`Maintenance soon: ${item.title}`}
+          meta={`Starts ${when(item.startsAt)}, at ${item.institutions === 1 ? '1 institution' : `${String(item.institutions)} institutions`}.`}
+          chip={<span className="pc-status pc-status--wait">Soon</span>}
+        />
+      );
     case 'approval_waiting':
       return (
         <Row
