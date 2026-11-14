@@ -510,6 +510,7 @@ model Sequence {
 
 /// Spec 0037 Q10: a person hid a notice's banner for themselves. The notice is a platform row (no cross-database key).
 model NoticeDismissal {
+  id          String   @id @default(dbgenerated("uuidv7()")) @db.Uuid
   tenantId    String   @map("tenant_id") @db.Uuid
   userId      String   @map("user_id") @db.Uuid
   noticeId    String   @map("notice_id") @db.Uuid
@@ -517,7 +518,8 @@ model NoticeDismissal {
 
   user UserAccount @relation(fields: [tenantId, userId], references: [tenantId, id], onDelete: Cascade)
 
-  @@id([tenantId, userId, noticeId])
+  @@unique([tenantId, id])
+  @@unique([tenantId, userId, noticeId])
   @@index([tenantId, noticeId])
   @@map("notice_dismissal")
 }

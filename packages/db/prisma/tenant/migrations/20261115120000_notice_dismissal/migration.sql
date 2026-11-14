@@ -4,15 +4,18 @@
 
 -- CreateTable
 CREATE TABLE "notice_dismissal" (
+    "id" UUID NOT NULL DEFAULT uuidv7(),
     "tenant_id" UUID NOT NULL,
     "user_id" UUID NOT NULL,
     "notice_id" UUID NOT NULL,
     "dismissed_at" TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
-    CONSTRAINT "notice_dismissal_pkey" PRIMARY KEY ("tenant_id", "user_id", "notice_id")
+    CONSTRAINT "notice_dismissal_pkey" PRIMARY KEY ("id")
 );
 
--- CreateIndex: the delivery log counts dismissals per notice (Q11).
+-- CreateIndex: one dismissal per person and notice; the delivery log counts them per notice (Q11).
+CREATE UNIQUE INDEX "notice_dismissal_tenant_id_id_key" ON "notice_dismissal"("tenant_id", "id");
+CREATE UNIQUE INDEX "notice_dismissal_tenant_id_user_id_notice_id_key" ON "notice_dismissal"("tenant_id", "user_id", "notice_id");
 CREATE INDEX "notice_dismissal_tenant_id_notice_id_idx" ON "notice_dismissal"("tenant_id", "notice_id");
 
 -- AddForeignKey
