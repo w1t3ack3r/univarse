@@ -19,6 +19,8 @@ export const PLATFORM_PERMISSIONS = [
   'platform.tenant.go_live',
   'platform.approval.decide',
   'platform.tenant.suspend',
+  'platform.notice.publish',
+  'platform.release.manage',
 ] as const;
 export type PlatformPermission = (typeof PLATFORM_PERMISSIONS)[number];
 
@@ -42,6 +44,8 @@ export const PLATFORM_PERMISSION_CATALOG: Readonly<Record<PlatformPermission, { 
   'platform.tenant.go_live': { stepUp: true, description: "Record an institution's DPA, and take it live (spec 0034 Q1)." },
   'platform.approval.decide': { stepUp: true, description: "Approve or reject another member's request for a two-person action (spec 0037 Q1)." },
   'platform.tenant.suspend': { stepUp: true, description: 'Suspend an institution, or resume it (spec 0037 Q1, Q6).' },
+  'platform.notice.publish': { stepUp: true, description: 'Write, publish and withdraw notices to institutions (spec 0037 Q1, Q9).' },
+  'platform.release.manage': { stepUp: true, description: "Set an institution's release ring (spec 0037 Q1, Q12)." },
 });
 
 /** The roles' grants, in code (A5): a change here is a reviewed change, never data. Only OWNER manages staff. */
@@ -62,6 +66,8 @@ export const PLATFORM_ROLE_PERMISSIONS: Readonly<Record<PlatformRole, readonly P
     'platform.tenant.go_live',
     'platform.approval.decide',
     'platform.tenant.suspend',
+    'platform.notice.publish',
+    'platform.release.manage',
   ],
   SUPER_ADMIN: [
     'platform.self',
@@ -77,8 +83,10 @@ export const PLATFORM_ROLE_PERMISSIONS: Readonly<Record<PlatformRole, readonly P
     'platform.tenant.go_live',
     'platform.approval.decide',
     'platform.tenant.suspend',
+    'platform.notice.publish',
+    'platform.release.manage',
   ],
-  SUPPORT: ['platform.self', 'platform.tenant.read'],
+  SUPPORT: ['platform.self', 'platform.tenant.read', 'platform.notice.publish'],
   FINANCE: ['platform.self', 'platform.tenant.read'],
   READ_ONLY: ['platform.self', 'platform.staff.read', 'platform.audit.read', 'platform.security.read', 'platform.access_review.read', 'platform.tenant.read'],
 });

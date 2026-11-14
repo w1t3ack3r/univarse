@@ -106,6 +106,7 @@ model UserAccount {
   oneTimeTokens   OneTimeToken[]
   roleAssignments RoleAssignment[]
   contactChanges  ContactChange[]
+  noticeDismissals NoticeDismissal[]
 
   @@unique([tenantId, id])
   @@unique([tenantId, username])
@@ -501,4 +502,18 @@ model Sequence {
   @@unique([tenantId, id])
   @@unique([tenantId, name])
   @@map("sequence")
+}
+
+/// Spec 0037 Q10: a person hid a notice's banner for themselves. The notice is a platform row (no cross-database key).
+model NoticeDismissal {
+  tenantId    String   @map("tenant_id") @db.Uuid
+  userId      String   @map("user_id") @db.Uuid
+  noticeId    String   @map("notice_id") @db.Uuid
+  dismissedAt DateTime @default(now()) @map("dismissed_at") @db.Timestamptz(3)
+
+  user UserAccount @relation(fields: [tenantId, userId], references: [tenantId, id], onDelete: Cascade)
+
+  @@id([tenantId, userId, noticeId])
+  @@index([tenantId, noticeId])
+  @@map("notice_dismissal")
 }

@@ -7,6 +7,7 @@ import { requireIfMatch } from '../../shared/http/etag.js';
 import { parse } from '../../shared/http/validate.js';
 import { CurrentPlatformActor, RequirePlatformPermission, requestMeta } from '../identity/access.js';
 import type { PlatformActor } from '../identity/types.js';
+import { PlatformNotices } from '../notices/notices.service.js';
 import { TenantSuspension } from './suspension.service.js';
 import { TenantRegistry } from './tenant-registry.service.js';
 
@@ -15,6 +16,7 @@ export class PlatformTenantsController {
   constructor(
     private readonly registry: TenantRegistry,
     private readonly suspension: TenantSuspension,
+    private readonly notices: PlatformNotices,
   ) {}
 
   @Get()
@@ -28,7 +30,8 @@ export class PlatformTenantsController {
   async detail(@Param('id', new ParseUUIDPipe()) id: string, @Res({ passthrough: true }) res: FastifyReply) {
     const t = await this.registry.detail(id);
     res.header('etag', `"v${String(t.version)}"`);
-    return { ...t, suspensions: await this.suspension.history(id) };
+    const [suspensions, notices] = await Promise.all([this.suspension.history(id), this.notices.forTenant(id)]);
+    return { ...t, suspensions, notices };
   }
 
   @Put(':id')
@@ -100,5 +103,13 @@ export class PlatformTenantsController {
   @HttpCode(204)
   async resume(@CurrentPlatformActor() actor: PlatformActor, @Param('id', new ParseUUIDPipe()) id: string, @Req() req: FastifyRequest) {
     await this.suspension.resume(actor, id, requestMeta(req));
+  }
+
+  /** Spec 0037 Q12: PILOT or GENERAL, with a step-up (the permission's catalogue entry). */
+  @Put(':id/ring')
+  @RequirePlatformPermission('platform.release.manage')
+  @HttpCode(204)
+  async ring(@CurrentPlatformActor() actor: PlatformActor, @Param('id', new ParseUUIDPipe()) id: string, @Body() body: unknown, @Req() req: FastifyRequest) {
+    await this.registry.setRing(actor, id, parse(PlatformOps.ring.body, body).ring, requestMeta(req));
   }
 }

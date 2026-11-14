@@ -105,5 +105,22 @@ export const PublicProfileResponse = z
     slug: z.string(), shortName: z.string(), legalName: z.string(), type: z.enum(['UNIVERSITY', 'POLYTECHNIC', 'COLLEGE_OF_EDUCATION']) })
   .strict();
 
+/**
+ * Spec 0037 Q10 (T34): a notice's banner at this institution. Plain text: clients render `title` and `body` as text,
+ * never as markup, and show links as text. `startsAt` and `endsAt` are a maintenance window's; null otherwise.
+ */
+export const NoticeBanner = z
+  .object({
+    id: z.string().meta({ format: 'uuid' }),
+    kind: z.enum(['ANNOUNCEMENT', 'MAINTENANCE', 'RELEASE_NOTE']),
+    title: z.string(),
+    body: z.string(),
+    startsAt: z.string().meta({ format: 'date-time' }).nullable(),
+    endsAt: z.string().meta({ format: 'date-time' }).nullable(),
+    publishedAt: z.string().meta({ format: 'date-time' }),
+  })
+  .strict();
+export const NoticeBannerList = z.object({ data: z.array(NoticeBanner) }).strict();
+
 export const LiveResponse = z.object({ status: z.literal('ok') }).strict();
 export const ReadyResponse = z.object({ status: z.literal('ready') }).strict();
