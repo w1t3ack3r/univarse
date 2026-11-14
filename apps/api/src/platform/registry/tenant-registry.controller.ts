@@ -1,17 +1,21 @@
 // Spec 0033: the tenant registry's routes. Each declares its permission (the platform route sweep fails one that
 // doesn't); `platform.tenant.edit` and `platform.tenant.entitlements` need a fresh step-up by their catalogue entries.
-import { Body, Controller, Delete, Get, HttpCode, Param, ParseUUIDPipe, Put, Query, Req, Res } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, Param, ParseUUIDPipe, Post, Put, Query, Req, Res } from '@nestjs/common';
 import { PlatformOps } from '@univarse/contracts';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { requireIfMatch } from '../../shared/http/etag.js';
 import { parse } from '../../shared/http/validate.js';
 import { CurrentPlatformActor, RequirePlatformPermission, requestMeta } from '../identity/access.js';
 import type { PlatformActor } from '../identity/types.js';
+import { TenantSuspension } from './suspension.service.js';
 import { TenantRegistry } from './tenant-registry.service.js';
 
 @Controller('api/platform/v1/tenants')
 export class PlatformTenantsController {
-  constructor(private readonly registry: TenantRegistry) {}
+  constructor(
+    private readonly registry: TenantRegistry,
+    private readonly suspension: TenantSuspension,
+  ) {}
 
   @Get()
   @RequirePlatformPermission('platform.tenant.read')
@@ -24,7 +28,7 @@ export class PlatformTenantsController {
   async detail(@Param('id', new ParseUUIDPipe()) id: string, @Res({ passthrough: true }) res: FastifyReply) {
     const t = await this.registry.detail(id);
     res.header('etag', `"v${String(t.version)}"`);
-    return t;
+    return { ...t, suspensions: await this.suspension.history(id) };
   }
 
   @Put(':id')
@@ -80,5 +84,21 @@ export class PlatformTenantsController {
   @HttpCode(204)
   async product(@CurrentPlatformActor() actor: PlatformActor, @Param('id', new ParseUUIDPipe()) id: string, @Param('product') product: string, @Body() body: unknown, @Req() req: FastifyRequest) {
     await this.registry.setEntitlement(actor, id, product, parse(PlatformOps.tenantProduct.body, body), requestMeta(req));
+  }
+
+  /** Spec 0037 Q6: one person, with a step-up (the permission's catalogue entry) and a reason from the fixed list. */
+  @Post(':id/suspend')
+  @RequirePlatformPermission('platform.tenant.suspend')
+  @HttpCode(204)
+  async suspend(@CurrentPlatformActor() actor: PlatformActor, @Param('id', new ParseUUIDPipe()) id: string, @Body() body: unknown, @Req() req: FastifyRequest) {
+    await this.suspension.suspend(actor, id, parse(PlatformOps.suspend.body, body), requestMeta(req));
+  }
+
+  /** Q6, Q7: back to the status it had, once its sessions are ended. */
+  @Post(':id/resume')
+  @RequirePlatformPermission('platform.tenant.suspend')
+  @HttpCode(204)
+  async resume(@CurrentPlatformActor() actor: PlatformActor, @Param('id', new ParseUUIDPipe()) id: string, @Req() req: FastifyRequest) {
+    await this.suspension.resume(actor, id, requestMeta(req));
   }
 }

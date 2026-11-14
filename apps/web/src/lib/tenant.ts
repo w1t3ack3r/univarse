@@ -12,9 +12,31 @@ export const brandStyle = (primary: string, text: string): CSSProperties => ({ '
 
 export type TenantProfile = ResponseBody<'/api/v1/tenant/public-profile', 'get'>;
 
-/** The institution serving this host, or null (unknown host, suspended): from the Host, never input. */
-export async function tenantProfile(): Promise<{ profile: TenantProfile | null; code: string | undefined }> {
+/** Spec 0037 Q8: a suspended institution's public name and colours, as its 423 carries them. */
+export type SuspendedInstitution = { legalName: string; shortName: string; primaryColor: string | null; textColor: string | null };
+
+const HEX = /^#[0-9A-Fa-f]{6}$/;
+const text = (v: unknown): v is string => typeof v === 'string' && v.length > 0 && v.length <= 200;
+const colour = (v: unknown): string | null => (typeof v === 'string' && HEX.test(v) ? v : null);
+
+/** Read defensively: it's a problem body, and anything odd in it means "no branding", never a crash. */
+export function suspendedInstitution(body: unknown): SuspendedInstitution | null {
+  const b = body as { code?: unknown; institution?: { legalName?: unknown; shortName?: unknown; primaryColor?: unknown; textColor?: unknown } } | null;
+  if (b?.code !== 'tenant.suspended') return null;
+  const i = b.institution;
+  if (!i || !text(i.legalName) || !text(i.shortName)) return null;
+  const primaryColor = colour(i.primaryColor);
+  const textColor = colour(i.textColor);
+  return primaryColor && textColor ? { legalName: i.legalName, shortName: i.shortName, primaryColor, textColor } : { legalName: i.legalName, shortName: i.shortName, primaryColor: null, textColor: null };
+}
+
+/**
+ * The institution serving this host, or null (unknown host, suspended): from the Host, never input. A suspended one
+ * comes back as `suspended`, with its name and colours, so its page says "temporarily unavailable", not "not found".
+ */
+export async function tenantProfile(): Promise<{ profile: TenantProfile | null; code: string | undefined; suspended: SuspendedInstitution | null }> {
   const res = await serverGet((api) => api.GET('/api/v1/tenant/public-profile'));
   const code = (res.body as { code?: unknown } | null)?.code;
-  return res.data ? { profile: res.data, code: undefined } : { profile: null, code: typeof code === 'string' ? code : undefined };
+  if (res.data) return { profile: res.data, code: undefined, suspended: null };
+  return { profile: null, code: typeof code === 'string' ? code : undefined, suspended: suspendedInstitution(res.body) };
 }

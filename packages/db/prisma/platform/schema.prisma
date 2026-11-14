@@ -80,17 +80,18 @@ model Tenant {
   updatedAt            DateTime        @updatedAt @map("updated_at") @db.Timestamptz(3)
   version              Int             @default(0)
 
-  shard    Shard           @relation(fields: [shardId], references: [id], onDelete: Restrict)
-  domains  TenantDomain[]
-  products TenantProduct[]
-  keyReencryption KeyReencryption?
-  dataKeys TenantDataKey[]
-  keyDestructions KeyDestruction[]
+  shard             Shard                      @relation(fields: [shardId], references: [id], onDelete: Restrict)
+  domains           TenantDomain[]
+  products          TenantProduct[]
+  keyReencryption   KeyReencryption?
+  dataKeys          TenantDataKey[]
+  keyDestructions   KeyDestruction[]
   regulatoryProfile TenantRegulatoryProfile?
-  branding TenantBranding?
-  provisioningJob ProvisioningJob?
-  dpa TenantDpa?
-  onboarding TenantOnboarding?
+  branding          TenantBranding?
+  provisioningJob   ProvisioningJob?
+  dpa               TenantDpa?
+  onboarding        TenantOnboarding?
+  suspensions       PlatformTenantSuspension[]
 
   @@map("tenant")
 }
@@ -170,7 +171,7 @@ model ProvisioningJob {
   finishedAt      DateTime?             @map("finished_at") @db.Timestamptz(3)
   version         Int                   @default(0)
 
-  tenant Tenant              @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  tenant Tenant             @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   steps  ProvisioningStep[]
 
   @@unique([requestedBy, idempotencyKey])
@@ -237,6 +238,34 @@ model PlatformApproval {
   @@map("platform_approval")
 }
 
+/// Spec 0037 Q6, Q7: one suspension of an institution, then its resume. The record never changes (a trigger); the
+/// resume and the worker's session ending are each written once. At most one is open per institution.
+model PlatformTenantSuspension {
+  id              String       @id @default(dbgenerated("uuidv7()")) @db.Uuid
+  tenantId        String       @map("tenant_id") @db.Uuid
+  /// One of packages/domain SUSPENSION_REASONS.
+  reason          String
+  /// Staff only, never shown at the institution.
+  note            String?
+  previousStatus  TenantStatus @map("previous_status")
+  suspendedBy     String       @map("suspended_by") @db.Uuid
+  suspendedAt     DateTime     @default(now()) @map("suspended_at") @db.Timestamptz(3)
+  resumedBy       String?      @map("resumed_by") @db.Uuid
+  resumedAt       DateTime?    @map("resumed_at") @db.Timestamptz(3)
+  /// Q7: when the worker ended the institution's sessions, and how many.
+  sessionsEndedAt DateTime?    @map("sessions_ended_at") @db.Timestamptz(3)
+  sessionsEnded   Int?         @map("sessions_ended")
+  updatedAt       DateTime     @updatedAt @map("updated_at") @db.Timestamptz(3)
+  version         Int          @default(0)
+
+  tenant    Tenant        @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  suspender PlatformUser  @relation("SuspensionBy", fields: [suspendedBy], references: [id], onDelete: Restrict)
+  resumer   PlatformUser? @relation("ResumeBy", fields: [resumedBy], references: [id], onDelete: Restrict)
+
+  @@index([tenantId, suspendedAt])
+  @@map("platform_tenant_suspension")
+}
+
 /// Spec 0034 Q10: the DPA, recorded by hand until S11's registers extend this table.
 model TenantDpa {
   tenantId   String   @id @map("tenant_id") @db.Uuid
@@ -293,34 +322,36 @@ enum PlatformRole {
 }
 
 model PlatformUser {
-  id           String       @id @default(dbgenerated("uuidv7()")) @db.Uuid
-  email        String       @unique
+  id                    String       @id @default(dbgenerated("uuidv7()")) @db.Uuid
+  email                 String       @unique
   /// Spec 0032 Q11: set by activation and by a confirmed change
-  emailVerifiedAt DateTime? @map("email_verified_at") @db.Timestamptz(3)
-  displayName  String       @map("display_name")
-  passwordHash String?      @map("password_hash")
+  emailVerifiedAt       DateTime?    @map("email_verified_at") @db.Timestamptz(3)
+  displayName           String       @map("display_name")
+  passwordHash          String?      @map("password_hash")
   /// Spec 0032 Q6: after an undo the password may be the intruder's: it's refused until a reset replaces it
-  passwordResetRequired Boolean @default(false) @map("password_reset_required")
-  role         PlatformRole
+  passwordResetRequired Boolean      @default(false) @map("password_reset_required")
+  role                  PlatformRole
   /// Never used; superseded by PlatformMfaFactor (spec 0028 Q2). Dropped in a later release (expand, then contract).
-  totpSecretEnc String?     @map("totp_secret_enc")
-  isActive     Boolean      @default(true) @map("is_active")
-  lastLoginAt  DateTime?    @map("last_login_at") @db.Timestamptz(3)
+  totpSecretEnc         String?      @map("totp_secret_enc")
+  isActive              Boolean      @default(true) @map("is_active")
+  lastLoginAt           DateTime?    @map("last_login_at") @db.Timestamptz(3)
   /// Spec 0028 Q9: failed passwords and TOTP codes since the last success; 10 lock the account for 15 minutes.
-  failedLoginCount Int       @default(0) @map("failed_login_count")
-  lockedUntil  DateTime?    @map("locked_until") @db.Timestamptz(3)
-  createdAt    DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt    DateTime     @updatedAt @map("updated_at") @db.Timestamptz(3)
+  failedLoginCount      Int          @default(0) @map("failed_login_count")
+  lockedUntil           DateTime?    @map("locked_until") @db.Timestamptz(3)
+  createdAt             DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt             DateTime     @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  sessions       PlatformSession[]
-  mfaFactors     PlatformMfaFactor[]
-  recoveryCodes  PlatformRecoveryCode[]
-  mfaChallenges  PlatformMfaChallenge[]
-  oneTimeCodes   PlatformOneTimeCode[]
-  knownDevices   PlatformKnownDevice[]
-  contactChanges PlatformContactChange[]
-  approvalsRequested PlatformApproval[] @relation("ApprovalRequester")
-  approvalsDecided   PlatformApproval[] @relation("ApprovalDecider")
+  sessions           PlatformSession[]
+  mfaFactors         PlatformMfaFactor[]
+  recoveryCodes      PlatformRecoveryCode[]
+  mfaChallenges      PlatformMfaChallenge[]
+  oneTimeCodes       PlatformOneTimeCode[]
+  knownDevices       PlatformKnownDevice[]
+  contactChanges     PlatformContactChange[]
+  approvalsRequested PlatformApproval[]         @relation("ApprovalRequester")
+  approvalsDecided   PlatformApproval[]         @relation("ApprovalDecider")
+  suspensionsMade    PlatformTenantSuspension[] @relation("SuspensionBy")
+  suspensionsResumed PlatformTenantSuspension[] @relation("ResumeBy")
 
   @@map("platform_user")
 }
@@ -640,16 +671,16 @@ enum ReencryptionReason {
 
 /// Spec 0006 E7/E9: a tenant's pending re-encryption sweep (one row per tenant, re-requested in place).
 model KeyReencryption {
-  tenantId        String             @id @map("tenant_id") @db.Uuid
-  reason          ReencryptionReason
-  requestedAt     DateTime           @default(now()) @map("requested_at") @db.Timestamptz(3)
-  startedAt       DateTime?          @map("started_at") @db.Timestamptz(3)
+  tenantId            String             @id @map("tenant_id") @db.Uuid
+  reason              ReencryptionReason
+  requestedAt         DateTime           @default(now()) @map("requested_at") @db.Timestamptz(3)
+  startedAt           DateTime?          @map("started_at") @db.Timestamptz(3)
   /// NULL while pending; a new request clears it.
-  completedAt     DateTime?          @map("completed_at") @db.Timestamptz(3)
-  rowsReencrypted BigInt             @default(0) @map("rows_reencrypted")
+  completedAt         DateTime?          @map("completed_at") @db.Timestamptz(3)
+  rowsReencrypted     BigInt             @default(0) @map("rows_reencrypted")
   /// E13: unreadable values the last completed sweep left behind. > 0 ⇒ partial; their key versions are kept.
-  unreadableRemaining BigInt         @default(0) @map("unreadable_remaining")
-  leaseUntil      DateTime?          @map("lease_until") @db.Timestamptz(3)
+  unreadableRemaining BigInt             @default(0) @map("unreadable_remaining")
+  leaseUntil          DateTime?          @map("lease_until") @db.Timestamptz(3)
 
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
 

@@ -67,7 +67,7 @@ Content-Type: application/problem+json
 | 409 | State conflict (wrong state for transition, duplicate) |
 | 412 | `If-Match` version mismatch (optimistic lock) |
 | 422 | Business rule violation (domain error codes) |
-| 423 | Tenant suspended / resource locked |
+| 423 | Tenant suspended / resource locked. `tenant.suspended` also carries `institution` (its public name and colours, never personal data), so the web app's page says so in the institution's own branding (spec 0037 Q8) |
 | 428 | Step-up authentication required (`code: auth.step_up_required`) |
 | 429 | Rate limited (`Retry-After`) |
 | 500/503 | Unexpected / dependency down. Never leak stack traces or SQL |

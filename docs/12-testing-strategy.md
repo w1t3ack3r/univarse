@@ -122,7 +122,7 @@ Mutation checks were run on the auth slice (2026-09-30). Disabling the permissio
 | J7 | Amendment: request → approvals → student result + CGPA updated, audit shows before/after |
 | J8 | Graduation: clearance (auto bursary check) → degree audit → graduation list approved → transcript requested, paid, generated → `/verify/{code}` shows valid |
 | J9 | Hostel: apply → allocated (hold) → hold expires without payment → bed released |
-| J10 | Security: cross-tenant access attempts, step-up required on approve, suspended tenant login blocked |
+| J10 | Security: cross-tenant access attempts, step-up required on approve, suspended tenant login blocked (spec 0037 PR B: `suspension.int.spec.ts` suspends, sees 423 and the sessions ended, resumes and finds no old session working; `suspended.e2e.ts` shows the "temporarily unavailable" page) |
 
 ## 6. Performance & load testing
 

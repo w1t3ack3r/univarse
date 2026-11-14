@@ -588,6 +588,13 @@ export interface components {
                 code: string;
                 message: string;
             }[];
+            /** @description A suspended institution’s public name and colours, so its page can say so in its branding (423 tenant.suspended only). */
+            institution?: {
+                legalName: string;
+                shortName: string;
+                primaryColor: string | null;
+                textColor: string | null;
+            };
         };
         /** files.storageQuotaBytes */
         "SettingValue.files.storageQuotaBytes": number;

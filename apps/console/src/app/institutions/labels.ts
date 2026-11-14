@@ -10,6 +10,15 @@ export const STATUS: Readonly<Record<string, { label: string; tone: string }>> =
   PURGED: { label: 'Purged', tone: 'pc-status--off' },
 };
 
+/** Spec 0037 Q6: the fixed reasons, as staff read them. */
+export const SUSPENSION_REASON: Readonly<Record<'SECURITY_INCIDENT' | 'REGULATOR_ORDER' | 'CONTRACT_ENDED' | 'INSTITUTION_ASKED' | 'OTHER', string>> = {
+  SECURITY_INCIDENT: 'A security incident',
+  REGULATOR_ORDER: 'A regulator’s order',
+  CONTRACT_ENDED: 'The contract ended',
+  INSTITUTION_ASKED: 'The institution asked',
+  OTHER: 'Other',
+};
+
 export const TYPE: Readonly<Record<string, string>> = {
   UNIVERSITY: 'University',
   POLYTECHNIC: 'Polytechnic',

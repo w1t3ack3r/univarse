@@ -11,7 +11,7 @@ export default function globalSetup(): () => void {
   const worker = spawn(process.execPath, ['apps/api/dist/worker.js'], {
     cwd: repo,
     stdio: 'ignore',
-    env: { ...process.env, WORKER_POLL_MS: '500', PROVISIONING_RELAY_INTERVAL_MS: '500', ONBOARDING_CHECK_INTERVAL_MS: '1000' },
+    env: { ...process.env, WORKER_POLL_MS: '500', PROVISIONING_RELAY_INTERVAL_MS: '500', ONBOARDING_CHECK_INTERVAL_MS: '1000', SUSPENSION_INTERVAL_MS: '500' },
   });
   return () => {
     worker.kill();

@@ -8,7 +8,8 @@ import {
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import type { FastifyRequest } from 'fastify';
-import { ProblemError } from '../errors/problem.js';
+import { textColorOn } from '@univarse/domain';
+import { ProblemError, type SuspendedInstitution } from '../errors/problem.js';
 import { TenantResolver, type TenantContext } from './tenant-resolver.service.js';
 
 export const NO_TENANT = 'univarse:no-tenant';
@@ -42,7 +43,14 @@ export class TenantGuard implements CanActivate {
     const tenant = await this.resolver.resolveHost(req.hostname);
     if (!tenant) throw new ProblemError(404, 'tenant.not_found', 'Institution not found');
     if (tenant.status === 'SUSPENDED') {
-      throw new ProblemError(423, 'tenant.suspended', 'Institution suspended', 'This institution is temporarily unavailable. Please contact your ICT unit.');
+      // Spec 0037 Q8: its public name and colours (what its sign-in page showed anyone), so the page says so in them.
+      const institution: SuspendedInstitution = {
+        legalName: tenant.legalName,
+        shortName: tenant.shortName,
+        primaryColor: tenant.primaryColor,
+        textColor: tenant.primaryColor ? textColorOn(tenant.primaryColor) : null,
+      };
+      throw Object.assign(new ProblemError(423, 'tenant.suspended', 'Institution suspended', 'This institution is temporarily unavailable. Please contact your ICT unit.'), { institution });
     }
     if (!SERVABLE.has(tenant.status)) throw new ProblemError(404, 'tenant.not_found', 'Institution not found');
 

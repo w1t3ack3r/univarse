@@ -129,6 +129,22 @@ const reviewedMember = z.strictObject({
 
 /** Spec 0037 Q2, Q3 (E4): a two-person request, as the console shows it. */
 const approvalKind = z.enum(['staff.make_owner']);
+/** Spec 0037 Q6: the fixed list (packages/domain SUSPENSION_REASONS). Non-payment isn't a reason. */
+const suspensionReason = z.enum(['SECURITY_INCIDENT', 'REGULATOR_ORDER', 'CONTRACT_ENDED', 'INSTITUTION_ASKED', 'OTHER']);
+const suspensionView = z.strictObject({
+  id: z.uuid(),
+  reason: suspensionReason,
+  /** Staff only: never shown at the institution. */
+  note: z.string().nullable(),
+  previousStatus: z.enum(['ACTIVE', 'ONBOARDING']),
+  suspendedAt: z.iso.datetime(),
+  suspendedBy: z.strictObject({ id: z.uuid(), name: z.string().nullable() }),
+  resumedAt: z.iso.datetime().nullable(),
+  resumedBy: z.strictObject({ id: z.uuid(), name: z.string().nullable() }).nullable(),
+  /** Q7: when the worker ended the institution's sessions, and how many; null while it's still to do. */
+  sessionsEndedAt: z.iso.datetime().nullable(),
+  sessionsEnded: z.number().int().nullable(),
+});
 const approvalStatus = z.enum(['PENDING', 'APPROVED', 'REJECTED', 'EXPIRED', 'CANCELLED', 'EXECUTED', 'FAILED']);
 const approvalFailure = z.enum(['subject_gone', 'subject_inactive', 'already_done', 'state_conflict']);
 const person = z.strictObject({ id: z.uuid(), name: z.string().nullable() });
@@ -248,8 +264,12 @@ export const PlatformOps = {
       branding: z.strictObject({ primaryColor: z.string().nullable(), textColor: z.string().nullable(), logoSha256: z.string().nullable() }),
       /** Spec 0034 Q6: the template it was provisioned from (`polytechnic@1`); null for the seed's. */
       template: z.string().nullable(),
+      /** Spec 0037 Q6: its suspensions, newest first (the open one, if any, is first), at most 10. */
+      suspensions: z.array(suspensionView),
     }),
   },
+  /** Spec 0037 Q6. The note is required for OTHER, 3 to 200 characters; checked by the domain's rule too. */
+  suspend: { body: z.strictObject({ reason: suspensionReason, note: z.string().trim().max(200).optional() }) },
   /** Spec 0034 Q5, Q13: creating starts a provisioning. The IT Admin's details go no further than the sealed invite. */
   createTenant: {
     body: z.strictObject({
@@ -372,3 +392,5 @@ export type PlatformApproval = z.infer<typeof PlatformOps.approval.response>;
 export type PlatformApprovalRequest = z.infer<typeof PlatformOps.requestApproval.body>;
 export type PlatformInbox = z.infer<typeof PlatformOps.inbox.response>;
 export type PlatformInboxItem = PlatformInbox['items'][number];
+export type PlatformSuspension = z.infer<typeof suspensionView>;
+export type PlatformSuspensionReason = z.infer<typeof suspensionReason>;

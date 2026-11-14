@@ -1728,3 +1728,74 @@ html {
     flex-basis: 100%;
   }
 }
+
+/*
+ * Spec 0037 Q6, Q7: a suspended institution. The section leads the page on a danger wash with a pause mark, so nobody
+ * mistakes it for a live one; words say it too ("Suspended"), never colour alone. Resume is the one pressable thing.
+ */
+.pc-fieldset {
+  display: grid;
+  gap: var(--uv-space-2);
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+.pc-suspended {
+  display: grid;
+  gap: var(--uv-space-4);
+  padding: var(--uv-space-5);
+  border-radius: var(--uv-radius-card);
+  background: var(--uv-danger-bg);
+  border: 1px solid color-mix(in srgb, var(--uv-danger) 28%, transparent);
+}
+.pc-suspended__head {
+  display: flex;
+  gap: var(--uv-space-4);
+  align-items: flex-start;
+}
+.pc-suspended__mark {
+  flex: 0 0 auto;
+  display: inline-flex;
+  gap: 5px;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: var(--uv-radius);
+  background: var(--uv-danger);
+}
+.pc-suspended__mark::before,
+.pc-suspended__mark::after {
+  content: '';
+  width: 5px;
+  height: 16px;
+  border-radius: 2px;
+  background: var(--uv-white);
+}
+.pc-suspended__facts {
+  padding: var(--uv-space-4);
+  border-radius: var(--uv-radius);
+  background: var(--uv-surface);
+}
+.pc-suspended__note {
+  grid-column: 1 / -1;
+}
+.pc-suspended .pc-row-actions {
+  flex-wrap: wrap;
+  align-items: center;
+}
+.pc-suspended__after {
+  flex: 1 1 18rem;
+  margin: 0;
+}
+.pc-suspended__history {
+  display: grid;
+  gap: var(--uv-space-2);
+}
+.pc-suspended__past {
+  display: grid;
+  gap: var(--uv-space-1);
+  margin: 0;
+  padding-left: var(--uv-space-5);
+}

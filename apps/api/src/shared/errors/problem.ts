@@ -8,6 +8,15 @@ export interface ProblemBody {
   detail?: string;
   requestId?: string;
   errors?: { path: string; code: string; message: string }[];
+  /** Spec 0037 Q8: a suspended institution's public name and colours (423 tenant.suspended only), never personal data. */
+  institution?: SuspendedInstitution;
+}
+
+export interface SuspendedInstitution {
+  legalName: string;
+  shortName: string;
+  primaryColor: string | null;
+  textColor: string | null;
 }
 
 /** Throw from anywhere to return a specific problem response. */

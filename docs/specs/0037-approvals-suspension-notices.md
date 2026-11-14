@@ -126,3 +126,41 @@ About **two and a half weeks** at S5's pace, the largest slice in Phase 1, as sp
 | Q-A8 | **The inbox count sits on the Inbox tab, not the platform bar.** | The bar is drawn before the console knows who's signed in; the tabs are the signed-in header. |
 | Q-A9 | **A rejection needs no reason and no hash.** | Rejecting runs nothing; the requester can ask the person who rejected. |
 | Q-A10 | **The test clean-up removes a retired test member's requests first** (as the migrator), since a request names its members with a restricting key. | Members are never deleted for real; only the tests' are, and the key must not block that. |
+
+## PR B: what was built
+
+**Built:**
+- **The rules** (`packages/domain/src/platform/suspension.ts`): the fixed reasons (non-payment isn't one), which statuses can be suspended (ACTIVE, ONBOARDING) and resumed to, the note's rule (required for Other, 3 to 200 characters), and the resume's refusal while sessions are still being ended. The new permission `platform.tenant.suspend` (OWNER, SUPER_ADMIN, with step-up).
+- **The table** `platform_tenant_suspension` (migration `20261114120000_suspension`): one row per suspension, with the reason, the staff-only note, the status it had, who and when, then who resumed it and when, and when the worker ended its sessions and how many. The database holds the rules too: the fixed reasons, the note's length, one open suspension per institution (a partial unique index), no resume before the sessions are ended (a check), and a trigger that keeps the record unchanged and writes a resume and the session ending once each. The console role inserts named columns and updates only the resume's; the worker's role reads the ids and times and writes only the session ending.
+- **The platform API:** `POST /tenants/:id/suspend` (a reason, and a note when needed) and `POST /tenants/:id/resume`, both `platform.tenant.suspend`; the detail now carries the institution's last 10 suspensions. Both are audited (`platform.tenant.suspended`, `platform.tenant.resumed`), and the status change reaches every API instance through the tenant row's existing invalidation capture.
+- **The worker** (`SuspensionSessionEnding`, every 2 seconds): for each suspension whose sessions aren't ended, it ends every session and pending MFA challenge at the institution, audits that on the tenant side (`auth.sessions.ended_by_suspension`, a SYSTEM actor) and on the platform's (`platform.tenant.sessions_ended`), and records it. One institution's failure doesn't hold the others; running twice ends nothing more.
+- **The tenant API:** the 423 `tenant.suspended` now carries `institution`, the institution's public name and colours.
+- **The web app:** a suspended institution's sign-in pages show "Temporarily unavailable" with the fixed message, in its name and colours, instead of "not found"; its workspace sends visitors there, not to the error page.
+- **The console:** a suspended institution's page leads with the suspension (why, since when and by whom, whether the sessions are ended yet, the staff-only note) and Resume; otherwise suspending sits with the other changes, with the fixed reasons and exactly what will happen. Earlier suspensions are listed. Designed to the console's and the web app's DESIGN.md, which now describe both.
+
+**Evidence:**
+- **Domain:** 111 tests (5 new): the statuses, the fixed reasons with no non-payment, the note's rule, the resume's wait, and the permission's holders and step-up.
+- **Integration** (`suspension.int.spec.ts`, the real databases: the console through the platform API's HTTP stack, the tenant API, and the worker's pass): 6 tests. SUPPORT, FINANCE and READ_ONLY find no route (404), and a session without a step-up is asked for one. Non-payment and a missing note are refused. Only a live or onboarding institution is suspended, once. End to end (J10): a student's session works, the institution is suspended, every request is 423 with its name and colours, and signing in fails. Resume is refused until the worker has ended the sessions, which it audits on both sides and does once. After the resume the old session is 401 and a new sign-in works. An onboarding institution returns to onboarding, and the history keeps each suspension. The database's trigger, checks and unique index hold even for the tables' owner. The console role's grants pin (`platform.int.spec.ts`) includes the table and its column rules.
+- **Web unit:** 3 tests for reading the 423 defensively: any other code, a bad name or a colour that isn't `#RRGGBB` means no branding.
+- **E2E**, desktop and phone, with axe on every screen:
+  - `suspension.e2e.ts` (console, 4): an OWNER suspends with a reason after a step-up, sees the sessions ended, and resumes; SUPPORT sees the history and no action.
+  - `suspended.e2e.ts` (web, 6): `paused-uni`'s sign-in, workspace and reset pages show "Temporarily unavailable", and another institution signs in as usual.
+  - The whole console suite passes (42), after an Access lead that repeated "is live." was reworded.
+- **Mutations: 12 tried, 12 caught.**
+  - In the domain: suspending from any status, Other without a note, resuming before the sessions end.
+  - In the web app: accepting any colour.
+  - In the API: the suspend route needing only read, the service ignoring the session wait, resuming always to ACTIVE, skipping the note rule, the guard serving a suspended institution, the 423 without its institution, the worker ending no session, and the note leaking into the audit chain.
+
+**Decisions made while building, for approval:**
+
+| # | Decision | Why |
+| --- | --- | --- |
+| Q-B1 | **The suspension's row is the worker's job,** found by a 2-second poll (like the onboarding check), not a BullMQ queue. | Q7's "a job queued from the suspension's transaction": the row is written in that transaction. Postgres holds the state either way; a queue would add a second place for it and nothing else. |
+| Q-B2 | **Resume waits until the sessions are ended** (409 `tenant.sessions_ending`, and a database check). If the worker is down, resume waits too; the console says why. | Otherwise a session stolen before a security incident's suspension would work again the moment it was resumed (Q7's point). |
+| Q-B3 | **The 423 carries the institution's public name and colours**, an optional `institution` member of the problem body; the page shows no logo. | Q8 asks for the institution's branding, and every request there is 423 (criterion 4), including the profile and the logo. Its name and colour are what its sign-in page showed anyone. Alternative: let the profile and logo through while suspended. Rejected: it would break "every tenant request is 423". |
+| Q-B4 | **The worker also cancels pending MFA challenges,** and the ending is audited on both sides. | A half-finished sign-in mustn't complete after the resume. |
+| Q-B5 | **The note stays on the suspension's row, out of the audit chain** (which records only that there is one). | Free text, as Q-A7: the chain holds ids and choices. |
+| Q-B6 | **The worker's grants are on `univarse_app_platform`,** the role it already shares with the tenant API: read the ids and times, write only the session ending. | As provisioning's job (spec 0034). A role of the worker's own would be a separate change. |
+| Q-B7 | **Suspending asks for no typed confirmation,** unlike the destructive actions in the console's PRODUCT.md. | It's undone with one click, and in an incident speed matters (Q6). A reason and a step-up are still required. |
+| Q-B8 | **An institution suspended without a row** (the seed's `paused-uni`) resumes to ACTIVE. | It has no recorded earlier status, and the seed made it from ACTIVE. |
+| Q-B9 | **The test clean-ups remove test suspensions first** (a test member's, and the e2e and `susp-` institutions'), as the migrator. | A suspension names its members and its institution with restricting keys. |
