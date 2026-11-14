@@ -1,7 +1,7 @@
 /**
  * Spec 0016 IO15: the platform invalidation capture can't silently change. Part of `pnpm rls:check` (a CI gate).
  * On the platform database, it fails unless:
- *   • the 11 triggers exist and are ENABLE ALWAYS (tgenabled = 'A'), so session_replication_role = replica can't
+ *   • every trigger in CAPTURE_TRIGGERS exists and is ENABLE ALWAYS (tgenabled = 'A'), so session_replication_role = replica can't
  *     skip them: on each cached table its capture and TRUNCATE triggers; on the event table its update guard,
  *     delete guard and TRUNCATE trigger;
  *   • the SECURITY DEFINER functions (capture, purge) are owned by the migrator, with search_path exactly
@@ -24,6 +24,9 @@ export const CAPTURE_TRIGGERS: readonly [table: string, trigger: string][] = [
   ['tenant_product', 'tenant_product_refuse_truncate'],
   ['tenant_branding', 'tenant_branding_capture_cache_invalidation'],
   ['tenant_branding', 'tenant_branding_refuse_truncate'],
+  // Spec 0037 Q10: a notice's delivery to an institution, so its banners show and leave at once.
+  ['platform_notice_delivery', 'platform_notice_delivery_capture_cache_invalidation'],
+  ['platform_notice_delivery', 'platform_notice_delivery_refuse_truncate'],
   ['cache_invalidation_event', 'cache_invalidation_event_guard_update'],
   ['cache_invalidation_event', 'cache_invalidation_event_guard_delete'],
   ['cache_invalidation_event', 'cache_invalidation_event_refuse_truncate'],

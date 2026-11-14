@@ -18,7 +18,7 @@ export class Outbox {
   constructor(private readonly fieldCrypto: FieldCrypto) {}
 
   /** Enqueues an email in `tx`. If the transaction rolls back, the email never exists (B1). */
-  async enqueueEmail(tx: TenantTx, tenantId: string, mail: OutboundEmail, product: ProductKey = 'core'): Promise<string> {
+  async enqueueEmail(tx: TenantTx, tenantId: string, mail: OutboundEmail, product: ProductKey = 'core', opts: { noticeId?: string } = {}): Promise<string> {
     const id = randomUUID();
     const plaintext = Buffer.from(JSON.stringify({ to: mail.to, subject: mail.subject, text: mail.text }), 'utf8');
     await tx.outboxEvent.create({
@@ -30,6 +30,8 @@ export class Outbox {
         payloadEnc: await this.fieldCrypto.encrypt(tenantId, plaintext, outboxAad(tenantId, id)),
         // Spec 0012 OB10: the request's trace context, so the delivery joins its trace (null if tracing is off).
         traceparent: currentTraceparent(),
+        // Spec 0037 Q10: a platform notice's email, counted for its delivery log and delivered while suspended.
+        ...(opts.noticeId ? { noticeId: opts.noticeId } : {}),
       },
     });
     return id;

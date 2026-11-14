@@ -6,7 +6,8 @@ import { StepUpProvider } from '@/components/StepUp';
 import { buildNav, NAV } from '@/lib/nav';
 import { serverGet } from '@/lib/server-api';
 import { requireSession } from '@/lib/session';
-import { brandStyle, logoUrl, tenantProfile } from '@/lib/tenant';
+import { NoticeBanners } from '@/components/NoticeBanners';
+import { brandStyle, logoUrl, notices, tenantProfile } from '@/lib/tenant';
 
 const initials = (name: string) =>
   name
@@ -22,7 +23,7 @@ const initials = (name: string) =>
  */
 export default async function WorkspaceLayout({ children }: { children: ReactNode }) {
   const me = await requireSession();
-  const [{ profile }, products] = await Promise.all([tenantProfile(), serverGet((api) => api.GET('/api/v1/products'))]);
+  const [{ profile }, products, banners] = await Promise.all([tenantProfile(), serverGet((api) => api.GET('/api/v1/products')), notices('mine')]);
   const nav = buildNav(NAV, me.permissions, products.data?.data ?? ['core']);
   const b = profile?.branding;
   const logo = b?.logoSha256 ? logoUrl(b.logoSha256) : null;
@@ -67,6 +68,7 @@ export default async function WorkspaceLayout({ children }: { children: ReactNod
             </div>
           </header>
           <main id="main" className="ws__main">
+            <NoticeBanners notices={banners} dismissible />
             {children}
           </main>
         </div>

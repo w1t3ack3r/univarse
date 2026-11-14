@@ -151,7 +151,7 @@ About **two and a half weeks** at S5's pace, the largest slice in Phase 1, as sp
   - In the web app: accepting any colour.
   - In the API: the suspend route needing only read, the service ignoring the session wait, resuming always to ACTIVE, skipping the note rule, the guard serving a suspended institution, the 423 without its institution, the worker ending no session, and the note leaking into the audit chain.
 
-**Decisions made while building, for approval:**
+**Decisions made while building, approved by the owner on 2026-11-14:**
 
 | # | Decision | Why |
 | --- | --- | --- |
@@ -164,3 +164,71 @@ About **two and a half weeks** at S5's pace, the largest slice in Phase 1, as sp
 | Q-B7 | **Suspending asks for no typed confirmation,** unlike the destructive actions in the console's PRODUCT.md. | It's undone with one click, and in an incident speed matters (Q6). A reason and a step-up are still required. |
 | Q-B8 | **An institution suspended without a row** (the seed's `paused-uni`) resumes to ACTIVE. | It has no recorded earlier status, and the seed made it from ACTIVE. |
 | Q-B9 | **The test clean-ups remove test suspensions first** (a test member's, and the e2e and `susp-` institutions'), as the migrator. | A suspension names its members and its institution with restricting keys. |
+
+## PR C: what was built
+
+**Built:**
+- **The rules** (`packages/domain/src/platform/notices.ts`):
+  - what a notice must hold to be published (lengths; no control characters or bidirectional overrides; a one-line title; its audience; a maintenance window, in the future and at most a week);
+  - how long its banner shows;
+  - who sees it (maintenance: everyone; the rest: IT Admins);
+  - which institutions an audience reaches.
+  - Two new permissions: `platform.notice.publish` (OWNER, SUPER_ADMIN, SUPPORT) and `platform.release.manage` (OWNER, SUPER_ADMIN), both with step-up.
+- **The tables:**
+  - `platform_notice`, and `platform_notice_delivery` (one row per institution a published notice reaches), in migrations `20261115120000_notices` and `20261116120000_notice_delivery_log`.
+  - `tenant.release_ring`.
+  - On the tenant side, `notice_dismissal` and `outbox_event.notice_id`.
+  - The database holds the rules too: lengths; a published notice never changes and its status moves forward once (a trigger); its audience never moves; a delivery is withdrawn and fanned out once.
+  - The console role writes named columns only. The tenant API and the worker read the columns they need and write only the delivery log's.
+- **The platform API:**
+  - `GET/POST /notices`;
+  - `GET/PUT /notices/:id` (a draft, with `If-Match`);
+  - `POST /notices/:id/publish` (with `If-Match`) and `/withdraw` (which also discards a draft);
+  - `PUT /tenants/:id/ring`.
+  - The institution's detail carries its ring and the notices it got.
+- **The tenant API:**
+  - `GET /api/v1/tenant/notices` (public: maintenance);
+  - `GET /api/v1/notices` (signed in: maintenance, and the rest for IT Admins, without what the person dismissed);
+  - `POST /api/v1/notices/:id/dismiss`.
+  - Banners are read from the platform tables through column grants and kept per institution for the tenant cache's bound. The cache empties when a delivery arrives or is withdrawn: its capture trigger fires on those alone, so a recount doesn't empty it.
+- **The worker:**
+  - **Fan-out** (queue `platform-notices`, one job per delivery, as provisioning's relay does): one email per IT Admin with an address, written into that institution's outbox and named by the notice. Run again, it finds the emails there and adds none.
+  - **Counting pass:** emails sent and failed, and banners dismissed, for two weeks.
+  - **Suspended institutions:** their outbox sends notice emails and holds everything else (Q8).
+- **The web app:** the banners, on the sign-in pages (maintenance) and in the workspace (dismissible), as text only.
+- **The console:**
+  - A Notices tab: Showing now, Drafts, Ended or withdrawn.
+  - The editor, with the banner previewed exactly as an institution sees it.
+  - A published notice's record: the institutions it reached, the delivery log, and Withdraw.
+  - On the institution's page, its ring and the notices it got; the list shows the ring.
+- **The capture gate** (`pnpm rls:check`) now covers the delivery's two triggers (13 in all). Its message counts its list instead of saying a fixed "11", which was already stale.
+
+**Evidence:**
+- **Domain:** 120 tests (9 new): the publishing rules (markup is text; control characters, bidirectional overrides and line breaks in a title refused), the windows, who sees a banner, which institutions an audience reaches, and the two permissions.
+- **Integration**, against the real databases:
+  - `notices.int.spec.ts` (9): who may write and set a ring; an announcement only at the chosen institution and only to its IT Admins; maintenance to everyone there and nowhere else; a ring's audience as it was when published (suspended in, archived out); dismissing for oneself only (404 otherwise); a published notice refusing edits and a second publish; withdrawal emptying every banner and telling the institution's cache; `If-Match` and the rules again at publishing; the database's trigger and checks; the institution's detail.
+  - `notice-fan-out.int.spec.ts` (7): one email per IT Admin with an address, once; a re-run after a crash adding none; nobody emailed about a notice withdrawn first; a suspended institution's outbox sending the notice and holding the rest; the counts (sent, failed, dismissed); every delivery-log column an id, a count or a time; a recount not emptying the caches.
+  - The route sweep declares the three tenant routes, with a test that B's notice answers from A like an unknown id. The grants pin and the identity pin (SUPPORT's new permission) are updated.
+- **E2E**, desktop and phone, axe on every screen:
+  - `notices.e2e.ts` in the web app (8): maintenance on the sign-in page as plain text, running nothing; nothing at another institution; an IT Admin sees both kinds and dismisses one for themselves; a student sees maintenance only.
+  - `notices.e2e.ts` in the console (4): SUPPORT writes, previews, saves, publishes and withdraws; an OWNER sets the pilot ring.
+  - The whole console suite passes (46); the web suites except documents (which need ClamAV) pass (60, one first-test flake passed on its rerun).
+- **Mutations: 15 tried, 15 caught:**
+  - in the domain: everyone seeing every banner; an audience reaching every status; control characters in a title; maintenance shown for 14 days.
+  - in the API: banners read without the host filter, or with withdrawn ones; publishing without the rules or without `If-Match`; dismissing without the visibility check; drafting with only read; IT Admins by any permission.
+  - in the worker: emailing everyone; emailing twice after a crash; a suspended outbox sending everything; failed emails counted as sent. That last one survived at first: the test had one email of each, so I made the counts lopsided.
+
+**Decisions made while building, for approval:**
+
+| # | Decision | Why |
+| --- | --- | --- |
+| Q-C1 | **One PR, two commits** (notices, banners and rings; then the emails and the delivery log), not two PRs. | The emails need the deliveries; one review sees the whole of Q9 to Q12. |
+| Q-C2 | **The audience is fixed when a notice is published:** a delivery row per institution. A ring changed later doesn't move a published notice. "Every institution" and a ring reach those onboarding, live or suspended; not one being provisioned, offboarding, archived or purged. | What an institution was told is what the record says (Q9). Offboarding arrives with S7, and its warning emails are its own. |
+| Q-C3 | **IT Admins are whoever holds `settings.product.manage`** (switching the institution's products on), decided by the policy for banners and by the role's permissions for the emails. Today only the system role INSTITUTION_ADMIN holds it. | A permission, not a role's name: it follows the institution's own roles, and only the policy reads grants (spec 0018 PS7). |
+| Q-C4 | **Markup isn't refused; it's shown as text.** Control characters and bidirectional overrides are refused, and a title is one line. | T34's test finds `<script>` as text. A title becomes an email subject, where a line break could add a header. |
+| Q-C5 | **Drafts are edited under `If-Match`; publishing takes `If-Match` too.** Edits to a draft aren't audited; drafting, publishing, withdrawing and discarding are. The text stays on the notice's row, out of the audit chain. | What's published is what was read. The text never changes once published, so the row is the record. |
+| Q-C6 | **A maintenance window is at most a week,** and its banner shows from publishing until the window ends. | Longer is an incident (PR D). Showing it before it starts is the point. |
+| Q-C7 | **A notice withdrawn before its emails went out emails nobody** (recorded as 0). Emails are counted for two weeks; "failed" means the mail server refused it after the outbox's retries. | Nobody is emailed about a notice that's gone. Bounces need a real mail provider (out of scope). |
+| Q-C8 | **Dismissing is per person, recorded at the institution;** only a banner shown to that person can be dismissed (404 otherwise). | ADR-035: the platform counts dismissals, never who. |
+| Q-C9 | **The email** is plain text: "UniVarse: {title}" as its subject, then what it is, the window in Nigerian time, the message as written, and why they got it. It's sent from the platform's usual sender. | Plain words, one next step; no markup in any channel. |
+| Q-C10 | **The tests address no notice to every institution:** the database is shared with development. "Every institution" is proved in `packages/domain`. | A test must not put a banner on the owner's real institutions. |

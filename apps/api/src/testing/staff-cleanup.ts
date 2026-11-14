@@ -19,6 +19,10 @@ export async function pruneRetiredTestStaff(migratorUrl: string | undefined): Pr
     await db.platformApproval.deleteMany({ where: { OR: [{ requestedBy: { in: gone } }, { decidedBy: { in: gone } }] } });
     // So does a suspension (spec 0037 Q6): test members only ever suspend test institutions.
     await db.platformTenantSuspension.deleteMany({ where: { OR: [{ suspendedBy: { in: gone } }, { resumedBy: { in: gone } }] } });
+    // And a notice (spec 0037 Q9): test members only ever write to test institutions, by hand or by a pilot ring.
+    const notices = { OR: [{ createdBy: { in: gone } }, { publishedBy: { in: gone } }, { withdrawnBy: { in: gone } }] };
+    await db.platformNoticeDelivery.deleteMany({ where: { notice: notices } });
+    await db.platformNotice.deleteMany({ where: notices });
     const pruned = await db.platformUser.deleteMany({ where: { id: { in: gone } } });
     // A month a test attested stays open for the owner: a review doesn't outlive its reviewer here (no foreign key, as
     // the audit log's actors).

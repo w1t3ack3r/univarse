@@ -7299,6 +7299,462 @@
         "x-csrf": "same-origin"
       }
     },
+    "/api/v1/notices": {
+      "get": {
+        "operationId": "myNotices",
+        "summary": "The notices shown to you here, without those you dismissed",
+        "tags": [
+          "tenant"
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string",
+                            "format": "uuid"
+                          },
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "ANNOUNCEMENT",
+                              "MAINTENANCE",
+                              "RELEASE_NOTE"
+                            ]
+                          },
+                          "title": {
+                            "type": "string"
+                          },
+                          "body": {
+                            "type": "string"
+                          },
+                          "startsAt": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "format": "date-time"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "endsAt": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "format": "date-time"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "publishedAt": {
+                            "type": "string",
+                            "format": "date-time"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "kind",
+                          "title",
+                          "body",
+                          "startsAt",
+                          "endsAt",
+                          "publishedAt"
+                        ],
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "auth.unauthenticated",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 401
+                    },
+                    "code": {
+                      "enum": [
+                        "auth.unauthenticated"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "auth.mfa_enrolment_required",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 403
+                    },
+                    "code": {
+                      "enum": [
+                        "auth.mfa_enrolment_required"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "tenant.not_found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 404
+                    },
+                    "code": {
+                      "enum": [
+                        "tenant.not_found"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "423": {
+            "description": "tenant.suspended",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 423
+                    },
+                    "code": {
+                      "enum": [
+                        "tenant.suspended"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "server.internal",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 500
+                    },
+                    "code": {
+                      "enum": [
+                        "server.internal"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "server.busy",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 503
+                    },
+                    "code": {
+                      "enum": [
+                        "server.busy"
+                      ]
+                    }
+                  }
+                }
+              }
+            },
+            "headers": {
+              "Retry-After": {
+                "required": true,
+                "description": "Seconds to wait before retrying.",
+                "schema": {
+                  "type": "string",
+                  "pattern": "^[0-9]+$"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "x-product": "core",
+        "x-step-up": false
+      }
+    },
+    "/api/v1/notices/{id}/dismiss": {
+      "post": {
+        "operationId": "dismissNotice",
+        "summary": "Hide a notice’s banner for you (it stays recorded)",
+        "tags": [
+          "tenant"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "The notice id. Any value that is not a notice shown to you here, including a malformed id, is 404.",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "x-invalid": {
+              "status": 404,
+              "code": "resource.not_found"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No content"
+          },
+          "401": {
+            "description": "auth.unauthenticated",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 401
+                    },
+                    "code": {
+                      "enum": [
+                        "auth.unauthenticated"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "auth.mfa_enrolment_required, request.csrf_rejected",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 403
+                    },
+                    "code": {
+                      "enum": [
+                        "auth.mfa_enrolment_required",
+                        "request.csrf_rejected"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "resource.not_found, tenant.not_found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 404
+                    },
+                    "code": {
+                      "enum": [
+                        "resource.not_found",
+                        "tenant.not_found"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "423": {
+            "description": "tenant.suspended",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 423
+                    },
+                    "code": {
+                      "enum": [
+                        "tenant.suspended"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "server.internal",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 500
+                    },
+                    "code": {
+                      "enum": [
+                        "server.internal"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "server.busy",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 503
+                    },
+                    "code": {
+                      "enum": [
+                        "server.busy"
+                      ]
+                    }
+                  }
+                }
+              }
+            },
+            "headers": {
+              "Retry-After": {
+                "required": true,
+                "description": "Seconds to wait before retrying.",
+                "schema": {
+                  "type": "string",
+                  "pattern": "^[0-9]+$"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "x-product": "core",
+        "x-step-up": false,
+        "x-csrf": "same-origin"
+      }
+    },
     "/api/v1/products": {
       "get": {
         "operationId": "listActiveProducts",
@@ -9542,6 +9998,207 @@
                     "code": {
                       "enum": [
                         "resource.not_found",
+                        "tenant.not_found"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "423": {
+            "description": "tenant.suspended",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 423
+                    },
+                    "code": {
+                      "enum": [
+                        "tenant.suspended"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "server.internal",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 500
+                    },
+                    "code": {
+                      "enum": [
+                        "server.internal"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "server.busy",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 503
+                    },
+                    "code": {
+                      "enum": [
+                        "server.busy"
+                      ]
+                    }
+                  }
+                }
+              }
+            },
+            "headers": {
+              "Retry-After": {
+                "required": true,
+                "description": "Seconds to wait before retrying.",
+                "schema": {
+                  "type": "string",
+                  "pattern": "^[0-9]+$"
+                }
+              }
+            }
+          }
+        },
+        "security": [],
+        "x-product": "core"
+      }
+    },
+    "/api/v1/tenant/notices": {
+      "get": {
+        "operationId": "publicNotices",
+        "summary": "The institution’s notices for everyone, signed in or not (maintenance windows)",
+        "tags": [
+          "tenant"
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string",
+                            "format": "uuid"
+                          },
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "ANNOUNCEMENT",
+                              "MAINTENANCE",
+                              "RELEASE_NOTE"
+                            ]
+                          },
+                          "title": {
+                            "type": "string"
+                          },
+                          "body": {
+                            "type": "string"
+                          },
+                          "startsAt": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "format": "date-time"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "endsAt": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "format": "date-time"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "publishedAt": {
+                            "type": "string",
+                            "format": "date-time"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "kind",
+                          "title",
+                          "body",
+                          "startsAt",
+                          "endsAt",
+                          "publishedAt"
+                        ],
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "tenant.not_found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 404
+                    },
+                    "code": {
+                      "enum": [
                         "tenant.not_found"
                       ]
                     }

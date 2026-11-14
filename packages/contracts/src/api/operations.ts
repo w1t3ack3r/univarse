@@ -372,6 +372,12 @@ export const FilesOps = defineOperations({
 /** Spec 0033 Q11: the logo's hash, as the web app puts it in the URL, so the browser may keep that version. */
 const LogoQuery = z.object({ v: z.string().regex(/^[0-9a-f]{64}$/).optional() }).strict();
 
+const noticeId: PathParam = {
+  schema: z.string().meta({ format: 'uuid' }),
+  description: 'The notice id. Any value that is not a notice shown to you here, including a malformed id, is 404.',
+  invalid: { status: 404, code: 'resource.not_found' },
+};
+
 export const TenantOps = defineOperations({
   publicProfile: {
     operationId: 'publicProfile',
@@ -389,6 +395,29 @@ export const TenantOps = defineOperations({
     binary: ['image/png', 'image/webp'],
     image: true,
     errors: { 404: ['resource.not_found'] },
+  },
+  /** Spec 0037 Q10: what everyone at this institution sees, signed in or not (maintenance). */
+  publicNotices: {
+    operationId: 'publicNotices',
+    summary: 'The institution’s notices for everyone, signed in or not (maintenance windows)',
+    tag: 'tenant',
+    success: 200,
+    response: R.NoticeBannerList,
+  },
+  /** Spec 0037 Q10: what the signed-in person sees: maintenance, and for IT Admins announcements and release notes. */
+  myNotices: {
+    operationId: 'myNotices',
+    summary: 'The notices shown to you here, without those you dismissed',
+    tag: 'tenant',
+    success: 200,
+    response: R.NoticeBannerList,
+  },
+  dismissNotice: {
+    operationId: 'dismissNotice',
+    summary: 'Hide a notice’s banner for you (it stays recorded)',
+    tag: 'tenant',
+    params: { id: noticeId },
+    success: 204,
   },
 });
 

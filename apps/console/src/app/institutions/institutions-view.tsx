@@ -142,6 +142,7 @@ export function InstitutionsView() {
               <th scope="col">Subdomain</th>
               <th scope="col">Type</th>
               <th scope="col">Status</th>
+              <th scope="col">Ring</th>
             </tr>
           </thead>
           <tbody>
@@ -159,6 +160,7 @@ export function InstitutionsView() {
                   <td data-label="Status">
                     <span className={`pc-status ${s?.tone ?? 'pc-status--wait'}`}>{s?.label ?? t.status}</span>
                   </td>
+                  <td data-label="Ring">{t.releaseRing === 'PILOT' ? <span className="pc-status pc-status--wait">Pilot</span> : 'General'}</td>
                 </tr>
               );
             })}

@@ -30,6 +30,7 @@ export default async function globalTeardown(): Promise<void> {
   const owner = createPlatformClient(migrator);
   try {
     await owner.platformTenantSuspension.deleteMany({ where: { tenant: { slug: { startsWith: E2E_TENANT_PREFIX } } } });
+    await owner.platformNoticeDelivery.deleteMany({ where: { tenant: { slug: { startsWith: E2E_TENANT_PREFIX } } } });
     await owner.tenant.deleteMany({ where: { slug: { startsWith: E2E_TENANT_PREFIX } } });
   } finally {
     await owner.$disconnect();

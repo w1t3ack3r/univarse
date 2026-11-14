@@ -45,6 +45,8 @@ const tenantSummary = z.strictObject({
   ownership: tenantOwnership,
   status: tenantStatus,
   tier: z.enum(['POOLED', 'DEDICATED']),
+  /** Spec 0037 Q12. */
+  releaseRing: z.enum(['PILOT', 'GENERAL']),
 });
 const nullableTrimmed = (max: number, pattern?: RegExp) => {
   const text = pattern ? z.string().trim().min(1).max(max).regex(pattern) : z.string().trim().min(1).max(max);
@@ -129,6 +131,69 @@ const reviewedMember = z.strictObject({
 
 /** Spec 0037 Q2, Q3 (E4): a two-person request, as the console shows it. */
 const approvalKind = z.enum(['staff.make_owner']);
+/** Spec 0037 Q9, Q12: notices and rings. */
+const noticeKind = z.enum(['ANNOUNCEMENT', 'MAINTENANCE', 'RELEASE_NOTE']);
+const noticeAudience = z.enum(['ALL', 'TENANTS', 'RING']);
+const releaseRing = z.enum(['PILOT', 'GENERAL']);
+const noticeStatus = z.enum(['DRAFT', 'PUBLISHED', 'WITHDRAWN']);
+const who = z.strictObject({ id: z.uuid(), name: z.string().nullable() });
+const institutionRef = z.strictObject({ id: z.uuid(), slug: z.string(), name: z.string() });
+/** A draft as written. Lengths and the window are the domain's rules (noticeProblems); a draft may be saved unfinished. */
+const noticeDraft = z.strictObject({
+  kind: noticeKind,
+  title: z.string().max(200),
+  body: z.string().max(4000),
+  audience: noticeAudience,
+  ring: releaseRing.nullable().optional(),
+  tenantIds: z.array(z.uuid()).max(200).optional(),
+  startsAt: z.iso.datetime({ offset: true }).nullable().optional(),
+  endsAt: z.iso.datetime({ offset: true }).nullable().optional(),
+});
+const noticeSummary = z.strictObject({
+  id: z.uuid(),
+  kind: noticeKind,
+  title: z.string(),
+  audience: noticeAudience,
+  ring: releaseRing.nullable(),
+  status: noticeStatus,
+  /** Published and still showing (not withdrawn, not past its end). */
+  live: z.boolean(),
+  startsAt: z.iso.datetime().nullable(),
+  endsAt: z.iso.datetime().nullable(),
+  createdAt: z.iso.datetime(),
+  publishedAt: z.iso.datetime().nullable(),
+  shownUntil: z.iso.datetime().nullable(),
+  institutions: z.number().int(),
+});
+const noticeView = z.strictObject({
+  ...noticeSummary.shape,
+  body: z.string(),
+  tenants: z.array(institutionRef),
+  createdBy: who,
+  publishedBy: who.nullable(),
+  withdrawnBy: who.nullable(),
+  withdrawnAt: z.iso.datetime().nullable(),
+  version: z.number().int(),
+  /** What stops a draft being published now, as field and problem codes. Empty once it may be. */
+  problems: z.array(z.strictObject({ path: z.string(), code: z.string() })),
+  /**
+   * The institutions it reached, once published, with Q11's delivery log: counts only. `itAdmins` and `emailsQueued`
+   * are null until the worker has fanned it out there.
+   */
+  deliveries: z.array(
+    z.strictObject({
+      tenant: institutionRef,
+      withdrawnAt: z.iso.datetime().nullable(),
+      itAdmins: z.number().int().nullable(),
+      emailsQueued: z.number().int().nullable(),
+      emailsSent: z.number().int(),
+      emailsFailed: z.number().int(),
+      bannersDismissed: z.number().int(),
+      countedAt: z.iso.datetime().nullable(),
+    }),
+  ),
+});
+
 /** Spec 0037 Q6: the fixed list (packages/domain SUSPENSION_REASONS). Non-payment isn't a reason. */
 const suspensionReason = z.enum(['SECURITY_INCIDENT', 'REGULATOR_ORDER', 'CONTRACT_ENDED', 'INSTITUTION_ASKED', 'OTHER']);
 const suspensionView = z.strictObject({
@@ -266,10 +331,21 @@ export const PlatformOps = {
       template: z.string().nullable(),
       /** Spec 0037 Q6: its suspensions, newest first (the open one, if any, is first), at most 10. */
       suspensions: z.array(suspensionView),
+      /** Spec 0037 Q11: the notices it got, newest first, at most 10. */
+      notices: z.array(z.strictObject({ id: z.uuid(), kind: noticeKind, title: z.string(), publishedAt: z.iso.datetime(), live: z.boolean(), withdrawnAt: z.iso.datetime().nullable() })),
     }),
   },
   /** Spec 0037 Q6. The note is required for OTHER, 3 to 200 characters; checked by the domain's rule too. */
   suspend: { body: z.strictObject({ reason: suspensionReason, note: z.string().trim().max(200).optional() }) },
+  /** Spec 0037 Q12. */
+  ring: { body: z.strictObject({ ring: releaseRing }) },
+  /** Spec 0037 Q9. */
+  notices: {
+    query: z.strictObject({ status: noticeStatus.optional() }),
+    response: z.strictObject({ data: z.array(noticeSummary) }),
+  },
+  notice: { response: noticeView },
+  noticeDraft: { body: noticeDraft, response: noticeView },
   /** Spec 0034 Q5, Q13: creating starts a provisioning. The IT Admin's details go no further than the sealed invite. */
   createTenant: {
     body: z.strictObject({
@@ -393,4 +469,8 @@ export type PlatformApprovalRequest = z.infer<typeof PlatformOps.requestApproval
 export type PlatformInbox = z.infer<typeof PlatformOps.inbox.response>;
 export type PlatformInboxItem = PlatformInbox['items'][number];
 export type PlatformSuspension = z.infer<typeof suspensionView>;
+export type PlatformNotice = z.infer<typeof noticeView>;
+export type PlatformTenantSummary = z.infer<typeof tenantSummary>;
+export type PlatformNoticeSummary = z.infer<typeof noticeSummary>;
+export type PlatformNoticeDraft = z.infer<typeof noticeDraft>;
 export type PlatformSuspensionReason = z.infer<typeof suspensionReason>;

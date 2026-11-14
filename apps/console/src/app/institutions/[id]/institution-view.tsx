@@ -15,6 +15,7 @@ import { ProductsSection } from './products';
 import { ProfileForm, RegulatoryForm } from './forms';
 import { GoLiveSection } from './go-live';
 import { ProvisioningSection } from './provisioning';
+import { ReleaseSection } from './release';
 import { SuspensionSection } from './suspension';
 
 export type Tenant = PlatformTenantDetail;
@@ -56,6 +57,7 @@ export function InstitutionView() {
   const canProvision = me.permissions.includes('platform.tenant.provision');
   const canGoLive = me.permissions.includes('platform.tenant.go_live');
   const canSuspend = me.permissions.includes('platform.tenant.suspend');
+  const canRing = me.permissions.includes('platform.release.manage') && !closed;
 
   const load = useCallback(() => {
     api<Tenant>('GET', `/tenants/${id}`)
@@ -141,6 +143,7 @@ export function InstitutionView() {
       {t.status === 'ONBOARDING' ? <GoLiveSection tenant={t} canGoLive={canGoLive} changing={changing} /> : null}
 
       <ProductsSection tenant={t} canEntitle={canEntitle} changing={changing} />
+      <ReleaseSection tenant={t} canRing={canRing} changing={changing} />
 
       {canEdit ? (
         <div className="pc-twin">

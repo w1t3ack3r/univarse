@@ -38,6 +38,8 @@ import {
   type SettingsRegistry,
 } from './modules/settings/settings.service.js';
 import { TenantProfileController } from './modules/tenant-profile/tenant-profile.controller.js';
+import { NoticesController } from './modules/notices/notices.controller.js';
+import { NoticeBoard } from './modules/notices/notice-board.service.js';
 import { AuditWriter } from './shared/audit/audit-writer.js';
 import { DbModule } from './shared/db/db.module.js';
 import { ProblemFilter } from './shared/errors/problem.filter.js';
@@ -54,6 +56,7 @@ import { shutdownHook } from './shared/observability/shutdown-hook.js';
 export const API_CONTROLLERS = [
   HealthController,
   TenantProfileController,
+  NoticesController,
   AuthController,
   MfaController,
   UsersController,
@@ -119,6 +122,7 @@ export class AppModule {
         MfaService,
         AuthService,
         TenantLogos,
+        NoticeBoard,
         ContactService,
         ProductService,
         ProductDeclarationCheck,

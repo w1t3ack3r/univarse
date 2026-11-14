@@ -17,7 +17,7 @@ import { CONSOLE_DB } from '../platform-config.js';
 type ListQuery = z.infer<typeof PlatformOps.tenants.query>;
 type ListResponse = z.infer<typeof PlatformOps.tenants.response>;
 // The suspensions are added by the controller, from TenantSuspension.
-type Detail = Omit<z.infer<typeof PlatformOps.tenant.response>, 'suspensions'>;
+type Detail = Omit<z.infer<typeof PlatformOps.tenant.response>, 'suspensions' | 'notices'>;
 type ProfileBody = z.infer<typeof PlatformOps.tenantProfile.body>;
 type RegulatoryBody = z.infer<typeof PlatformOps.tenantRegulatory.body>;
 type ProductBody = z.infer<typeof PlatformOps.tenantProduct.body>;
@@ -34,7 +34,7 @@ const LOGO_REFUSED: Readonly<Record<LogoProblem, string>> = {
 /** Prisma's `contains` passes `%` and `_` through as wildcards: a search for a percent sign means a percent sign. */
 const literal = (q: string) => q.replace(/[\\%_]/g, (c) => `\\${c}`);
 
-const SUMMARY = { id: true, slug: true, legalName: true, shortName: true, type: true, ownership: true, status: true, tier: true } as const;
+const SUMMARY = { id: true, slug: true, legalName: true, shortName: true, type: true, ownership: true, status: true, tier: true, releaseRing: true } as const;
 
 /** Which fields a profile edit changed, as the audit's before and after. */
 function diff<T extends object>(before: T, after: T): { before: Partial<T>; after: Partial<T> } | null {
@@ -121,6 +121,7 @@ export class TenantRegistry {
       ownership: t.ownership,
       status: t.status,
       tier: t.tier,
+      releaseRing: t.releaseRing,
       version: t.version,
       suspendedReason: t.suspendedReason,
       createdAt: t.createdAt.toISOString(),
@@ -250,6 +251,17 @@ export class TenantRegistry {
       const data = { entitled: body.entitled, ...(body.entitled ? {} : { enabled: false }), updatedBy: actor.userId };
       await tx.tenantProduct.upsert({ where: { tenantId_product: { tenantId: id, product } }, create: { tenantId: id, product, ...data }, update: data, select: { id: true } });
       await this.audit(tx, actor, id, body.entitled ? 'platform.tenant.product_granted' : 'platform.tenant.product_revoked', { product, reason: body.reason, wasEnabled: row?.enabled ?? false }, meta);
+    });
+  }
+
+  /** Spec 0037 Q12: PILOT or GENERAL. Setting the ring it already has changes and records nothing. */
+  async setRing(actor: PlatformActor, id: string, ring: 'PILOT' | 'GENERAL', meta: RequestMeta): Promise<void> {
+    await this.db.$transaction(async (tx) => {
+      await this.writable(tx, id);
+      const before = await tx.tenant.findUniqueOrThrow({ where: { id }, select: { releaseRing: true } });
+      if (before.releaseRing === ring) return;
+      await tx.tenant.update({ where: { id }, data: { releaseRing: ring }, select: { id: true } });
+      await this.audit(tx, actor, id, 'platform.tenant.ring_changed', { before: before.releaseRing, after: ring }, meta);
     });
   }
 }

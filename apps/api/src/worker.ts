@@ -13,6 +13,7 @@ import { shutdownTracing } from './shared/observability/tracing.js';
 import { WorkerModule } from './worker.module.js';
 import { OnboardingCheck } from './modules/provisioning/onboarding-check.js';
 import { SuspensionSessionEnding } from './modules/suspension/session-ending.js';
+import { NoticeFanOut } from './modules/notices/notice-fan-out.js';
 import { ProvisioningQueue } from './modules/provisioning/provisioning-queue.js';
 
 // Local dev convenience: repo-root .env. In deployed environments, env comes from the secret manager.
@@ -48,13 +49,16 @@ onboarding.start(config.ONBOARDING_CHECK_INTERVAL_MS);
 // And again (spec 0037 Q7): a suspended institution's sessions, ended within seconds; its resume waits for this.
 const suspension = ctx.get(SuspensionSessionEnding);
 suspension.start(config.SUSPENSION_INTERVAL_MS);
+// And again (spec 0037 Q10, Q11): notices fanned out to IT Admins in a queue of their own, and their delivery log.
+const notices = ctx.get(NoticeFanOut);
+notices.start();
 const provisioning = config.PROVISIONING_KEY_PROVIDER ? ctx.get(ProvisioningQueue) : null;
 provisioning?.start();
 if (!provisioning) new Logger('Worker').log({ event: 'provisioning.off' }, 'Provisioning is off: no provisioning key in .env.worker (spec 0034 Q7)');
 new Logger('Worker').log({ event: 'worker.started', pollMs: config.WORKER_POLL_MS }, `UniVarse worker polling the outbox every ${String(config.WORKER_POLL_MS)} ms (${config.NODE_ENV})`);
 
 const shutdown = async () => {
-  await Promise.all([worker.stop(), keys.stop(), scans.stop(), relay.stop(), contact.stop(), onboarding.stop(), suspension.stop(), provisioning?.stop()]);
+  await Promise.all([worker.stop(), keys.stop(), scans.stop(), relay.stop(), contact.stop(), onboarding.stop(), suspension.stop(), notices.stop(), provisioning?.stop()]);
   await ctx.close();
   process.exit(0);
 };

@@ -130,6 +130,9 @@ describe('[P5] the console role, in the database', () => {
         platform_mail_outbox: 'SIU',
         platform_mfa_challenge: 'SIU',
         platform_mfa_factor: 'SIU',
+        // Spec 0037 Q9: notices and their deliveries are inserted by column; only named columns update.
+        platform_notice: 'SU',
+        platform_notice_delivery: 'SU',
         platform_one_time_code: 'SIU',
         platform_recovery_code: 'SIU',
         platform_security_event_rollup: 'SIU',
@@ -164,6 +167,11 @@ describe('[P5] the console role, in the database', () => {
         ['platform_tenant_suspension', 'sessions_ended', 'UPDATE', false],
         ['platform_tenant_suspension', 'reason', 'UPDATE', false],
         ['platform_tenant_suspension', 'resumed_at', 'UPDATE', true],
+        // Spec 0037 Q9: a notice starts as a draft, by its author; its audience is never re-pointed.
+        ['platform_notice', 'status', 'INSERT', false],
+        ['platform_notice', 'published_at', 'INSERT', false],
+        ['platform_notice_delivery', 'tenant_id', 'UPDATE', false],
+        ['platform_notice_delivery', 'withdrawn_at', 'UPDATE', true],
       ] as const) {
         const [row] = await db.$queryRawUnsafe<{ ok: boolean }[]>(`SELECT has_column_privilege(current_user, '${table}', '${column}', '${privilege}') AS ok`);
         expect([table, column, privilege, row?.ok]).toEqual([table, column, privilege, expected]);
@@ -172,7 +180,7 @@ describe('[P5] the console role, in the database', () => {
       const tenantColumns = await db.$queryRaw<{ column_name: string }[]>`
         SELECT column_name FROM information_schema.columns
          WHERE table_name = 'tenant' AND has_column_privilege(current_user, 'tenant', column_name, 'SELECT') ORDER BY column_name`;
-      expect(tenantColumns.map((c) => c.column_name)).toEqual(['created_at', 'id', 'legal_name', 'offboarding_started_at', 'ownership', 'purge_after', 'shard_id', 'short_name', 'slug', 'status', 'suspended_reason', 'template', 'tier', 'type', 'updated_at', 'version']);
+      expect(tenantColumns.map((c) => c.column_name)).toEqual(['created_at', 'id', 'legal_name', 'offboarding_started_at', 'ownership', 'purge_after', 'release_ring', 'shard_id', 'short_name', 'slug', 'status', 'suspended_reason', 'template', 'tier', 'type', 'updated_at', 'version']);
       for (const [table, column] of [['shard', 'secret_ref'], ['tenant_domain', 'verification_token'], ['tenant_data_key', 'wrapped_dek']] as const) {
         const [row] = await db.$queryRawUnsafe<{ ok: boolean }[]>(`SELECT has_column_privilege(current_user, '${table}', '${column}', 'SELECT') AS ok`);
         expect([table, column, row?.ok]).toEqual([table, column, false]);

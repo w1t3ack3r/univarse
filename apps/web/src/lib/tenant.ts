@@ -40,3 +40,18 @@ export async function tenantProfile(): Promise<{ profile: TenantProfile | null; 
   if (res.data) return { profile: res.data, code: undefined, suspended: null };
   return { profile: null, code: typeof code === 'string' ? code : undefined, suspended: suspendedInstitution(res.body) };
 }
+
+export type NoticeList = ResponseBody<'/api/v1/notices', 'get'>['data'];
+
+/**
+ * Spec 0037 Q10: this institution's notices. `everyone` is what its sign-in pages show (maintenance); otherwise what the
+ * signed-in person sees. A notice is never worth breaking a page for: any failure shows none.
+ */
+export async function notices(scope: 'everyone' | 'mine'): Promise<NoticeList> {
+  try {
+    const res = scope === 'everyone' ? await serverGet((api) => api.GET('/api/v1/tenant/notices')) : await serverGet((api) => api.GET('/api/v1/notices'));
+    return res.data?.data ?? [];
+  } catch {
+    return [];
+  }
+}

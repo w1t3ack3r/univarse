@@ -4,6 +4,7 @@
  *
  *   pnpm rls:check
  */
+import { CAPTURE_TRIGGERS } from '../../db-ops/src/capture-gate.js';
 import { rlsCheck } from '../../db-ops/src/rls-check.js';
 import { loadRootEnv, requireEnv } from './env.js';
 
@@ -19,7 +20,7 @@ async function main() {
     process.exit(1);
   }
   console.log(`✓ RLS check passed: ${tables} tenant tables isolated, all uniques and FKs tenant-scoped.`);
-  console.log('✓ Platform invalidation capture intact: 11 triggers ENABLE ALWAYS, functions locked down, no TEMPORARY, the maximum TTL unchanged.');
+  console.log(`✓ Platform invalidation capture intact: ${String(CAPTURE_TRIGGERS.length)} triggers ENABLE ALWAYS, functions locked down, no TEMPORARY, the maximum TTL unchanged.`);
 }
 
 main().catch((err: unknown) => {

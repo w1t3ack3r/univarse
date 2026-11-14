@@ -76,23 +76,27 @@ model Tenant {
   purgeAfter           DateTime?       @map("purge_after") @db.Timestamptz(3)
   /// Spec 0034 Q6: the template it was provisioned from, as `polytechnic@1`. Null for the seed's and the drill's.
   template             String?
+  /// Spec 0037 Q12: which release ring it's in.
+  releaseRing          ReleaseRing     @default(GENERAL) @map("release_ring")
   createdAt            DateTime        @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt            DateTime        @updatedAt @map("updated_at") @db.Timestamptz(3)
   version              Int             @default(0)
 
-  shard             Shard                      @relation(fields: [shardId], references: [id], onDelete: Restrict)
-  domains           TenantDomain[]
-  products          TenantProduct[]
-  keyReencryption   KeyReencryption?
-  dataKeys          TenantDataKey[]
-  keyDestructions   KeyDestruction[]
-  regulatoryProfile TenantRegulatoryProfile?
-  branding          TenantBranding?
-  provisioningJob   ProvisioningJob?
-  dpa               TenantDpa?
-  onboarding        TenantOnboarding?
-  suspensions       PlatformTenantSuspension[]
+  shard                    Shard                      @relation(fields: [shardId], references: [id], onDelete: Restrict)
+  domains                  TenantDomain[]
+  products                 TenantProduct[]
+  keyReencryption          KeyReencryption?
+  dataKeys                 TenantDataKey[]
+  keyDestructions          KeyDestruction[]
+  regulatoryProfile        TenantRegulatoryProfile?
+  branding                 TenantBranding?
+  provisioningJob          ProvisioningJob?
+  dpa                      TenantDpa?
+  onboarding               TenantOnboarding?
+  suspensions              PlatformTenantSuspension[]
+  platformNoticeDeliveries PlatformNoticeDelivery[]
 
+  @@index([releaseRing])
   @@map("tenant")
 }
 
@@ -352,6 +356,9 @@ model PlatformUser {
   approvalsDecided   PlatformApproval[]         @relation("ApprovalDecider")
   suspensionsMade    PlatformTenantSuspension[] @relation("SuspensionBy")
   suspensionsResumed PlatformTenantSuspension[] @relation("ResumeBy")
+  noticesCreated     PlatformNotice[]           @relation("NoticeCreatedBy")
+  noticesPublished   PlatformNotice[]           @relation("NoticePublishedBy")
+  noticesWithdrawn   PlatformNotice[]           @relation("NoticeWithdrawnBy")
 
   @@map("platform_user")
 }
@@ -739,4 +746,83 @@ model LedgerWaiver {
   auditEvent PlatformAuditEvent @relation(fields: [auditSeq], references: [seq], onDelete: Restrict, onUpdate: Restrict)
 
   @@map("ledger_waiver")
+}
+
+enum ReleaseRing {
+  PILOT
+  GENERAL
+}
+
+enum NoticeKind {
+  ANNOUNCEMENT
+  MAINTENANCE
+  RELEASE_NOTE
+}
+
+enum NoticeAudience {
+  ALL
+  TENANTS
+  RING
+}
+
+enum NoticeStatus {
+  DRAFT
+  PUBLISHED
+  WITHDRAWN
+}
+
+/// Spec 0037 Q9 (T34): a notice to institutions. Plain text, shown only as text. Never changed once published (a trigger).
+model PlatformNotice {
+  id          String         @id @default(dbgenerated("uuidv7()")) @db.Uuid
+  kind        NoticeKind
+  title       String
+  body        String
+  audience    NoticeAudience
+  ring        ReleaseRing?
+  /// The institutions chosen by hand (audience TENANTS).
+  tenantIds   String[]       @default([]) @map("tenant_ids") @db.Uuid
+  startsAt    DateTime?      @map("starts_at") @db.Timestamptz(3)
+  endsAt      DateTime?      @map("ends_at") @db.Timestamptz(3)
+  status      NoticeStatus   @default(DRAFT)
+  createdBy   String         @map("created_by") @db.Uuid
+  publishedBy String?        @map("published_by") @db.Uuid
+  publishedAt DateTime?      @map("published_at") @db.Timestamptz(3)
+  /// When its banners stop showing, unless withdrawn sooner.
+  shownUntil  DateTime?      @map("shown_until") @db.Timestamptz(3)
+  withdrawnBy String?        @map("withdrawn_by") @db.Uuid
+  withdrawnAt DateTime?      @map("withdrawn_at") @db.Timestamptz(3)
+  createdAt   DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime       @updatedAt @map("updated_at") @db.Timestamptz(3)
+  version     Int            @default(0)
+
+  author     PlatformUser             @relation("NoticeCreatedBy", fields: [createdBy], references: [id], onDelete: Restrict)
+  publisher  PlatformUser?            @relation("NoticePublishedBy", fields: [publishedBy], references: [id], onDelete: Restrict)
+  withdrawer PlatformUser?            @relation("NoticeWithdrawnBy", fields: [withdrawnBy], references: [id], onDelete: Restrict)
+  deliveries PlatformNoticeDelivery[]
+
+  @@index([status, publishedAt])
+  @@map("platform_notice")
+}
+
+/// Spec 0037 Q9, Q11: one institution a published notice reaches, decided when it was published.
+model PlatformNoticeDelivery {
+  noticeId         String    @map("notice_id") @db.Uuid
+  tenantId         String    @map("tenant_id") @db.Uuid
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  withdrawnAt      DateTime? @map("withdrawn_at") @db.Timestamptz(3)
+  /// Spec 0037 Q10, Q11: the email fan-out and the delivery log, counts only (no address crosses here).
+  itAdmins         Int?      @map("it_admins")
+  emailsQueued     Int?      @map("emails_queued")
+  emailsSent       Int       @default(0) @map("emails_sent")
+  emailsFailed     Int       @default(0) @map("emails_failed")
+  bannersDismissed Int       @default(0) @map("banners_dismissed")
+  fannedOutAt      DateTime? @map("fanned_out_at") @db.Timestamptz(3)
+  countedAt        DateTime? @map("counted_at") @db.Timestamptz(3)
+
+  notice PlatformNotice @relation(fields: [noticeId], references: [id], onDelete: Restrict)
+  tenant Tenant         @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+
+  @@id([noticeId, tenantId])
+  @@index([tenantId, withdrawnAt])
+  @@map("platform_notice_delivery")
 }

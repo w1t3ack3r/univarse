@@ -9,6 +9,8 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import type { NestFastifyApplication } from '@nestjs/platform-fastify';
+import { createPlatformClient, type PlatformClient } from '@univarse/db';
+import { NoticeBoard } from './modules/notices/notice-board.service.js';
 import { forTenant } from '@univarse/db';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createApp, type CreateAppOptions } from './bootstrap.js';
@@ -187,6 +189,25 @@ async function tenantBState(): Promise<string> {
 let adminA: Person;
 let regA: Person;
 let regB: Person;
+
+// Spec 0037 Q10: notices are written as the migrator (the console's own role publishes; here the sweep needs them in
+// place). A's are maintenance, so every person at A sees them; B's one is the cross-tenant marker. Removed at the end.
+let migrator: PlatformClient;
+let noticeAuthor = '';
+let noticeB = '';
+const sweepNotices: string[] = [];
+async function publishNotice(tenantId: string): Promise<string> {
+  const now = Date.now();
+  const n = await migrator.platformNotice.create({
+    data: { kind: 'MAINTENANCE', title: `Sweep ${run}`, body: 'Route sweep notice.', audience: 'TENANTS', tenantIds: [tenantId], startsAt: new Date(now + 3_600_000), endsAt: new Date(now + 7_200_000), createdBy: noticeAuthor },
+    select: { id: true },
+  });
+  await migrator.platformNotice.update({ where: { id: n.id }, data: { status: 'PUBLISHED', publishedAt: new Date(now), publishedBy: noticeAuthor, shownUntil: new Date(now + 7_200_000) } });
+  await migrator.platformNoticeDelivery.create({ data: { noticeId: n.id, tenantId } });
+  sweepNotices.push(n.id);
+  app.get(NoticeBoard).invalidate();
+  return n.id;
+}
 // "00" sorts before seeded and generated usernames: GET /users returns the first 50 by username.
 const marker = { userA: `00ZZA${run}`, userB: `00ZZB${run}` };
 let markerUserA = '';
@@ -290,6 +311,47 @@ const DECLS: Record<RouteKey, Decl> = {
         expect(json(r)).toMatchObject({ code: 'resource.not_found' });
       },
     }),
+  },
+
+  // Spec 0037 Q10: this host's notices only (B's is a marker that must never appear).
+  'GET /api/v1/tenant/notices': {
+    auth: 'public',
+    classes: ['collection'],
+    prepare: () => ({
+      req: { method: 'GET', host: A, url: '/api/v1/tenant/notices' },
+      verify: (r) => {
+        expectStatus(r, 200);
+        const ids = (json(r).data as { id: string }[]).map((n) => n.id);
+        expect(ids).not.toContain(noticeB);
+      },
+    }),
+  },
+  'GET /api/v1/notices': {
+    auth: 'session',
+    classes: ['collection'],
+    skeleton: (cookie) => ({ method: 'GET', host: A, url: '/api/v1/notices', ...(cookie ? { cookie } : {}) }),
+    prepare: () => ({
+      req: { method: 'GET', host: A, url: '/api/v1/notices', cookie: regA.session },
+      verify: (r) => {
+        expectStatus(r, 200);
+        expect((json(r).data as { id: string }[]).map((n) => n.id)).not.toContain(noticeB);
+      },
+    }),
+  },
+  'POST /api/v1/notices/:id/dismiss': {
+    auth: 'session',
+    classes: [],
+    skeleton: (cookie) => ({ method: 'POST', host: A, url: `/api/v1/notices/${randomUUID()}/dismiss`, ...(cookie ? { cookie } : {}) }),
+    prepare: async () => {
+      const id = await publishNotice(tenant.A);
+      return {
+        req: { method: 'POST', host: A, url: `/api/v1/notices/${id}/dismiss`, cookie: regA.session },
+        verify: async (r) => {
+          expectStatus(r, 204);
+          expect(await db('A').noticeDismissal.count({ where: { noticeId: id, userId: regA.id } })).toBe(1);
+        },
+      };
+    },
   },
 
   'POST /api/v1/auth/login': {
@@ -915,6 +977,9 @@ beforeAll(async () => {
   adminA = await mfaPerson('A', 'INSTITUTION_ADMIN');
   regA = await mfaPerson('A', 'REGISTRAR');
   regB = await mfaPerson('B', 'REGISTRAR');
+  migrator = createPlatformClient(process.env.PLATFORM_MIGRATOR_URL!);
+  noticeAuthor = (await migrator.platformUser.create({ data: { email: `sweep-${run.toLowerCase()}@staff.test`, displayName: 'Route sweep', role: 'READ_ONLY', isActive: false }, select: { id: true } })).id;
+  noticeB = await publishNotice(tenant.B);
   scanner = h.workerCtx.get(FileScanWorker);
   fileA = await uploadFile(regA, FILE_A_NAME);
   fileA2 = await uploadFile(await mfaPerson('A', 'STUDENT'), `00FA2${run}.pdf`);
@@ -939,6 +1004,10 @@ afterAll(async () => {
   await setProduct(tenant.A, 'academics', false);
   await setProduct(tenant.B, 'admissions', false);
   await db('B').setting.deleteMany({ where: { key: 'registration.unitLimits' } });
+  await migrator.platformNoticeDelivery.deleteMany({ where: { noticeId: { in: sweepNotices } } });
+  await migrator.platformNotice.deleteMany({ where: { id: { in: sweepNotices } } });
+  await migrator.platformUser.deleteMany({ where: { id: noticeAuthor } });
+  await migrator.$disconnect();
   await app.close();
   await h.close();
   const realResources = real.filter(([, d]) => d.classes.includes('resource')).length;
@@ -1010,6 +1079,7 @@ describe('[OA2] the OpenAPI document covers exactly the routes the app serves', 
     'DELETE /api/v1/settings/:key': { role: 'REGISTRAR', headers: { 'if-match': '"v0"' } },
     'PUT /api/v1/admin/products/:product': { role: 'INSTITUTION_ADMIN', stepUp: true, body: { enabled: true } },
     'POST /api/v1/users/:id/email': { role: 'INSTITUTION_ADMIN', stepUp: true, body: { email: 'x@sweep.test', oldAddressWrong: false } },
+    'POST /api/v1/notices/:id/dismiss': { role: 'STUDENT' },
   };
   const withParams = [...docOps].filter(([, op]) => (op.parameters ?? []).some((x) => x.in === 'path')).map(([k]) => k);
 
@@ -1198,6 +1268,15 @@ describe('[RS6][RS8] resources by id, and the negative controls', () => {
     expect([elsewhere.statusCode, json(elsewhere).code]).toEqual([missing.statusCode, json(missing).code]);
     expect(elsewhere.statusCode).toBe(404);
     expect(await db('B').contactChange.count({ where: { userId: other.id } })).toBe(0);
+  });
+
+  it('[RS6] POST /api/v1/notices/:id/dismiss: B’s notice answers exactly like a nonexistent id; nothing is recorded (spec 0037 Q10)', async () => {
+    const call = (id: string) => send({ method: 'POST', host: A, url: `/api/v1/notices/${id}/dismiss`, cookie: regA.session });
+    const missing = await call(randomUUID());
+    const elsewhere = await call(noticeB);
+    expect([elsewhere.statusCode, json(elsewhere).code]).toEqual([missing.statusCode, json(missing).code]);
+    expect(elsewhere.statusCode).toBe(404);
+    expect(await db('A').noticeDismissal.count({ where: { noticeId: noticeB } })).toBe(0);
   });
 
   it('[RS6] real resource routes exist now (spec 0010 FU2), reported separately from the controls', () => {
