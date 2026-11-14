@@ -218,7 +218,7 @@ About **two and a half weeks** at S5's pace, the largest slice in Phase 1, as sp
   - in the API: banners read without the host filter, or with withdrawn ones; publishing without the rules or without `If-Match`; dismissing without the visibility check; drafting with only read; IT Admins by any permission.
   - in the worker: emailing everyone; emailing twice after a crash; a suspended outbox sending everything; failed emails counted as sent. That last one survived at first: the test had one email of each, so I made the counts lopsided.
 
-**Decisions made while building, for approval:**
+**Decisions made while building, approved by the owner on 2026-11-14:**
 
 | # | Decision | Why |
 | --- | --- | --- |
