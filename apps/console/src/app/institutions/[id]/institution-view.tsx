@@ -15,6 +15,7 @@ import { ProductsSection } from './products';
 import { ProfileForm, RegulatoryForm } from './forms';
 import { GoLiveSection } from './go-live';
 import { ProvisioningSection } from './provisioning';
+import { SuspensionSection } from './suspension';
 
 export type Tenant = PlatformTenantDetail;
 
@@ -23,6 +24,8 @@ export interface Changing {
   readonly changed: (message: string) => void;
   /** It didn't. A stale form reloads what's true now. */
   readonly failed: (err: unknown) => void;
+  /** Read the institution again, quietly (a section waiting on the worker). */
+  readonly reload: () => void;
 }
 
 function Fact({ term, children }: { term: string; children: ReactNode }) {
@@ -36,8 +39,8 @@ function Fact({ term, children }: { term: string; children: ReactNode }) {
 
 /**
  * Spec 0033 Q4: one place to answer "what's the state of this institution?". What it is first, then what it has, then
- * what can be changed. Staff who can't change anything see the same page with the forms left out. Status is shown and
- * never changed here: suspending and offboarding have their own approvals, in later slices (Q15).
+ * what can be changed. Staff who can't change anything see the same page with the forms left out. A suspension leads the
+ * page while it lasts (spec 0037 Q6); otherwise suspending sits with the other changes. Offboarding comes with S7.
  */
 export function InstitutionView() {
   const me = useMe();
@@ -52,6 +55,7 @@ export function InstitutionView() {
   const canEntitle = me.permissions.includes('platform.tenant.entitlements') && !closed;
   const canProvision = me.permissions.includes('platform.tenant.provision');
   const canGoLive = me.permissions.includes('platform.tenant.go_live');
+  const canSuspend = me.permissions.includes('platform.tenant.suspend');
 
   const load = useCallback(() => {
     api<Tenant>('GET', `/tenants/${id}`)
@@ -78,6 +82,7 @@ export function InstitutionView() {
       setError(e);
       if (e.status === 412) load();
     },
+    reload: load,
   };
 
   if (!canRead || gone) return <NothingHere />;
@@ -105,7 +110,6 @@ export function InstitutionView() {
         </div>
         {error ? <Notice requestId={error.requestId}>{error.message}</Notice> : null}
         {done ? <Notice tone="success">{done}</Notice> : null}
-        {t.suspendedReason ? <Notice tone="info">Suspended: {t.suspendedReason}</Notice> : null}
         <dl className="pc-facts pc-facts--card">
           <Fact term="Subdomain">{t.slug}</Fact>
           <Fact term="Ownership">{OWNERSHIP[t.ownership] ?? t.ownership}</Fact>
@@ -132,6 +136,7 @@ export function InstitutionView() {
         </p>
       </section>
 
+      {t.status === 'SUSPENDED' ? <SuspensionSection tenant={t} canSuspend={canSuspend} changing={changing} /> : null}
       <ProvisioningSection tenant={t} canProvision={canProvision} changing={changing} />
       {t.status === 'ONBOARDING' ? <GoLiveSection tenant={t} canGoLive={canGoLive} changing={changing} /> : null}
 
@@ -143,6 +148,7 @@ export function InstitutionView() {
           <RegulatoryForm key={`r${String(t.regulatory.version)}`} tenant={t} changing={changing} />
         </div>
       ) : null}
+      {t.status !== 'SUSPENDED' ? <SuspensionSection tenant={t} canSuspend={canSuspend} changing={changing} /> : null}
       <BrandingSection key={`b${t.branding.primaryColor ?? ''}${t.branding.logoSha256 ?? ''}`} tenant={t} canEdit={canEdit} changing={changing} />
 
       <section className="pc-section" aria-labelledby="t-keys">

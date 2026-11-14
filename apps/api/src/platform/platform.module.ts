@@ -21,6 +21,7 @@ import { PlatformProvisioning, PROVISIONING_KEYS } from './provisioning/provisio
 import { PlatformHealthController } from './platform-health.controller.js';
 import { PlatformInboxView } from './inbox/inbox.service.js';
 import { PlatformTenantsController } from './registry/tenant-registry.controller.js';
+import { TenantSuspension } from './registry/suspension.service.js';
 import { TenantRegistry } from './registry/tenant-registry.service.js';
 import { ConsoleTokenRenewal, RENEW_CONSOLE_TOKEN } from './token-renewal.js';
 import { PlatformAccessReviews } from './observe/access-review.js';
@@ -85,6 +86,7 @@ export class PlatformModule {
         PlatformCredentials,
         PlatformIdentity,
         TenantRegistry,
+        TenantSuspension,
         PlatformProvisioning,
         PlatformContact,
         PlatformStaff,

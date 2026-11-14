@@ -12,3 +12,4 @@ export * from './platform/security-levels.js';
 export * from './platform/tenant-registry.js';
 export * from './platform/provisioning.js';
 export * from './platform/approvals.js';
+export * from './platform/suspension.js';

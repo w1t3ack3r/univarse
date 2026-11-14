@@ -88,6 +88,34 @@
   line-height: 1.55;
   color: var(--uv-text-muted);
 }
+/* Spec 0037 Q8: a suspended institution. Calm, not an error: a pause mark in the institution's colour, the plain message,
+   and a reassurance. No form, no retry: there's nothing for the visitor to do here but contact their ICT unit. */
+.auth__paused-mark {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  border-radius: var(--uv-radius);
+  background: var(--uv-brand, var(--uv-deep));
+}
+.auth__paused-mark::before,
+.auth__paused-mark::after {
+  content: '';
+  width: 6px;
+  height: 18px;
+  border-radius: 2px;
+  background: var(--uv-on-brand, #ffffff);
+}
+.auth__paused-note {
+  margin: 0;
+  padding-top: var(--uv-space-4);
+  border-top: 1px solid var(--uv-border);
+  font-size: var(--uv-text-sm);
+  line-height: 1.55;
+  color: var(--uv-text-muted);
+}
 .auth__form {
   display: grid;
   gap: var(--uv-space-4);

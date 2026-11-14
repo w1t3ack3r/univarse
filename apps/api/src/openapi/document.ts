@@ -319,6 +319,18 @@ const PROBLEM: Json = {
         properties: { path: { type: 'string' }, code: { type: 'string' }, message: { type: 'string' } },
       },
     },
+    institution: {
+      type: 'object',
+      description: 'A suspended institution’s public name and colours, so its page can say so in its branding (423 tenant.suspended only).',
+      required: ['legalName', 'shortName', 'primaryColor', 'textColor'],
+      additionalProperties: false,
+      properties: {
+        legalName: { type: 'string' },
+        shortName: { type: 'string' },
+        primaryColor: { type: ['string', 'null'] },
+        textColor: { type: ['string', 'null'] },
+      },
+    },
   },
 };
 

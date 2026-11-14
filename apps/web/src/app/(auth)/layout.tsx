@@ -14,8 +14,8 @@ const KIND: Record<string, string> = {
  * is the trust mark. Each page renders its own task card as `children`.
  */
 export default async function AuthLayout({ children }: { children: ReactNode }) {
-  const { profile, code } = await tenantProfile();
-  const b = profile?.branding;
+  const { profile, code, suspended } = await tenantProfile();
+  const b = profile?.branding ?? suspended;
   return (
     <div className="auth" style={b?.primaryColor && b.textColor ? brandStyle(b.primaryColor, b.textColor) : undefined}>
       <header className="auth__top">
@@ -28,13 +28,30 @@ export default async function AuthLayout({ children }: { children: ReactNode }) 
         {profile ? (
           <>
             <div className="auth__hero">
-              {b?.logoSha256 ? <img className="auth__logo" src={logoUrl(b.logoSha256)} alt="" /> : null}
+              {profile.branding.logoSha256 ? <img className="auth__logo" src={logoUrl(profile.branding.logoSha256)} alt="" /> : null}
               <p className="auth__institution">{profile.legalName}</p>
               <p className="auth__lede">
                 Your {KIND[profile.type] ?? 'institution'} account for courses, fees, results and everything in between.
               </p>
             </div>
             <div className="auth__panel">{children}</div>
+          </>
+        ) : suspended ? (
+          // Spec 0037 Q8: the institution still leads; the page says plainly that it's paused, and who can help.
+          <>
+            <div className="auth__hero">
+              <p className="auth__institution">{suspended.legalName}</p>
+            </div>
+            <div className="auth__panel">
+              <Card className="auth__card auth__card--paused">
+                <span className="auth__paused-mark" aria-hidden="true" />
+                <h1 id="paused-heading" className="auth__heading">
+                  Temporarily unavailable
+                </h1>
+                <p className="auth__sub">{messageFor('tenant.suspended')}</p>
+                <p className="auth__paused-note">Your account and records are safe. Nothing is lost while it’s paused.</p>
+              </Card>
+            </div>
           </>
         ) : (
           <Card>

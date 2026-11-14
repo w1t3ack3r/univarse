@@ -134,6 +134,8 @@ describe('[P5] the console role, in the database', () => {
         platform_recovery_code: 'SIU',
         platform_security_event_rollup: 'SIU',
         platform_session: 'SIU',
+        // Spec 0037 Q6: a suspension is inserted by column, and only the resume's columns update.
+        platform_tenant_suspension: 'SU',
         platform_user: 'SIU',
         // Spec 0034: the job by column (inserted, read without its invite, updated to resume); the rest whole-table.
         provisioning_job: 'U',
@@ -157,6 +159,11 @@ describe('[P5] the console role, in the database', () => {
         ['provisioning_job', 'invite_enc', 'INSERT', true],
         ['provisioning_job', 'invite_enc', 'SELECT', false],
         ['provisioning_job', 'invite_enc', 'UPDATE', false],
+        // Spec 0037 Q7: the session ending is the worker's to record, never the console's.
+        ['platform_tenant_suspension', 'sessions_ended_at', 'UPDATE', false],
+        ['platform_tenant_suspension', 'sessions_ended', 'UPDATE', false],
+        ['platform_tenant_suspension', 'reason', 'UPDATE', false],
+        ['platform_tenant_suspension', 'resumed_at', 'UPDATE', true],
       ] as const) {
         const [row] = await db.$queryRawUnsafe<{ ok: boolean }[]>(`SELECT has_column_privilege(current_user, '${table}', '${column}', '${privilege}') AS ok`);
         expect([table, column, privilege, row?.ok]).toEqual([table, column, privilege, expected]);

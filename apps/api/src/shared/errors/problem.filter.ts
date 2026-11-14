@@ -52,7 +52,7 @@ export class ProblemFilter implements ExceptionFilter {
 
   private toProblem(e: unknown): ProblemBody {
     if (e instanceof ProblemError) {
-      const errors = (e as ProblemError & { errors?: ProblemBody['errors'] }).errors;
+      const { errors, institution } = e as ProblemError & Pick<ProblemBody, 'errors' | 'institution'>;
       return {
         type: problemType(e.code),
         title: e.title,
@@ -60,6 +60,7 @@ export class ProblemFilter implements ExceptionFilter {
         code: e.code,
         ...(e.detail ? { detail: e.detail } : {}),
         ...(errors ? { errors } : {}),
+        ...(institution ? { institution } : {}),
       };
     }
     if (e instanceof DomainError) {

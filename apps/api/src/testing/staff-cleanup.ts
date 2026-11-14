@@ -17,6 +17,8 @@ export async function pruneRetiredTestStaff(migratorUrl: string | undefined): Pr
     // so a test member's approvals go first.
     const gone = (await db.platformUser.findMany({ where: retired, select: { id: true } })).map((m) => m.id);
     await db.platformApproval.deleteMany({ where: { OR: [{ requestedBy: { in: gone } }, { decidedBy: { in: gone } }] } });
+    // So does a suspension (spec 0037 Q6): test members only ever suspend test institutions.
+    await db.platformTenantSuspension.deleteMany({ where: { OR: [{ suspendedBy: { in: gone } }, { resumedBy: { in: gone } }] } });
     const pruned = await db.platformUser.deleteMany({ where: { id: { in: gone } } });
     // A month a test attested stays open for the owner: a review doesn't outlive its reviewer here (no foreign key, as
     // the audit log's actors).

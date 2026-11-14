@@ -342,6 +342,9 @@ Round 44px lime-wash tiles carry a deep icon beside headings and list rows. Comp
 ### Switch
 A 52×30 pill track with a 22px thumb. Off: sage-leaf track, field-outline inset, white thumb. On: lime track, deep inset, deep thumb slid 22px. Paired with an "On"/"Off" word.
 
+### A Suspended Institution (spec 0037)
+The sign-in shell, unchanged: the institution's name leads, in its own colour. The panel's card holds a pause mark in the institution's colour (`auth__paused-mark`), "Temporarily unavailable", the fixed message ("Please contact your ICT unit"), and a reassurance under a hairline that nothing is lost. No form, no retry: there's nothing to do here but ask the ICT unit. The workspace sends a suspended institution's visitors here, never to the error page. No logo: the logo is a request too, and every request there is refused.
+
 ### Step-up Dialog
 Native dialog, max 440px, 22px corners, raised shadow, 24px padding; backdrop deep at 55%. Rises 16px and fades in over 280ms.
 

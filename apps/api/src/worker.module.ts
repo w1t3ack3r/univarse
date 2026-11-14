@@ -25,6 +25,7 @@ import { Outbox } from './shared/outbox/outbox.js';
 import { keyProviderFrom, type KeyProvider } from '@univarse/crypto';
 import { provisioningKeyFrom } from './shared/crypto/provisioning-key.js';
 import { OnboardingCheck } from './modules/provisioning/onboarding-check.js';
+import { SuspensionSessionEnding } from './modules/suspension/session-ending.js';
 import { ProvisioningQueue } from './modules/provisioning/provisioning-queue.js';
 import { PROVISIONING_OPEN_KEYS, ProvisioningRunner, TENANT_KEYS } from './modules/provisioning/provisioning-runner.js';
 
@@ -109,6 +110,8 @@ export class WorkerModule {
         ContactBlanker,
         // Spec 0034: the go-live checklist's administrator fact, always; provisioning itself only with its key.
         OnboardingCheck,
+        // Spec 0037 Q7: a suspended institution's sessions end here, the only process with its credential.
+        SuspensionSessionEnding,
         ...provisioningProviders(config, overrides),
         // Spec 0016: the platform invalidation relay, on its own role's connection. Only the worker process has
         // PLATFORM_RELAY_URL (loadConfig refuses it elsewhere), so the keys CLI never gets one.

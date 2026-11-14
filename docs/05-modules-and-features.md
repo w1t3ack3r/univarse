@@ -26,7 +26,7 @@ Surfaces: **C** = platform console · **A** = `/apply` · **St** = `/student` ·
 | Tenant registry: create, edit profile, branding (logo, colors), type/ownership | M | |
 | **Provisioning** job: shard placement, seed roles/settings/grading scheme, subdomain + TLS, first institution admin invite | M | Idempotent. Resumable from the failed step. Every step is logged. Built in [spec 0034](specs/0034-provisioning.md): eight steps in the worker; the IT Admin's details sealed for the worker only; a computed go-live checklist gates ONBOARDING → ACTIVE |
 | Custom domain onboarding (TXT verification → on-demand TLS) | S | Unverified domains never get certificates |
-| Lifecycle: suspend (reason) / resume / offboard (60-day export window, warning emails at 45/30/14/7/1 days) / archive / purge | M | Suspended tenant: all tenant logins get 423 with a message. Purge needs 2 platform staff (two-person rule) |
+| Lifecycle: suspend (reason) / resume / offboard (60-day export window, warning emails at 45/30/14/7/1 days) / archive / purge | M | Suspended tenant: all tenant logins get 423 with a message. Purge needs 2 platform staff (two-person rule). Suspend and resume built in [spec 0037](specs/0037-approvals-suspension-notices.md) PR B: one person with step-up and a fixed reason; every session ends; the address shows "temporarily unavailable" in the institution's name and colours |
 | Tenant data export (full, for portability/offboarding) | M | Encrypted archive with a short-lived link |
 | Shard management & pool → dedicated promotion | S | |
 | Migrations runner dashboard (per shard status) | M | |
