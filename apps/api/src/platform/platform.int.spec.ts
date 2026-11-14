@@ -137,6 +137,9 @@ describe('[P5] the console role, in the database', () => {
         // Spec 0037 Q9: notices and their deliveries are inserted by column; only named columns update.
         platform_notice: 'SU',
         platform_notice_delivery: 'SU',
+        // Spec 0038: offboarding by column; its warnings are the worker's, read-only here.
+        platform_offboarding_warning: 'S',
+        platform_tenant_offboarding: 'SU',
         platform_one_time_code: 'SIU',
         platform_recovery_code: 'SIU',
         platform_security_event_rollup: 'SIU',

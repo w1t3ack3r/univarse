@@ -17,6 +17,8 @@ export interface TenantContext {
   readonly primaryColor: string | null;
   /** Spec 0033 Q12: the logo's hash only. Its bytes are read on their own route. */
   readonly logoSha256: string | null;
+  /** Spec 0038 Q3: when an offboarding institution's account closes, or null. */
+  readonly closesAt: Date | null;
 }
 
 interface CacheEntry {
@@ -83,6 +85,7 @@ export class TenantResolver implements OnModuleInit {
             status: domain.tenant.status,
             primaryColor: domain.tenant.branding?.primaryColor ?? null,
             logoSha256: domain.tenant.branding?.logoSha256 ?? null,
+            closesAt: domain.tenant.status === 'OFFBOARDING' ? domain.tenant.purgeAfter : null,
           }
         : null;
 

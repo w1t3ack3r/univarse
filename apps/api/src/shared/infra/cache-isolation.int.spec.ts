@@ -116,6 +116,7 @@ beforeAll(async () => {
     status: 'ACTIVE',
     primaryColor: null,
     logoSha256: null,
+    closesAt: null,
   };
   await h.app.get(InvalidationBus).ready();
   await h.workerCtx.get(InvalidationBus).ready();

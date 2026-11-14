@@ -6,9 +6,9 @@ import type { TenantStatusName } from './tenant-registry.js';
 const ALL: TenantStatusName[] = ['REQUESTED', 'PROVISIONING', 'ONBOARDING', 'ACTIVE', 'SUSPENDED', 'OFFBOARDING', 'ARCHIVED', 'PURGED'];
 
 describe('suspension (spec 0037 Q6, Q7)', () => {
-  it('starts only from ACTIVE or ONBOARDING, and resumes only to those', () => {
-    expect(ALL.filter(suspendable)).toEqual(['ONBOARDING', 'ACTIVE']);
-    expect(ALL.filter(resumableTo)).toEqual(['ONBOARDING', 'ACTIVE']);
+  it('starts only from ACTIVE, ONBOARDING or OFFBOARDING (spec 0038 Q3), and resumes only to those', () => {
+    expect(ALL.filter(suspendable)).toEqual(['ONBOARDING', 'ACTIVE', 'OFFBOARDING']);
+    expect(ALL.filter(resumableTo)).toEqual(['ONBOARDING', 'ACTIVE', 'OFFBOARDING']);
   });
 
   it('has a fixed list of reasons, and non-payment is not one', () => {

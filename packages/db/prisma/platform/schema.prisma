@@ -82,7 +82,7 @@ model Tenant {
   updatedAt            DateTime        @updatedAt @map("updated_at") @db.Timestamptz(3)
   version              Int             @default(0)
 
-  shard                    Shard                      @relation(fields: [shardId], references: [id], onDelete: Restrict)
+  shard                    Shard                       @relation(fields: [shardId], references: [id], onDelete: Restrict)
   domains                  TenantDomain[]
   products                 TenantProduct[]
   keyReencryption          KeyReencryption?
@@ -96,6 +96,7 @@ model Tenant {
   suspensions              PlatformTenantSuspension[]
   platformNoticeDeliveries PlatformNoticeDelivery[]
   incidents                PlatformIncidentTenant[]
+  offboardings             PlatformTenantOffboarding[]
 
   @@index([releaseRing])
   @@map("tenant")
@@ -346,22 +347,25 @@ model PlatformUser {
   createdAt             DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt             DateTime     @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  sessions           PlatformSession[]
-  mfaFactors         PlatformMfaFactor[]
-  recoveryCodes      PlatformRecoveryCode[]
-  mfaChallenges      PlatformMfaChallenge[]
-  oneTimeCodes       PlatformOneTimeCode[]
-  knownDevices       PlatformKnownDevice[]
-  contactChanges     PlatformContactChange[]
-  approvalsRequested PlatformApproval[]         @relation("ApprovalRequester")
-  approvalsDecided   PlatformApproval[]         @relation("ApprovalDecider")
-  suspensionsMade    PlatformTenantSuspension[] @relation("SuspensionBy")
-  suspensionsResumed PlatformTenantSuspension[] @relation("ResumeBy")
-  noticesCreated     PlatformNotice[]           @relation("NoticeCreatedBy")
-  noticesPublished   PlatformNotice[]           @relation("NoticePublishedBy")
-  noticesWithdrawn   PlatformNotice[]           @relation("NoticeWithdrawnBy")
-  incidentsOpened    PlatformIncident[]         @relation("IncidentOpenedBy")
-  incidentUpdates    PlatformIncidentUpdate[]   @relation("IncidentUpdatePostedBy")
+  sessions              PlatformSession[]
+  mfaFactors            PlatformMfaFactor[]
+  recoveryCodes         PlatformRecoveryCode[]
+  mfaChallenges         PlatformMfaChallenge[]
+  oneTimeCodes          PlatformOneTimeCode[]
+  knownDevices          PlatformKnownDevice[]
+  contactChanges        PlatformContactChange[]
+  approvalsRequested    PlatformApproval[]          @relation("ApprovalRequester")
+  approvalsDecided      PlatformApproval[]          @relation("ApprovalDecider")
+  suspensionsMade       PlatformTenantSuspension[]  @relation("SuspensionBy")
+  suspensionsResumed    PlatformTenantSuspension[]  @relation("ResumeBy")
+  noticesCreated        PlatformNotice[]            @relation("NoticeCreatedBy")
+  noticesPublished      PlatformNotice[]            @relation("NoticePublishedBy")
+  noticesWithdrawn      PlatformNotice[]            @relation("NoticeWithdrawnBy")
+  incidentsOpened       PlatformIncident[]          @relation("IncidentOpenedBy")
+  incidentUpdates       PlatformIncidentUpdate[]    @relation("IncidentUpdatePostedBy")
+  offboardingsStarted   PlatformTenantOffboarding[] @relation("OffboardingStartedBy")
+  offboardingsCancelled PlatformTenantOffboarding[] @relation("OffboardingCancelledBy")
+  offboardingsExtended  PlatformTenantOffboarding[] @relation("OffboardingExtendedBy")
 
   @@map("platform_user")
 }
@@ -916,4 +920,57 @@ model PlatformIncidentTenant {
   @@id([incidentId, tenantId])
   @@index([tenantId])
   @@map("platform_incident_tenant")
+}
+
+/// Spec 0038 Q2–Q6: an institution's departure, before the purge. The record never changes (a trigger); a cancellation
+/// and an extension are each written once. At most one open (not cancelled) per institution.
+model PlatformTenantOffboarding {
+  id              String       @id @default(dbgenerated("uuidv7()")) @db.Uuid
+  tenantId        String       @map("tenant_id") @db.Uuid
+  /// One of packages/domain OFFBOARDING_REASONS.
+  reason          String
+  /// Staff only.
+  note            String?
+  previousStatus  TenantStatus @map("previous_status")
+  startedBy       String       @map("started_by") @db.Uuid
+  startedAt       DateTime     @default(now()) @map("started_at") @db.Timestamptz(3)
+  /// The window's end as first set, and as it stands (an extension moves `endsAt`).
+  firstEndsAt     DateTime     @map("first_ends_at") @db.Timestamptz(3)
+  endsAt          DateTime     @map("ends_at") @db.Timestamptz(3)
+  cancelledBy     String?      @map("cancelled_by") @db.Uuid
+  cancelledAt     DateTime?    @map("cancelled_at") @db.Timestamptz(3)
+  archivedAt      DateTime?    @map("archived_at") @db.Timestamptz(3)
+  sessionsEndedAt DateTime?    @map("sessions_ended_at") @db.Timestamptz(3)
+  extendedBy      String?      @map("extended_by") @db.Uuid
+  extendedAt      DateTime?    @map("extended_at") @db.Timestamptz(3)
+  extensionReason String?      @map("extension_reason")
+  updatedAt       DateTime     @updatedAt @map("updated_at") @db.Timestamptz(3)
+  version         Int          @default(0)
+
+  tenant    Tenant                       @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  starter   PlatformUser                 @relation("OffboardingStartedBy", fields: [startedBy], references: [id], onDelete: Restrict)
+  canceller PlatformUser?                @relation("OffboardingCancelledBy", fields: [cancelledBy], references: [id], onDelete: Restrict)
+  extender  PlatformUser?                @relation("OffboardingExtendedBy", fields: [extendedBy], references: [id], onDelete: Restrict)
+  warnings  PlatformOffboardingWarning[]
+
+  @@index([tenantId, startedAt])
+  @@map("platform_tenant_offboarding")
+}
+
+/// Spec 0038 Q4: one warning sent to an institution's IT Admins, once per round and day. Counts only.
+model PlatformOffboardingWarning {
+  id            String    @id @default(dbgenerated("uuidv7()")) @db.Uuid
+  offboardingId String    @map("offboarding_id") @db.Uuid
+  /// 0: the first window; 1: the extension.
+  round         Int       @db.SmallInt
+  daysLeft      Int       @map("days_left") @db.SmallInt
+  itAdmins      Int?      @map("it_admins")
+  emailsQueued  Int?      @map("emails_queued")
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  queuedAt      DateTime? @map("queued_at") @db.Timestamptz(3)
+
+  offboarding PlatformTenantOffboarding @relation(fields: [offboardingId], references: [id], onDelete: Restrict)
+
+  @@unique([offboardingId, round, daysLeft])
+  @@map("platform_offboarding_warning")
 }

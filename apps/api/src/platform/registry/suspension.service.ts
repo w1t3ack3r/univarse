@@ -91,7 +91,7 @@ export class TenantSuspension {
       id: r.id,
       reason: r.reason as SuspensionReason,
       note: r.note,
-      previousStatus: r.previousStatus as 'ACTIVE' | 'ONBOARDING',
+      previousStatus: r.previousStatus as 'ACTIVE' | 'ONBOARDING' | 'OFFBOARDING',
       suspendedAt: r.suspendedAt.toISOString(),
       suspendedBy: { id: r.suspender.id, name: r.suspender.displayName },
       resumedAt: r.resumedAt?.toISOString() ?? null,

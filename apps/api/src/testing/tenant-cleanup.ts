@@ -53,6 +53,8 @@ export async function pruneTestTenants(urls: CleanupUrls, prefix: string): Promi
       await tx.platformTenantSuspension.deleteMany({ where: { tenantId: { in: ids } } });
       await tx.platformNoticeDelivery.deleteMany({ where: { tenantId: { in: ids } } });
       await tx.platformIncidentTenant.deleteMany({ where: { tenantId: { in: ids } } });
+      await tx.platformOffboardingWarning.deleteMany({ where: { offboarding: { tenantId: { in: ids } } } });
+      await tx.platformTenantOffboarding.deleteMany({ where: { tenantId: { in: ids } } });
       await tx.keyDestruction.deleteMany({ where: { tenantId: { in: ids } } });
       await tx.keyReencryption.deleteMany({ where: { tenantId: { in: ids } } });
       await tx.tenantDataKey.deleteMany({ where: { tenantId: { in: ids } } });

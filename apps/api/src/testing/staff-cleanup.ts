@@ -19,6 +19,10 @@ export async function pruneRetiredTestStaff(migratorUrl: string | undefined): Pr
     await db.platformApproval.deleteMany({ where: { OR: [{ requestedBy: { in: gone } }, { decidedBy: { in: gone } }] } });
     // So does a suspension (spec 0037 Q6): test members only ever suspend test institutions.
     await db.platformTenantSuspension.deleteMany({ where: { OR: [{ suspendedBy: { in: gone } }, { resumedBy: { in: gone } }] } });
+    // And an offboarding (spec 0038): test members only ever offboard test institutions.
+    const offboardings = { OR: [{ startedBy: { in: gone } }, { cancelledBy: { in: gone } }, { extendedBy: { in: gone } }] };
+    await db.platformOffboardingWarning.deleteMany({ where: { offboarding: offboardings } });
+    await db.platformTenantOffboarding.deleteMany({ where: offboardings });
     // And a notice (spec 0037 Q9): test members only ever write to test institutions, by hand or by a pilot ring.
     const notices = { OR: [{ createdBy: { in: gone } }, { publishedBy: { in: gone } }, { withdrawnBy: { in: gone } }] };
     await db.platformNoticeDelivery.deleteMany({ where: { notice: notices } });

@@ -26,7 +26,7 @@ export const BACKOFF_MS = [10_000, 30_000, 120_000];
 export const MAX_ATTEMPTS = BACKOFF_MS.length + 1;
 /** A slot that was never completed is abandoned a minute after its URL expired (FU7). */
 const ABANDON_GRACE_MS = 60_000;
-const SERVABLE = ['ACTIVE', 'ONBOARDING'] as const;
+const SERVABLE = ['ACTIVE', 'ONBOARDING', 'OFFBOARDING'] as const; // spec 0038 Q3: an offboarding institution works as before
 
 export interface Claimed {
   id: string;

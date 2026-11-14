@@ -25,6 +25,7 @@ import { PlatformIncidentsController } from './incidents/incidents.controller.js
 import { PlatformIncidents } from './incidents/incidents.service.js';
 import { PlatformNoticesController } from './notices/notices.controller.js';
 import { PlatformNotices } from './notices/notices.service.js';
+import { TenantOffboarding } from './registry/offboarding.service.js';
 import { TenantSuspension } from './registry/suspension.service.js';
 import { TenantRegistry } from './registry/tenant-registry.service.js';
 import { ConsoleTokenRenewal, RENEW_CONSOLE_TOKEN } from './token-renewal.js';
@@ -93,6 +94,7 @@ export class PlatformModule {
         PlatformIdentity,
         TenantRegistry,
         TenantSuspension,
+        TenantOffboarding,
         PlatformNotices,
         PlatformIncidents,
         PlatformProvisioning,

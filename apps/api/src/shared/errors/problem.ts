@@ -8,7 +8,7 @@ export interface ProblemBody {
   detail?: string;
   requestId?: string;
   errors?: { path: string; code: string; message: string }[];
-  /** Spec 0037 Q8: a suspended institution's public name and colours (423 tenant.suspended only), never personal data. */
+  /** Spec 0037 Q8, 0038 Q5: a suspended or closed institution's public name and colours (423, 410), never personal data. */
   institution?: SuspendedInstitution;
 }
 

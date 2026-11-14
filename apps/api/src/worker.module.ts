@@ -27,6 +27,7 @@ import { provisioningKeyFrom } from './shared/crypto/provisioning-key.js';
 import { OnboardingCheck } from './modules/provisioning/onboarding-check.js';
 import { SuspensionSessionEnding } from './modules/suspension/session-ending.js';
 import { NoticeFanOut } from './modules/notices/notice-fan-out.js';
+import { OffboardingPass } from './modules/offboarding/offboarding-pass.js';
 import { ProvisioningQueue } from './modules/provisioning/provisioning-queue.js';
 import { PROVISIONING_OPEN_KEYS, ProvisioningRunner, TENANT_KEYS } from './modules/provisioning/provisioning-runner.js';
 
@@ -116,6 +117,8 @@ export class WorkerModule {
         // Spec 0037 Q10: notices' emails to IT Admins (through each institution's outbox) and their delivery log.
         Outbox,
         NoticeFanOut,
+        // Spec 0038 Q4, Q5: offboarding's warnings, the archive and its session ending.
+        OffboardingPass,
         ...provisioningProviders(config, overrides),
         // Spec 0016: the platform invalidation relay, on its own role's connection. Only the worker process has
         // PLATFORM_RELAY_URL (loadConfig refuses it elsewhere), so the keys CLI never gets one.

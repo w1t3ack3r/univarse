@@ -18,7 +18,7 @@ const BATCH = 10;
 /** Covers a full batch at the SMTP timeout; the row locks are what make the claim exclusive (B6). */
 const TX_TIMEOUT_MS = 120_000;
 /** Tenants whose events are delivered. Suspended tenants' events wait (design decisions). */
-const SERVABLE = ['ACTIVE', 'ONBOARDING'] as const;
+const SERVABLE = ['ACTIVE', 'ONBOARDING', 'OFFBOARDING'] as const; // spec 0038 Q3: an offboarding institution works as before
 /** Spec 0037 Q8: a suspended institution's work stays held, except the platform's notices to its IT Admins. */
 const NOTICES_ONLY = 'SUSPENDED';
 
