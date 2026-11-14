@@ -1,7 +1,7 @@
 /**
  * Spec 0006 PR B — DEK rotation and the sweep (E7), KEK re-wrap (E8), v1 → v2 migration (E9).
  * Prereqs: `pnpm dev:infra` (Vault configured, VAULT_ADMIN_TOKEN in .env), `pnpm db:migrate && pnpm db:seed`.
- * Every test uses scratch tenants (OFFBOARDING: no resolver, no outbox delivery), never the seeded ones.
+ * Every test uses scratch tenants (ARCHIVED: nothing serves them, no outbox delivery; spec 0038 made OFFBOARDING served), never the seeded ones.
  */
 import { randomBytes, randomUUID } from 'node:crypto';
 import type { INestApplicationContext } from '@nestjs/common';
@@ -77,7 +77,7 @@ async function scratch(label: string, opts: { outbox?: number; legacy?: boolean 
       shortName: `KEY-${label}`.toUpperCase(),
       type: 'UNIVERSITY',
       ownership: 'PRIVATE',
-      status: 'OFFBOARDING',
+      status: 'ARCHIVED',
       shardId,
     },
   });
