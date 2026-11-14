@@ -70,7 +70,8 @@ export function noticeProblems(n: NoticeDraft, now: Date): (readonly [field: str
   if (title.length < 3 || title.length > NOTICE_TITLE_MAX) out.push(['title', 'title_length']);
   const body = n.body.trim();
   if (body.length < 3 || body.length > NOTICE_BODY_MAX) out.push(['body', 'body_length']);
-  if (CONTROL.test(n.title)) out.push(['title', 'control_characters']);
+  // A title is one line: it becomes an email's subject (Q10), where a line break could start a header.
+  if (CONTROL.test(n.title) || /[\r\n\t]/.test(n.title)) out.push(['title', 'control_characters']);
   if (CONTROL.test(n.body)) out.push(['body', 'control_characters']);
   if (n.audience === 'RING' && n.ring === null) out.push(['ring', 'ring_required']);
   if (n.audience === 'TENANTS' && n.tenantIds.length === 0) out.push(['tenantIds', 'tenants_required']);

@@ -345,6 +345,9 @@ A 52×30 pill track with a 22px thumb. Off: sage-leaf track, field-outline inset
 ### A Suspended Institution (spec 0037)
 The sign-in shell, unchanged: the institution's name leads, in its own colour. The panel's card holds a pause mark in the institution's colour (`auth__paused-mark`), "Temporarily unavailable", the fixed message ("Please contact your ICT unit"), and a reassurance under a hairline that nothing is lost. No form, no retry: there's nothing to do here but ask the ICT unit. The workspace sends a suspended institution's visitors here, never to the error page. No logo: the logo is a request too, and every request there is refused.
 
+### Notices from UniVarse (spec 0037)
+A calm strip, not an alarm, at the top of the sign-in shell (maintenance) and of the workspace's content: maintenance on the info wash with a clock, announcements and release notes on sage with a megaphone, in a white icon tile. The kind leads as a small word ("Planned maintenance", "From UniVarse", "What's new"), then the title, the window in Nigerian time, and the message as plain text with its line breaks; long words and links wrap. Signed in, each has a 44 px dismiss button named for its title.
+
 ### Step-up Dialog
 Native dialog, max 440px, 22px corners, raised shadow, 24px padding; backdrop deep at 55%. Rises 16px and fades in over 280ms.
 

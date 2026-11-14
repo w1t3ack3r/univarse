@@ -19,12 +19,16 @@ const BATCH = 10;
 const TX_TIMEOUT_MS = 120_000;
 /** Tenants whose events are delivered. Suspended tenants' events wait (design decisions). */
 const SERVABLE = ['ACTIVE', 'ONBOARDING'] as const;
+/** Spec 0037 Q8: a suspended institution's work stays held, except the platform's notices to its IT Admins. */
+const NOTICES_ONLY = 'SUSPENDED';
 
 const EmailPayload = z.object({ to: z.string().min(3), subject: z.string(), text: z.string() });
 
 export interface TenantRef {
   readonly id: string;
   readonly shardId: string;
+  /** Spec 0037 Q8: only notice emails are claimed (a suspended institution). */
+  readonly noticesOnly?: boolean;
 }
 
 export interface BatchCounts {
@@ -73,10 +77,11 @@ export class OutboxWorker {
   private async runPass(): Promise<BatchCounts> {
     const total: BatchCounts = { claimed: 0, sent: 0, retried: 0, dead: 0 };
     const tenants = await this.platform.tenant.findMany({
-      where: { status: { in: [...SERVABLE] } },
-      select: { id: true, shardId: true },
+      where: { status: { in: [...SERVABLE, NOTICES_ONLY] } },
+      select: { id: true, shardId: true, status: true },
     });
-    for (const tenant of tenants) {
+    for (const { status, ...ref } of tenants) {
+      const tenant: TenantRef = { ...ref, noticesOnly: status === NOTICES_ONLY };
       try {
         // Spec 0012 OB2: lines from anything this tenant's batch calls carry its tenantId.
         // `span: undefined`: the pass spans every tenant, so it must not be tagged with one (OB8).
@@ -103,6 +108,7 @@ export class OutboxWorker {
           SELECT id, type, payload_enc, attempts, traceparent FROM outbox_event
           WHERE tenant_id = ${tenant.id}::uuid AND status = 'PENDING' AND next_attempt_at <= now()
             AND product = ANY(${active}::text[])
+            AND (${tenant.noticesOnly === true} = false OR notice_id IS NOT NULL)
           ORDER BY next_attempt_at, id
           LIMIT ${BATCH}
           FOR UPDATE SKIP LOCKED`;

@@ -8,6 +8,7 @@
 import { randomBytes, randomInt } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import type { NestFastifyApplication } from '@nestjs/platform-fastify';
+import { keyProviderFrom, provisionTenantKey } from '@univarse/crypto';
 import { createPlatformClient, createTenantShardClient, forTenant, type PlatformClient, type TenantShardClient } from '@univarse/db';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createApp } from '../../bootstrap.js';
@@ -20,6 +21,7 @@ import { platformTestConfig } from '../../testing/platform-env.js';
 import { pruneTestTenants } from '../../testing/tenant-cleanup.js';
 import { hashPassword } from '../identity/password.js';
 import { base32Decode, hotp, timeStep } from '../identity/totp.js';
+import { enrolTestTotp, totpCode } from '../../testing/mfa-helpers.js';
 import { NoticeBoard } from './notice-board.service.js';
 
 const rootEnv = new URL('../../../../../.env', import.meta.url);
@@ -41,6 +43,8 @@ let poolId: string;
 const staff = new Set<string>();
 const cookies = new Map<Role, string>();
 const published = new Set<string>();
+/** IT Admins hold a privileged permission, so they sign in with an authenticator (spec 0001 M8). */
+const factors = new Map<string, Uint8Array>();
 
 const ip = () => `127.${String(randomInt(1, 255))}.${String(randomInt(0, 255))}.${String(randomInt(1, 255))}`;
 const totp = (secret: string, offset = 0) => hotp(base32Decode(secret), timeStep(Date.now()) + offset);
@@ -107,22 +111,24 @@ interface Inst {
   student: string;
 }
 
-/** An institution of its own, with an IT Admin (the INSTITUTION_ADMIN role) and a student, both able to sign in. */
+/** An institution of its own, with an IT Admin (who may switch products on) and a student, both able to sign in. */
 async function institution(status: 'ACTIVE' | 'SUSPENDED' | 'ARCHIVED' = 'ACTIVE'): Promise<Inst> {
   const slug = `${PREFIX}${randomBytes(4).toString('hex')}`;
   const host = `${slug}.univarse.localhost`;
   const t = await migrator.tenant.create({ data: { slug, legalName: `Notice Test ${slug}`, shortName: slug.slice(-8).toUpperCase(), type: 'UNIVERSITY', ownership: 'STATE', status, shardId: poolId }, select: { id: true } });
   await migrator.tenantDomain.create({ data: { tenantId: t.id, hostname: host, kind: 'SUBDOMAIN', verifiedAt: new Date() } });
+  // Its own data key: an IT Admin's authenticator secret is encrypted under it.
+  await provisionTenantKey(migrator, keyProviderFrom(loadConfig({ ...process.env, NODE_ENV: 'test' })), t.id);
   const db = forTenant(shard, t.id);
-  const user = async (key: string, permissions: string[]) => {
+  const user = async (key: string, permissions: string[], mfa = false) => {
     const role = await db.role.create({ data: { tenantId: t.id, key, name: key, isSystem: true, permissions }, select: { id: true } });
     const username = `N6-${randomBytes(3).toString('hex').toUpperCase()}`;
-    const u = await db.userAccount.create({ data: { tenantId: t.id, username, displayName: 'Test Person', status: 'ACTIVE', passwordHash: await hashPassword(PASSWORD) }, select: { id: true } });
+    const u = await db.userAccount.create({ data: { tenantId: t.id, username, email: `${username.toLowerCase()}@test.local`, displayName: 'Test Person', status: 'ACTIVE', passwordHash: await hashPassword(PASSWORD) }, select: { id: true } });
     await db.roleAssignment.create({ data: { tenantId: t.id, userId: u.id, roleId: role.id, scopeType: 'INSTITUTION' } });
+    if (mfa) factors.set(username, await enrolTestTotp(shard, t.id, u.id));
     return username;
   };
-  // A permission no MFA rule covers, so the role's holders sign in with a password here.
-  const admin = await user('INSTITUTION_ADMIN', ['settings.tenant.view']);
+  const admin = await user('INSTITUTION_ADMIN', ['settings.product.manage'], true);
   const student = await user('STUDENT', []);
   return { id: t.id, host, admin, student };
 }
@@ -130,7 +136,12 @@ async function institution(status: 'ACTIVE' | 'SUSPENDED' | 'ARCHIVED' = 'ACTIVE
 const signIn = async (i: Inst, username: string) => {
   const r = await inject(tenantApp, i.host, 'POST', '/api/v1/auth/login', { body: { username, password: PASSWORD } });
   expect(r.status).toBe(200);
-  return (r.setCookie[0] ?? '').split(';')[0] ?? '';
+  const first = (r.setCookie[0] ?? '').split(';')[0] ?? '';
+  const secret = factors.get(username);
+  if (!secret) return first;
+  const v = await inject(tenantApp, i.host, 'POST', '/api/v1/auth/mfa/verify', { cookie: first, body: { code: totpCode(secret) } });
+  expect(v.status).toBe(200);
+  return (v.setCookie[0] ?? '').split(';')[0] ?? '';
 };
 const fresh = () => {
   tenantApp.get(TenantResolver).invalidate();

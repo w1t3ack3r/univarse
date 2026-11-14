@@ -11,10 +11,15 @@ import { PLATFORM_DB, ShardRegistry } from '../../shared/db/db.module.js';
 import { ProblemError } from '../../shared/errors/problem.js';
 import { CHANNELS, InvalidationBus } from '../../shared/infra/invalidation-bus.js';
 import type { TenantContext } from '../../shared/tenancy/tenant-resolver.service.js';
+import type { Permission } from '@univarse/contracts';
 import type { Actor } from '../identity/actor.js';
+import { INSTITUTION, PolicyService } from '../identity/policy.js';
 
-/** The system role the platform's notices call IT Admins (Q10). */
-export const IT_ADMIN_ROLE = 'INSTITUTION_ADMIN';
+/**
+ * Q10's IT Admins: whoever may switch the institution's products on. A permission, not a role's name, so it follows
+ * the institution's own roles (today the system role INSTITUTION_ADMIN holds it, and only it).
+ */
+export const IT_ADMIN_PERMISSION = 'settings.product.manage' satisfies Permission;
 
 export interface BannerNotice {
   readonly id: string;
@@ -65,6 +70,7 @@ export class NoticeBoard implements OnModuleInit {
     @Inject(APP_CONFIG) private readonly config: AppConfig,
     private readonly bus: InvalidationBus,
     private readonly shards: ShardRegistry,
+    private readonly policy: PolicyService,
   ) {}
 
   onModuleInit(): void {
@@ -104,9 +110,9 @@ export class NoticeBoard implements OnModuleInit {
     this.cache.clear();
   }
 
-  /** What this person may see here now, dismissed or not. IT Admins are those holding the role, from the loaded grants. */
+  /** What this person may see here now, dismissed or not. Whether they're an IT Admin is the policy's decision. */
   private async visibleTo(tenant: TenantContext, actor: Actor, now: Date): Promise<BannerNotice[]> {
-    const itAdmin = actor.grants.some((g) => g.roleKey === IT_ADMIN_ROLE);
+    const itAdmin = this.policy.holds(actor, IT_ADMIN_PERMISSION, INSTITUTION);
     return (await this.showing(tenant.tenantId, now)).filter((n) => bannerFor(n.kind, itAdmin));
   }
 

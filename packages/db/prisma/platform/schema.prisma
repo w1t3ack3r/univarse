@@ -806,10 +806,18 @@ model PlatformNotice {
 
 /// Spec 0037 Q9, Q11: one institution a published notice reaches, decided when it was published.
 model PlatformNoticeDelivery {
-  noticeId    String    @map("notice_id") @db.Uuid
-  tenantId    String    @map("tenant_id") @db.Uuid
-  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
-  withdrawnAt DateTime? @map("withdrawn_at") @db.Timestamptz(3)
+  noticeId         String    @map("notice_id") @db.Uuid
+  tenantId         String    @map("tenant_id") @db.Uuid
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  withdrawnAt      DateTime? @map("withdrawn_at") @db.Timestamptz(3)
+  /// Spec 0037 Q10, Q11: the email fan-out and the delivery log, counts only (no address crosses here).
+  itAdmins         Int?      @map("it_admins")
+  emailsQueued     Int?      @map("emails_queued")
+  emailsSent       Int       @default(0) @map("emails_sent")
+  emailsFailed     Int       @default(0) @map("emails_failed")
+  bannersDismissed Int       @default(0) @map("banners_dismissed")
+  fannedOutAt      DateTime? @map("fanned_out_at") @db.Timestamptz(3)
+  countedAt        DateTime? @map("counted_at") @db.Timestamptz(3)
 
   notice PlatformNotice @relation(fields: [noticeId], references: [id], onDelete: Restrict)
   tenant Tenant         @relation(fields: [tenantId], references: [id], onDelete: Restrict)

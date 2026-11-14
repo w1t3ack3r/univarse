@@ -244,10 +244,10 @@ describe('[OA3] settings: one operation, value shapes derived from the registry,
 describe('[OA5][OA6] authentication, step-up, CSRF and path parameters as enforced', () => {
   it('[OA5] public operations have no security; MFA verify uses the challenge cookie; the rest the session', () => {
     expect(ids((o) => (o.security as unknown[]).length === 0)).toEqual(
-      ['confirmActivation', 'confirmContactCorrection', 'confirmPasswordReset', 'live', 'login', 'publicProfile', 'ready', 'tenantLogo', 'requestActivation', 'requestPasswordReset', 'undoContactChange'].sort(),
+      ['confirmActivation', 'confirmContactCorrection', 'confirmPasswordReset', 'live', 'login', 'publicNotices', 'publicProfile', 'ready', 'tenantLogo', 'requestActivation', 'requestPasswordReset', 'undoContactChange'].sort(),
     );
     expect(byId('verifyMfa').security).toEqual([{ mfaChallenge: [] }]);
-    expect(ids((o) => JSON.stringify(o.security) === '[{"session":[]}]')).toHaveLength(ops.length - 12);
+    expect(ids((o) => JSON.stringify(o.security) === '[{"session":[]}]')).toHaveLength(ops.length - 13);
   });
 
   it('[OA5] x-step-up is derived from @RequireStepUp and the permission catalog, as the guard does', () => {
@@ -354,7 +354,7 @@ describe('[OA4] every response, including every error', () => {
 describe('[OA5][OA6] headers, cookies, ETags, binary and empty responses', () => {
   it('[OA6] 204 responses document no content', () => {
     for (const { op } of ops) expect(responses(op)['204']?.content, op.operationId).toBeUndefined();
-    expect(ids((o) => '204' in responses(o))).toEqual(['confirmActivation', 'confirmContactChange', 'confirmContactCorrection', 'confirmPasswordReset', 'deleteFile', 'logout', 'undoContactChange']);
+    expect(ids((o) => '204' in responses(o))).toEqual(['confirmActivation', 'confirmContactChange', 'confirmContactCorrection', 'confirmPasswordReset', 'deleteFile', 'dismissNotice', 'logout', 'undoContactChange']);
   });
 
   it('[OA6] the download is binary: PDF, PNG or JPEG, attachment, verified length, sandboxed', () => {

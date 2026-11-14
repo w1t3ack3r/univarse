@@ -108,11 +108,16 @@ export function NoticeView() {
                 Institutions it reached
                 <span className="pc-count">{n.deliveries.length}</span>
               </h2>
+              <p className="pc-note">Counts only: the platform never sees who was emailed. Kept up to date for two weeks; a failed email is one the mail server refused.</p>
               <table className="pc-table">
                 <thead>
                   <tr>
                     <th scope="col">Institution</th>
                     <th scope="col">Banner</th>
+                    <th scope="col" className="pc-table__num">IT Admins emailed</th>
+                    <th scope="col" className="pc-table__num">Sent</th>
+                    <th scope="col" className="pc-table__num">Failed</th>
+                    <th scope="col" className="pc-table__num">Dismissed</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -124,6 +129,18 @@ export function NoticeView() {
                         </Link>
                       </td>
                       <td data-label="Banner">{d.withdrawnAt ? 'Withdrawn' : n.live ? 'Showing' : 'Ended'}</td>
+                      <td data-label="IT Admins emailed" className="pc-table__num">
+                        {d.emailsQueued === null ? 'Not yet' : `${String(d.emailsQueued)} of ${String(d.itAdmins ?? 0)}`}
+                      </td>
+                      <td data-label="Sent" className="pc-table__num">
+                        {d.emailsSent}
+                      </td>
+                      <td data-label="Failed" className="pc-table__num">
+                        {d.emailsFailed ? <span className="pc-status pc-status--bad">{d.emailsFailed}</span> : 0}
+                      </td>
+                      <td data-label="Dismissed" className="pc-table__num">
+                        {d.bannersDismissed}
+                      </td>
                     </tr>
                   ))}
                 </tbody>

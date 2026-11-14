@@ -1985,3 +1985,13 @@ html {
   flex: 1 1 16rem;
   margin: 0;
 }
+
+/* Counts in a table line up by their digits (spec 0037 Q11's delivery log). */
+.pc-table__num {
+  font-variant-numeric: tabular-nums;
+}
+@media (min-width: 720px) {
+  .pc-table__num {
+    text-align: right;
+  }
+}

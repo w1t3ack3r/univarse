@@ -127,7 +127,16 @@ export class PlatformNotices {
       r.tenantIds.length ? this.db.tenant.findMany({ where: { id: { in: r.tenantIds } }, select: { id: true, slug: true, shortName: true }, orderBy: { shortName: 'asc' } }) : [],
       this.db.platformNoticeDelivery.findMany({
         where: { noticeId: id },
-        select: { withdrawnAt: true, tenant: { select: { id: true, slug: true, shortName: true } } },
+        select: {
+          withdrawnAt: true,
+          itAdmins: true,
+          emailsQueued: true,
+          emailsSent: true,
+          emailsFailed: true,
+          bannersDismissed: true,
+          countedAt: true,
+          tenant: { select: { id: true, slug: true, shortName: true } },
+        },
         orderBy: { tenant: { shortName: 'asc' } },
       }),
     ]);
@@ -142,7 +151,16 @@ export class PlatformNotices {
       withdrawnAt: iso(r.withdrawnAt),
       version: r.version,
       problems: r.status === 'DRAFT' ? noticeProblems(draftOf(r), now).map(([path, code]) => ({ path, code })) : [],
-      deliveries: deliveries.map((d) => ({ tenant: ref(d.tenant), withdrawnAt: iso(d.withdrawnAt) })),
+      deliveries: deliveries.map((d) => ({
+        tenant: ref(d.tenant),
+        withdrawnAt: iso(d.withdrawnAt),
+        itAdmins: d.itAdmins,
+        emailsQueued: d.emailsQueued,
+        emailsSent: d.emailsSent,
+        emailsFailed: d.emailsFailed,
+        bannersDismissed: d.bannersDismissed,
+        countedAt: iso(d.countedAt),
+      })),
     };
   }
 

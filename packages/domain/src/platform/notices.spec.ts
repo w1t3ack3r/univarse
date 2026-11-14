@@ -48,6 +48,8 @@ describe('notices (spec 0037 Q9, Q10, Q12)', () => {
     expect(problems({ body: 'line one\nline two\tend' })).toEqual([]);
     expect(problems({ title: 'Pay here ‮gnp.exe' })).toEqual(['control_characters']);
     expect(problems({ body: 'bell \u0007 here' })).toEqual(['control_characters']);
+    // A title becomes an email subject: one line only.
+    expect(problems({ title: 'Hello\r\nBcc: everyone@example.test' })).toEqual(['control_characters']);
   });
 
   it('needs its audience: a ring for a ring, institutions for chosen institutions, and no more than the cap', () => {

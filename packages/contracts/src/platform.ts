@@ -176,8 +176,22 @@ const noticeView = z.strictObject({
   version: z.number().int(),
   /** What stops a draft being published now, as field and problem codes. Empty once it may be. */
   problems: z.array(z.strictObject({ path: z.string(), code: z.string() })),
-  /** The institutions it reached, once published. */
-  deliveries: z.array(z.strictObject({ tenant: institutionRef, withdrawnAt: z.iso.datetime().nullable() })),
+  /**
+   * The institutions it reached, once published, with Q11's delivery log: counts only. `itAdmins` and `emailsQueued`
+   * are null until the worker has fanned it out there.
+   */
+  deliveries: z.array(
+    z.strictObject({
+      tenant: institutionRef,
+      withdrawnAt: z.iso.datetime().nullable(),
+      itAdmins: z.number().int().nullable(),
+      emailsQueued: z.number().int().nullable(),
+      emailsSent: z.number().int(),
+      emailsFailed: z.number().int(),
+      bannersDismissed: z.number().int(),
+      countedAt: z.iso.datetime().nullable(),
+    }),
+  ),
 });
 
 /** Spec 0037 Q6: the fixed list (packages/domain SUSPENSION_REASONS). Non-payment isn't a reason. */

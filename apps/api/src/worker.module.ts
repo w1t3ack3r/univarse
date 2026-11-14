@@ -26,6 +26,7 @@ import { keyProviderFrom, type KeyProvider } from '@univarse/crypto';
 import { provisioningKeyFrom } from './shared/crypto/provisioning-key.js';
 import { OnboardingCheck } from './modules/provisioning/onboarding-check.js';
 import { SuspensionSessionEnding } from './modules/suspension/session-ending.js';
+import { NoticeFanOut } from './modules/notices/notice-fan-out.js';
 import { ProvisioningQueue } from './modules/provisioning/provisioning-queue.js';
 import { PROVISIONING_OPEN_KEYS, ProvisioningRunner, TENANT_KEYS } from './modules/provisioning/provisioning-runner.js';
 
@@ -112,6 +113,9 @@ export class WorkerModule {
         OnboardingCheck,
         // Spec 0037 Q7: a suspended institution's sessions end here, the only process with its credential.
         SuspensionSessionEnding,
+        // Spec 0037 Q10: notices' emails to IT Admins (through each institution's outbox) and their delivery log.
+        Outbox,
+        NoticeFanOut,
         ...provisioningProviders(config, overrides),
         // Spec 0016: the platform invalidation relay, on its own role's connection. Only the worker process has
         // PLATFORM_RELAY_URL (loadConfig refuses it elsewhere), so the keys CLI never gets one.
@@ -130,7 +134,6 @@ function provisioningProviders(config: AppConfig, overrides: WorkerOverrides) {
     { provide: PROVISIONING_OPEN_KEYS, useValue: inviteKeys },
     { provide: TENANT_KEYS, useFactory: () => overrides.tenantKeys ?? keyProviderFrom(config) },
     { provide: 'PROVISIONING_RETRY_DELAYS', useValue: overrides.provisioningRetryDelays ?? [500, 2_000] },
-    Outbox,
     ProvisioningRunner,
     ProvisioningQueue,
   ];
