@@ -1,6 +1,6 @@
 # Spec 0038: Phase 1's S7, offboarding, the export and purge
 
-**Status:** For the owner's approval: Q1 to Q15.
+**Status:** **Approved by the owner on 2026-11-14, all as written:** Q1 to Q15. ADR-037 (the AES ZIP's dependency) is written with PR B.
 **Phase:** 1, slice **S7** of [spec 0025](0025-phase-1-control-plane.md) (A7, A12, E10).
 **Builds on:**
 
@@ -24,7 +24,7 @@ An institution leaves: its contract ends, or it asks to go. The platform must th
 - **Backups hold everything until they expire** (spec 0020 D6, about 35 days). Keys stay destroyed after a restore, through the ledger; files and rows in an older set don't, until the set is pruned.
 - **The approval engine takes new kinds** (spec 0037 Q2): a purge is one.
 
-## Decisions for approval
+## Decisions (approved 2026-11-14)
 
 | # | Decision | Why |
 | --- | --- | --- |
