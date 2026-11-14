@@ -1,6 +1,6 @@
 # Spec 0037: Phase 1's S6, approvals, suspension and notices
 
-**Status:** **Approved by the owner on 2026-11-13, all as written:** Q1 to Q16. PR A (the approval engine and the inbox) built; Q-A1 to Q-A10 approved on 2026-11-13.
+**Status:** **Done (2026-11-14).** Approved by the owner on 2026-11-13, all as written: Q1 to Q16. PRs A to D built and merged (#182, #183, #184, #185); the decisions made while building (Q-A, Q-B, Q-C and Q-D) approved on 2026-11-13 and 2026-11-14. Released as `cc40490` and deployed; criterion 12 passed (below).
 **Phase:** 1, slice **S6** of [spec 0025](0025-phase-1-control-plane.md) (A7, E4, E12, E18, E19, E25).
 **Builds on:**
 
@@ -276,7 +276,7 @@ About **two and a half weeks** at S5's pace, the largest slice in Phase 1, as sp
   - in the API: banners without the host filter; updates without `If-Match` or the resolved check; the follow-up before resolving; opening without the rules, reaching archived institutions, or with only read; updates not telling the institutions.
   - in the inbox: incidents for everyone; resolved incidents listed.
 
-**Decisions made while building, for approval:**
+**Decisions made while building, approved by the owner on 2026-11-14:**
 
 | # | Decision | Why |
 | --- | --- | --- |
@@ -290,3 +290,10 @@ About **two and a half weeks** at S5's pace, the largest slice in Phase 1, as sp
 | Q-D8 | **Maintenance soon goes to those who publish notices;** open incidents to those who run them. | Each item to whoever can act on it (Q15). |
 | Q-D9 | **The test clean-up removes a test's own incidents** (disabling the append-only trigger for that delete only, as the migrator). | The timeline is append-only for every other purpose; members are never deleted for real, only the tests' are. |
 | Q-D10 | **No test opens an incident affecting every institution:** it would show on the shared database's own institutions for a day. | As Q-C10. |
+
+## Done: the release, the deploy and criterion 12
+
+- **Released and deployed on 2026-11-14** as `cc40490` (record `releases/2026-11-14-cc40490.json`): five images built, scanned, signed, attested and verified, and the stack runs them.
+- **The first release run failed at the web E2E:** the main checkout's generated database client was older than S6's tables (the release's E2E runs from the host checkout, and a pull doesn't regenerate it). Rebuilding the packages fixed it; the second run passed. Proposed as a follow-up: the release builds the host's packages itself.
+- **Criterion 12, the owner's check on the stack (2026-11-14), passed:** an institution suspended and resumed; a maintenance notice published, with its banner and the IT Admin's email; an incident opened and resolved; a test account made an OWNER through an approval by a second person. With only the requester and the person named able to approve, the request was refused ("This needs a second person"), as Q5 requires.
+- **Left open by the deploy:** two backup warnings (the newest set older than 26 hours; the scheduled backup's last run failed), most likely from the stack being down for the release. The owner checks `pnpm stack:backup status` and takes a fresh set.
