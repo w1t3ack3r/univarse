@@ -21,6 +21,8 @@ import { PlatformProvisioning, PROVISIONING_KEYS } from './provisioning/provisio
 import { PlatformHealthController } from './platform-health.controller.js';
 import { PlatformInboxView } from './inbox/inbox.service.js';
 import { PlatformTenantsController } from './registry/tenant-registry.controller.js';
+import { PlatformIncidentsController } from './incidents/incidents.controller.js';
+import { PlatformIncidents } from './incidents/incidents.service.js';
 import { PlatformNoticesController } from './notices/notices.controller.js';
 import { PlatformNotices } from './notices/notices.service.js';
 import { TenantSuspension } from './registry/suspension.service.js';
@@ -50,6 +52,7 @@ export const PLATFORM_CONTROLLERS = [
   PlatformAccessReviewController,
   PlatformApprovalsController,
   PlatformNoticesController,
+  PlatformIncidentsController,
   PlatformInboxController,
 ] as const;
 
@@ -91,6 +94,7 @@ export class PlatformModule {
         TenantRegistry,
         TenantSuspension,
         PlatformNotices,
+        PlatformIncidents,
         PlatformProvisioning,
         PlatformContact,
         PlatformStaff,

@@ -9,6 +9,7 @@ import type { TenantContext } from '../../shared/tenancy/tenant-resolver.service
 import type { Actor } from '../identity/actor.js';
 import { Authenticated, CurrentActor, Public } from '../identity/access.guard.js';
 import { Product } from '../products/product.guard.js';
+import { IncidentBoard } from './incident-board.service.js';
 import { NoticeBoard } from './notice-board.service.js';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -16,13 +17,24 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 @Controller()
 @Product('core')
 export class NoticesController {
-  constructor(private readonly board: NoticeBoard) {}
+  constructor(
+    private readonly board: NoticeBoard,
+    private readonly incidents: IncidentBoard,
+  ) {}
 
   @Contract(TenantOps.publicNotices)
   @Get('api/v1/tenant/notices')
   @Public()
   async everyone(@CurrentTenant() tenant: TenantContext) {
     return { data: await this.board.forEveryone(tenant) };
+  }
+
+  /** Spec 0037 Q14: incidents affecting this institution, for everyone there (its sign-in page and its workspace). */
+  @Contract(TenantOps.publicIncidents)
+  @Get('api/v1/tenant/incidents')
+  @Public()
+  async incidentsHere(@CurrentTenant() tenant: TenantContext) {
+    return { data: await this.incidents.forTenant(tenant) };
   }
 
   @Contract(TenantOps.myNotices)

@@ -241,7 +241,49 @@ const approvalRequest = z.discriminatedUnion('kind', [
 ]);
 
 /** Spec 0037 Q15 (E25): one thing in the inbox. Computed when read; it leaves when its cause is resolved. */
+/** Spec 0037 Q13, Q14: incidents. */
+const incidentSeverity = z.enum(['SEV1', 'SEV2', 'SEV3', 'SEV4']);
+const incidentStatus = z.enum(['INVESTIGATING', 'IDENTIFIED', 'MONITORING', 'RESOLVED']);
+const personalData = z.enum(['YES', 'NO', 'UNKNOWN']);
+const incidentSummary = z.strictObject({
+  id: z.uuid(),
+  title: z.string(),
+  severity: incidentSeverity,
+  status: incidentStatus,
+  scope: z.enum(['ALL', 'TENANTS']),
+  personalData,
+  startedAt: z.iso.datetime(),
+  awareAt: z.iso.datetime(),
+  resolvedAt: z.iso.datetime().nullable(),
+  /** docs/16 §8: the 72-hour deadline from awareness when personal data may be involved; null otherwise. */
+  breachDeadline: z.iso.datetime().nullable(),
+  institutions: z.number().int(),
+  lastUpdateAt: z.iso.datetime(),
+});
+const incidentView = z.strictObject({
+  ...incidentSummary.shape,
+  openedBy: z.strictObject({ id: z.uuid(), name: z.string().nullable() }),
+  tenants: z.array(z.strictObject({ id: z.uuid(), slug: z.string(), name: z.string() })),
+  /** Newest first. `internalNote` is staff only: no institution ever receives it. */
+  updates: z.array(
+    z.strictObject({
+      id: z.uuid(),
+      status: incidentStatus,
+      severity: incidentSeverity,
+      personalData,
+      publicText: z.string(),
+      internalNote: z.string().nullable(),
+      postedBy: z.strictObject({ id: z.uuid(), name: z.string().nullable() }),
+      createdAt: z.iso.datetime(),
+    }),
+  ),
+  followup: z.strictObject({ what: z.string().nullable(), actions: z.string().nullable() }),
+  version: z.number().int(),
+});
+
 const inboxItem = z.discriminatedUnion('type', [
+  z.strictObject({ type: z.literal('incident_open'), incidentId: z.uuid(), title: z.string(), severity: incidentSeverity, status: incidentStatus, breachDeadline: z.iso.datetime().nullable(), lastUpdateAt: z.iso.datetime() }),
+  z.strictObject({ type: z.literal('maintenance_soon'), noticeId: z.uuid(), title: z.string(), startsAt: z.iso.datetime(), institutions: z.number().int() }),
   z.strictObject({ type: z.literal('approval_waiting'), approvalId: z.uuid(), kind: approvalKind, requestedBy: person, expiresAt: z.iso.datetime() }),
   z.strictObject({ type: z.literal('approval_decided'), approvalId: z.uuid(), kind: approvalKind, status: approvalStatus, decidedAt: z.iso.datetime() }),
   z.strictObject({ type: z.literal('provisioning_failed'), tenant: institution, step: provisioningStepKey, code: provisioningError, failedAt: z.iso.datetime() }),
@@ -346,6 +388,37 @@ export const PlatformOps = {
   },
   notice: { response: noticeView },
   noticeDraft: { body: noticeDraft, response: noticeView },
+  /** Spec 0037 Q13. */
+  incidents: { query: z.strictObject({ open: z.enum(['true', 'false']).optional() }), response: z.strictObject({ data: z.array(incidentSummary) }) },
+  incident: { response: incidentView },
+  openIncident: {
+    body: z.strictObject({
+      title: z.string().max(200),
+      severity: incidentSeverity,
+      scope: z.enum(['ALL', 'TENANTS']),
+      tenantIds: z.array(z.uuid()).max(200).optional(),
+      personalData,
+      startedAt: z.iso.datetime({ offset: true }),
+      awareAt: z.iso.datetime({ offset: true }),
+      publicText: z.string().max(2000),
+      internalNote: z.string().max(4000).nullable().optional(),
+    }),
+    response: incidentView,
+  },
+  postIncidentUpdate: {
+    body: z.strictObject({
+      status: incidentStatus,
+      severity: incidentSeverity,
+      personalData,
+      publicText: z.string().max(2000),
+      internalNote: z.string().max(4000).nullable().optional(),
+    }),
+    response: incidentView,
+  },
+  incidentFollowup: {
+    body: z.strictObject({ what: z.string().trim().max(4000).nullable(), actions: z.string().trim().max(4000).nullable() }),
+    response: incidentView,
+  },
   /** Spec 0034 Q5, Q13: creating starts a provisioning. The IT Admin's details go no further than the sealed invite. */
   createTenant: {
     body: z.strictObject({
@@ -470,6 +543,8 @@ export type PlatformInbox = z.infer<typeof PlatformOps.inbox.response>;
 export type PlatformInboxItem = PlatformInbox['items'][number];
 export type PlatformSuspension = z.infer<typeof suspensionView>;
 export type PlatformNotice = z.infer<typeof noticeView>;
+export type PlatformIncident = z.infer<typeof incidentView>;
+export type PlatformIncidentSummary = z.infer<typeof incidentSummary>;
 export type PlatformTenantSummary = z.infer<typeof tenantSummary>;
 export type PlatformNoticeSummary = z.infer<typeof noticeSummary>;
 export type PlatformNoticeDraft = z.infer<typeof noticeDraft>;

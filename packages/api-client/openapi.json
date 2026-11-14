@@ -9863,6 +9863,210 @@
         "x-csrf": "same-origin"
       }
     },
+    "/api/v1/tenant/incidents": {
+      "get": {
+        "operationId": "publicIncidents",
+        "summary": "Incidents affecting this institution: open ones, and those resolved in the last day",
+        "tags": [
+          "tenant"
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string",
+                            "format": "uuid"
+                          },
+                          "title": {
+                            "type": "string"
+                          },
+                          "status": {
+                            "type": "string",
+                            "enum": [
+                              "INVESTIGATING",
+                              "IDENTIFIED",
+                              "MONITORING",
+                              "RESOLVED"
+                            ]
+                          },
+                          "startedAt": {
+                            "type": "string",
+                            "format": "date-time"
+                          },
+                          "resolvedAt": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "format": "date-time"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "latest": {
+                            "type": "object",
+                            "properties": {
+                              "text": {
+                                "type": "string"
+                              },
+                              "at": {
+                                "type": "string",
+                                "format": "date-time"
+                              }
+                            },
+                            "required": [
+                              "text",
+                              "at"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "title",
+                          "status",
+                          "startedAt",
+                          "resolvedAt",
+                          "latest"
+                        ],
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "tenant.not_found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 404
+                    },
+                    "code": {
+                      "enum": [
+                        "tenant.not_found"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "423": {
+            "description": "tenant.suspended",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 423
+                    },
+                    "code": {
+                      "enum": [
+                        "tenant.suspended"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "server.internal",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 500
+                    },
+                    "code": {
+                      "enum": [
+                        "server.internal"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "server.busy",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 503
+                    },
+                    "code": {
+                      "enum": [
+                        "server.busy"
+                      ]
+                    }
+                  }
+                }
+              }
+            },
+            "headers": {
+              "Retry-After": {
+                "required": true,
+                "description": "Seconds to wait before retrying.",
+                "schema": {
+                  "type": "string",
+                  "pattern": "^[0-9]+$"
+                }
+              }
+            }
+          }
+        },
+        "security": [],
+        "x-product": "core"
+      }
+    },
     "/api/v1/tenant/logo": {
       "get": {
         "operationId": "tenantLogo",

@@ -404,6 +404,14 @@ export const TenantOps = defineOperations({
     success: 200,
     response: R.NoticeBannerList,
   },
+  /** Spec 0037 Q14: incidents affecting this institution, for everyone there, signed in or not. */
+  publicIncidents: {
+    operationId: 'publicIncidents',
+    summary: 'Incidents affecting this institution: open ones, and those resolved in the last day',
+    tag: 'tenant',
+    success: 200,
+    response: R.IncidentBannerList,
+  },
   /** Spec 0037 Q10: what the signed-in person sees: maintenance, and for IT Admins announcements and release notes. */
   myNotices: {
     operationId: 'myNotices',

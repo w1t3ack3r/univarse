@@ -1,11 +1,12 @@
 // Spec 0037 Q15 (E25): the console inbox, computed when read from the tables each item comes from, so it can't disagree
 // with the screens. Each person sees only what their role lets them act on, and an item leaves when its cause is
-// resolved. No inbox table. PR D adds open incidents and maintenance about to start; S9 adds SLA timers.
+// resolved. No inbox table. Open incidents and maintenance about to start are PR D's; S9 adds SLA timers.
 import { Inject, Injectable } from '@nestjs/common';
 import type { PlatformInbox, PlatformInboxItem } from '@univarse/contracts';
 import type { PlatformClient } from '@univarse/db';
 import {
   APPROVAL_KINDS,
+  breachDeadline,
   effectiveApprovalStatus,
   isApprovalKind,
   isPlatformRole,
@@ -24,6 +25,8 @@ const DAY_MS = 24 * 3_600_000;
 export const DECIDED_FOR_MS = 7 * DAY_MS;
 /** The window of "act" security events shown. */
 export const SECURITY_WINDOW_MS = DAY_MS;
+/** Spec 0037 Q15: how soon maintenance must start to be in the inbox. */
+export const MAINTENANCE_SOON_MS = DAY_MS;
 
 @Injectable()
 export class PlatformInboxView {
@@ -36,6 +39,8 @@ export class PlatformInboxView {
       ...(await this.decided(actor, now)),
       ...(can('platform.tenant.provision') ? await this.failedProvisioning() : []),
       ...(can('platform.security.read') ? await this.securityAct(now) : []),
+      ...(can('platform.incident.manage') ? await this.openIncidents() : []),
+      ...(can('platform.notice.publish') ? await this.maintenanceSoon(now) : []),
     ];
     return { items, count: items.length };
   }
@@ -109,6 +114,36 @@ export class PlatformInboxView {
         code: j.errorCode as ProvisioningErrorCode,
         failedAt: j.updatedAt.toISOString(),
       }));
+  }
+
+  /** Spec 0037 Q15: every open incident, the most severe first, so whoever runs incidents sees what's still going on. */
+  private async openIncidents(): Promise<PlatformInboxItem[]> {
+    const rows = await this.db.platformIncident.findMany({
+      where: { status: { not: 'RESOLVED' } },
+      orderBy: [{ severity: 'asc' }, { createdAt: 'asc' }],
+      select: { id: true, title: true, severity: true, status: true, personalData: true, awareAt: true, updatedAt: true, updates: { select: { createdAt: true }, orderBy: { createdAt: 'desc' }, take: 1 } },
+    });
+    return rows.map((r) => ({
+      type: 'incident_open' as const,
+      incidentId: r.id,
+      title: r.title,
+      severity: r.severity,
+      status: r.status,
+      breachDeadline: breachDeadline(r)?.toISOString() ?? null,
+      lastUpdateAt: (r.updates[0]?.createdAt ?? r.updatedAt).toISOString(),
+    }));
+  }
+
+  /** Spec 0037 Q15: published maintenance starting within a day, soonest first. */
+  private async maintenanceSoon(now: Date): Promise<PlatformInboxItem[]> {
+    const rows = await this.db.platformNotice.findMany({
+      where: { kind: 'MAINTENANCE', status: 'PUBLISHED', startsAt: { gt: now, lte: new Date(now.getTime() + MAINTENANCE_SOON_MS) } },
+      orderBy: { startsAt: 'asc' },
+      select: { id: true, title: true, startsAt: true, _count: { select: { deliveries: true } } },
+    });
+    return rows
+      .filter((r): r is typeof r & { startsAt: Date } => r.startsAt !== null)
+      .map((r) => ({ type: 'maintenance_soon' as const, noticeId: r.id, title: r.title, startsAt: r.startsAt.toISOString(), institutions: r._count.deliveries }));
   }
 
   /** Spec 0031 Q12's "act" events in the last day, per event and institution: "S3 shows; S6 tells". */

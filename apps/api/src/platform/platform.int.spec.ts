@@ -130,6 +130,10 @@ describe('[P5] the console role, in the database', () => {
         platform_mail_outbox: 'SIU',
         platform_mfa_challenge: 'SIU',
         platform_mfa_factor: 'SIU',
+        // Spec 0037 Q13: incidents, their timeline and their institutions, by column; the timeline is never updated.
+        platform_incident: 'SU',
+        platform_incident_tenant: 'SU',
+        platform_incident_update: 'S',
         // Spec 0037 Q9: notices and their deliveries are inserted by column; only named columns update.
         platform_notice: 'SU',
         platform_notice_delivery: 'SU',

@@ -122,5 +122,21 @@ export const NoticeBanner = z
   .strict();
 export const NoticeBannerList = z.object({ data: z.array(NoticeBanner) }).strict();
 
+/**
+ * Spec 0037 Q14: an incident affecting this institution, open or resolved in the last day, with its latest public
+ * update. Plain text, rendered as text. Never an internal note: the API can't read one.
+ */
+export const IncidentBanner = z
+  .object({
+    id: z.string().meta({ format: 'uuid' }),
+    title: z.string(),
+    status: z.enum(['INVESTIGATING', 'IDENTIFIED', 'MONITORING', 'RESOLVED']),
+    startedAt: z.string().meta({ format: 'date-time' }),
+    resolvedAt: z.string().meta({ format: 'date-time' }).nullable(),
+    latest: z.object({ text: z.string(), at: z.string().meta({ format: 'date-time' }) }).strict(),
+  })
+  .strict();
+export const IncidentBannerList = z.object({ data: z.array(IncidentBanner) }).strict();
+
 export const LiveResponse = z.object({ status: z.literal('ok') }).strict();
 export const ReadyResponse = z.object({ status: z.literal('ready') }).strict();
