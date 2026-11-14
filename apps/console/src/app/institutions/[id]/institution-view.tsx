@@ -15,6 +15,7 @@ import { ProductsSection } from './products';
 import { ProfileForm, RegulatoryForm } from './forms';
 import { GoLiveSection } from './go-live';
 import { ProvisioningSection } from './provisioning';
+import { OffboardingSection } from './offboarding';
 import { ReleaseSection } from './release';
 import { SuspensionSection } from './suspension';
 
@@ -58,6 +59,8 @@ export function InstitutionView() {
   const canGoLive = me.permissions.includes('platform.tenant.go_live');
   const canSuspend = me.permissions.includes('platform.tenant.suspend');
   const canRing = me.permissions.includes('platform.release.manage') && !closed;
+  const canOffboard = me.permissions.includes('platform.tenant.offboard');
+  const leaving = t?.offboarding && !t.offboarding.cancelledAt && (t.status === 'OFFBOARDING' || t.status === 'ARCHIVED');
 
   const load = useCallback(() => {
     api<Tenant>('GET', `/tenants/${id}`)
@@ -138,7 +141,9 @@ export function InstitutionView() {
         </p>
       </section>
 
+      {leaving ? <OffboardingSection tenant={t} canOffboard={canOffboard} changing={changing} /> : null}
       {t.status === 'SUSPENDED' ? <SuspensionSection tenant={t} canSuspend={canSuspend} changing={changing} /> : null}
+      {t.status === 'SUSPENDED' && t.offboarding && !t.offboarding.cancelledAt ? <OffboardingSection tenant={t} canOffboard={canOffboard} changing={changing} /> : null}
       <ProvisioningSection tenant={t} canProvision={canProvision} changing={changing} />
       {t.status === 'ONBOARDING' ? <GoLiveSection tenant={t} canGoLive={canGoLive} changing={changing} /> : null}
 
@@ -152,6 +157,7 @@ export function InstitutionView() {
         </div>
       ) : null}
       {t.status !== 'SUSPENDED' ? <SuspensionSection tenant={t} canSuspend={canSuspend} changing={changing} /> : null}
+      {!leaving && t.status !== 'SUSPENDED' ? <OffboardingSection tenant={t} canOffboard={canOffboard} changing={changing} /> : null}
       <BrandingSection key={`b${t.branding.primaryColor ?? ''}${t.branding.logoSha256 ?? ''}`} tenant={t} canEdit={canEdit} changing={changing} />
 
       <section className="pc-section" aria-labelledby="t-keys">

@@ -68,6 +68,7 @@ Content-Type: application/problem+json
 | 412 | `If-Match` version mismatch (optimistic lock) |
 | 422 | Business rule violation (domain error codes) |
 | 423 | Tenant suspended / resource locked. `tenant.suspended` also carries `institution` (its public name and colours, never personal data), so the web app's page says so in the institution's own branding (spec 0037 Q8) |
+| 410 | `tenant.archived`: the institution's account has closed (spec 0038 Q5). It carries `institution` too, so its page says so in its name |
 | 428 | Step-up authentication required (`code: auth.step_up_required`) |
 | 429 | Rate limited (`Retry-After`) |
 | 500/503 | Unexpected / dependency down. Never leak stack traces or SQL |

@@ -89,3 +89,65 @@ About **two weeks** at S6's pace.
 - **Purging part of an institution** (a student's erasure request): Student Affairs and the DSAR flow (16).
 - **A hosted status of a departure for the institution after the purge:** there's no one left to sign in.
 - **Shortening backup retention for a purge:** sets expire on their schedule (spec 0020 D6); the certificate says when.
+
+## PR A: what was built
+
+**Built:**
+- **The rules** (`packages/domain/src/platform/offboarding.ts`):
+  - which statuses can start;
+  - the window's end at the end of a day in Nigerian time;
+  - days left counted as people count them (1 on the last day);
+  - the warning due now, the most recent only, never a backlog;
+  - when to archive, cancel and extend;
+  - the note's rule.
+  - A suspension can now start from `OFFBOARDING`, and its resume returns there (Q3).
+  - The new permission `platform.tenant.offboard` (OWNER, SUPER_ADMIN, with step-up).
+- **The tables** (migration `20261118120000_offboarding`):
+  - `platform_tenant_offboarding`: one open per institution. A trigger keeps the record unchanged and writes a cancellation and an extension once each.
+  - `platform_offboarding_warning`: once per round and day, with counts only.
+  - The console role starts, cancels and extends. The worker's role archives, ends the sessions and writes the warnings. Neither can do the other's part.
+- **The platform API:** `POST /tenants/:id/offboarding`, `/offboarding/cancel` and `/offboarding/extend`, all `platform.tenant.offboard`; the institution's detail carries its latest offboarding.
+- **The worker** (`OffboardingPass`, every 5 minutes):
+  - sends the warnings through the institution's outbox, where the outbox's `notice_id` names the warning, so a stopped pass is finished without emailing twice, and the emails go out even while the institution is suspended;
+  - archives after the last day;
+  - ends every session and pending challenge at an archived institution, audited on both sides.
+- **The tenant API:**
+  - `OFFBOARDING` is served as before; the public profile carries `closesAt`.
+  - `ARCHIVED` answers **410 `tenant.archived`** with the institution's public name and colours, documented on every institution route.
+- **The web app:** the closing banner on the sign-in pages and in the workspace, and the "This account has closed" page (the workspace sends its visitors there).
+- **The console:** the Offboarding section on the institution's page (start; the leaving view with the days left, the warnings and Cancel; the closed view with the extension), and the inbox's "closes within a week" item.
+
+**Evidence:**
+- **Domain:** 135 tests (9 new): the statuses, the window's end in Nigerian time, days left, the warnings (once each, the latest after a gap, the extension's round), the archive, the cancel and the extension's once, the note, and the permission's holders.
+- **Integration** (`offboarding.int.spec.ts`, 9):
+  - who may start, from which statuses, and the note;
+  - the institution still served during the window, with `closesAt`;
+  - a cancel returning it as it was, and refused after the last day even before the archive;
+  - the warnings once each and never a backlog, emailed to IT Admins only, then the archive with its 410 and every session ended, audited in order;
+  - a stopped pass finished without emailing twice;
+  - a suspension during the window returning to it;
+  - the extension once, with its own warnings;
+  - the database's trigger, one open window per institution, and the warnings the console role can't write;
+  - the inbox's item to the right roles.
+  - The grants pin, the public profile's `closesAt` and the suspension suite are updated.
+- **E2E**, desktop and phone, axe on every screen:
+  - console `offboarding.e2e.ts` (4): an OWNER starts, sees the leaving view and its first warning, and cancels; an archived institution shows as closed and takes its extension.
+  - web `offboarding.e2e.ts` (4): the closing banner, and the closed page from the sign-in page and the workspace.
+  - The whole console suite passes (52, one mobile flake that passed on its rerun); the web suites except documents pass (68).
+- **Mutations: 15 tried, 15 caught:**
+  - in the domain: starting from any status, a backlog, warnings resent, archiving a day early, extending twice;
+  - in the API: the status check, the note rule, cancelling after the end, the extension's once, starting with only read, warnings to everyone, warnings emailed twice after a stop, the archive leaving the sessions, an archived institution still served, the inbox item to everyone.
+  - One survived at first (cancelling after the end, before the archive): no test covered that gap; one does now.
+
+**Decisions made while building, for approval:**
+
+| # | Decision | Why |
+| --- | --- | --- |
+| Q-A1 | **The first warning is the announcement, sent when it starts ("60 days"),** and the extension's first is its own announcement ("14 more days"). The rounds' warnings are 60/45/30/14/7/1 and 14/7/1. | Q2 says the IT Admins are emailed at once; the warnings and the announcement are one mechanism. |
+| Q-A2 | **On its first day the window has 61 days left** (the rest of today, then 60 days); the announcement is due from the start. | The window ends at the end of a day, and "today" counts. |
+| Q-A3 | **A warning's emails are named by the warning in the outbox's `notice_id`.** The column names a platform message: a notice, or now an offboarding warning. | One mechanism for "delivered even while suspended", and for not sending twice. |
+| Q-A4 | **The worker's offboarding pass runs every 5 minutes.** | The warnings are by day and the archive by end of day; a minute's precision buys nothing. |
+| Q-A5 | **The 410's code is `tenant.archived`.** `tenant.closed` already means "archived, so it can't be changed" in the console's registry. | One code, one meaning. |
+| Q-A6 | **An offboarding can't be cancelled while the institution is suspended:** resume it first. | Cancelling returns the status it had before offboarding, which would quietly end the suspension. |
+| Q-A7 | **The database checks only that a window ends after it started.** An extension's end is normally later than the first end, but the database doesn't require it. | The extension is 14 days from the day it's given; the rule that matters (once) is the trigger's. |
+| Q-A8 | **The closing banner names the institution's ICT unit as who can take a copy;** PR B adds the export they take it with. | The banner shows to everyone; the export is for IT Admins. |

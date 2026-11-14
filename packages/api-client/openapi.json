@@ -172,6 +172,31 @@
               }
             }
           },
+          "410": {
+            "description": "tenant.archived",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 410
+                    },
+                    "code": {
+                      "enum": [
+                        "tenant.archived"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
           "423": {
             "description": "tenant.suspended",
             "content": {
@@ -518,6 +543,31 @@
               }
             }
           },
+          "410": {
+            "description": "tenant.archived",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 410
+                    },
+                    "code": {
+                      "enum": [
+                        "tenant.archived"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
           "422": {
             "description": "product.core_required",
             "content": {
@@ -777,6 +827,31 @@
                     "code": {
                       "enum": [
                         "tenant.not_found"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "tenant.archived",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 410
+                    },
+                    "code": {
+                      "enum": [
+                        "tenant.archived"
                       ]
                     }
                   }
@@ -1059,6 +1134,31 @@
               }
             }
           },
+          "410": {
+            "description": "tenant.archived",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 410
+                    },
+                    "code": {
+                      "enum": [
+                        "tenant.archived"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
           "423": {
             "description": "tenant.suspended",
             "content": {
@@ -1305,6 +1405,31 @@
               }
             }
           },
+          "410": {
+            "description": "tenant.archived",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 410
+                    },
+                    "code": {
+                      "enum": [
+                        "tenant.archived"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
           "423": {
             "description": "tenant.suspended",
             "content": {
@@ -1539,6 +1664,31 @@
                     "code": {
                       "enum": [
                         "tenant.not_found"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "tenant.archived",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 410
+                    },
+                    "code": {
+                      "enum": [
+                        "tenant.archived"
                       ]
                     }
                   }
@@ -1804,6 +1954,31 @@
               }
             }
           },
+          "410": {
+            "description": "tenant.archived",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 410
+                    },
+                    "code": {
+                      "enum": [
+                        "tenant.archived"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
           "423": {
             "description": "tenant.suspended",
             "content": {
@@ -2037,6 +2212,31 @@
                     "code": {
                       "enum": [
                         "tenant.not_found"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "tenant.archived",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 410
+                    },
+                    "code": {
+                      "enum": [
+                        "tenant.archived"
                       ]
                     }
                   }
@@ -2358,6 +2558,31 @@
               }
             }
           },
+          "410": {
+            "description": "tenant.archived",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 410
+                    },
+                    "code": {
+                      "enum": [
+                        "tenant.archived"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
           "423": {
             "description": "tenant.suspended",
             "content": {
@@ -2664,6 +2889,31 @@
               }
             }
           },
+          "410": {
+            "description": "tenant.archived",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 410
+                    },
+                    "code": {
+                      "enum": [
+                        "tenant.archived"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
           "423": {
             "description": "tenant.suspended",
             "content": {
@@ -2899,6 +3149,31 @@
               }
             }
           },
+          "410": {
+            "description": "tenant.archived",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 410
+                    },
+                    "code": {
+                      "enum": [
+                        "tenant.archived"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
           "423": {
             "description": "tenant.suspended",
             "content": {
@@ -3111,6 +3386,31 @@
                     "code": {
                       "enum": [
                         "tenant.not_found"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "tenant.archived",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 410
+                    },
+                    "code": {
+                      "enum": [
+                        "tenant.archived"
                       ]
                     }
                   }
@@ -3338,6 +3638,31 @@
                     "code": {
                       "enum": [
                         "auth.mfa_not_enrolled"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "tenant.archived",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 410
+                    },
+                    "code": {
+                      "enum": [
+                        "tenant.archived"
                       ]
                     }
                   }
@@ -3634,6 +3959,31 @@
               }
             }
           },
+          "410": {
+            "description": "tenant.archived",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 410
+                    },
+                    "code": {
+                      "enum": [
+                        "tenant.archived"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
           "423": {
             "description": "tenant.suspended",
             "content": {
@@ -3914,6 +4264,31 @@
                     "code": {
                       "enum": [
                         "auth.mfa_not_enrolled"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "tenant.archived",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 410
+                    },
+                    "code": {
+                      "enum": [
+                        "tenant.archived"
                       ]
                     }
                   }
@@ -4218,6 +4593,31 @@
                     "code": {
                       "enum": [
                         "auth.mfa_already_enrolled"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "tenant.archived",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 410
+                    },
+                    "code": {
+                      "enum": [
+                        "tenant.archived"
                       ]
                     }
                   }
@@ -4559,6 +4959,31 @@
               }
             }
           },
+          "410": {
+            "description": "tenant.archived",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 410
+                    },
+                    "code": {
+                      "enum": [
+                        "tenant.archived"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
           "423": {
             "description": "tenant.suspended",
             "content": {
@@ -4811,6 +5236,31 @@
                     "code": {
                       "enum": [
                         "tenant.not_found"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "tenant.archived",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 410
+                    },
+                    "code": {
+                      "enum": [
+                        "tenant.archived"
                       ]
                     }
                   }
@@ -5086,6 +5536,31 @@
                     "code": {
                       "enum": [
                         "tenant.not_found"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "tenant.archived",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 410
+                    },
+                    "code": {
+                      "enum": [
+                        "tenant.archived"
                       ]
                     }
                   }
@@ -5397,6 +5872,31 @@
                     "code": {
                       "enum": [
                         "tenant.not_found"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "tenant.archived",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 410
+                    },
+                    "code": {
+                      "enum": [
+                        "tenant.archived"
                       ]
                     }
                   }
@@ -5720,6 +6220,31 @@
               }
             }
           },
+          "410": {
+            "description": "tenant.archived",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 410
+                    },
+                    "code": {
+                      "enum": [
+                        "tenant.archived"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
           "423": {
             "description": "tenant.suspended",
             "content": {
@@ -6000,6 +6525,31 @@
               }
             }
           },
+          "410": {
+            "description": "tenant.archived",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 410
+                    },
+                    "code": {
+                      "enum": [
+                        "tenant.archived"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
           "423": {
             "description": "tenant.suspended",
             "content": {
@@ -6192,6 +6742,31 @@
                       "enum": [
                         "resource.not_found",
                         "tenant.not_found"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "tenant.archived",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 410
+                    },
+                    "code": {
+                      "enum": [
+                        "tenant.archived"
                       ]
                     }
                   }
@@ -6506,6 +7081,31 @@
               }
             }
           },
+          "410": {
+            "description": "tenant.archived",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 410
+                    },
+                    "code": {
+                      "enum": [
+                        "tenant.archived"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
           "423": {
             "description": "tenant.suspended",
             "content": {
@@ -6785,6 +7385,31 @@
                     "code": {
                       "enum": [
                         "file.not_ready"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "tenant.archived",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 410
+                    },
+                    "code": {
+                      "enum": [
+                        "tenant.archived"
                       ]
                     }
                   }
@@ -7176,6 +7801,31 @@
               }
             }
           },
+          "410": {
+            "description": "tenant.archived",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 410
+                    },
+                    "code": {
+                      "enum": [
+                        "tenant.archived"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
           "422": {
             "description": "file.too_large, file.type_not_allowed",
             "content": {
@@ -7460,6 +8110,31 @@
               }
             }
           },
+          "410": {
+            "description": "tenant.archived",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 410
+                    },
+                    "code": {
+                      "enum": [
+                        "tenant.archived"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
           "423": {
             "description": "tenant.suspended",
             "content": {
@@ -7652,6 +8327,31 @@
                       "enum": [
                         "resource.not_found",
                         "tenant.not_found"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "tenant.archived",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 410
+                    },
+                    "code": {
+                      "enum": [
+                        "tenant.archived"
                       ]
                     }
                   }
@@ -7864,6 +8564,31 @@
                     "code": {
                       "enum": [
                         "tenant.not_found"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "tenant.archived",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 410
+                    },
+                    "code": {
+                      "enum": [
+                        "tenant.archived"
                       ]
                     }
                   }
@@ -8266,6 +8991,31 @@
                     "code": {
                       "enum": [
                         "tenant.not_found"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "tenant.archived",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 410
+                    },
+                    "code": {
+                      "enum": [
+                        "tenant.archived"
                       ]
                     }
                   }
@@ -8688,6 +9438,31 @@
                       "enum": [
                         "settings.unknown_key",
                         "tenant.not_found"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "tenant.archived",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 410
+                    },
+                    "code": {
+                      "enum": [
+                        "tenant.archived"
                       ]
                     }
                   }
@@ -9178,6 +9953,31 @@
                       "enum": [
                         "settings.unknown_key",
                         "tenant.not_found"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "tenant.archived",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 410
+                    },
+                    "code": {
+                      "enum": [
+                        "tenant.archived"
                       ]
                     }
                   }
@@ -9704,6 +10504,31 @@
               }
             }
           },
+          "410": {
+            "description": "tenant.archived",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 410
+                    },
+                    "code": {
+                      "enum": [
+                        "tenant.archived"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
           "412": {
             "description": "precondition.failed",
             "content": {
@@ -9977,6 +10802,31 @@
               }
             }
           },
+          "410": {
+            "description": "tenant.archived",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 410
+                    },
+                    "code": {
+                      "enum": [
+                        "tenant.archived"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
           "423": {
             "description": "tenant.suspended",
             "content": {
@@ -10210,6 +11060,31 @@
               }
             }
           },
+          "410": {
+            "description": "tenant.archived",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 410
+                    },
+                    "code": {
+                      "enum": [
+                        "tenant.archived"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
           "423": {
             "description": "tenant.suspended",
             "content": {
@@ -10411,6 +11286,31 @@
               }
             }
           },
+          "410": {
+            "description": "tenant.archived",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 410
+                    },
+                    "code": {
+                      "enum": [
+                        "tenant.archived"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
           "423": {
             "description": "tenant.suspended",
             "content": {
@@ -10561,6 +11461,17 @@
                         "POLYTECHNIC",
                         "COLLEGE_OF_EDUCATION"
                       ]
+                    },
+                    "closesAt": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
                     }
                   },
                   "required": [
@@ -10568,7 +11479,8 @@
                     "slug",
                     "shortName",
                     "legalName",
-                    "type"
+                    "type",
+                    "closesAt"
                   ],
                   "additionalProperties": false
                 }
@@ -10593,6 +11505,31 @@
                     "code": {
                       "enum": [
                         "tenant.not_found"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "tenant.archived",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 410
+                    },
+                    "code": {
+                      "enum": [
+                        "tenant.archived"
                       ]
                     }
                   }
@@ -10910,6 +11847,31 @@
               }
             }
           },
+          "410": {
+            "description": "tenant.archived",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 410
+                    },
+                    "code": {
+                      "enum": [
+                        "tenant.archived"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
           "423": {
             "description": "tenant.suspended",
             "content": {
@@ -11197,6 +12159,31 @@
                         "contact.address_taken",
                         "contact.member_inactive",
                         "contact.own_account"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "tenant.archived",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 410
+                    },
+                    "code": {
+                      "enum": [
+                        "tenant.archived"
                       ]
                     }
                   }
@@ -11647,7 +12634,7 @@
           },
           "institution": {
             "type": "object",
-            "description": "A suspended institution’s public name and colours, so its page can say so in its branding (423 tenant.suspended only).",
+            "description": "A suspended institution’s public name and colours, so its page can say so in its branding (423 tenant.suspended and 410 tenant.archived only).",
             "required": [
               "legalName",
               "shortName",

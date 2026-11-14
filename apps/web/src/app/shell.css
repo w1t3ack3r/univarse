@@ -1305,3 +1305,55 @@
   white-space: pre-line;
   overflow-wrap: anywhere;
 }
+
+/* Spec 0038 Q5: a closed account's mark is a single bar, not the pause's two: it isn't coming back on its own. */
+.auth__paused-mark--closed::after {
+  display: none;
+}
+.auth__paused-mark--closed::before {
+  width: 20px;
+  height: 5px;
+}
+
+/* ---------- The closing date (spec 0038 Q3) ----------
+   Above any incident or notice, on the warning wash: the day the account closes, in words, for everyone there. Not
+   dismissible, and not alarming: it says what happens and when. */
+.closing {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: var(--uv-space-3);
+  align-items: start;
+  margin-bottom: var(--uv-space-3);
+  padding: var(--uv-space-3) var(--uv-space-4);
+  border-radius: var(--uv-radius);
+  background: var(--uv-warning-bg);
+  color: var(--uv-warning);
+}
+.closing__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  margin-top: 2px;
+  border-radius: var(--uv-radius-sm);
+  background: var(--uv-white);
+}
+.closing__text {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  padding-top: 2px;
+}
+.closing__text p {
+  margin: 0;
+}
+.closing__title {
+  font-weight: 600;
+  color: var(--uv-text);
+}
+.closing__body {
+  font-size: var(--uv-text-sm);
+  line-height: 1.55;
+  color: var(--uv-text);
+}

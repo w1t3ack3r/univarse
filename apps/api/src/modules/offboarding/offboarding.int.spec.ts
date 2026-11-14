@@ -26,6 +26,7 @@ import { pruneTestTenants } from '../../testing/tenant-cleanup.js';
 import { WorkerModule } from '../../worker.module.js';
 import { hashPassword } from '../identity/password.js';
 import { base32Decode, hotp, timeStep } from '../identity/totp.js';
+import { TenantOffboarding } from '../../platform/registry/offboarding.service.js';
 import { OffboardingPass } from './offboarding-pass.js';
 
 const rootEnv = new URL('../../../../../.env', import.meta.url);
@@ -194,6 +195,16 @@ describe('[Q1, Q2] starting and cancelling', () => {
     expect((await cons('POST', `/tenants/${t.id}/offboarding/cancel`, { cookie: owner })).body.code).toBe('tenant.not_offboarding');
     // A new window can start after a cancelled one.
     expect((await start(owner, t.id)).status).toBe(204);
+  });
+
+  it('can’t be cancelled once its last day is over, even before the worker has archived it', async () => {
+    const t = await institution();
+    await start(await as('OWNER'), t.id);
+    const o = await offboarding(t.id);
+    const ownerId = [...staff.entries()].find(([, r]) => r === 'OWNER')![0];
+    const actor: PlatformActor = { userId: ownerId, sessionId: 'x', email: 'x', displayName: 'x', role: 'OWNER', isActive: true, mfaAt: new Date(), restricted: false, stepUpAt: new Date() };
+    await expect(consoleApp.get(TenantOffboarding).cancel(actor, t.id, { ip: '127.0.0.1', userAgent: undefined }, new Date(o.endsAt.getTime() + 1))).rejects.toMatchObject({ code: 'tenant.not_offboarding' });
+    expect(await statusOf(t.id)).toBe('OFFBOARDING');
   });
 });
 

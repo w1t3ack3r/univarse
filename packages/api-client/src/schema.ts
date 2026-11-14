@@ -656,7 +656,7 @@ export interface components {
                 code: string;
                 message: string;
             }[];
-            /** @description A suspended institution’s public name and colours, so its page can say so in its branding (423 tenant.suspended only). */
+            /** @description A suspended institution’s public name and colours, so its page can say so in its branding (423 tenant.suspended and 410 tenant.archived only). */
             institution?: {
                 legalName: string;
                 shortName: string;
@@ -748,6 +748,20 @@ export interface operations {
                         status?: 404;
                         /** @enum {unknown} */
                         code?: "tenant.not_found";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description tenant.archived */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 410;
+                        /** @enum {unknown} */
+                        code?: "tenant.archived";
                     } & components["schemas"]["Problem"];
                 };
             };
@@ -914,6 +928,20 @@ export interface operations {
                     } & components["schemas"]["Problem"];
                 };
             };
+            /** @description tenant.archived */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 410;
+                        /** @enum {unknown} */
+                        code?: "tenant.archived";
+                    } & components["schemas"]["Problem"];
+                };
+            };
             /** @description product.core_required */
             422: {
                 headers: {
@@ -1051,6 +1079,20 @@ export interface operations {
                         status?: 404;
                         /** @enum {unknown} */
                         code?: "tenant.not_found";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description tenant.archived */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 410;
+                        /** @enum {unknown} */
+                        code?: "tenant.archived";
                     } & components["schemas"]["Problem"];
                 };
             };
@@ -1198,6 +1240,20 @@ export interface operations {
                     } & components["schemas"]["Problem"];
                 };
             };
+            /** @description tenant.archived */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 410;
+                        /** @enum {unknown} */
+                        code?: "tenant.archived";
+                    } & components["schemas"]["Problem"];
+                };
+            };
             /** @description tenant.suspended */
             423: {
                 headers: {
@@ -1326,6 +1382,20 @@ export interface operations {
                     } & components["schemas"]["Problem"];
                 };
             };
+            /** @description tenant.archived */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 410;
+                        /** @enum {unknown} */
+                        code?: "tenant.archived";
+                    } & components["schemas"]["Problem"];
+                };
+            };
             /** @description tenant.suspended */
             423: {
                 headers: {
@@ -1450,6 +1520,20 @@ export interface operations {
                         status?: 404;
                         /** @enum {unknown} */
                         code?: "tenant.not_found";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description tenant.archived */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 410;
+                        /** @enum {unknown} */
+                        code?: "tenant.archived";
                     } & components["schemas"]["Problem"];
                 };
             };
@@ -1582,6 +1666,20 @@ export interface operations {
                     } & components["schemas"]["Problem"];
                 };
             };
+            /** @description tenant.archived */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 410;
+                        /** @enum {unknown} */
+                        code?: "tenant.archived";
+                    } & components["schemas"]["Problem"];
+                };
+            };
             /** @description tenant.suspended */
             423: {
                 headers: {
@@ -1707,6 +1805,20 @@ export interface operations {
                         status?: 404;
                         /** @enum {unknown} */
                         code?: "tenant.not_found";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description tenant.archived */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 410;
+                        /** @enum {unknown} */
+                        code?: "tenant.archived";
                     } & components["schemas"]["Problem"];
                 };
             };
@@ -1878,6 +1990,20 @@ export interface operations {
                     } & components["schemas"]["Problem"];
                 };
             };
+            /** @description tenant.archived */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 410;
+                        /** @enum {unknown} */
+                        code?: "tenant.archived";
+                    } & components["schemas"]["Problem"];
+                };
+            };
             /** @description tenant.suspended */
             423: {
                 headers: {
@@ -2019,6 +2145,20 @@ export interface operations {
                     } & components["schemas"]["Problem"];
                 };
             };
+            /** @description tenant.archived */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 410;
+                        /** @enum {unknown} */
+                        code?: "tenant.archived";
+                    } & components["schemas"]["Problem"];
+                };
+            };
             /** @description tenant.suspended */
             423: {
                 headers: {
@@ -2141,6 +2281,20 @@ export interface operations {
                     } & components["schemas"]["Problem"];
                 };
             };
+            /** @description tenant.archived */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 410;
+                        /** @enum {unknown} */
+                        code?: "tenant.archived";
+                    } & components["schemas"]["Problem"];
+                };
+            };
             /** @description tenant.suspended */
             423: {
                 headers: {
@@ -2238,6 +2392,20 @@ export interface operations {
                         status?: 404;
                         /** @enum {unknown} */
                         code?: "tenant.not_found";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description tenant.archived */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 410;
+                        /** @enum {unknown} */
+                        code?: "tenant.archived";
                     } & components["schemas"]["Problem"];
                 };
             };
@@ -2360,6 +2528,20 @@ export interface operations {
                         status?: 409;
                         /** @enum {unknown} */
                         code?: "auth.mfa_not_enrolled";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description tenant.archived */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 410;
+                        /** @enum {unknown} */
+                        code?: "tenant.archived";
                     } & components["schemas"]["Problem"];
                 };
             };
@@ -2507,6 +2689,20 @@ export interface operations {
                     } & components["schemas"]["Problem"];
                 };
             };
+            /** @description tenant.archived */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 410;
+                        /** @enum {unknown} */
+                        code?: "tenant.archived";
+                    } & components["schemas"]["Problem"];
+                };
+            };
             /** @description tenant.suspended */
             423: {
                 headers: {
@@ -2647,6 +2843,20 @@ export interface operations {
                         status?: 409;
                         /** @enum {unknown} */
                         code?: "auth.mfa_not_enrolled";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description tenant.archived */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 410;
+                        /** @enum {unknown} */
+                        code?: "tenant.archived";
                     } & components["schemas"]["Problem"];
                 };
             };
@@ -2807,6 +3017,20 @@ export interface operations {
                     } & components["schemas"]["Problem"];
                 };
             };
+            /** @description tenant.archived */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 410;
+                        /** @enum {unknown} */
+                        code?: "tenant.archived";
+                    } & components["schemas"]["Problem"];
+                };
+            };
             /** @description tenant.suspended */
             423: {
                 headers: {
@@ -2960,6 +3184,20 @@ export interface operations {
                     } & components["schemas"]["Problem"];
                 };
             };
+            /** @description tenant.archived */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 410;
+                        /** @enum {unknown} */
+                        code?: "tenant.archived";
+                    } & components["schemas"]["Problem"];
+                };
+            };
             /** @description tenant.suspended */
             423: {
                 headers: {
@@ -3085,6 +3323,20 @@ export interface operations {
                         status?: 404;
                         /** @enum {unknown} */
                         code?: "tenant.not_found";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description tenant.archived */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 410;
+                        /** @enum {unknown} */
+                        code?: "tenant.archived";
                     } & components["schemas"]["Problem"];
                 };
             };
@@ -3229,6 +3481,20 @@ export interface operations {
                         status?: 404;
                         /** @enum {unknown} */
                         code?: "tenant.not_found";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description tenant.archived */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 410;
+                        /** @enum {unknown} */
+                        code?: "tenant.archived";
                     } & components["schemas"]["Problem"];
                 };
             };
@@ -3381,6 +3647,20 @@ export interface operations {
                     } & components["schemas"]["Problem"];
                 };
             };
+            /** @description tenant.archived */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 410;
+                        /** @enum {unknown} */
+                        code?: "tenant.archived";
+                    } & components["schemas"]["Problem"];
+                };
+            };
             /** @description tenant.suspended */
             423: {
                 headers: {
@@ -3517,6 +3797,20 @@ export interface operations {
                     } & components["schemas"]["Problem"];
                 };
             };
+            /** @description tenant.archived */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 410;
+                        /** @enum {unknown} */
+                        code?: "tenant.archived";
+                    } & components["schemas"]["Problem"];
+                };
+            };
             /** @description tenant.suspended */
             423: {
                 headers: {
@@ -3638,6 +3932,20 @@ export interface operations {
                     } & components["schemas"]["Problem"];
                 };
             };
+            /** @description tenant.archived */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 410;
+                        /** @enum {unknown} */
+                        code?: "tenant.archived";
+                    } & components["schemas"]["Problem"];
+                };
+            };
             /** @description tenant.suspended */
             423: {
                 headers: {
@@ -3742,6 +4050,20 @@ export interface operations {
                         status?: 404;
                         /** @enum {unknown} */
                         code?: "resource.not_found" | "tenant.not_found";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description tenant.archived */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 410;
+                        /** @enum {unknown} */
+                        code?: "tenant.archived";
                     } & components["schemas"]["Problem"];
                 };
             };
@@ -3880,6 +4202,20 @@ export interface operations {
                     } & components["schemas"]["Problem"];
                 };
             };
+            /** @description tenant.archived */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 410;
+                        /** @enum {unknown} */
+                        code?: "tenant.archived";
+                    } & components["schemas"]["Problem"];
+                };
+            };
             /** @description tenant.suspended */
             423: {
                 headers: {
@@ -4010,6 +4346,20 @@ export interface operations {
                         status?: 409;
                         /** @enum {unknown} */
                         code?: "file.not_ready";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description tenant.archived */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 410;
+                        /** @enum {unknown} */
+                        code?: "tenant.archived";
                     } & components["schemas"]["Problem"];
                 };
             };
@@ -4177,6 +4527,20 @@ export interface operations {
                     } & components["schemas"]["Problem"];
                 };
             };
+            /** @description tenant.archived */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 410;
+                        /** @enum {unknown} */
+                        code?: "tenant.archived";
+                    } & components["schemas"]["Problem"];
+                };
+            };
             /** @description file.too_large, file.type_not_allowed */
             422: {
                 headers: {
@@ -4310,6 +4674,20 @@ export interface operations {
                     } & components["schemas"]["Problem"];
                 };
             };
+            /** @description tenant.archived */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 410;
+                        /** @enum {unknown} */
+                        code?: "tenant.archived";
+                    } & components["schemas"]["Problem"];
+                };
+            };
             /** @description tenant.suspended */
             423: {
                 headers: {
@@ -4414,6 +4792,20 @@ export interface operations {
                         status?: 404;
                         /** @enum {unknown} */
                         code?: "resource.not_found" | "tenant.not_found";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description tenant.archived */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 410;
+                        /** @enum {unknown} */
+                        code?: "tenant.archived";
                     } & components["schemas"]["Problem"];
                 };
             };
@@ -4522,6 +4914,20 @@ export interface operations {
                         status?: 404;
                         /** @enum {unknown} */
                         code?: "tenant.not_found";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description tenant.archived */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 410;
+                        /** @enum {unknown} */
+                        code?: "tenant.archived";
                     } & components["schemas"]["Problem"];
                 };
             };
@@ -4673,6 +5079,20 @@ export interface operations {
                     } & components["schemas"]["Problem"];
                 };
             };
+            /** @description tenant.archived */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 410;
+                        /** @enum {unknown} */
+                        code?: "tenant.archived";
+                    } & components["schemas"]["Problem"];
+                };
+            };
             /** @description tenant.suspended */
             423: {
                 headers: {
@@ -4821,6 +5241,20 @@ export interface operations {
                         status?: 404;
                         /** @enum {unknown} */
                         code?: "settings.unknown_key" | "tenant.not_found";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description tenant.archived */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 410;
+                        /** @enum {unknown} */
+                        code?: "tenant.archived";
                     } & components["schemas"]["Problem"];
                 };
             };
@@ -4995,6 +5429,20 @@ export interface operations {
                         status?: 404;
                         /** @enum {unknown} */
                         code?: "settings.unknown_key" | "tenant.not_found";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description tenant.archived */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 410;
+                        /** @enum {unknown} */
+                        code?: "tenant.archived";
                     } & components["schemas"]["Problem"];
                 };
             };
@@ -5194,6 +5642,20 @@ export interface operations {
                     } & components["schemas"]["Problem"];
                 };
             };
+            /** @description tenant.archived */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 410;
+                        /** @enum {unknown} */
+                        code?: "tenant.archived";
+                    } & components["schemas"]["Problem"];
+                };
+            };
             /** @description precondition.failed */
             412: {
                 headers: {
@@ -5316,6 +5778,20 @@ export interface operations {
                     } & components["schemas"]["Problem"];
                 };
             };
+            /** @description tenant.archived */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 410;
+                        /** @enum {unknown} */
+                        code?: "tenant.archived";
+                    } & components["schemas"]["Problem"];
+                };
+            };
             /** @description tenant.suspended */
             423: {
                 headers: {
@@ -5428,6 +5904,20 @@ export interface operations {
                     } & components["schemas"]["Problem"];
                 };
             };
+            /** @description tenant.archived */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 410;
+                        /** @enum {unknown} */
+                        code?: "tenant.archived";
+                    } & components["schemas"]["Problem"];
+                };
+            };
             /** @description tenant.suspended */
             423: {
                 headers: {
@@ -5519,6 +6009,20 @@ export interface operations {
                     } & components["schemas"]["Problem"];
                 };
             };
+            /** @description tenant.archived */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 410;
+                        /** @enum {unknown} */
+                        code?: "tenant.archived";
+                    } & components["schemas"]["Problem"];
+                };
+            };
             /** @description tenant.suspended */
             423: {
                 headers: {
@@ -5591,6 +6095,7 @@ export interface operations {
                         legalName: string;
                         /** @enum {string} */
                         type: "UNIVERSITY" | "POLYTECHNIC" | "COLLEGE_OF_EDUCATION";
+                        closesAt: string | null;
                     };
                 };
             };
@@ -5605,6 +6110,20 @@ export interface operations {
                         status?: 404;
                         /** @enum {unknown} */
                         code?: "tenant.not_found";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description tenant.archived */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 410;
+                        /** @enum {unknown} */
+                        code?: "tenant.archived";
                     } & components["schemas"]["Problem"];
                 };
             };
@@ -5745,6 +6264,20 @@ export interface operations {
                         status?: 404;
                         /** @enum {unknown} */
                         code?: "tenant.not_found";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description tenant.archived */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 410;
+                        /** @enum {unknown} */
+                        code?: "tenant.archived";
                     } & components["schemas"]["Problem"];
                 };
             };
@@ -5891,6 +6424,20 @@ export interface operations {
                         status?: 409;
                         /** @enum {unknown} */
                         code?: "contact.address_taken" | "contact.member_inactive" | "contact.own_account";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description tenant.archived */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 410;
+                        /** @enum {unknown} */
+                        code?: "tenant.archived";
                     } & components["schemas"]["Problem"];
                 };
             };

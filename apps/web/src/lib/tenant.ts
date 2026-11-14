@@ -12,8 +12,11 @@ export const brandStyle = (primary: string, text: string): CSSProperties => ({ '
 
 export type TenantProfile = ResponseBody<'/api/v1/tenant/public-profile', 'get'>;
 
-/** Spec 0037 Q8: a suspended institution's public name and colours, as its 423 carries them. */
-export type SuspendedInstitution = { legalName: string; shortName: string; primaryColor: string | null; textColor: string | null };
+/**
+ * Spec 0037 Q8, 0038 Q5: a suspended or closed institution's public name and colours, as its 423 or 410 carries them.
+ * `closed` tells them apart: a suspension is temporary; an archived account has closed.
+ */
+export type SuspendedInstitution = { legalName: string; shortName: string; primaryColor: string | null; textColor: string | null; closed: boolean };
 
 const HEX = /^#[0-9A-Fa-f]{6}$/;
 const text = (v: unknown): v is string => typeof v === 'string' && v.length > 0 && v.length <= 200;
@@ -22,12 +25,15 @@ const colour = (v: unknown): string | null => (typeof v === 'string' && HEX.test
 /** Read defensively: it's a problem body, and anything odd in it means "no branding", never a crash. */
 export function suspendedInstitution(body: unknown): SuspendedInstitution | null {
   const b = body as { code?: unknown; institution?: { legalName?: unknown; shortName?: unknown; primaryColor?: unknown; textColor?: unknown } } | null;
-  if (b?.code !== 'tenant.suspended') return null;
+  if (b?.code !== 'tenant.suspended' && b?.code !== 'tenant.archived') return null;
+  const closed = b.code === 'tenant.archived';
   const i = b.institution;
   if (!i || !text(i.legalName) || !text(i.shortName)) return null;
   const primaryColor = colour(i.primaryColor);
   const textColor = colour(i.textColor);
-  return primaryColor && textColor ? { legalName: i.legalName, shortName: i.shortName, primaryColor, textColor } : { legalName: i.legalName, shortName: i.shortName, primaryColor: null, textColor: null };
+  return primaryColor && textColor
+    ? { legalName: i.legalName, shortName: i.shortName, primaryColor, textColor, closed }
+    : { legalName: i.legalName, shortName: i.shortName, primaryColor: null, textColor: null, closed };
 }
 
 /**

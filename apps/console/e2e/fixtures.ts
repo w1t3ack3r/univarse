@@ -39,7 +39,7 @@ export const E2E_TENANT_PREFIX = 'e2e-reg-';
 /** Spec 0034: the institutions the journeys provision through the console; the teardown prunes both sides of them. */
 export const E2E_PROVISIONED_PREFIX = 'e2e-prov-';
 
-const migratorUrl = () => (parseEnv(readFileSync(new URL('../../../.env', import.meta.url), 'utf8')) as Record<string, string | undefined>).PLATFORM_MIGRATOR_URL!;
+export const migratorUrl = () => (parseEnv(readFileSync(new URL('../../../.env', import.meta.url), 'utf8')) as Record<string, string | undefined>).PLATFORM_MIGRATOR_URL!;
 
 /** A live institution with one product on. Made by the migrator: the console role can't create one (spec 0033 Q15). */
 export async function makeInstitution(): Promise<{ id: string; slug: string; legalName: string; shortName: string }> {
