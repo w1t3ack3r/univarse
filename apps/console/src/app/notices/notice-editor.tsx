@@ -208,7 +208,7 @@ export function BannerPreview({ kind, title, body, startsAt, endsAt }: { kind: K
 }
 
 /** Spec 0037 Q9: up to 200 institutions, found by name or subdomain. */
-function ChooseInstitutions({ chosen, onChange, problem }: { chosen: Ref[]; onChange: (r: Ref[]) => void; problem: string | undefined }) {
+export function ChooseInstitutions({ chosen, onChange, problem }: { chosen: Ref[]; onChange: (r: Ref[]) => void; problem: string | undefined }) {
   const [q, setQ] = useState('');
   const [found, setFound] = useState<PlatformTenantSummary[]>([]);
   useEffect(() => {

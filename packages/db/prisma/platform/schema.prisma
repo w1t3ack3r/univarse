@@ -95,6 +95,7 @@ model Tenant {
   onboarding               TenantOnboarding?
   suspensions              PlatformTenantSuspension[]
   platformNoticeDeliveries PlatformNoticeDelivery[]
+  incidents                PlatformIncidentTenant[]
 
   @@index([releaseRing])
   @@map("tenant")
@@ -359,6 +360,8 @@ model PlatformUser {
   noticesCreated     PlatformNotice[]           @relation("NoticeCreatedBy")
   noticesPublished   PlatformNotice[]           @relation("NoticePublishedBy")
   noticesWithdrawn   PlatformNotice[]           @relation("NoticeWithdrawnBy")
+  incidentsOpened    PlatformIncident[]         @relation("IncidentOpenedBy")
+  incidentUpdates    PlatformIncidentUpdate[]   @relation("IncidentUpdatePostedBy")
 
   @@map("platform_user")
 }
@@ -825,4 +828,92 @@ model PlatformNoticeDelivery {
   @@id([noticeId, tenantId])
   @@index([tenantId, withdrawnAt])
   @@map("platform_notice_delivery")
+}
+
+enum IncidentSeverity {
+  SEV1
+  SEV2
+  SEV3
+  SEV4
+}
+
+enum IncidentStatus {
+  INVESTIGATING
+  IDENTIFIED
+  MONITORING
+  RESOLVED
+}
+
+enum PersonalDataInvolved {
+  YES
+  NO
+  UNKNOWN
+}
+
+enum IncidentScope {
+  ALL
+  TENANTS
+}
+
+/// Spec 0037 Q13 (E19): an incident's current state. Its opening never changes; resolved is final but for the follow-up.
+model PlatformIncident {
+  id              String               @id @default(dbgenerated("uuidv7()")) @db.Uuid
+  title           String
+  severity        IncidentSeverity
+  scope           IncidentScope
+  status          IncidentStatus       @default(INVESTIGATING)
+  personalData    PersonalDataInvolved @default(UNKNOWN) @map("personal_data")
+  startedAt       DateTime             @map("started_at") @db.Timestamptz(3)
+  /// When we became aware: the 72-hour clock runs from here when personal data may be involved (docs/16 §8).
+  awareAt         DateTime             @map("aware_at") @db.Timestamptz(3)
+  resolvedAt      DateTime?            @map("resolved_at") @db.Timestamptz(3)
+  /// Staff only, after resolving.
+  followupWhat    String?              @map("followup_what")
+  followupActions String?              @map("followup_actions")
+  openedBy        String               @map("opened_by") @db.Uuid
+  createdAt       DateTime             @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime             @updatedAt @map("updated_at") @db.Timestamptz(3)
+  version         Int                  @default(0)
+
+  opener  PlatformUser             @relation("IncidentOpenedBy", fields: [openedBy], references: [id], onDelete: Restrict)
+  updates PlatformIncidentUpdate[]
+  tenants PlatformIncidentTenant[]
+
+  @@index([status, resolvedAt])
+  @@map("platform_incident")
+}
+
+/// Spec 0037 Q13: one entry of an incident's timeline. Append-only (a trigger). The internal note is staff only.
+model PlatformIncidentUpdate {
+  id           String               @id @default(dbgenerated("uuidv7()")) @db.Uuid
+  incidentId   String               @map("incident_id") @db.Uuid
+  status       IncidentStatus
+  severity     IncidentSeverity
+  personalData PersonalDataInvolved @map("personal_data")
+  /// Shown at the affected institutions, as text.
+  publicText   String               @map("public_text")
+  internalNote String?              @map("internal_note")
+  postedBy     String               @map("posted_by") @db.Uuid
+  createdAt    DateTime             @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  incident PlatformIncident @relation(fields: [incidentId], references: [id], onDelete: Restrict)
+  poster   PlatformUser     @relation("IncidentUpdatePostedBy", fields: [postedBy], references: [id], onDelete: Restrict)
+
+  @@index([incidentId, createdAt])
+  @@map("platform_incident_update")
+}
+
+/// Spec 0037 Q14: an institution an incident affects, decided when it was opened.
+model PlatformIncidentTenant {
+  incidentId String   @map("incident_id") @db.Uuid
+  tenantId   String   @map("tenant_id") @db.Uuid
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  changedAt  DateTime @default(now()) @map("changed_at") @db.Timestamptz(3)
+
+  incident PlatformIncident @relation(fields: [incidentId], references: [id], onDelete: Restrict)
+  tenant   Tenant           @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+
+  @@id([incidentId, tenantId])
+  @@index([tenantId])
+  @@map("platform_incident_tenant")
 }

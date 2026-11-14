@@ -1241,3 +1241,67 @@
   opacity: 0.5;
   cursor: default;
 }
+
+/* ---------- Service status (spec 0037 Q14) ----------
+   Above any notice: an open incident on the warning wash with an alert, a resolved one on the success wash with a
+   check. The status leads in words; the latest update reads as plain text. Not dismissible: it leaves a day after. */
+.incidents {
+  margin-bottom: var(--uv-space-3);
+}
+.incidents__list {
+  display: grid;
+  gap: var(--uv-space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.incident {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: var(--uv-space-3);
+  align-items: start;
+  padding: var(--uv-space-3) var(--uv-space-4);
+  border-radius: var(--uv-radius);
+  background: var(--uv-warning-bg);
+  color: var(--uv-warning);
+}
+.incident--resolved {
+  background: var(--uv-success-bg);
+  color: var(--uv-success);
+}
+.incident__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  margin-top: 2px;
+  border-radius: var(--uv-radius-sm);
+  background: var(--uv-white);
+}
+.incident__text {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  padding-top: 2px;
+}
+.incident__text p {
+  margin: 0;
+}
+.incident__status {
+  font-size: var(--uv-text-xs);
+  font-weight: 600;
+}
+.incident__title {
+  font-weight: 600;
+  color: var(--uv-text);
+  overflow-wrap: anywhere;
+}
+.incident__text .incident__body {
+  margin-top: var(--uv-space-1);
+  font-size: var(--uv-text-sm);
+  line-height: 1.55;
+  color: var(--uv-text);
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+}

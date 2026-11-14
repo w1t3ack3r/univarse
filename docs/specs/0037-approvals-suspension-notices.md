@@ -218,7 +218,7 @@ About **two and a half weeks** at S5's pace, the largest slice in Phase 1, as sp
   - in the API: banners read without the host filter, or with withdrawn ones; publishing without the rules or without `If-Match`; dismissing without the visibility check; drafting with only read; IT Admins by any permission.
   - in the worker: emailing everyone; emailing twice after a crash; a suspended outbox sending everything; failed emails counted as sent. That last one survived at first: the test had one email of each, so I made the counts lopsided.
 
-**Decisions made while building, for approval:**
+**Decisions made while building, approved by the owner on 2026-11-14:**
 
 | # | Decision | Why |
 | --- | --- | --- |
@@ -232,3 +232,61 @@ About **two and a half weeks** at S5's pace, the largest slice in Phase 1, as sp
 | Q-C8 | **Dismissing is per person, recorded at the institution;** only a banner shown to that person can be dismissed (404 otherwise). | ADR-035: the platform counts dismissals, never who. |
 | Q-C9 | **The email** is plain text: "UniVarse: {title}" as its subject, then what it is, the window in Nigerian time, the message as written, and why they got it. It's sent from the platform's usual sender. | Plain words, one next step; no markup in any channel. |
 | Q-C10 | **The tests address no notice to every institution:** the database is shared with development. "Every institution" is proved in `packages/domain`. | A test must not put a banner on the owner's real institutions. |
+
+## PR D: what was built
+
+**Built:**
+- **The rules** (`packages/domain/src/platform/incidents.ts`): what an opening and an update must hold (a one-line title; public text of 3 to 1,000 characters; an optional note up to 2,000; no control characters or bidirectional overrides; markup kept as text; aware no earlier than started, neither in the future); resolved is final; an incident shows at its institutions while open and for a day after resolving; the 72-hour deadline from awareness when personal data may be involved (yes, or not yet known). The new permission `platform.incident.manage` (OWNER, SUPER_ADMIN, SUPPORT), with step-up.
+- **The tables** (migration `20261117120000_incidents`):
+  - `platform_incident`: the current state.
+  - `platform_incident_update`: the timeline, append-only for every role (a trigger).
+  - `platform_incident_tenant`: the affected institutions, decided at opening. Its capture trigger fires on arrival and on each update's touch, so the banner changes at once; the capture gate now has 15 triggers.
+  - The opening never changes, and a resolved incident stays resolved (a trigger).
+  - The tenant API's role reads only the title, status, times and the updates' public text: never an internal note, the follow-up, the personal-data flag or who did anything.
+- **The platform API:** `GET/POST /incidents`, `GET /incidents/:id`, `POST /incidents/:id/updates` (with `If-Match`), `PUT /incidents/:id/followup` (with `If-Match`, after resolving).
+- **The tenant API:** `GET /api/v1/tenant/incidents` (public), kept per institution for the tenant cache's bound.
+- **The inbox:** open incidents (most severe first, with the clock) for those who run incidents; maintenance starting within 24 hours for those who publish notices.
+- **The web app:** the service-status banner above any notice, on the sign-in pages and in the workspace, as text only.
+- **The console:**
+  - An Incidents tab, with open incidents first.
+  - Opening an incident.
+  - Its page: the chips, the 72-hour clock, the affected institutions, posting an update, the timeline with staff-only notes set apart, and the follow-up.
+  - The inbox's two new items.
+
+**Evidence:**
+- **Domain:** 126 tests (6 new): the opening and update rules (markup kept as text), resolved is final, how long an incident shows, the 72-hour deadline for "yes" and "not yet known", and the permission's holders.
+- **Integration**, against the real databases:
+  - `incidents.int.spec.ts` (7):
+    - who may open and update (404 otherwise; a step-up asked for);
+    - an incomplete opening and one reaching no institution with people refused;
+    - the latest public text, markup included, at the affected institution only;
+    - never the internal note or the follow-up, and each update reaching the institution's cache;
+    - `If-Match` on updates;
+    - resolving final, still shown for the day, the follow-up only after, and the audit chain holding no text;
+    - the clock for "not yet known" and gone for "no";
+    - the timeline and opening refused changes for every role, and the tenant API's role unable to read a note, the follow-up or the flag;
+    - the inbox's two items to the right roles, an incident leaving it once resolved.
+  - The grants pin, the identity pin (SUPPORT's new permission), the route sweep (the new public route) and the database package (55, the isolation sweep included) pass.
+- **E2E**, desktop and phone, axe on every screen:
+  - console `incidents.e2e.ts` (4): SUPPORT opens one, sees the clock and the note apart, finds it in the inbox, updates, resolves and writes the follow-up; READ_ONLY reads and changes nothing.
+  - web `incidents.e2e.ts` (4): the incident on the sign-in page as plain text, never its note; in the workspace; nowhere at another institution.
+  - The whole console suite passes (50); the web suites except documents (which need ClamAV) pass (64).
+- **Mutations: 14 tried, 14 caught:**
+  - in the domain: resolved shown forever; no clock for "not yet known"; updates after resolving; aware before start.
+  - in the API: banners without the host filter; updates without `If-Match` or the resolved check; the follow-up before resolving; opening without the rules, reaching archived institutions, or with only read; updates not telling the institutions.
+  - in the inbox: incidents for everyone; resolved incidents listed.
+
+**Decisions made while building, for approval:**
+
+| # | Decision | Why |
+| --- | --- | --- |
+| Q-D1 | **Each update carries the incident's status, severity and personal-data flag at that moment;** the incident's row holds the current ones. Severity and the flag can change with any update until it's resolved. | Incidents escalate and de-escalate; the timeline shows when. |
+| Q-D2 | **Resolved is final.** A recurrence is a new incident. Only the follow-up is written after. | The timeline stays a true record; a reopened incident would blur when it was over. |
+| Q-D3 | **The 72-hour clock runs when personal data is "yes" or "not yet known"**, from when we became aware, and stops showing once it's resolved. The system sends nothing (Q14). | "May be involved" includes not knowing yet: the clock is already running then. |
+| Q-D4 | **An incident's banner isn't dismissible,** and shows to everyone at the affected institutions, on the sign-in page too. | It's the service's state, not a message; it leaves a day after resolving. |
+| Q-D5 | **"Every institution" means every one with people** (onboarding, live, suspended), as notices; the affected ones are fixed at opening. | Same rule as Q-C2: the record says whom it affected. |
+| Q-D6 | **An update and the follow-up take `If-Match`;** opening doesn't (it's new). | Two people running one incident shouldn't post past each other. |
+| Q-D7 | **The audit chain holds the choices (severity, status, flag, how many institutions), never the text;** the text is on the timeline, which never changes. | As Q-A7 and Q-C5. |
+| Q-D8 | **Maintenance soon goes to those who publish notices;** open incidents to those who run them. | Each item to whoever can act on it (Q15). |
+| Q-D9 | **The test clean-up removes a test's own incidents** (disabling the append-only trigger for that delete only, as the migrator). | The timeline is append-only for every other purpose; members are never deleted for real, only the tests' are. |
+| Q-D10 | **No test opens an incident affecting every institution:** it would show on the shared database's own institutions for a day. | As Q-C10. |

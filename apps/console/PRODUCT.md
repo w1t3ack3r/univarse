@@ -39,8 +39,8 @@ The console is the platform's highest-value target (threat T12): whoever control
 
 ## Capabilities and Constraints
 
-- **Built:** S1 the shell and its walls (spec 0027); S2 identity: activation, sign-in, authenticator and recovery codes, sessions, staff (spec 0028); S3 the audit log with chain verification, security events, the monthly access review (spec 0031); S4 the tenant registry: institutions, their facts, products and branding (spec 0033); S5 provisioning and go-live (spec 0034); S6's two-person approvals and the inbox (spec 0037 PR A), suspending and resuming an institution (PR B), and notices to institutions with their delivery log and release rings (PR C).
-- **Next** (spec 0025): the rest of S6 (incidents), then S7 and S8; Phase 1b adds S9 to S11 (billing is S10; NDPA registers, peak days, operations and keys are S11).
+- **Built:** S1 the shell and its walls (spec 0027); S2 identity: activation, sign-in, authenticator and recovery codes, sessions, staff (spec 0028); S3 the audit log with chain verification, security events, the monthly access review (spec 0031); S4 the tenant registry: institutions, their facts, products and branding (spec 0033); S5 provisioning and go-live (spec 0034); S6's two-person approvals and the inbox (spec 0037 PR A), suspending and resuming an institution (PR B), notices to institutions with their delivery log and release rings (PR C), and incidents (PR D).
+- **Next** (spec 0025): S6's release and the owner's check, then S7 and S8; Phase 1b adds S9 to S11 (billing is S10; NDPA registers, peak days, operations and keys are S11).
 - **Rules for consequential actions** (docs/11 §9): every destructive action needs a typed confirmation (the institution's slug) and a reason, and shows the two-person approval status where one is required. Refusals and out-of-scope resources are 404.
 - **Hard constraints:**
   - A stricter CSP than the tenant app: per-request nonce, `connect-src 'self'` only, `noindex` everywhere.

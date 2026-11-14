@@ -27,6 +27,9 @@ export const CAPTURE_TRIGGERS: readonly [table: string, trigger: string][] = [
   // Spec 0037 Q10: a notice's delivery to an institution, so its banners show and leave at once.
   ['platform_notice_delivery', 'platform_notice_delivery_capture_cache_invalidation'],
   ['platform_notice_delivery', 'platform_notice_delivery_refuse_truncate'],
+  // Spec 0037 Q14: an incident's affected institution, so its banner shows and changes at once.
+  ['platform_incident_tenant', 'platform_incident_tenant_capture_cache_invalidation'],
+  ['platform_incident_tenant', 'platform_incident_tenant_refuse_truncate'],
   ['cache_invalidation_event', 'cache_invalidation_event_guard_update'],
   ['cache_invalidation_event', 'cache_invalidation_event_guard_delete'],
   ['cache_invalidation_event', 'cache_invalidation_event_refuse_truncate'],

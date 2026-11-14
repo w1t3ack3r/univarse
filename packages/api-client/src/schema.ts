@@ -501,6 +501,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/tenant/incidents": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Incidents affecting this institution: open ones, and those resolved in the last day */
+        get: operations["publicIncidents"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/tenant/logo": {
         parameters: {
             query?: never;
@@ -5230,6 +5247,100 @@ export interface operations {
                         status?: 500;
                         /** @enum {unknown} */
                         code?: "server.internal" | "settings.stored_value_invalid";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description server.busy */
+            503: {
+                headers: {
+                    /** @description Seconds to wait before retrying. */
+                    "Retry-After": string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 503;
+                        /** @enum {unknown} */
+                        code?: "server.busy";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    publicIncidents: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: {
+                            /** Format: uuid */
+                            id: string;
+                            title: string;
+                            /** @enum {string} */
+                            status: "INVESTIGATING" | "IDENTIFIED" | "MONITORING" | "RESOLVED";
+                            /** Format: date-time */
+                            startedAt: string;
+                            resolvedAt: string | null;
+                            latest: {
+                                text: string;
+                                /** Format: date-time */
+                                at: string;
+                            };
+                        }[];
+                    };
+                };
+            };
+            /** @description tenant.not_found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 404;
+                        /** @enum {unknown} */
+                        code?: "tenant.not_found";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description tenant.suspended */
+            423: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 423;
+                        /** @enum {unknown} */
+                        code?: "tenant.suspended";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description server.internal */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 500;
+                        /** @enum {unknown} */
+                        code?: "server.internal";
                     } & components["schemas"]["Problem"];
                 };
             };

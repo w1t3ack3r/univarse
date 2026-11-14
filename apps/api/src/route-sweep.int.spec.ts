@@ -326,6 +326,18 @@ const DECLS: Record<RouteKey, Decl> = {
       },
     }),
   },
+  // Spec 0037 Q14: this host's incidents only (none seeded; covered end to end by incidents.int.spec.ts).
+  'GET /api/v1/tenant/incidents': {
+    auth: 'public',
+    classes: ['collection'],
+    prepare: () => ({
+      req: { method: 'GET', host: A, url: '/api/v1/tenant/incidents' },
+      verify: (r) => {
+        expectStatus(r, 200);
+        expect(Array.isArray(json(r).data)).toBe(true);
+      },
+    }),
+  },
   'GET /api/v1/notices': {
     auth: 'session',
     classes: ['collection'],

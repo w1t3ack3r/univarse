@@ -23,6 +23,18 @@ export async function pruneRetiredTestStaff(migratorUrl: string | undefined): Pr
     const notices = { OR: [{ createdBy: { in: gone } }, { publishedBy: { in: gone } }, { withdrawnBy: { in: gone } }] };
     await db.platformNoticeDelivery.deleteMany({ where: { notice: notices } });
     await db.platformNotice.deleteMany({ where: notices });
+    // And an incident (spec 0037 Q13): its timeline goes with it, here only (it's append-only for every other purpose).
+    const incidents = (await db.platformIncident.findMany({ where: { OR: [{ openedBy: { in: gone } }, { updates: { some: { postedBy: { in: gone } } } }] }, select: { id: true } })).map((i) => i.id);
+    if (incidents.length) {
+      await db.$executeRaw`ALTER TABLE platform_incident_update DISABLE TRIGGER platform_incident_update_append_only`;
+      try {
+        await db.platformIncidentUpdate.deleteMany({ where: { incidentId: { in: incidents } } });
+      } finally {
+        await db.$executeRaw`ALTER TABLE platform_incident_update ENABLE TRIGGER platform_incident_update_append_only`;
+      }
+      await db.platformIncidentTenant.deleteMany({ where: { incidentId: { in: incidents } } });
+      await db.platformIncident.deleteMany({ where: { id: { in: incidents } } });
+    }
     const pruned = await db.platformUser.deleteMany({ where: { id: { in: gone } } });
     // A month a test attested stays open for the owner: a review doesn't outlive its reviewer here (no foreign key, as
     // the audit log's actors).

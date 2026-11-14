@@ -40,6 +40,7 @@ import {
 import { TenantProfileController } from './modules/tenant-profile/tenant-profile.controller.js';
 import { NoticesController } from './modules/notices/notices.controller.js';
 import { NoticeBoard } from './modules/notices/notice-board.service.js';
+import { IncidentBoard } from './modules/notices/incident-board.service.js';
 import { AuditWriter } from './shared/audit/audit-writer.js';
 import { DbModule } from './shared/db/db.module.js';
 import { ProblemFilter } from './shared/errors/problem.filter.js';
@@ -123,6 +124,7 @@ export class AppModule {
         AuthService,
         TenantLogos,
         NoticeBoard,
+        IncidentBoard,
         ContactService,
         ProductService,
         ProductDeclarationCheck,
