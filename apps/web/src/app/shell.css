@@ -398,10 +398,55 @@
   color: var(--uv-text-muted);
   text-decoration: none;
 }
-.navlink[aria-current='page'] {
+.navlink[aria-current='page'],
+.navlink--more[data-current] {
   background: var(--uv-lime);
   color: var(--uv-deep);
   font-weight: 600;
+}
+/* "More" is a button drawn as a link: the same tile, no button chrome. */
+.navlink--more {
+  border: 0;
+  background: none;
+  font-family: inherit;
+  cursor: pointer;
+}
+/* The rest of the phone's destinations: a raised sheet above the bar's right end, items as rows. */
+.ws__more {
+  position: fixed;
+  inset: auto 12px calc(84px + env(safe-area-inset-bottom)) auto;
+  margin: 0;
+  min-width: 200px;
+  padding: 6px;
+  border: 0;
+  border-radius: 22px;
+  background: var(--uv-surface);
+  color: var(--uv-text);
+  box-shadow: var(--uv-shadow-raised);
+}
+.ws__more::backdrop {
+  background: transparent;
+}
+.ws__more ul {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.ws__more .navlink {
+  grid-auto-flow: column;
+  justify-content: start;
+  align-items: center;
+  gap: var(--uv-space-3);
+  min-height: 48px;
+  padding: 0 var(--uv-space-4);
+  font-size: var(--uv-text-sm);
+}
+@media (min-width: 900px) {
+  .ws__more {
+    display: none;
+  }
 }
 @media (min-width: 900px) {
   .ws {
@@ -1356,4 +1401,139 @@
   font-size: var(--uv-text-sm);
   line-height: 1.55;
   color: var(--uv-text);
+}
+
+/* ---------- Data export (spec 0038 Q7, Q8) ----------
+   One card to ask (what's in it, the passphrase, the 7 days), one for the list. The passphrase is the recovery codes'
+   tray: six groups read and written down whole, never split, and shown once. */
+.export-intro {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: var(--uv-space-4);
+  align-items: start;
+}
+.export-intro__text {
+  display: grid;
+  gap: var(--uv-space-3);
+  padding-top: 8px;
+}
+.export-facts {
+  display: grid;
+  gap: var(--uv-space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--uv-text-sm);
+  line-height: 1.55;
+  max-width: 62ch;
+}
+.export-facts li {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  gap: var(--uv-space-3);
+  align-items: start;
+}
+.export-facts svg {
+  margin-top: 3px;
+  color: var(--uv-deep);
+}
+.export-wait {
+  display: flex;
+  align-items: center;
+  gap: var(--uv-space-3);
+  margin: 0;
+  font-size: var(--uv-text-sm);
+  color: var(--uv-text-muted);
+}
+.export-wait .uv-btn__spinner {
+  flex: none;
+  color: var(--uv-deep);
+}
+.export-key {
+  display: grid;
+  justify-items: start;
+  gap: var(--uv-space-4);
+}
+.export-key > .passphrase,
+.export-key > .check,
+.export-key > .uv-btn {
+  justify-self: stretch;
+}
+.export-key h2:focus {
+  outline: none;
+}
+.passphrase {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+  margin: 0;
+  padding: 8px;
+  list-style: none;
+  border-radius: var(--uv-radius);
+  background: var(--uv-offwhite);
+  font-family: ui-monospace, 'Cascadia Mono', 'Roboto Mono', 'Droid Sans Mono', Menlo, Consolas, monospace;
+  font-size: var(--uv-text-md);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  font-variant-numeric: tabular-nums;
+}
+@media (min-width: 640px) {
+  .passphrase {
+    grid-template-columns: repeat(6, 1fr);
+  }
+}
+.passphrase li {
+  padding: 10px 4px;
+  border-radius: 8px;
+  background: var(--uv-white);
+  text-align: center;
+  white-space: nowrap; /* a group is read and written down whole */
+}
+.export-row {
+  align-items: flex-start;
+}
+.export-row__end {
+  display: grid;
+  justify-items: end;
+  gap: var(--uv-space-3);
+}
+@media not all and (min-width: 520px) {
+  .export-row {
+    flex-wrap: wrap;
+  }
+  .export-row__end {
+    flex: 1 0 100%;
+    grid-auto-flow: column;
+    justify-content: space-between;
+    align-items: center;
+  }
+}
+.status--wait {
+  background: var(--uv-info-bg);
+  color: var(--uv-info);
+}
+.status--bad {
+  background: var(--uv-danger-bg);
+  color: var(--uv-danger);
+}
+.export-hash {
+  margin-top: var(--uv-space-2);
+  font-size: var(--uv-text-sm);
+}
+.export-hash__value {
+  display: block;
+  padding: var(--uv-space-2) var(--uv-space-3);
+  border-radius: var(--uv-radius-sm);
+  background: var(--uv-offwhite);
+  font-family: ui-monospace, 'Cascadia Mono', 'Roboto Mono', 'Droid Sans Mono', Menlo, Consolas, monospace;
+  font-size: var(--uv-text-xs);
+  overflow-wrap: anywhere; /* 64 hex characters wrap inside the card, never widen it */
+}
+.closing__link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-weight: 600;
+  color: var(--uv-deep);
+  text-underline-offset: 3px;
 }

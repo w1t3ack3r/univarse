@@ -1,12 +1,14 @@
-import { Clock } from '@univarse/ui';
+import { ArrowRight, Clock } from '@univarse/ui';
+import Link from 'next/link';
 
 const day = new Intl.DateTimeFormat('en-NG', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Africa/Lagos' });
 
 /**
  * Spec 0038 Q3: an institution that is leaving UniVarse says so, to everyone there, with the day its account closes.
- * The date is the platform's, read from this host's own institution.
+ * The date is the platform's, read from this host's own institution. Its IT Admins (who hold `data.export.request`) also
+ * get the way to their export (Q3); everyone else is told who can take it.
  */
-export function ClosingBanner({ legalName, closesAt }: { legalName: string; closesAt: string | null }) {
+export function ClosingBanner({ legalName, closesAt, exportHref = null }: { legalName: string; closesAt: string | null; exportHref?: string | null }) {
   if (!closesAt) return null;
   return (
     <section className="closing" aria-label="Account closing">
@@ -17,7 +19,17 @@ export function ClosingBanner({ legalName, closesAt }: { legalName: string; clos
         <p className="closing__title">
           UniVarse closes for {legalName} at the end of {day.format(new Date(closesAt))}.
         </p>
-        <p className="closing__body">Until then, everything works as usual. After it, nobody can sign in. Your institution’s ICT unit can take a copy of its data before then.</p>
+        {exportHref ? (
+          <p className="closing__body">
+            Until then, everything works as usual. After it, nobody can sign in. As an IT Admin, take a copy of your institution’s data before then.{' '}
+            <Link className="closing__link" href={exportHref}>
+              Go to Data export
+              <ArrowRight size={16} />
+            </Link>
+          </p>
+        ) : (
+          <p className="closing__body">Until then, everything works as usual. After it, nobody can sign in. Your institution’s ICT unit can take a copy of its data before then.</p>
+        )}
       </div>
     </section>
   );

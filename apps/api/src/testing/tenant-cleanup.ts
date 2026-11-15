@@ -7,6 +7,7 @@ import { createPlatformClient, createTenantShardClient, withTenantTx } from '@un
 
 /** Children before parents, as the tenant database's foreign keys need. */
 const TENANT_TABLES = [
+  'data_export',
   'contact_change',
   'notice_dismissal',
   'mfa_challenge',
@@ -32,10 +33,10 @@ export interface CleanupUrls {
 
 /**
  * Removes the test institutions whose slug starts with `prefix`. A prefix is required and must look like a test's
- * (`e2e-`, `prov-`, `susp-`): nothing else is ever pruned. Returns how many were removed.
+ * (`e2e-`, `prov-`, `susp-`, `exp-`): nothing else is ever pruned. Returns how many were removed.
  */
 export async function pruneTestTenants(urls: CleanupUrls, prefix: string): Promise<number> {
-  if (!/^(e2e|prov|susp|ntc|inc)-[a-z0-9-]*$/.test(prefix)) throw new Error(`refusing to prune tenants by the prefix "${prefix}"`);
+  if (!/^(e2e|prov|susp|ntc|inc|exp)-[a-z0-9-]*$/.test(prefix)) throw new Error(`refusing to prune tenants by the prefix "${prefix}"`);
   if (!urls.platformMigratorUrl || !urls.tenantMigratorUrl) return 0;
   const platform = createPlatformClient(urls.platformMigratorUrl);
   const shard = createTenantShardClient(urls.tenantMigratorUrl);
@@ -55,6 +56,7 @@ export async function pruneTestTenants(urls: CleanupUrls, prefix: string): Promi
       await tx.platformIncidentTenant.deleteMany({ where: { tenantId: { in: ids } } });
       await tx.platformOffboardingWarning.deleteMany({ where: { offboarding: { tenantId: { in: ids } } } });
       await tx.platformTenantOffboarding.deleteMany({ where: { tenantId: { in: ids } } });
+      await tx.platformTenantExport.deleteMany({ where: { tenantId: { in: ids } } });
       await tx.keyDestruction.deleteMany({ where: { tenantId: { in: ids } } });
       await tx.keyReencryption.deleteMany({ where: { tenantId: { in: ids } } });
       await tx.tenantDataKey.deleteMany({ where: { tenantId: { in: ids } } });

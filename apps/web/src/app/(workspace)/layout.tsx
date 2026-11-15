@@ -70,14 +70,14 @@ export default async function WorkspaceLayout({ children }: { children: ReactNod
             </div>
           </header>
           <main id="main" className="ws__main">
-            <ClosingBanner legalName={profile?.legalName ?? ''} closesAt={profile?.closesAt ?? null} />
+            <ClosingBanner legalName={profile?.legalName ?? ''} closesAt={profile?.closesAt ?? null} exportHref={me.permissions.includes('data.export.request') ? '/workspace/export' : null} />
             <IncidentBanners incidents={status} />
             <NoticeBanners notices={banners} dismissible />
             {children}
           </main>
         </div>
         <nav aria-label="Workspace" className="ws__thumb">
-          <NavLinks items={nav} />
+          <NavLinks items={nav} variant="thumb" />
         </nav>
       </div>
     </StepUpProvider>

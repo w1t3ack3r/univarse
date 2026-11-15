@@ -25,6 +25,8 @@ export const PERMISSIONS = {
   },
   'settings.product.manage': { description: 'Enable or disable products within the plan', privileged: true, stepUp: true },
   'audit.event.view': { description: 'View the audit log', privileged: true, sensitiveData: true },
+  // Spec 0038 Q1, Q7, Q8: the institution's full export, requested and downloaded by its IT Admins.
+  'data.export.request': { description: 'Request and download the institution’s full export', privileged: true, stepUp: true, sensitiveData: true },
   // Spec 0010 D2: own files only in this slice; every role holds them (EVERY_ROLE_PERMISSIONS).
   'files.file.upload': { description: 'Upload your own documents' },
   'files.file.read': { description: 'See and download your own documents', sensitiveData: true },
@@ -76,6 +78,7 @@ export const SYSTEM_ROLE_PERMISSIONS: Readonly<Record<string, readonly Permissio
     'settings.tenant.manage',
     'settings.product.manage',
     'audit.event.view',
+    'data.export.request',
   ],
   // Oversight of registration settings is by view + audit + role assignment, not by holding the manage
   // permission (spec 0007 ST5). The Registrar owns them.

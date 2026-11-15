@@ -5,6 +5,7 @@
 import type { TenantTx } from '@univarse/db';
 import { contactAad } from '../../modules/identity/contact.service.js';
 import { mfaSecretAad } from '../../modules/identity/mfa.service.js';
+import { exportPassphraseAad } from '../../modules/exports/export-keys.js';
 import { outboxAad } from '../outbox/outbox.js';
 
 /** One encrypted value, locked for re-encryption, with the AAD it was sealed under. */
@@ -134,6 +135,31 @@ export const ENCRYPTED_COLUMNS: readonly EncryptedColumn[] = [
         SELECT id::text, old_address_enc AS value FROM contact_change
         WHERE tenant_id = ${tenantId}::uuid AND old_address_enc IS NOT NULL ORDER BY id LIMIT ${limit}`;
       return rows.map((r) => ({ id: r.id, value: r.value, aad: contactAad(tenantId, r.id, 'old') }));
+    },
+  },
+  {
+    // Spec 0038 Q8: NULL once the export's archive is sealed, or it has failed. While it waits, a rotation re-seals it.
+    table: 'data_export',
+    column: 'passphrase_enc',
+    async lockStale(tx, tenantId, activePrefix, afterId, limit) {
+      const rows = await tx.$queryRaw<{ id: string; value: string }[]>`
+        SELECT id::text, passphrase_enc AS value FROM data_export
+        WHERE tenant_id = ${tenantId}::uuid AND id > ${afterId}::uuid AND passphrase_enc IS NOT NULL AND passphrase_enc NOT LIKE ${activePrefix}
+        ORDER BY id LIMIT ${limit} FOR UPDATE SKIP LOCKED`;
+      return rows.map((r) => ({ id: r.id, value: r.value, aad: exportPassphraseAad(tenantId, r.id) }));
+    },
+    swap: (tx, tenantId, id, old, next) =>
+      tx.$executeRaw`UPDATE data_export SET passphrase_enc = ${next}
+        WHERE tenant_id = ${tenantId}::uuid AND id = ${id}::uuid AND passphrase_enc = ${old}`,
+    count: (tx, tenantId) =>
+      tx.$queryRaw<VersionCount[]>`
+        SELECT split_part(passphrase_enc, ':', 1) AS format, split_part(passphrase_enc, ':', 2) AS version, count(*)::int AS n
+        FROM data_export WHERE tenant_id = ${tenantId}::uuid AND passphrase_enc IS NOT NULL GROUP BY 1, 2`,
+    async sample(tx, tenantId, limit) {
+      const rows = await tx.$queryRaw<{ id: string; value: string }[]>`
+        SELECT id::text, passphrase_enc AS value FROM data_export
+        WHERE tenant_id = ${tenantId}::uuid AND passphrase_enc IS NOT NULL ORDER BY id LIMIT ${limit}`;
+      return rows.map((r) => ({ id: r.id, value: r.value, aad: exportPassphraseAad(tenantId, r.id) }));
     },
   },
 ];

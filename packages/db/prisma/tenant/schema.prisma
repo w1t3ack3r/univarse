@@ -523,3 +523,45 @@ model NoticeDismissal {
   @@index([tenantId, noticeId])
   @@map("notice_dismissal")
 }
+
+enum DataExportState {
+  REQUESTED
+  BUILDING
+  READY
+  FAILED
+  EXPIRED
+}
+
+/// Spec 0038 Q7, Q8: one of the institution's full exports. The passphrase is sealed under the institution's key while
+/// the archive is built, then wiped; the archive is in the exports bucket for 7 days. Steps only go forward (a trigger).
+model DataExport {
+  id            String          @id @default(dbgenerated("uuidv7()")) @db.Uuid
+  tenantId      String          @map("tenant_id") @db.Uuid
+  state         DataExportState @default(REQUESTED)
+  requestedBy   String?         @map("requested_by") @db.Uuid
+  requestedAt   DateTime        @default(now()) @map("requested_at") @db.Timestamptz(3)
+  /// Envelope-encrypted (AAD names the export); NULL once sealed or failed.
+  passphraseEnc String?         @map("passphrase_enc")
+  attempts      Int             @default(0)
+  leaseUntil    DateTime?       @map("lease_until") @db.Timestamptz(3)
+  leaseToken    String?         @map("lease_token") @db.Uuid
+  objectKey     String?         @map("object_key")
+  sizeBytes     BigInt?         @map("size_bytes")
+  sha256        Bytes?
+  tables        Int?
+  rows          BigInt?
+  files         Int?
+  startedAt     DateTime?       @map("started_at") @db.Timestamptz(3)
+  readyAt       DateTime?       @map("ready_at") @db.Timestamptz(3)
+  expiresAt     DateTime?       @map("expires_at") @db.Timestamptz(3)
+  failedAt      DateTime?       @map("failed_at") @db.Timestamptz(3)
+  expiredAt     DateTime?       @map("expired_at") @db.Timestamptz(3)
+  /// Error class only, never a message.
+  lastError     String?         @map("last_error")
+  updatedAt     DateTime        @default(now()) @map("updated_at") @db.Timestamptz(3)
+  version       Int             @default(0)
+
+  @@unique([tenantId, id])
+  @@index([tenantId, requestedAt])
+  @@map("data_export")
+}

@@ -75,7 +75,12 @@ services:
     <<: *hardening
     # The entrypoint drops root with su-exec and fixes /data ownership; it needs these (like Vault).
     cap_add: [CHOWN, SETUID, SETGID, DAC_OVERRIDE, FOWNER]
-    command: ['server', '-dir=/data', '-ip.bind=0.0.0.0', '-s3', '-s3.port=8333', '-s3.config=/etc/seaweedfs/s3.json', '-master.volumeSizeLimitMB=128', '-volume.max=16']
+    # As the stack (spec 0020's bucket fix): each collection grows one volume at a time, not SeaweedFS's default of 7,
+    # which spent all 16 slots on the filer's log, quarantine and clean and left a fourth bucket (exports, spec 0038
+    # Q-B1) none: its first write failed with InternalError. At most 24 volumes of 128 MB.
+    environment:
+      WEED_MASTER_VOLUME_GROWTH_COPY_1: '1'
+    command: ['server', '-dir=/data', '-ip.bind=0.0.0.0', '-s3', '-s3.port=8333', '-s3.config=/etc/seaweedfs/s3.json', '-master.volumeSizeLimitMB=128', '-volume.max=24']
     ports: ['127.0.0.1:8333:8333']
     volumes:
       - seaweedfs-data:/data

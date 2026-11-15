@@ -140,6 +140,8 @@ describe('[P5] the console role, in the database', () => {
         // Spec 0038: offboarding by column; its warnings are the worker's, read-only here.
         platform_offboarding_warning: 'S',
         platform_tenant_offboarding: 'SU',
+        // Spec 0038 Q-B7: the exports' mirror is the worker's; the console only reads it.
+        platform_tenant_export: 'S',
         platform_one_time_code: 'SIU',
         platform_recovery_code: 'SIU',
         platform_security_event_rollup: 'SIU',

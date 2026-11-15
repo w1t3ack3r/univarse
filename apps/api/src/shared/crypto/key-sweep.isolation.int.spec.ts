@@ -33,6 +33,7 @@ import { WorkerModule } from '../../worker.module.js';
 import { PLATFORM_DB, ShardRegistry } from '../db/db.module.js';
 import { outboxAad } from '../outbox/outbox.js';
 import { contactAad } from '../../modules/identity/contact.service.js';
+import { exportPassphraseAad } from '../../modules/exports/export-keys.js';
 import { ENCRYPTED_COLUMNS } from './encrypted-columns.js';
 import { KeyMaintenance } from './key-maintenance.js';
 
@@ -74,7 +75,7 @@ interface Scratch {
   readonly id: string;
   readonly ref: { id: string; shardId: string };
   readonly values: {
-    table: 'mfa_factor' | 'outbox_event' | 'contact_change';
+    table: 'mfa_factor' | 'outbox_event' | 'contact_change' | 'data_export';
     /** For a table with more than one encrypted column. */
     column?: 'new_address_enc' | 'old_address_enc';
     id: string;
@@ -152,6 +153,11 @@ async function scratch(label: string, outbox = 3): Promise<Scratch> {
   });
   values.push({ table: 'contact_change', column: 'new_address_enc', id: changeId, aad: contactAad(t.id, changeId, 'new'), plaintext: newAddress });
   values.push({ table: 'contact_change', column: 'old_address_enc', id: changeId, aad: contactAad(t.id, changeId, 'old'), plaintext: oldAddress });
+  // Spec 0038 Q8: an export waiting to be built holds its sealed passphrase.
+  const exportId = randomUUID();
+  const passphrase = `pass-${label}-${run}`;
+  await db.dataExport.create({ data: { id: exportId, tenantId: t.id, passphraseEnc: await fieldCrypto.encrypt(t.id, Buffer.from(passphrase), exportPassphraseAad(t.id, exportId)) } });
+  values.push({ table: 'data_export', id: exportId, aad: exportPassphraseAad(t.id, exportId), plaintext: passphrase });
   return { id: t.id, ref: { id: t.id, shardId }, values };
 }
 
@@ -162,6 +168,10 @@ async function stored(s: Scratch): Promise<string[]> {
     if (v.table === 'contact_change') {
       const row = await db.contactChange.findUniqueOrThrow({ where: { id: v.id } });
       out.push((v.column === 'new_address_enc' ? row.newAddressEnc : row.oldAddressEnc) ?? '');
+      continue;
+    }
+    if (v.table === 'data_export') {
+      out.push((await db.dataExport.findUniqueOrThrow({ where: { id: v.id } })).passphraseEnc ?? '');
       continue;
     }
     out.push(

@@ -2,6 +2,7 @@
 // the days left and the warnings its IT Admins were sent; cancelling returns it to live. An archived institution (set up
 // as the migrator: the 60 days can't pass in a test) shows as closed and takes one 14-day extension. Desktop and phone,
 // with axe. Set E2E_SHOTS to a folder to keep a screenshot of each screen.
+import { randomUUID } from 'node:crypto';
 import { createPlatformClient } from '@univarse/db';
 import { expect, test, type Page } from '@playwright/test';
 import { expectAccessible } from './a11y';
@@ -61,6 +62,8 @@ test('an OWNER starts an institution’s offboarding, sees its warnings, and can
       await expect(page.getByRole('region', { name: /Leaving:/ }).getByRole('cell', { name: 'The start' })).toBeVisible({ timeout: 2_000 });
     }).toPass({ timeout: 30_000 });
     await expect(page.locator('.pc-section__head .pc-status').first()).toHaveText('Offboarding');
+    // Spec 0038 Q15: no export asked for yet, and staff can't take one for them.
+    await expect(page.getByRole('region', { name: /Leaving:/ }).getByText(/haven’t asked for an export yet/)).toBeVisible();
     await expectAccessible(page);
     await shot(page, 'offboarding-leaving');
   });
@@ -85,6 +88,11 @@ test('an archived institution shows as closed, and takes one 14-day extension', 
     await db.platformTenantOffboarding.create({
       data: { tenantId: t.id, reason: 'INSTITUTION_ASKED', previousStatus: 'ACTIVE', startedBy: owner.id, startedAt: started, firstEndsAt: ended, endsAt: ended, archivedAt: ended, sessionsEndedAt: ended },
     });
+    // Spec 0038 Q15: an export it took in its window, as the worker mirrors one: state and counts only.
+    const readyAt = new Date(Date.now() - 3 * 86_400_000);
+    await db.platformTenantExport.create({
+      data: { id: randomUUID(), tenantId: t.id, state: 'READY', requestedAt: readyAt, readyAt, expiresAt: new Date(readyAt.getTime() + 7 * 86_400_000), sizeBytes: 2_450_000n, tables: 12, rows: 18_204n, files: 37 },
+    });
   } finally {
     await db.$disconnect();
   }
@@ -92,6 +100,8 @@ test('an archived institution shows as closed, and takes one 14-day extension', 
   const section = page.getByRole('region', { name: 'Closed' });
   await expect(section).toBeVisible();
   await expect(section.getByText(/Ended/)).toBeVisible();
+  await expect(section.getByText('Ready to download', { exact: false })).toBeVisible();
+  await expect(section.getByText('2.5 MB: 18,204 records in 12 tables, 37 documents')).toBeVisible();
   await expectAccessible(page);
   await shot(page, 'offboarding-closed');
 

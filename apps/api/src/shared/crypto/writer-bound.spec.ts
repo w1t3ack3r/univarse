@@ -12,6 +12,8 @@ const SRC = join(API_DIR, 'src');
 export const LONG_TRANSACTIONS: LongTransactions = {
   'shared/outbox/outbox-worker.ts OutboxWorker.runTenant':
     'delivers claimed emails (SMTP inside the claim); only decrypts and updates delivery state, never writes an encrypted value',
+  'modules/exports/export-builder.ts ExportBuilder.write':
+    "spec 0038 Q-B6: the export's snapshot. REPEATABLE READ and read-only (SET LOCAL transaction_read_only): it reads and decrypts, and can't write at all",
 };
 
 const FIX = join(SRC, '__writer_bound_fixtures__');
@@ -56,6 +58,7 @@ describe('[D15][BK15] the writer bound', { timeout: 60_000 }, () => {
     // Not vacuous: the known writers are found, each under the rule that admits it.
     expect(r.sites.map((s) => `${s.file} ${s.method} ${s.rule}`).sort()).toEqual([
       'cli/backup-checks.ts createDrillTenant → encrypt A', // spec 0020 D11: the drill tenant's values
+      'modules/exports/exports.service.ts ExportsService.request → encrypt A', // spec 0038 Q-B4: the export's passphrase
       'modules/identity/contact.service.ts ContactService.complete → encrypt B',
       'modules/identity/contact.service.ts ContactService.open → encrypt B',
       'modules/identity/mfa.service.ts MfaService.beginEnrolment → encrypt B',

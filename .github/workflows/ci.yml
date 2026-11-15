@@ -280,6 +280,11 @@ jobs:
         run: pnpm --filter @univarse/db test:int --reporter=default --reporter=json --outputFile.json="$GITHUB_WORKSPACE/suite-results/db.json"
       - name: Envelope encryption tests against real Vault (spec 0006)
         run: pnpm --filter @univarse/crypto test:int --reporter=default --reporter=json --outputFile.json="$GITHUB_WORKSPACE/suite-results/crypto.json"
+      # Spec 0038 (ADR-037): the export's archive is also opened by 7-Zip, a tool that isn't its writer; the test needs it in CI.
+      - name: 7-Zip for the export's outside check
+        run: |
+          command -v 7z || { sudo apt-get update -q && sudo apt-get install -y -q p7zip-full; }
+          7z i | head -3
       # Includes the storage contract tests (FU11, D1 gate) and the file flow against real SeaweedFS + ClamAV.
       - name: API integration tests
         # Verbose: every test's result is in the log, not just totals (spec 0010 completion record).
@@ -688,6 +693,11 @@ jobs:
         run: pnpm --filter @univarse/db test:pgbouncer:probe --reporter=verbose
       - name: Restart PgBouncer — suite profile (default_pool_size 10)
         run: node tools/pgbouncer/run.mjs start suite
+      # Spec 0038 (ADR-037): the export's archive is also opened by 7-Zip, a tool that isn't its writer; the test needs it in CI.
+      - name: 7-Zip for the export's outside check
+        run: |
+          command -v 7z || { sudo apt-get update -q && sudo apt-get install -y -q p7zip-full; }
+          7z i | head -3
       - name: PB3 — the three isolation suites, unchanged, through PgBouncer
         run: |
           val() { grep "^$1=" .env | cut -d= -f2-; }

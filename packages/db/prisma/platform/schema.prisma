@@ -97,6 +97,7 @@ model Tenant {
   platformNoticeDeliveries PlatformNoticeDelivery[]
   incidents                PlatformIncidentTenant[]
   offboardings             PlatformTenantOffboarding[]
+  exports                  PlatformTenantExport[]
 
   @@index([releaseRing])
   @@map("tenant")
@@ -973,4 +974,27 @@ model PlatformOffboardingWarning {
 
   @@unique([offboardingId, round, daysLeft])
   @@map("platform_offboarding_warning")
+}
+
+/// Spec 0038 Q8, Q-B7: what the platform knows of an institution's export, mirrored by the worker: state, dates, size
+/// and counts, never content or passphrase. The id is the institution's own export id.
+model PlatformTenantExport {
+  id          String    @id @db.Uuid
+  tenantId    String    @map("tenant_id") @db.Uuid
+  state       String
+  requestedAt DateTime  @map("requested_at") @db.Timestamptz(3)
+  readyAt     DateTime? @map("ready_at") @db.Timestamptz(3)
+  expiresAt   DateTime? @map("expires_at") @db.Timestamptz(3)
+  failedAt    DateTime? @map("failed_at") @db.Timestamptz(3)
+  expiredAt   DateTime? @map("expired_at") @db.Timestamptz(3)
+  sizeBytes   BigInt?   @map("size_bytes")
+  tables      Int?
+  rows        BigInt?
+  files       Int?
+  updatedAt   DateTime  @default(now()) @map("updated_at") @db.Timestamptz(3)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+
+  @@index([tenantId, requestedAt])
+  @@map("platform_tenant_export")
 }

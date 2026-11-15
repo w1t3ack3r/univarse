@@ -28,8 +28,8 @@ import { bucketDir, readCopy } from './ledger/store.js';
 import { PRIMARY } from './keys.js';
 import { loadSecrets } from './secrets.js';
 
-/** The other buckets: the ledger identity must reach neither (the API's defaults, as the deploy creates them). */
-export const OTHER_BUCKETS = ['uv-quarantine', 'uv-clean'] as const;
+/** The other buckets: the ledger identity must reach none of them (the API's defaults, as the deploy creates them). */
+export const OTHER_BUCKETS = ['uv-quarantine', 'uv-clean', 'uv-exports'] as const;
 
 /** What the check reads: the ledger on disk at its generation of record, and a client per identity. */
 export interface BucketCheckInput {

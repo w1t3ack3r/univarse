@@ -29,6 +29,8 @@ import { ProductsController } from './modules/products/products.controller.js';
 import { FileStorage } from './modules/files/file-storage.js';
 import { FilesController } from './modules/files/files.controller.js';
 import { FilesService } from './modules/files/files.service.js';
+import { ExportsController } from './modules/exports/exports.controller.js';
+import { ExportsService } from './modules/exports/exports.service.js';
 import { SettingsCache } from './modules/settings/settings-cache.js';
 import { SettingsController } from './modules/settings/settings.controller.js';
 import {
@@ -65,6 +67,7 @@ export const API_CONTROLLERS = [
   ProductsController,
   SettingsController,
   FilesController,
+  ExportsController,
 ] as const;
 
 export interface AppOverrides {
@@ -132,6 +135,7 @@ export class AppModule {
         SettingsService,
         FileStorage,
         FilesService,
+        ExportsService,
         overrides.settingsRegistry
           ? { provide: SETTINGS_REGISTRY, useValue: overrides.settingsRegistry }
           : settingsRegistryProvider,

@@ -130,6 +130,9 @@ importers:
       '@univarse/domain':
         specifier: workspace:*
         version: link:../../packages/domain
+      '@zip.js/zip.js':
+        specifier: 2.24.0
+        version: 2.24.0
       bullmq:
         specifier: ^5.81.5
         version: 5.81.5
@@ -2559,6 +2562,10 @@ packages:
 
   '@webcontainer/env@1.1.1':
     resolution: {integrity: sha512-6aN99yL695Hi9SuIk1oC88l9o0gmxL1nGWWQ/kNy81HigJ0FoaoTXpytCj6ItzgyCEwA9kF1wixsTuv5cjsgng==}
+
+  '@zip.js/zip.js@2.24.0':
+    resolution: {integrity: sha512-WlaVKzdqBK+RF3bdiXZWbdCnvGB6PdO4IHC1mn/2Yfl3bASgqUNegnU3+PNg61iecwoPfUi5BgLUPqBukXpyWw==}
+    engines: {bun: '>=0.7.0', deno: '>=1.0.0', node: '>=18.0.0'}
 
   abstract-logging@2.0.1:
     resolution: {integrity: sha512-2BjRTZxTPvheOvGbBslFSYOUkr+SjPtOnrLP33f+VIWLzezQpZcqVg7ja3L4dBXmzzgwT+a029jRx5PCi3JuiA==}
@@ -6534,6 +6541,8 @@ snapshots:
       tinyrainbow: 3.1.1
 
   '@webcontainer/env@1.1.1': {}
+
+  '@zip.js/zip.js@2.24.0': {}
 
   abstract-logging@2.0.1: {}
 

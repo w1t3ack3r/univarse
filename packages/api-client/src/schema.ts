@@ -328,6 +328,41 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/exports": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The institution's exports, newest first */
+        get: operations["listExports"];
+        put?: never;
+        /** Ask for the institution's full export; the answer carries its passphrase, shown once */
+        post: operations["requestExport"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/exports/{id}/content": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The encrypted archive, streamed (binary) */
+        get: operations["downloadExport"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/files": {
         parameters: {
             query?: never;
@@ -2363,7 +2398,7 @@ export interface operations {
                         displayName: string;
                         mfa: boolean;
                         restricted: boolean;
-                        permissions: ("identity.user.view" | "identity.user.manage" | "identity.user.contact.manage" | "identity.role.assign" | "org.unit.view" | "org.unit.manage" | "settings.tenant.view" | "settings.tenant.manage" | "settings.registration.manage" | "settings.product.manage" | "audit.event.view" | "files.file.upload" | "files.file.read" | "files.file.delete")[];
+                        permissions: ("identity.user.view" | "identity.user.manage" | "identity.user.contact.manage" | "identity.role.assign" | "org.unit.view" | "org.unit.manage" | "settings.tenant.view" | "settings.tenant.manage" | "settings.registration.manage" | "settings.product.manage" | "audit.event.view" | "data.export.request" | "files.file.upload" | "files.file.read" | "files.file.delete")[];
                     };
                 };
             };
@@ -3688,6 +3723,493 @@ export interface operations {
                         status?: 429;
                         /** @enum {unknown} */
                         code?: "request.rate_limited";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description server.internal */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 500;
+                        /** @enum {unknown} */
+                        code?: "server.internal";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description server.busy */
+            503: {
+                headers: {
+                    /** @description Seconds to wait before retrying. */
+                    "Retry-After": string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 503;
+                        /** @enum {unknown} */
+                        code?: "server.busy";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    listExports: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: {
+                            /** Format: uuid */
+                            id: string;
+                            /** @enum {string} */
+                            state: "REQUESTED" | "BUILDING" | "READY" | "FAILED" | "EXPIRED";
+                            /** Format: date-time */
+                            requestedAt: string;
+                            requestedBy: {
+                                /** Format: uuid */
+                                id: string;
+                                displayName: string;
+                            } | null;
+                            readyAt: string | null;
+                            expiresAt: string | null;
+                            sizeBytes: number | null;
+                            tables: number | null;
+                            rows: number | null;
+                            files: number | null;
+                            sha256: string | null;
+                            downloadable: boolean;
+                        }[];
+                        nextAllowedAt: string | null;
+                    };
+                };
+            };
+            /** @description auth.unauthenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 401;
+                        /** @enum {unknown} */
+                        code?: "auth.unauthenticated";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description auth.forbidden, auth.mfa_enrolment_required, auth.mfa_required */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 403;
+                        /** @enum {unknown} */
+                        code?: "auth.forbidden" | "auth.mfa_enrolment_required" | "auth.mfa_required";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description tenant.not_found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 404;
+                        /** @enum {unknown} */
+                        code?: "tenant.not_found";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description tenant.archived */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 410;
+                        /** @enum {unknown} */
+                        code?: "tenant.archived";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description tenant.suspended */
+            423: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 423;
+                        /** @enum {unknown} */
+                        code?: "tenant.suspended";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description auth.step_up_required */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 428;
+                        /** @enum {unknown} */
+                        code?: "auth.step_up_required";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description server.internal */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 500;
+                        /** @enum {unknown} */
+                        code?: "server.internal";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description server.busy */
+            503: {
+                headers: {
+                    /** @description Seconds to wait before retrying. */
+                    "Retry-After": string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 503;
+                        /** @enum {unknown} */
+                        code?: "server.busy";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    requestExport: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        export: {
+                            /** Format: uuid */
+                            id: string;
+                            /** @enum {string} */
+                            state: "REQUESTED" | "BUILDING" | "READY" | "FAILED" | "EXPIRED";
+                            /** Format: date-time */
+                            requestedAt: string;
+                            requestedBy: {
+                                /** Format: uuid */
+                                id: string;
+                                displayName: string;
+                            } | null;
+                            readyAt: string | null;
+                            expiresAt: string | null;
+                            sizeBytes: number | null;
+                            tables: number | null;
+                            rows: number | null;
+                            files: number | null;
+                            sha256: string | null;
+                            downloadable: boolean;
+                        };
+                        passphrase: string;
+                    };
+                };
+            };
+            /** @description auth.unauthenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 401;
+                        /** @enum {unknown} */
+                        code?: "auth.unauthenticated";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description auth.forbidden, auth.mfa_enrolment_required, auth.mfa_required, request.csrf_rejected */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 403;
+                        /** @enum {unknown} */
+                        code?: "auth.forbidden" | "auth.mfa_enrolment_required" | "auth.mfa_required" | "request.csrf_rejected";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description tenant.not_found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 404;
+                        /** @enum {unknown} */
+                        code?: "tenant.not_found";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description export.in_progress, export.too_soon */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 409;
+                        /** @enum {unknown} */
+                        code?: "export.in_progress" | "export.too_soon";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description tenant.archived */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 410;
+                        /** @enum {unknown} */
+                        code?: "tenant.archived";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description tenant.suspended */
+            423: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 423;
+                        /** @enum {unknown} */
+                        code?: "tenant.suspended";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description auth.step_up_required */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 428;
+                        /** @enum {unknown} */
+                        code?: "auth.step_up_required";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description server.internal */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 500;
+                        /** @enum {unknown} */
+                        code?: "server.internal";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description server.busy */
+            503: {
+                headers: {
+                    /** @description Seconds to wait before retrying. */
+                    "Retry-After": string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 503;
+                        /** @enum {unknown} */
+                        code?: "server.busy";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    downloadExport: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The export id. Any value that is not one of this institution's exports, including a malformed id, is 404. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    /** @description Always an attachment, with an ASCII and an RFC 5987 filename. */
+                    "Content-Disposition": string;
+                    /** @description The verified byte length (spec 0010 FU14). */
+                    "Content-Length": string;
+                    "X-Content-Type-Options": "nosniff";
+                    /** @description Sandboxed: nothing in the file can run. */
+                    "Content-Security-Policy": string;
+                    "Cache-Control": "no-store";
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/zip": string;
+                };
+            };
+            /** @description auth.unauthenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 401;
+                        /** @enum {unknown} */
+                        code?: "auth.unauthenticated";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description auth.forbidden, auth.mfa_enrolment_required, auth.mfa_required */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 403;
+                        /** @enum {unknown} */
+                        code?: "auth.forbidden" | "auth.mfa_enrolment_required" | "auth.mfa_required";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description resource.not_found, tenant.not_found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 404;
+                        /** @enum {unknown} */
+                        code?: "resource.not_found" | "tenant.not_found";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description export.not_ready */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 409;
+                        /** @enum {unknown} */
+                        code?: "export.not_ready";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description tenant.archived */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 410;
+                        /** @enum {unknown} */
+                        code?: "tenant.archived";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description tenant.suspended */
+            423: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 423;
+                        /** @enum {unknown} */
+                        code?: "tenant.suspended";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description auth.step_up_required */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 428;
+                        /** @enum {unknown} */
+                        code?: "auth.step_up_required";
                     } & components["schemas"]["Problem"];
                 };
             };
