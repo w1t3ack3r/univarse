@@ -2161,3 +2161,81 @@ html {
 .pc-leaving .pc-facts--card {
   box-shadow: none;
 }
+
+/*
+ * Spec 0038 Q9–Q13, Q15: an archived institution's purge. The host command is shown as code on the off-white tray with a
+ * copy button (it's typed on the host, never run from here); the steps are a list whose finished steps carry a check and
+ * their time; a purged institution leads with its certificate's facts.
+ */
+.pc-purge {
+  display: grid;
+  gap: var(--uv-space-3);
+}
+.pc-command {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--uv-space-3);
+  padding: var(--uv-space-2) var(--uv-space-2) var(--uv-space-2) var(--uv-space-4);
+  border-radius: var(--uv-radius);
+  background: var(--uv-offwhite);
+}
+.pc-command__text {
+  flex: 1 1 16rem;
+  min-width: 0;
+  font-family: ui-monospace, 'Cascadia Mono', 'Roboto Mono', 'Droid Sans Mono', Menlo, Consolas, monospace;
+  font-size: var(--uv-text-sm);
+  color: var(--uv-deep);
+  overflow-wrap: anywhere;
+}
+.pc-steps {
+  display: grid;
+  gap: var(--uv-space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.pc-steps__item {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) auto;
+  gap: var(--uv-space-3);
+  align-items: center;
+  font-size: var(--uv-text-sm);
+}
+.pc-steps__mark {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--uv-deep-soft);
+  color: var(--uv-text-muted);
+  font-size: var(--uv-text-xs);
+  font-weight: 600;
+}
+.pc-steps__item--done .pc-steps__mark {
+  background: var(--uv-success-bg);
+  color: var(--uv-success);
+}
+.pc-steps__when {
+  color: var(--uv-text-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+@media not all and (min-width: 560px) {
+  .pc-steps__item {
+    grid-template-columns: 28px minmax(0, 1fr);
+  }
+  .pc-steps__when {
+    grid-column: 2;
+  }
+}
+.pc-purged {
+  display: grid;
+  gap: var(--uv-space-4);
+}
+.pc-hash {
+  font-family: ui-monospace, 'Cascadia Mono', 'Roboto Mono', 'Droid Sans Mono', Menlo, Consolas, monospace;
+  font-size: var(--uv-text-xs);
+  overflow-wrap: anywhere;
+}

@@ -35,6 +35,7 @@ export default async function globalTeardown(): Promise<void> {
     await owner.platformOffboardingWarning.deleteMany({ where: { offboarding: { tenant: { slug: { startsWith: E2E_TENANT_PREFIX } } } } });
     await owner.platformTenantOffboarding.deleteMany({ where: { tenant: { slug: { startsWith: E2E_TENANT_PREFIX } } } });
     await owner.platformTenantExport.deleteMany({ where: { tenant: { slug: { startsWith: E2E_TENANT_PREFIX } } } });
+    await owner.platformTenantPurge.deleteMany({ where: { tenant: { slug: { startsWith: E2E_TENANT_PREFIX } } } });
     await owner.tenant.deleteMany({ where: { slug: { startsWith: E2E_TENANT_PREFIX } } });
   } finally {
     await owner.$disconnect();

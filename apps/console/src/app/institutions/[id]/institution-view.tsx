@@ -60,7 +60,8 @@ export function InstitutionView() {
   const canSuspend = me.permissions.includes('platform.tenant.suspend');
   const canRing = me.permissions.includes('platform.release.manage') && !closed;
   const canOffboard = me.permissions.includes('platform.tenant.offboard');
-  const leaving = t?.offboarding && !t.offboarding.cancelledAt && (t.status === 'OFFBOARDING' || t.status === 'ARCHIVED');
+  // Spec 0038: a leaving, closed or purged institution's page leads with where its departure stands.
+  const leaving = (t?.offboarding && !t.offboarding.cancelledAt && (t.status === 'OFFBOARDING' || t.status === 'ARCHIVED')) || t?.status === 'PURGED';
 
   const load = useCallback(() => {
     api<Tenant>('GET', `/tenants/${id}`)

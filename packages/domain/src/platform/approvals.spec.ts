@@ -113,8 +113,9 @@ describe('no solo bypass (spec 0037 Q5, A7)', () => {
 });
 
 describe('the kinds (spec 0037 Q2, Q4)', () => {
-  it('S6 declares one kind, staff.make_owner, approved by a decider within 24 hours', () => {
-    expect(APPROVAL_KIND_NAMES).toEqual(['staff.make_owner']);
+  it('S6 declared staff.make_owner and S7 tenant.purge, each approved by a decider within 24 hours', () => {
+    expect(APPROVAL_KIND_NAMES).toEqual(['staff.make_owner', 'tenant.purge']);
+    expect(APPROVAL_KINDS['tenant.purge']).toEqual({ requestPermission: 'platform.tenant.offboard', approvePermission: 'platform.approval.decide', ttlMs: 24 * 3_600_000, subjectField: null });
     expect(APPROVAL_KINDS['staff.make_owner']).toEqual({ requestPermission: 'platform.staff.manage', approvePermission: 'platform.approval.decide', ttlMs: 24 * 3_600_000, subjectField: 'memberId' });
     expect(approvalExpiry('staff.make_owner', NOW).toISOString()).toBe('2026-11-14T12:00:00.000Z');
   });

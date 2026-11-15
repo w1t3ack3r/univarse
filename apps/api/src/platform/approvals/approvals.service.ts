@@ -24,6 +24,9 @@ import {
   type ApprovalStatus,
   type DecisionRefusal,
   type PlatformPermission,
+  authorisationUsable,
+  isDrillSlug,
+  purgeAuthorisationExpiry,
 } from '@univarse/domain';
 import { ProblemError } from '../../shared/errors/problem.js';
 import { securityFields } from '../../shared/observability/security.js';
@@ -271,6 +274,15 @@ export class PlatformApprovals {
 
   /** Whether a request would change anything now, per kind: refused at the asking, so nobody approves a no-op. */
   private readonly applicable: Record<ApprovalKind, (tx: PlatformTx, payload: Readonly<Record<string, unknown>>, actor: PlatformActor) => Promise<void>> = {
+    // Spec 0038 Q9, Q-C8, Q-C9: an archived institution (never a drill tenant), the slug its own, no purge begun, and no
+    // authorisation already standing for it.
+    'tenant.purge': async (tx, payload) => {
+      const t = await this.purgeTarget(tx, payload);
+      if (!t) throw notFound();
+      if (t.status !== 'ARCHIVED' || isDrillSlug(t.slug)) throw new ProblemError(409, 'tenant.not_purgeable', 'Not purgeable');
+      if (t.purge) throw new ProblemError(409, 'approval.not_applicable', 'Nothing would change');
+      if (await this.standingAuthorisation(tx, t.id, new Date())) throw new ProblemError(409, 'approval.not_applicable', 'Nothing would change');
+    },
     'staff.make_owner': async (tx, payload, actor) => {
       const memberId = String(payload.memberId);
       if (memberId === actor.userId) throw new ProblemError(409, 'staff.own_account', "You can't change your own role or access");
@@ -282,6 +294,21 @@ export class PlatformApprovals {
 
   /** The stored payload, run, per kind. A changed world is a FAILED outcome with a fixed code, never a half-done action. */
   private readonly executors: Record<ApprovalKind, (tx: PlatformTx, a: Row, approver: PlatformActor, meta: RequestMeta) => Promise<Outcome>> = {
+    // Spec 0038 Q9, Q-C1: nothing is destroyed here. The approval's execution is the authorisation, usable on the host
+    // for 7 days; the institution must still be archived and its slug its own.
+    'tenant.purge': async (tx, a, approver, meta) => {
+      const t = await this.purgeTarget(tx, a.payload as Record<string, unknown>);
+      if (!t) return { ok: false, code: 'subject_gone' };
+      if (t.status !== 'ARCHIVED' || isDrillSlug(t.slug)) return { ok: false, code: 'not_archived' };
+      if (t.purge) return { ok: false, code: 'already_done' };
+      const now = new Date();
+      await platformAudit(
+        tx,
+        { actorId: approver.userId, tenantId: t.id, action: 'platform.tenant.purge_authorised', metadata: { approvalId: a.id, slug: t.slug, requestedBy: a.requestedBy, expiresAt: purgeAuthorisationExpiry(now).toISOString() } },
+        meta,
+      );
+      return { ok: true };
+    },
     'staff.make_owner': async (tx, a, approver, meta) => {
       const memberId = String((a.payload as Record<string, unknown>).memberId);
       const target = await tx.platformUser.findUnique({ where: { id: memberId }, select: { role: true, isActive: true, email: true } });
@@ -295,6 +322,22 @@ export class PlatformApprovals {
       return { ok: true };
     },
   };
+
+  /** The institution a purge payload names, only if its id and slug agree (the shown hash names it by both, T36). */
+  private async purgeTarget(tx: PlatformTx, payload: Readonly<Record<string, unknown>>) {
+    const id = typeof payload.tenantId === 'string' ? payload.tenantId : '';
+    const t = await tx.tenant.findUnique({ where: { id }, select: { id: true, slug: true, status: true, purge: { select: { id: true } } } });
+    return t && t.slug === payload.slug ? t : null;
+  }
+
+  /** Q-C1: an executed `tenant.purge` approval for this institution still within its 7 days and not yet used. */
+  private async standingAuthorisation(tx: PlatformTx, tenantId: string, now: Date): Promise<boolean> {
+    const executed = await tx.platformApproval.findMany({
+      where: { kind: 'tenant.purge', status: 'EXECUTED', executedAt: { gt: new Date(now.getTime() - 8 * 86_400_000) } },
+      select: { payload: true, executedAt: true, purge: { select: { id: true } } },
+    });
+    return executed.some((e) => (e.payload as Record<string, unknown>).tenantId === tenantId && e.executedAt !== null && authorisationUsable({ executedAt: e.executedAt, usedBy: e.purge?.id ?? null }, now));
+  }
 
   private async tellRequester(tx: PlatformTx, a: Row, what: string): Promise<void> {
     const requester = await tx.platformUser.findUnique({ where: { id: a.requestedBy }, select: { email: true, isActive: true } });

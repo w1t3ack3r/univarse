@@ -16,6 +16,8 @@ export async function pruneRetiredTestStaff(migratorUrl: string | undefined): Pr
     // Spec 0037: a request names its requester and decider with a restricting key (members are never deleted for real),
     // so a test member's approvals go first.
     const gone = (await db.platformUser.findMany({ where: retired, select: { id: true } })).map((m) => m.id);
+    // Spec 0038: a test purge names its test approval (a restricting key): it goes first.
+    await db.platformTenantPurge.deleteMany({ where: { approval: { OR: [{ requestedBy: { in: gone } }, { decidedBy: { in: gone } }] } } });
     await db.platformApproval.deleteMany({ where: { OR: [{ requestedBy: { in: gone } }, { decidedBy: { in: gone } }] } });
     // So does a suspension (spec 0037 Q6): test members only ever suspend test institutions.
     await db.platformTenantSuspension.deleteMany({ where: { OR: [{ suspendedBy: { in: gone } }, { resumedBy: { in: gone } }] } });

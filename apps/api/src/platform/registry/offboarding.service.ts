@@ -4,7 +4,7 @@
 // sends the warnings (the IT Admins' addresses are the institution's, ADR-035), archives on the last day and ends the
 // sessions: the console holds no tenant credential (A2). Every change is audited in its own transaction.
 import { Inject, Injectable } from '@nestjs/common';
-import type { PlatformOffboarding, PlatformTenantExportView } from '@univarse/contracts';
+import type { PlatformOffboarding, PlatformPurgeView, PlatformTenantExportView } from '@univarse/contracts';
 import type { PlatformClient } from '@univarse/db';
 import {
   cancellable,
@@ -14,6 +14,8 @@ import {
   offboardable,
   OFFBOARDING_DAYS,
   offboardingNoteProblem,
+  purgeAuthorisationExpiry,
+  soloPurgeAllowed,
   windowEnd,
   type OffboardingReason,
   type TenantStatusName,
@@ -74,6 +76,8 @@ export class TenantOffboarding {
       const status = await this.lock(tx, tenantId);
       const open = await this.open(tx, tenantId);
       if (!open || !extendable(status, open.extendedAt ? 1 : 0)) throw new ProblemError(409, 'tenant.not_extendable', 'Not extendable');
+      // Q-C9: once a purge has begun (its keys may be gone), the institution is never reopened.
+      if (await tx.platformTenantPurge.findUnique({ where: { tenantId }, select: { id: true } })) throw new ProblemError(409, 'tenant.purge_started', 'Purge started');
       const n = await tx.tenant.updateMany({ where: { id: tenantId, status: 'ARCHIVED' }, data: { status: 'OFFBOARDING', purgeAfter: ends } });
       if (n.count !== 1) throw new ProblemError(409, 'tenant.not_extendable', 'Not extendable');
       await tx.platformTenantOffboarding.update({
@@ -154,6 +158,52 @@ export class TenantOffboarding {
       rows: n(r.rows),
       files: r.files,
     }));
+  }
+
+  /** Q15: an archived or purged institution's purge: its latest request, whether a second person exists, and the run. */
+  async purge(tenantId: string, status: string): Promise<PlatformPurgeView | null> {
+    if (status !== 'ARCHIVED' && status !== 'PURGED') return null;
+    const who = (u: { id: string; displayName: string } | null) => (u ? { id: u.id, name: u.displayName } : null);
+    const requests = await this.db.platformApproval.findMany({
+      where: { kind: 'tenant.purge' },
+      orderBy: { createdAt: 'desc' },
+      take: 50,
+      select: { id: true, status: true, payload: true, expiresAt: true, executedAt: true, requester: { select: { id: true, displayName: true } }, decider: { select: { id: true, displayName: true } } },
+    });
+    const latest = requests.find((r) => (r.payload as Record<string, unknown>).tenantId === tenantId) ?? null;
+    const staff = await this.db.platformUser.findMany({ select: { id: true, role: true, isActive: true, mfaFactors: { where: { confirmedAt: { not: null }, revokedAt: null }, select: { id: true } } } });
+    const run = await this.db.platformTenantPurge.findUnique({ where: { tenantId } });
+    const now = new Date();
+    const status_ = latest ? (latest.status === 'PENDING' && latest.expiresAt <= now ? 'EXPIRED' : latest.status) : null;
+    return {
+      request:
+        latest && status_
+          ? {
+              approvalId: latest.id,
+              status: status_,
+              requestedBy: { id: latest.requester.id, name: latest.requester.displayName },
+              decidedBy: who(latest.decider),
+              authorisedAt: latest.status === 'EXECUTED' ? iso(latest.executedAt) : null,
+              authorisationExpiresAt: latest.status === 'EXECUTED' && latest.executedAt ? purgeAuthorisationExpiry(latest.executedAt).toISOString() : null,
+            }
+          : null,
+      // Q11, Q-C4: exactly the opposite of the host's solo rule, so the console and the host never disagree.
+      secondPersonAvailable: !soloPurgeAllowed(staff.map((u) => ({ role: u.role, isActive: u.isActive, mfaEnrolled: u.mfaFactors.length > 0 }))),
+      run: run
+        ? {
+            solo: run.solo,
+            reason: run.reason,
+            startedAt: run.startedAt.toISOString(),
+            keysDestroyedAt: iso(run.keysDestroyedAt),
+            rowsDeletedAt: iso(run.rowsDeletedAt),
+            objectsDeletedAt: iso(run.objectsDeletedAt),
+            platformDeletedAt: iso(run.platformDeletedAt),
+            certificateAt: iso(run.certificateAt),
+            certificate: (run.certificate as Record<string, unknown> | null) ?? null,
+            certificateSha256: run.certificateSha256,
+          }
+        : null,
+    };
   }
 
   private open(tx: PlatformTx, tenantId: string) {

@@ -75,6 +75,8 @@ export const ERROR_MESSAGES = {
   'tenant.not_offboarding': 'This institution isn’t offboarding, or its window has already ended.',
   'tenant.offboarding_note': 'Add a note of 3 to 200 characters. It’s required when the reason is “Other”.',
   'tenant.not_extendable': 'Only an archived institution can be given more time, and only once.',
+  'tenant.purge_started': 'Its purge has begun, so it can’t be given more time.',
+  'tenant.not_purgeable': 'Only an archived institution can be purged, and never a drill tenant.',
   'tenant.suspension_note': 'Add a note of 3 to 200 characters. It’s required when the reason is “Other”.',
   'audit.verification_running': 'A verification is already running. It will show here when it finishes.',
   'access_review.changed': 'Someone\'s access changed while you were reviewing. Reload the page and review it again.',

@@ -157,6 +157,7 @@ pnpm stack:isolation                         # spec 0017's PB1 and PB2 through t
 pnpm stack:e2e                               # the Playwright suite against the stack over HTTPS
 pnpm stack:keys destroy <tenant> [--version <n>]   # the only way keys are destroyed in the stack (spec 0020)
 pnpm stack:keys recover                      # the ledger's recovery (every deploy runs it)
+pnpm stack:purge <slug> [--solo --reason "…"]   # an archived institution's purge, with a two-person authorisation (spec 0038 PR C); resumes if stopped
 pnpm stack:keys ledger status                # the ledger's destinations and destructions
 pnpm stack:keys ledger waive --reason "…" --confirm "destroyed tenants may return" --destination <path>…   # only when no destination can be read
 pnpm stack:vault migrate-raft releases/<record>.json [--commit <full 40-character sha>]   # once, spec 0020 B1: Vault from file storage to Raft

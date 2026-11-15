@@ -36,7 +36,7 @@ let config: Config;
 let stackDir: string;
 beforeAll(() => {
   stackDir = mkdtempSync(join(tmpdir(), 'uv-stack-compose-'));
-  for (const f of ['postgres.env', 'migrate.env', 'api.env', 'worker.env', 'web.env', 'keys.env', 'backup.env', 'platform-api.env', 'console.env']) writeFileSync(join(stackDir, f), '');
+  for (const f of ['postgres.env', 'migrate.env', 'api.env', 'worker.env', 'web.env', 'keys.env', 'purge.env', 'backup.env', 'platform-api.env', 'console.env']) writeFileSync(join(stackDir, f), '');
   const r = spawnSync('docker', ['compose', '-p', PROJECT, '-f', COMPOSE_FILE, '--profile', 'scan', '--profile', 'job', 'config', '--format', 'json'], {
     encoding: 'utf8',
     env: { ...process.env, UNIVARSE_STACK_DIR: stackDir, ...STAND_IN },
@@ -70,12 +70,12 @@ describe('[LS1] the shape', () => {
     expect((svc('caddy').volumes ?? []).find((v) => v.target === '/etc/caddy/tls')).toMatchObject({ source: 'caddy-tls', read_only: true });
   });
 
-  it('[LS1] the app and db networks are internal; PostgreSQL is on db only, shared with PgBouncer, the migrate job and the base backup job (spec 0020 B-3)', () => {
+  it('[LS1] the app and db networks are internal; PostgreSQL is on db only, shared with PgBouncer, the migrate job, the base backup job (spec 0020 B-3) and the purge job (spec 0038 Q-C2)', () => {
     expect(config.networks.app?.internal).toBe(true);
     expect(config.networks.db?.internal).toBe(true);
     expect(Object.keys(svc('postgres').networks ?? {})).toEqual(['db']);
     const onDb = Object.entries(config.services).filter(([, s]) => 'db' in (s.networks ?? {})).map(([n]) => n).sort();
-    expect(onDb).toEqual(['migrate', 'pgbackup', 'pgbouncer', 'postgres']);
+    expect(onDb).toEqual(['migrate', 'pgbackup', 'pgbouncer', 'postgres', 'purge']);
     expect(Object.keys(svc('pgbackup').networks ?? {})).toEqual(['db']);
     for (const s of ['api', 'worker', 'web', 'platform-api', 'console']) expect(Object.keys(svc(s).networks ?? {})).toEqual(['app']);
   });
@@ -233,7 +233,7 @@ describe('[LS3] env files reach the containers exactly as written', () => {
     try {
       // Not a real verifier: the same characters, in the same places.
       const value = 'SCRAM-SHA-256$4096:c2FsdA==$c3RvcmVkS2V5$c2VydmVyS2V5$$x${y}$';
-      for (const f of ['postgres.env', 'api.env', 'worker.env', 'web.env', 'keys.env', 'backup.env', 'platform-api.env', 'console.env']) writeFileSync(join(dir, f), '');
+      for (const f of ['postgres.env', 'api.env', 'worker.env', 'web.env', 'keys.env', 'purge.env', 'backup.env', 'platform-api.env', 'console.env']) writeFileSync(join(dir, f), '');
       writeFileSync(join(dir, 'migrate.env'), envText({ ROLE_VERIFIER_PROBE: value }));
       const r = spawnSync('docker', ['compose', '-p', PROJECT, '-f', COMPOSE_FILE, '--profile', 'job', 'config', '--format', 'json', 'migrate'], {
         encoding: 'utf8',

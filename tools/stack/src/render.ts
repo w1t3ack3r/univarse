@@ -137,6 +137,16 @@ export function renderEnvFiles(s: StackSecrets, v: VaultTokens): Readonly<Record
       PGAPPNAME: 'univarse-backup',
     },
     // LS4: direct to PostgreSQL (PB8), as the superuser for the bootstrap and the roles after it.
+    // Spec 0038 Q-C2: the purge job: the migrator, direct (TLS, the stack CA), and the app's storage identity. Nothing else.
+    'purge.env': {
+      NODE_ENV: 'production',
+      NODE_EXTRA_CA_CERTS: '/ca/ca.crt',
+      PLATFORM_MIGRATOR_URL: direct('univarse_migrator', s.roles.migrator, 'univarse_platform'),
+      TENANT_POOL_01_MIGRATOR_URL: direct('univarse_migrator', s.roles.migrator, 'univarse_pool_01'),
+      S3_ENDPOINT: 'http://seaweedfs:8333',
+      S3_ACCESS_KEY: s.s3AccessKey,
+      S3_SECRET_KEY: s.s3SecretKey,
+    },
     'migrate.env': {
       NODE_ENV: 'production',
       NODE_EXTRA_CA_CERTS: '/ca/ca.crt',

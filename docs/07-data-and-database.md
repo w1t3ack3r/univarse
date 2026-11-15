@@ -202,7 +202,7 @@ CREATE TABLE audit_event (
 | Session records, login attempts | 12 months |
 | Application logs | 30 days hot, 12 months archived (no PII payloads) |
 | Audit events | 10 years minimum for academic/financial actions |
-| Offboarded tenant data | Deleted 60 days after offboarding + backup expiry window |
+| Offboarded tenant data | Archived 60 days after offboarding starts (14 more once, on request); then purged by two people with `pnpm stack:purge` ([spec 0038](specs/0038-offboarding-and-purge.md)): keys destroyed first, then its rows (its audit trail included), files and platform records; a certificate of deletion states when the last backup holding any of it is deleted |
 
 ## 10. Backups (summary; detail in [10](10-infrastructure-and-deployment.md))
 

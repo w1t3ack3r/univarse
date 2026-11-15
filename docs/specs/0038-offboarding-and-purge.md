@@ -1,6 +1,6 @@
 # Spec 0038: Phase 1's S7, offboarding, the export and purge
 
-**Status:** **Approved by the owner on 2026-11-14, all as written:** Q1 to Q15. ADR-037 (the AES ZIP's dependency) is written with PR B. **PR A's decisions Q-A1 to Q-A9 approved by the owner on 2026-11-15.**
+**Status:** **Approved by the owner on 2026-11-14, all as written:** Q1 to Q15. ADR-037 (the AES ZIP's dependency) is written with PR B. **PR A's decisions Q-A1 to Q-A9 and PR B's Q-B1 to Q-B22 approved by the owner on 2026-11-15.**
 **Phase:** 1, slice **S7** of [spec 0025](0025-phase-1-control-plane.md) (A7, A12, E10).
 **Builds on:**
 
@@ -211,7 +211,7 @@ Written before the code, as the self-review asks; what changed while building is
   - in the domain: exporting while suspended, a failure counting against the day, two at a time, downloading after expiry, a weaker passphrase, a path in a file name;
   - in the API and worker: the use case's scope check, its served check, streaming any key, the download unaudited, no daily limit, building for a closed institution, sealing over a lost lease, retrying forever, keeping the passphrase, ZipCrypto, exporting deleted files, the password hash exported, addresses not decrypted, expiry keeping the archive, a closed institution keeping its passphrase, a crashed build claimed forever, the download needing only `files.file.read`.
   - Two survived at first (sealing over a lost lease; deleted files): the tests didn't cover the case each guards; they do now. The crash guard (Q-B14) came from the review.
-**Decisions made while building, for approval:**
+**Decisions made while building (approved by the owner on 2026-11-15):**
 
 | # | Decision | Why |
 | --- | --- | --- |
@@ -227,3 +227,67 @@ Written before the code, as the self-review asks; what changed while building is
 | Q-B20 | **The phone's thumb bar shows at most five destinations; past that, four and "More"** (the browser's popover: Escape and a tap outside close it). "More" carries the lime when the current page is inside it. | An IT Admin now has six; five already clipped "Settings" on a 375-pixel phone. |
 | Q-B21 | **The E2E journey clears the demo institution's recent exports as the tenant migrator,** so it runs on desktop and phone the same day; on the stack run it's skipped (the migrator isn't held), and criterion 9 is the owner's check there. | One a day would otherwise stop the second run. |
 | Q-B22 | **7-Zip opens the archive in CI** (installed if the runner lacks it), besides zip.js's own reader in every run. | The format is checked by a tool that isn't its writer. |
+
+## PR C: the design
+
+Written before the code, as the self-review asks; what changed while building is listed under "PR C: what was built".
+
+**The flow:**
+1. **Asking (console):** on an archived institution's page, a member with `platform.tenant.offboard` asks for its purge: a `tenant.purge` approval (Q9) naming the institution. It needs a second person (spec 0037 Q5); with nobody else to approve, the console says so and points to the host's solo command (Q11).
+2. **Approving (console):** another member approves it with step-up and the shown hash. The executor destroys nothing: it checks the institution is still `ARCHIVED` and records the **purge authorisation**, valid for 7 days (the approval's `EXECUTED` time), audited.
+3. **Purging (host):** the owner runs `pnpm stack:purge <slug>` (or `--solo --reason "…"`). It drives a new one-shot **`purge` job** (the deployed API image, as the migrator, with the app's storage identity; nothing else) and the existing key-destruction protocol, step by step, recording each step on a `platform_tenant_purge` row so a stopped purge resumes where it stopped:
+   1. **keys:** `stack:keys destroy`'s protocol, unchanged, with the purge noted on its ledger entry (the authorisation's id, or `solo`);
+   2. **rows:** every tenant table's rows, the audit chain included (Q14), each table under the institution's RLS context, the counts kept;
+   3. **objects:** everything under `tenants/{tenantId}/` in the quarantine, clean and exports buckets, the count kept;
+   4. **platform:** the institution's platform rows (Q10's list, below), then the tenant set `PURGED`;
+   5. **certificate:** written on the host to `~/.univarse/purges/`, its JSON stored on the purge row and its SHA-256 on the tenant's tombstone.
+4. **The console** shows the purge's state step by step, and the certificate when it's done, to read and download.
+
+**Decisions:**
+
+| # | Decision | Why |
+| --- | --- | --- |
+| Q-C1 | **The authorisation is the `EXECUTED` `tenant.purge` approval itself,** valid 7 days from its execution and used once (the purge row names it, uniquely). No separate table. | The approval engine already holds who asked, who approved, the shown hash and when; a second record could disagree with it. |
+| Q-C2 | **A new `purge` job, not the `keys` or `migrate` job.** Its env file holds the migrator's direct URLs (platform and pool), the app's storage identity and the stack CA, and nothing else: no superuser, no Vault token, no ledger identity. | Deleting rows needs the table owner (the app's role can't delete the audit chain, invariant 5); destroying keys stays the keys job's (spec 0020 D14); the superuser stays the migrate job's. |
+| Q-C3 | **Steps run in Q10's order and each is idempotent.** The host refuses to start the rows before the keys step is recorded, and so on; a step already recorded is skipped. If the keys were destroyed but the run stopped before it was recorded, the ledger's committed destruction for that institution is found and recorded instead. | A12: keys first, so nothing deleted later can be read from a backup. |
+| Q-C4 | **Solo (`--solo --reason`)** runs only if, checked live in the job, at most one active member with an authenticator could approve a purge. It's recorded as solo on the ledger entry, the purge row, the platform audit event and the certificate; the reason is on the row and the certificate, never the audit chain. | Q11, A7. |
+| Q-C5 | **What goes from the platform (step 4):** domains, products, branding, regulatory details, notice deliveries, incident links, suspensions, exports' mirrors, the onboarding checklist, and provisioning jobs and their steps. **What stays:** the tenant row as a tombstone (id, slug, type, legal name, `PURGED`, its dates, the certificate's hash), its data-key records (destroyed), its offboarding record and warnings (counts only), the DPA record, and the platform audit events. | Q13. The legal name and the offboarding record are the platform's own account of whom it served and why they left; the DPA is the contract's evidence. Provisioning jobs can hold the first administrator's name. |
+| Q-C6 | **The certificate's last-backup date** is the newest backup set taken before the purge plus the retention (`pnpm stack:backup status`'s settings), read on the host, where the backups are. | Q12: when the last copy goes, without overstating it. |
+| Q-C7 | **The restore check is the drill's, reused unchanged:** a purge's key destruction is a committed `TENANT` destruction, so after any restore, recovery re-applies it and the restore's "after" check requires `key_destroyed`. | Criterion 6; one mechanism, already proven by the drill. |
+| Q-C8 | **Drill tenants (`shred-drill-*`) are refused** by the console's request, the executor and the host command. | Q10: they're evidence. |
+| Q-C9 | **Once a purge has begun, the institution can't be extended** (the console refuses with `tenant.purge_started`), and no new purge can be asked for. Before it begins, an extension is still possible; the host then refuses, since the institution isn't `ARCHIVED`. | Reopening an institution whose keys are destroyed would serve one that can't read its own data. |
+
+## PR C: what was built
+
+**Built:**
+- **The rules** (`packages/domain/src/platform/purge.ts`): an archived institution only, never a drill tenant; the authorisation's 7 days and single use; solo only when at most one active member with an authenticator could approve; the five steps in their only order, the next one never past an undone earlier one; a solo reason's length. The approval engine gains `tenant.purge` (asked with `platform.tenant.offboard`, decided with `platform.approval.decide`, no named person) and the failure `not_archived`.
+- **The tables** (migration `20261120120000_purge`): `platform_tenant_purge` (one per institution, an approval used once; a check keeps each step after the one before it and its facts with its time; a trigger keeps who authorised it and every recorded step unchanged, for every role); the tenant's tombstone columns `purged_at` and `purge_certificate_sha256`; the console reads both, the tenant API's role neither.
+- **The console's API:** the approval engine's `tenant.purge` handlers (the slug must be the id's own; refused while an authorisation stands or once a purge has begun; the executor records `platform.tenant.purge_authorised`); the institution's `purge` view (the latest request, whether a second person exists, the run and its certificate); the inbox's `purge_waiting`; the extension refused once a purge has begun (Q-C9).
+- **The job** (`apps/api/src/cli/purge.ts`, the compose `purge` service with `purge.env`): `check`, `begin`, `keys-done`, `rows`, `objects`, `platform`, `facts` and `finish`, each idempotent, as the migrator. The rows go table by table under the institution's RLS context, through each model's typed delete (no SQL text built from a name), `org_unit` leaves first; a tenant table it doesn't know stops the step before anything is deleted.
+- **The host** (`pnpm stack:purge`, `tools/stack/src/purge.ts`): the steps in order through the job and the key-destruction protocol (its `pending` entry now carries the purge's authority); the certificate's JSON and text in `~/.univarse/purges/`; the last backup's date from the pruning rule itself.
+- **The console:** "Deleting its data" on a closed institution's page (ask, waiting, authorised with the command to copy, a stopped run's steps), "Purged" with the certificate and its download, and the inbox item.
+- **Docs:** 03 (`PlatformTenantPurge`), 05 §1, 07 §9, 08 (T36), 10 (the command), 12, 16 §5 (the purge as built), 18, and the console's DESIGN.md.
+
+**Evidence:**
+- **Domain:** 152 tests (7 new): which institutions, the drill refusal, the authorisation's 7 days and single use, solo only with nobody else, the steps' order (a later step never lets an earlier one be skipped), the reason; and the approval kinds.
+- **Integration:** `purge.int.spec.ts` (7), against the real databases and storage:
+  - the console's half: Support can't ask; a live institution and a mismatched slug are refused; the asker can't approve; a hash for another payload is refused; the approval executes and audits `purge_authorised`; a second request is refused while it stands; the page and the inbox show it, the inbox to offboarders only; a drill tenant is refused by the console and the job;
+  - the job's half: no authorisation, then one used once; solo refused beside an authorisation and without a reason; `begin` idempotent; rows before keys refused; keys refused while live; the extension refused once begun; every tenant table emptied (the audit chain and a three-level org tree included) with another institution untouched; every bucket's objects under its prefix gone and another's kept; the platform rows gone and `PURGED`, the slug unusable again, its key records and offboarding record kept; the facts; a wrong certificate hash refused, the right one stored on the row and the tombstone; each step audited in order; every step a no-op once done;
+  - an institution given more time after its authorisation, and an authorisation another purge already names, both refused; the database's order, record and authority held for every role, and the console's role reading only.
+  - Updated: the console role's grants pin; the test cleanups.
+- **Stack tools:** `purge.spec.ts` (11): the order, a failed key destruction stopping everything after it, resuming with an earlier committed op without destroying again, resuming after the keys, a failed or refused step, a complete purge only reporting, solo's flags and words, the arguments, the last backup's date from the pruning rule, the certificate's text. The protocol's test: a purge's note on the ledger entry and the committed destruction found again. The compose and render tests: the `purge` job on the database network, and `purge.env` holding the migrator and the storage identity only (the migrator's password nowhere else but `migrate.env`).
+- **E2E**, desktop and phone, axe on every screen: console `purge.e2e.ts` (4): an OWNER asks on the closed institution's page after a step-up; a SUPER_ADMIN approves exactly that institution; the page shows the authorisation and the command, the inbox lists it; a purged institution leads with its certificate and downloads it. The offboarding and approvals suites pass with it (12 in all).
+- **Mutations: 25 tried, 25 caught:** a live institution and a drill tenant (rules, console and job), an authorisation reused or never expiring (rules and job), solo beside a second person, steps out of order (rules and job), no authorisation needed, keys recorded while live, the audit chain kept, another institution's files, not `PURGED`, any certificate hash, another slug's payload, a second authorisation, an extension after a purge began, the host carrying on after a failed key destruction, destroying again on resume, a certificate other than the one written, and no purge note on the ledger. Three survived at first (an authorisation another purge already used, a live institution at the host, and another institution's files, whose first mutation was equivalent); the first two have tests now, the third a mutation that matters.
+
+**Decisions made while building, for approval:**
+
+| # | Decision | Why |
+| --- | --- | --- |
+| Q-C10 | **The purge request's payload names the institution by id and slug,** and the console's sentence is "Authorise the purge of {slug}". The executor and the job both require the two to agree. | T36: the hash the approver is shown, and the words beside it, name the institution a person would recognise. |
+| Q-C11 | **The page's "a second person exists" is exactly the opposite of the host's solo rule** (at most one active member with an authenticator who could approve). | The console and the host can never disagree about whether the solo command is the way. |
+| Q-C12 | **The job deletes each table through its typed model, never SQL built from a name;** a tenant table it doesn't know stops the rows step before anything is deleted. | The repo's session-SQL check refuses a built statement, and a new table can't be silently left behind. |
+| Q-C13 | **Each step is its own platform audit event (`platform.tenant.purge_step`), with counts only;** the purge's start and end are `purge_started` and `purged`. A solo reason is never in the audit chain. | One event per irreversible step; free text stays on the row and the certificate, as every note. |
+| Q-C14 | **The certificate's JSON is stored on the purge row** (the console shows it and downloads it); the plain-text rendering is the host's file only. | The console can't read the host's disk (A2); the JSON's hash is the one recorded. |
+| Q-C15 | **A purged institution's page leads with its "Purged" section,** as a leaving one leads with its offboarding. | Found in the visual check: the certificate sat below the products. |
+| Q-C16 | **The integration test marks the institution's data keys destroyed directly** for the keys step; the protocol itself is tested with its ledger in `tools/stack`, and on the stack by criterion 9. | The protocol runs on the host with the ledger outside the stack; the job only checks that every key is destroyed before recording it. |
+| Q-C17 | **The release adds the `purge` compose job and `purge.env`;** the stack's deploy renders the file with the others. | Criterion 9 runs on the stack after the release and deploy. |

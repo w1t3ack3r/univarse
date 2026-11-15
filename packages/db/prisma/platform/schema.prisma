@@ -73,6 +73,9 @@ model Tenant {
   shardId              String          @map("shard_id") @db.Uuid
   suspendedReason      String?         @map("suspended_reason")
   offboardingStartedAt DateTime?       @map("offboarding_started_at") @db.Timestamptz(3)
+  /// Spec 0038 Q12, Q13: the tombstone's facts: when it was purged, and its certificate's SHA-256 (hex).
+  purgedAt             DateTime?       @map("purged_at") @db.Timestamptz(3)
+  purgeCertificateSha256 String?       @map("purge_certificate_sha256")
   purgeAfter           DateTime?       @map("purge_after") @db.Timestamptz(3)
   /// Spec 0034 Q6: the template it was provisioned from, as `polytechnic@1`. Null for the seed's and the drill's.
   template             String?
@@ -98,6 +101,7 @@ model Tenant {
   incidents                PlatformIncidentTenant[]
   offboardings             PlatformTenantOffboarding[]
   exports                  PlatformTenantExport[]
+  purge                    PlatformTenantPurge?
 
   @@index([releaseRing])
   @@map("tenant")
@@ -239,6 +243,7 @@ model PlatformApproval {
 
   requester PlatformUser  @relation("ApprovalRequester", fields: [requestedBy], references: [id], onDelete: Restrict)
   decider   PlatformUser? @relation("ApprovalDecider", fields: [decidedBy], references: [id], onDelete: Restrict)
+  purge     PlatformTenantPurge?
 
   @@index([status, expiresAt])
   @@index([requestedBy])
@@ -997,4 +1002,33 @@ model PlatformTenantExport {
 
   @@index([tenantId, requestedAt])
   @@map("platform_tenant_export")
+}
+
+/// Spec 0038 Q9–Q13: an archived institution's purge, step by step (written by the host's purge job as the migrator).
+/// Each step is recorded once and only after the one before it (a check and a trigger); who authorised it never changes.
+model PlatformTenantPurge {
+  id                String    @id @default(dbgenerated("uuidv7()")) @db.Uuid
+  tenantId          String    @unique @map("tenant_id") @db.Uuid
+  /// The executed `tenant.purge` approval it used, or null when solo.
+  approvalId        String?   @unique @map("approval_id") @db.Uuid
+  solo              Boolean
+  reason            String?
+  startedAt         DateTime  @default(now()) @map("started_at") @db.Timestamptz(3)
+  keysOp            String?   @map("keys_op") @db.Uuid
+  keysDestroyedAt   DateTime? @map("keys_destroyed_at") @db.Timestamptz(3)
+  rows              Json?
+  rowsDeletedAt     DateTime? @map("rows_deleted_at") @db.Timestamptz(3)
+  objects           Json?
+  objectsDeletedAt  DateTime? @map("objects_deleted_at") @db.Timestamptz(3)
+  platformRows      Json?     @map("platform_rows")
+  platformDeletedAt DateTime? @map("platform_deleted_at") @db.Timestamptz(3)
+  certificate       Json?
+  certificateSha256 String?   @map("certificate_sha256")
+  certificateAt     DateTime? @map("certificate_at") @db.Timestamptz(3)
+  updatedAt         DateTime  @default(now()) @map("updated_at") @db.Timestamptz(3)
+
+  tenant   Tenant            @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  approval PlatformApproval? @relation(fields: [approvalId], references: [id], onDelete: Restrict)
+
+  @@map("platform_tenant_purge")
 }

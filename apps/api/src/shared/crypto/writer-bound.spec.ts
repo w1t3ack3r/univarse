@@ -12,6 +12,8 @@ const SRC = join(API_DIR, 'src');
 export const LONG_TRANSACTIONS: LongTransactions = {
   'shared/outbox/outbox-worker.ts OutboxWorker.runTenant':
     'delivers claimed emails (SMTP inside the claim); only decrypts and updates delivery state, never writes an encrypted value',
+  'cli/purge.ts rows':
+    "spec 0038 Q10.2: the purge deletes an archived institution's rows, one table per transaction; it writes nothing, encrypted or not",
   'modules/exports/export-builder.ts ExportBuilder.write':
     "spec 0038 Q-B6: the export's snapshot. REPEATABLE READ and read-only (SET LOCAL transaction_read_only): it reads and decrypts, and can't write at all",
 };

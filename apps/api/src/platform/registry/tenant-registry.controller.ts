@@ -32,8 +32,14 @@ export class PlatformTenantsController {
   async detail(@Param('id', new ParseUUIDPipe()) id: string, @Res({ passthrough: true }) res: FastifyReply) {
     const t = await this.registry.detail(id);
     res.header('etag', `"v${String(t.version)}"`);
-    const [suspensions, notices, offboarding, exports] = await Promise.all([this.suspension.history(id), this.notices.forTenant(id), this.offboarding.view(id), this.offboarding.exports(id)]);
-    return { ...t, suspensions, notices, offboarding, exports };
+    const [suspensions, notices, offboarding, exports, purge] = await Promise.all([
+      this.suspension.history(id),
+      this.notices.forTenant(id),
+      this.offboarding.view(id),
+      this.offboarding.exports(id),
+      this.offboarding.purge(id, t.status),
+    ]);
+    return { ...t, suspensions, notices, offboarding, exports, purge };
   }
 
   @Put(':id')
