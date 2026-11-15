@@ -286,7 +286,8 @@ describe('[A2-10] the shred ledger\'s bucket copy, on the stack\'s SeaweedFS', (
     try {
       const result = await bucketCheck({ ledger: { ledgerId, dir: 'gen-0001', entries }, app, ledgerIdentity: led, tryDelete: true });
       expect(result.filter((l) => !l.startsWith('PASS'))).toEqual([]);
-      expect(result).toHaveLength(13);
+      // 15: spec 0038 added uv-exports, whose list and write the ledger's identity must also be refused.
+      expect(result).toHaveLength(15);
     } finally {
       app.destroy();
       led.destroy();
@@ -300,11 +301,11 @@ describe('[A2-10] the shred ledger\'s bucket copy, on the stack\'s SeaweedFS', (
     await createBuckets(weed);
     const app = client(weed, secrets.s3AccessKey, secrets.s3SecretKey);
     try {
-      for (const b of ['uv-quarantine', 'uv-clean']) await app.send(new PutObjectCommand({ Bucket: b, Key: 'a', Body: 'x' }));
+      for (const b of ['uv-quarantine', 'uv-clean', 'uv-exports']) await app.send(new PutObjectCommand({ Bucket: b, Key: 'a', Body: 'x' }));
       const fresh = chain(1);
       await copyToBucket({ endpoint: weed.endpoint, region: 'us-east-1', accessKeyId: secrets.ledgerS3AccessKey, secretAccessKey: secrets.ledgerS3SecretKey, ledgerId: ledgerIdOf(fresh), generation: 'gen-0001' }, fresh.map((e) => canonical(e)));
       const { by } = volumes(weed);
-      expect([by['uv-quarantine'], by['uv-clean'], by[LEDGER_BUCKET]]).toEqual([1, 1, 1]);
+      expect([by['uv-quarantine'], by['uv-clean'], by['uv-exports'], by[LEDGER_BUCKET]]).toEqual([1, 1, 1, 1]);
     } finally {
       app.destroy();
     }
