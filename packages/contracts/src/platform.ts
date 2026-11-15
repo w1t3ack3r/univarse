@@ -130,7 +130,7 @@ const reviewedMember = z.strictObject({
 });
 
 /** Spec 0037 Q2, Q3 (E4): a two-person request, as the console shows it. */
-const approvalKind = z.enum(['staff.make_owner']);
+const approvalKind = z.enum(['staff.make_owner', 'tenant.purge']);
 /** Spec 0037 Q9, Q12: notices and rings. */
 const noticeKind = z.enum(['ANNOUNCEMENT', 'MAINTENANCE', 'RELEASE_NOTE']);
 const noticeAudience = z.enum(['ALL', 'TENANTS', 'RING']);
@@ -251,7 +251,7 @@ const suspensionView = z.strictObject({
   sessionsEnded: z.number().int().nullable(),
 });
 const approvalStatus = z.enum(['PENDING', 'APPROVED', 'REJECTED', 'EXPIRED', 'CANCELLED', 'EXECUTED', 'FAILED']);
-const approvalFailure = z.enum(['subject_gone', 'subject_inactive', 'already_done', 'state_conflict']);
+const approvalFailure = z.enum(['subject_gone', 'subject_inactive', 'already_done', 'state_conflict', 'not_archived']);
 const person = z.strictObject({ id: z.uuid(), name: z.string().nullable() });
 const approvalView = z.strictObject({
   id: z.uuid(),
@@ -276,8 +276,44 @@ const approvalView = z.strictObject({
   canDecide: z.boolean(),
   canCancel: z.boolean(),
 });
+/** Spec 0038 Q9–Q13, Q15: an archived institution's purge: its authorisation, its steps, and its certificate. */
+const purgeView = z.strictObject({
+  /** The latest `tenant.purge` approval's state, or null if none was asked for. */
+  request: z
+    .strictObject({
+      approvalId: z.uuid(),
+      status: approvalStatus,
+      requestedBy: person,
+      decidedBy: person.nullable(),
+      /** When it was approved: the authorisation runs 7 days from here. */
+      authorisedAt: z.iso.datetime().nullable(),
+      authorisationExpiresAt: z.iso.datetime().nullable(),
+    })
+    .nullable(),
+  /** Whether a second member could approve a purge now (spec 0037 Q5); without one, the host's solo command (Q11). */
+  secondPersonAvailable: z.boolean(),
+  /** The host's purge, once begun. */
+  run: z
+    .strictObject({
+      solo: z.boolean(),
+      reason: z.string().nullable(),
+      startedAt: z.iso.datetime(),
+      keysDestroyedAt: z.iso.datetime().nullable(),
+      rowsDeletedAt: z.iso.datetime().nullable(),
+      objectsDeletedAt: z.iso.datetime().nullable(),
+      platformDeletedAt: z.iso.datetime().nullable(),
+      certificateAt: z.iso.datetime().nullable(),
+      /** Q12: the certificate as written on the host (JSON), and its SHA-256. */
+      certificate: z.record(z.string(), z.unknown()).nullable(),
+      certificateSha256: z.string().nullable(),
+    })
+    .nullable(),
+});
+
 const approvalRequest = z.discriminatedUnion('kind', [
   z.strictObject({ kind: z.literal('staff.make_owner'), payload: z.strictObject({ memberId: z.uuid() }), reason: z.string().trim().min(3).max(500) }),
+  /** Spec 0038 Q9: the slug is in the payload, so the hash the approver is shown names the institution (T36). */
+  z.strictObject({ kind: z.literal('tenant.purge'), payload: z.strictObject({ tenantId: z.uuid(), slug: z.string().min(3).max(63) }), reason: z.string().trim().min(3).max(500) }),
 ]);
 
 /** Spec 0037 Q15 (E25): one thing in the inbox. Computed when read; it leaves when its cause is resolved. */
@@ -323,6 +359,8 @@ const incidentView = z.strictObject({
 
 const inboxItem = z.discriminatedUnion('type', [
   z.strictObject({ type: z.literal('offboarding_ending'), tenant: institution, endsAt: z.iso.datetime(), daysLeft: z.number().int() }),
+  /** Spec 0038 Q15: a purge authorised and not yet run (or not yet finished) on the host. */
+  z.strictObject({ type: z.literal('purge_waiting'), tenant: institution, authorisedAt: z.iso.datetime(), expiresAt: z.iso.datetime(), started: z.boolean() }),
   z.strictObject({ type: z.literal('incident_open'), incidentId: z.uuid(), title: z.string(), severity: incidentSeverity, status: incidentStatus, breachDeadline: z.iso.datetime().nullable(), lastUpdateAt: z.iso.datetime() }),
   z.strictObject({ type: z.literal('maintenance_soon'), noticeId: z.uuid(), title: z.string(), startsAt: z.iso.datetime(), institutions: z.number().int() }),
   z.strictObject({ type: z.literal('approval_waiting'), approvalId: z.uuid(), kind: approvalKind, requestedBy: person, expiresAt: z.iso.datetime() }),
@@ -416,6 +454,8 @@ export const PlatformOps = {
       suspensions: z.array(suspensionView),
       /** Spec 0038: its latest offboarding (open, archived or cancelled), or null. */
       offboarding: offboardingView.nullable(),
+      /** Spec 0038 Q15: its purge, for an archived or purged institution; null otherwise. */
+      purge: purgeView.nullable(),
       /** Spec 0038 Q15: its exports, newest first, at most 5 (mirrored by the worker). */
       exports: z.array(exportMirrorView),
       /** Spec 0037 Q11: the notices it got, newest first, at most 10. */
@@ -592,6 +632,7 @@ export type PlatformInboxItem = PlatformInbox['items'][number];
 export type PlatformSuspension = z.infer<typeof suspensionView>;
 export type PlatformOffboarding = z.infer<typeof offboardingView>;
 export type PlatformTenantExportView = z.infer<typeof exportMirrorView>;
+export type PlatformPurgeView = z.infer<typeof purgeView>;
 export type PlatformOffboardingReason = z.infer<typeof offboardingReason>;
 export type PlatformNotice = z.infer<typeof noticeView>;
 export type PlatformIncident = z.infer<typeof incidentView>;

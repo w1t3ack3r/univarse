@@ -135,7 +135,7 @@ async function copyBacklog(deps: ProtocolDeps, ledger: Ledger, lines: string[]):
 }
 
 /** `pnpm stack:keys destroy <tenant> [--version n]` (D7, BK1). */
-export async function destroy(deps: ProtocolDeps, req: { readonly slug: string; readonly version?: number }): Promise<Result> {
+export async function destroy(deps: ProtocolDeps, req: { readonly slug: string; readonly version?: number; readonly purge?: { readonly approvalId: string | null; readonly solo: boolean } }): Promise<Result> {
   const crash = deps.crash ?? noCrash;
   const lock = await deps.lock('destroy');
   const lines: string[] = [];
@@ -161,7 +161,7 @@ export async function destroy(deps: ProtocolDeps, req: { readonly slug: string; 
     const op = randomUUID();
     try {
       ledger.append(
-        { type: 'pending', op, tenant: { id: check.tenantId, slug: req.slug }, kind: check.kind, versions: check.versions, requestedAt: new Date().toISOString(), preconditions: check.preconditions },
+        { type: 'pending', op, tenant: { id: check.tenantId, slug: req.slug }, kind: check.kind, versions: check.versions, requestedAt: new Date().toISOString(), preconditions: check.preconditions, ...(req.purge ? { purge: req.purge } : {}) },
         'pending',
       );
     } catch (e) {
@@ -210,6 +210,18 @@ export async function destroy(deps: ProtocolDeps, req: { readonly slug: string; 
   } finally {
     lock.release();
   }
+}
+
+/**
+ * Spec 0038 Q-C3: the op of a committed destruction of every key of `tenantId` (TENANT kind), newest first, or null. A
+ * purge stopped after the protocol committed but before the purge recorded it resumes with this op, never a new one.
+ */
+export function committedTenantDestruction(deps: Pick<ProtocolDeps, 'primary' | 'fs' | 'crash'>, tenantId: string): string | null {
+  const opened = Ledger.open(deps.primary, { ...(deps.fs ? { fs: deps.fs } : {}), crash: deps.crash ?? noCrash });
+  if ('problems' in opened) return null;
+  const { ops } = opStates(opened.ledger.entries);
+  const done = [...ops.values()].filter((s) => s.pending.tenant.id === tenantId && s.pending.kind === 'TENANT' && s.outcome?.type === 'committed');
+  return done.at(-1)?.pending.op ?? null;
 }
 
 /** Does this row match the destruction the ledger records, with its audit event and the keys' state? (D8) */

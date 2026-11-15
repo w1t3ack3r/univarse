@@ -8,6 +8,7 @@ import { api, asApiError, field, type ApiError } from '../../../lib/api';
 import { when } from '../../../lib/device';
 import { OFFBOARDING_REASON } from '../labels';
 import type { Changing, Tenant } from './institution-view';
+import { PurgeSection } from './purge';
 
 const REASONS = Object.keys(OFFBOARDING_REASON) as PlatformOffboardingReason[];
 const day = new Intl.DateTimeFormat('en-NG', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Africa/Lagos' });
@@ -21,6 +22,8 @@ const day = new Intl.DateTimeFormat('en-NG', { weekday: 'long', day: 'numeric', 
 export function OffboardingSection({ tenant, canOffboard, changing }: { tenant: Tenant; canOffboard: boolean; changing: Changing }) {
   const o = tenant.offboarding;
   const open = o && !o.cancelledAt ? o : null;
+  // Spec 0038 Q13, Q15: a purged institution's page leads with what was deleted, and its certificate.
+  if (tenant.status === 'PURGED') return <PurgeSection tenant={tenant} canOffboard={canOffboard} changing={changing} />;
   if (open && (tenant.status === 'OFFBOARDING' || tenant.status === 'SUSPENDED')) return <Leaving tenant={tenant} o={open} canOffboard={canOffboard} changing={changing} />;
   if (open && tenant.status === 'ARCHIVED') return <Archived tenant={tenant} o={open} canOffboard={canOffboard} changing={changing} />;
   if (!canOffboard || (tenant.status !== 'ACTIVE' && tenant.status !== 'ONBOARDING')) return null;
@@ -247,7 +250,8 @@ function Archived({ tenant, o, canOffboard, changing }: { tenant: Tenant; o: Pla
         </div>
       </dl>
       <ExportRecord tenant={tenant} />
-      {canOffboard && !o.extendedAt ? (
+      <PurgeSection tenant={tenant} canOffboard={canOffboard} changing={changing} />
+      {canOffboard && !o.extendedAt && !tenant.purge?.run ? (
         <details className="pc-disclosure">
           <summary className="uv-link">
             Give it 14 more days

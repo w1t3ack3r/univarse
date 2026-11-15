@@ -142,6 +142,8 @@ describe('[P5] the console role, in the database', () => {
         platform_tenant_offboarding: 'SU',
         // Spec 0038 Q-B7: the exports' mirror is the worker's; the console only reads it.
         platform_tenant_export: 'S',
+        // Spec 0038 PR C: the purge's record is the host job's (the migrator); the console only reads it.
+        platform_tenant_purge: 'S',
         platform_one_time_code: 'SIU',
         platform_recovery_code: 'SIU',
         platform_security_event_rollup: 'SIU',
@@ -189,7 +191,7 @@ describe('[P5] the console role, in the database', () => {
       const tenantColumns = await db.$queryRaw<{ column_name: string }[]>`
         SELECT column_name FROM information_schema.columns
          WHERE table_name = 'tenant' AND has_column_privilege(current_user, 'tenant', column_name, 'SELECT') ORDER BY column_name`;
-      expect(tenantColumns.map((c) => c.column_name)).toEqual(['created_at', 'id', 'legal_name', 'offboarding_started_at', 'ownership', 'purge_after', 'release_ring', 'shard_id', 'short_name', 'slug', 'status', 'suspended_reason', 'template', 'tier', 'type', 'updated_at', 'version']);
+      expect(tenantColumns.map((c) => c.column_name)).toEqual(['created_at', 'id', 'legal_name', 'offboarding_started_at', 'ownership', 'purge_after', 'purge_certificate_sha256', 'purged_at', 'release_ring', 'shard_id', 'short_name', 'slug', 'status', 'suspended_reason', 'template', 'tier', 'type', 'updated_at', 'version']);
       for (const [table, column] of [['shard', 'secret_ref'], ['tenant_domain', 'verification_token'], ['tenant_data_key', 'wrapped_dek']] as const) {
         const [row] = await db.$queryRawUnsafe<{ ok: boolean }[]>(`SELECT has_column_privilege(current_user, '${table}', '${column}', 'SELECT') AS ok`);
         expect([table, column, row?.ok]).toEqual([table, column, false]);

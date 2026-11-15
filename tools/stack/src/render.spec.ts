@@ -206,6 +206,16 @@ describe('[0034 Q7] the provisioning key, split between two processes', () => {
     for (const name of ['api.env', 'keys.env', 'migrate.env']) expect([name, Object.keys(f(name)).filter((k) => k.startsWith('PROVISIONING_'))]).toEqual([name, []]);
   });
 
+  it('[spec 0038 Q-C2] the purge job holds the migrator and the app storage identity, and nothing else', () => {
+    expect(Object.keys(f('purge.env')).sort()).toEqual(['NODE_ENV', 'NODE_EXTRA_CA_CERTS', 'PLATFORM_MIGRATOR_URL', 'S3_ACCESS_KEY', 'S3_ENDPOINT', 'S3_SECRET_KEY', 'TENANT_POOL_01_MIGRATOR_URL']);
+    const text = envText(f('purge.env'));
+    // Never the superuser, a Vault token, the ledger's identity, Valkey, or a session pepper.
+    for (const secret of [s.postgresSuperuser, pv.appToken, s.ledgerS3SecretKey, s.valkeyPassword, s.sessionPepper]) expect(text.includes(secret)).toBe(false);
+    expect(f('purge.env').PLATFORM_MIGRATOR_URL).toContain('univarse_migrator');
+    // And the migrator's password is only in the migrate and purge jobs' files.
+    for (const [name, e] of Object.entries(out)) expect([name, envText(e).includes(encodeURIComponent(s.roles.migrator))]).toEqual([name, name === 'migrate.env' || name === 'purge.env']);
+  });
+
   it('before Vault has made the tokens, both files leave provisioning out (it is off, not refused)', () => {
     const before = renderEnvFiles(s, v);
     for (const name of ['platform-api.env', 'worker.env']) expect([name, Object.keys(before[name] ?? {}).filter((k) => k.startsWith('PROVISIONING_'))]).toEqual([name, []]);

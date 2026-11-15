@@ -91,6 +91,8 @@ export type EntryBody =
       readonly preconditions: Readonly<Record<string, unknown>>;
       /** A destruction from before the ledger, adopted at init: its keys were already destroyed (History). */
       readonly adoption?: true;
+      /** Spec 0038 Q11, Q-C4: a purge's key destruction, with its authority: the approval it used, or solo. */
+      readonly purge?: { readonly approvalId: string | null; readonly solo: boolean };
     }
   | {
       readonly type: 'committed';

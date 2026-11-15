@@ -145,7 +145,7 @@ function Decision({ a, mine, aboutMe, busy, onAct }: { a: PlatformApproval; mine
         <p className="pc-approval__you">You’re the second person. Approving runs it at once, and both your names go in the audit log.</p>
         <div className="pc-row-actions pc-row-actions--start">
           <Button type="button" pending={busy === 'approve'} disabled={busy !== null} onClick={() => onAct('approve')}>
-            Approve: {approvalAction(a).replace(/^Make/, 'make')}
+            Approve: {approvalAction(a).replace(/^Make/, 'make').replace(/^Authorise/, 'authorise')}
           </Button>
           <Button type="button" variant="quiet" className="pc-danger" pending={busy === 'reject'} disabled={busy !== null} onClick={() => onAct('reject')}>
             Reject

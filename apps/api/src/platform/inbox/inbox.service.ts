@@ -16,6 +16,7 @@ import {
   type PlatformPermission,
   type ProvisioningErrorCode,
   type ProvisioningStepKey,
+  purgeAuthorisationExpiry,
 } from '@univarse/domain';
 import { NO_TENANT } from '../../shared/observability/security-rollup.js';
 import type { PlatformActor } from '../identity/types.js';
@@ -45,6 +46,7 @@ export class PlatformInboxView {
       ...(can('platform.incident.manage') ? await this.openIncidents() : []),
       ...(can('platform.notice.publish') ? await this.maintenanceSoon(now) : []),
       ...(can('platform.tenant.offboard') ? await this.offboardingEnding(now) : []),
+      ...(can('platform.tenant.offboard') ? await this.purgesWaiting(now) : []),
     ];
     return { items, count: items.length };
   }
@@ -158,6 +160,28 @@ export class PlatformInboxView {
       select: { endsAt: true, tenant: { select: { id: true, slug: true, shortName: true } } },
     });
     return rows.map((r) => ({ type: 'offboarding_ending' as const, tenant: { id: r.tenant.id, slug: r.tenant.slug, name: r.tenant.shortName }, endsAt: r.endsAt.toISOString(), daysLeft: daysLeft(r.endsAt, now) }));
+  }
+
+  /**
+   * Spec 0038 Q15: purges authorised (an executed `tenant.purge` approval within its 7 days) and not yet finished on the
+   * host, whether begun or not. A finished one, or an expired authorisation that never began, leaves the inbox.
+   */
+  private async purgesWaiting(now: Date): Promise<PlatformInboxItem[]> {
+    const rows = await this.db.platformApproval.findMany({
+      where: { kind: 'tenant.purge', status: 'EXECUTED', executedAt: { gt: new Date(now.getTime() - 8 * 86_400_000) } },
+      orderBy: { executedAt: 'asc' },
+      select: { payload: true, executedAt: true, purge: { select: { certificateAt: true } } },
+    });
+    const out: PlatformInboxItem[] = [];
+    for (const r of rows) {
+      if (!r.executedAt || r.purge?.certificateAt) continue;
+      const expiresAt = purgeAuthorisationExpiry(r.executedAt);
+      if (!r.purge && expiresAt <= now) continue;
+      const id = String((r.payload as Record<string, unknown>).tenantId);
+      const t = await this.db.tenant.findUnique({ where: { id }, select: { id: true, slug: true, shortName: true } });
+      if (t) out.push({ type: 'purge_waiting', tenant: { id: t.id, slug: t.slug, name: t.shortName }, authorisedAt: r.executedAt.toISOString(), expiresAt: expiresAt.toISOString(), started: r.purge !== null });
+    }
+    return out;
   }
 
   /** Spec 0031 Q12's "act" events in the last day, per event and institution: "S3 shows; S6 tells". */

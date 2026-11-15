@@ -7,10 +7,15 @@ describe('the approval words (spec 0037)', () => {
     expect(approvalAction({ kind: 'staff.make_owner', subject: { id: 'x', name: null } })).toBe('Make a former member an owner');
   });
 
+  it('names the institution a purge would delete, by the slug the hash covers (spec 0038 Q9)', () => {
+    expect(approvalAction({ kind: 'tenant.purge', subject: null, payload: { tenantId: 'x', slug: 'old-poly' } })).toBe('Authorise the purge of old-poly');
+    expect(APPROVAL_CONSEQUENCE['tenant.purge']).toMatch(/can’t be undone/);
+  });
+
   it('every kind, status and failure has its words', () => {
     expect(Object.keys(APPROVAL_KIND_LABEL)).toEqual(Object.keys(APPROVAL_CONSEQUENCE));
     expect(Object.keys(APPROVAL_STATUS).sort()).toEqual(['APPROVED', 'CANCELLED', 'EXECUTED', 'EXPIRED', 'FAILED', 'PENDING', 'REJECTED']);
-    expect(Object.keys(APPROVAL_FAILURE).sort()).toEqual(['already_done', 'state_conflict', 'subject_gone', 'subject_inactive']);
+    expect(Object.keys(APPROVAL_FAILURE).sort()).toEqual(['already_done', 'not_archived', 'state_conflict', 'subject_gone', 'subject_inactive']);
   });
 
   it('the time left never reads later than it is', () => {

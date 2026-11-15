@@ -68,6 +68,7 @@ function keyOf(i: PlatformInboxItem): string {
     case 'maintenance_soon':
       return `${i.type}:${i.noticeId}`;
     case 'offboarding_ending':
+    case 'purge_waiting':
       return `${i.type}:${i.tenant.id}`;
   }
 }
@@ -108,6 +109,20 @@ function Item({ item }: { item: PlatformInboxItem }) {
           title={`${item.tenant.name ?? item.tenant.slug ?? 'An institution'} closes ${item.daysLeft === 1 ? 'today' : `in ${String(item.daysLeft)} days`}`}
           meta={`Its offboarding window ends ${when(item.endsAt)}. Cancel or let it close from the institution’s page.`}
           chip={<span className="pc-status pc-status--wait">Closing</span>}
+        />
+      );
+    case 'purge_waiting':
+      return (
+        <Row
+          href={`/institutions/${item.tenant.id}`}
+          icon={<Building />}
+          title={`${item.tenant.name ?? item.tenant.slug ?? 'An institution'}: its purge ${item.started ? 'is part-way done' : 'is authorised'}`}
+          meta={
+            item.started
+              ? 'It stopped before the end. Run its command on the host again to finish it.'
+              : `Two people approved it. The owner runs it on the host before ${when(item.expiresAt)}, or the authorisation lapses.`
+          }
+          chip={<span className="pc-status pc-status--wait">{item.started ? 'Finish' : 'Run'}</span>}
         />
       );
     case 'maintenance_soon':

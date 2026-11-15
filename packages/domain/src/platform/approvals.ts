@@ -21,9 +21,11 @@ export interface ApprovalKindSpec {
   readonly subjectField: string | null;
 }
 
-export const APPROVAL_KINDS: Readonly<Record<'staff.make_owner', ApprovalKindSpec>> = Object.freeze({
+export const APPROVAL_KINDS: Readonly<Record<'staff.make_owner' | 'tenant.purge', ApprovalKindSpec>> = Object.freeze({
   /** Q4: raising a member to OWNER. */
   'staff.make_owner': { requestPermission: 'platform.staff.manage', approvePermission: 'platform.approval.decide', ttlMs: 24 * HOUR_MS, subjectField: 'memberId' },
+  /** Spec 0038 Q9: authorising an archived institution's purge (the host destroys; this records the second person). */
+  'tenant.purge': { requestPermission: 'platform.tenant.offboard', approvePermission: 'platform.approval.decide', ttlMs: 24 * HOUR_MS, subjectField: null },
 });
 
 export type ApprovalKind = keyof typeof APPROVAL_KINDS;
@@ -31,7 +33,7 @@ export const APPROVAL_KIND_NAMES = Object.keys(APPROVAL_KINDS) as ApprovalKind[]
 export const isApprovalKind = (k: string): k is ApprovalKind => Object.hasOwn(APPROVAL_KINDS, k);
 
 /** Failure codes an execution may store: fixed, so no driver message reaches the console (as spec 0034 Q4). */
-export const APPROVAL_FAILURES = ['subject_gone', 'subject_inactive', 'already_done', 'state_conflict'] as const;
+export const APPROVAL_FAILURES = ['subject_gone', 'subject_inactive', 'already_done', 'state_conflict', 'not_archived'] as const;
 export type ApprovalFailure = (typeof APPROVAL_FAILURES)[number];
 
 /**

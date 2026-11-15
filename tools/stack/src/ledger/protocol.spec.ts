@@ -9,7 +9,7 @@ import { destinationsOf, opStates, type Destination } from './chain.js';
 import { init } from './commands.js';
 import { FakeKeysDb } from './fake-keys-db.js';
 import { establishAuthority } from './ledger.js';
-import { abandon, ABANDON_CONFIRMATION, destroy, recover, type ProtocolDeps } from './protocol.js';
+import { abandon, ABANDON_CONFIRMATION, committedTenantDestruction, destroy, recover, type ProtocolDeps } from './protocol.js';
 import { copyDir, entriesOf, readCopy, realFs, type LedgerFs } from './store.js';
 
 const T1 = '10000000-0000-4000-8000-000000000001'; // offboarded: every key destroyed
@@ -49,6 +49,22 @@ async function ready(): Promise<string> {
   expect(r.ok).toBe(true);
   return r.op ?? '';
 }
+
+describe('[spec 0038 Q-C3, Q-C4] a purge’s key destruction', () => {
+  it('notes its authority on the pending entry, and is found again as the tenant’s committed destruction', async () => {
+    await ready();
+    expect(committedTenantDestruction({ primary }, T1)).toBeNull();
+    const r = await destroy(deps(), { slug: 't1', purge: { approvalId: null, solo: true } });
+    expect(r.ok).toBe(true);
+    const pending = entries().find((e) => e.type === 'pending' && e.op === r.op);
+    expect(pending).toMatchObject({ purge: { approvalId: null, solo: true } });
+    expect(committedTenantDestruction({ primary }, T1)).toBe(r.op);
+    // A retired version's destruction is not the tenant's: it decrypts still.
+    expect(committedTenantDestruction({ primary }, T2)).toBeNull();
+    // An ordinary destruction carries no purge note.
+    expect(entries().find((e) => e.type === 'pending' && e.tenant.id === T3)).not.toHaveProperty('purge');
+  });
+});
 
 describe('[BK1] the protocol', () => {
   it('[BK1] pending is durable everywhere before the database, committed everywhere before success', async () => {
