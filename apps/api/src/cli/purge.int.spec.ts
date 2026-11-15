@@ -170,6 +170,10 @@ beforeAll(async () => {
     s3: new S3Client({ endpoint: process.env.S3_ENDPOINT ?? 'http://127.0.0.1:8333', region: 'us-east-1', forcePathStyle: true, credentials: { accessKeyId: process.env.S3_ACCESS_KEY ?? '', secretAccessKey: process.env['S3_SECRET_KEY'] ?? '' } }),
     buckets: ['uv-quarantine', 'uv-clean', 'uv-exports'],
   };
+  // Both people before anyone asks: a request needs someone else who could approve it (spec 0037 Q5), and CI's
+  // database starts with no members at all.
+  await as('OWNER');
+  await as('SUPER_ADMIN');
 });
 
 afterAll(async () => {
