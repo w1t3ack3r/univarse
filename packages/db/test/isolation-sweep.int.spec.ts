@@ -60,6 +60,8 @@ async function buildFixtures(tx: TenantTx, tenantId: string): Promise<Record<str
     sequence: (await tx.sequence.create({ data: { tenantId, name: `sweep.${tag}` } })).id,
     contact_change: (await tx.contactChange.create({ data: { tenantId, userId, kind: 'SELF', expiresAt: soon() } })).id,
     notice_dismissal: (await tx.noticeDismissal.create({ data: { tenantId, userId, noticeId: randomUUID() } })).id,
+    // Spec 0038: a failed export (no passphrase to seal, so no fake ciphertext for a key sweep to trip on).
+    data_export: (await tx.dataExport.create({ data: { tenantId, requestedBy: userId, state: 'FAILED', failedAt: new Date() } })).id,
   };
   return rows;
 }
