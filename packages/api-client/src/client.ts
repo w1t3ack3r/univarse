@@ -134,6 +134,11 @@ const DOWNLOAD: keyof paths = '/api/v1/files/{id}/content';
 /** The binary download's URL, for an `<a href download>`: the browser streams it, nothing is parsed. */
 export const contentUrl = (id: string): string => DOWNLOAD.replace('{id}', encodeURIComponent(id));
 
+// Spec 0038 Q-B9: the export's archive, streamed as an attachment. Only a UUID makes a URL.
+const EXPORT_DOWNLOAD: keyof paths = '/api/v1/exports/{id}/content';
+export const exportContentUrl = (id: string): string | null =>
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id) ? EXPORT_DOWNLOAD.replace('{id}', id) : null;
+
 const LOGO: keyof paths = '/api/v1/tenant/logo';
 
 /**

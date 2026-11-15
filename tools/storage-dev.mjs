@@ -1,6 +1,6 @@
 // DEV/CI ONLY (ADR-025, spec 0010). Local SeaweedFS for UniVarse.
 //   node tools/storage-dev.mjs config    writes infra/compose/seaweedfs/s3.json from .env (before compose up)
-//   node tools/storage-dev.mjs buckets   creates the quarantine and clean buckets (after compose up)
+//   node tools/storage-dev.mjs buckets   creates the quarantine, clean and exports buckets (after compose up)
 // Never prints a secret.
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
@@ -9,7 +9,7 @@ const envPath = new URL('../.env', import.meta.url);
 const env = existsSync(envPath) ? readFileSync(envPath, 'utf8') : '';
 const envVal = (k) => process.env[k] ?? (env.match(new RegExp(`^${k}=(.*)$`, 'm')) ?? [])[1];
 
-const BUCKETS = [envVal('S3_QUARANTINE_BUCKET') ?? 'uv-quarantine', envVal('S3_CLEAN_BUCKET') ?? 'uv-clean'];
+const BUCKETS = [envVal('S3_QUARANTINE_BUCKET') ?? 'uv-quarantine', envVal('S3_CLEAN_BUCKET') ?? 'uv-clean', envVal('S3_EXPORTS_BUCKET') ?? 'uv-exports'];
 
 function config() {
   const accessKey = envVal('S3_ACCESS_KEY');

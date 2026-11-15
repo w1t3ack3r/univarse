@@ -5,7 +5,7 @@
  */
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Browser, type Page } from '@playwright/test';
-import { animationsSettled, cleanup, clearReplayGuardFor, currentTotp, hostUrl, makeUser, PASSWORD, randomClientIp, setProductEnabled } from './fixtures';
+import { animationsSettled, cleanup, clearReplayGuardFor, currentTotp, hostUrl, makeUser, navTo, PASSWORD, randomClientIp, setProductEnabled } from './fixtures';
 
 const DEMO = hostUrl('demo-uni');
 
@@ -54,7 +54,7 @@ test('[ST13] Registrar edits course registration limits; admin sees them read-on
 
   // Admin switches Academics on: the registration settings belong to it.
   const admin = await signedIn(browser, 'INSTITUTION_ADMIN', viewport);
-  await nav(admin.page).getByRole('link', { name: 'Settings' }).click();
+  await navTo(admin.page, 'Settings'); // an IT Admin's phone bar has "More" (spec 0038)
   await expect(admin.page.getByText('Course registration settings appear here once Academics is switched on')).toBeVisible();
   await nav(admin.page).getByRole('link', { name: 'Products' }).click();
   await admin.page.getByRole('button', { name: 'Confirm it’s me' }).click();

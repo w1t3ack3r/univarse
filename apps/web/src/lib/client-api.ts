@@ -3,6 +3,6 @@
 // sessionStorage. Network failures, non-JSON answers and Problem Details all arrive as ApiError.
 import { createApi } from '@univarse/api-client';
 
-export { ApiError, contentUrl, getSetting, putSetting, resetSetting, unwrap, type FieldError, type ResponseBody, type SettingViewOf } from '@univarse/api-client';
+export { ApiError, contentUrl, exportContentUrl, getSetting, putSetting, resetSetting, unwrap, type FieldError, type ResponseBody, type SettingViewOf } from '@univarse/api-client';
 
 export const client = createApi({ baseUrl: '', credentials: 'same-origin' });

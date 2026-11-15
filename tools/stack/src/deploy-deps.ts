@@ -87,7 +87,7 @@ function scanThirdParty(): string[] {
 }
 
 /**
- * The quarantine and clean buckets (the API's defaults), through `weed shell` inside the SeaweedFS container: it
+ * The quarantine, clean and exports buckets (the API's defaults; exports: spec 0038 Q-B1), through `weed shell` inside the SeaweedFS container: it
  * publishes no port, and its S3 identity is the app's. Idempotent. `weed shell` exits 0 even when a command fails,
  * and its master connection is flaky just after start (storage-dev.mjs, 2026-10-06), so the listing decides,
  * retried for up to a minute.
@@ -98,6 +98,7 @@ function scanThirdParty(): string[] {
 export const BUCKETS: Readonly<Record<string, string>> = {
   'uv-quarantine': '',
   'uv-clean': '',
+  'uv-exports': '',
   'uv-shred-ledger': ' -withLock -owner univarse-shred-ledger',
 };
 function buckets(): string[] {

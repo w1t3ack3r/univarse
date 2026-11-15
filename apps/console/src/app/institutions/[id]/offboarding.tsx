@@ -1,6 +1,6 @@
 'use client';
 
-import type { PlatformOffboarding, PlatformOffboardingReason } from '@univarse/contracts';
+import type { PlatformOffboarding, PlatformOffboardingReason, PlatformTenantExportView } from '@univarse/contracts';
 import { Button, ChevronDown, Notice } from '@univarse/ui';
 import { useState, type SubmitEvent } from 'react';
 import { useStepUp } from '../../../components/step-up';
@@ -60,6 +60,61 @@ function Warnings({ o }: { o: PlatformOffboarding }) {
         ))}
       </tbody>
     </table>
+  );
+}
+
+const EXPORT_STATE: Record<PlatformTenantExportView['state'], string> = {
+  REQUESTED: 'Being prepared',
+  BUILDING: 'Being prepared',
+  READY: 'Ready to download',
+  FAILED: 'Didn’t finish',
+  EXPIRED: 'Deleted after 7 days',
+};
+const count = new Intl.NumberFormat('en-NG');
+const megabytes = (b: number) => (b < 1_000_000 ? `${count.format(Math.max(1, Math.round(b / 1000)))} kB` : `${(b / 1_000_000).toFixed(1)} MB`);
+
+/**
+ * Spec 0038 Q8, Q15: whether the institution has taken its export, as the worker mirrors it: the state, when, its size and
+ * its counts. Never its content, its passphrase or a way to download it: that's the institution's, in its workspace.
+ */
+function ExportRecord({ tenant }: { tenant: Tenant }) {
+  const latest = tenant.exports[0];
+  return (
+    <div className="pc-notice-record">
+      <h3 className="pc-subhead">Its data export</h3>
+      {latest ? (
+        <dl className="pc-facts">
+          <div>
+            <dt>Latest</dt>
+            <dd>
+              {EXPORT_STATE[latest.state]}, asked for {when(latest.requestedAt)}
+            </dd>
+          </div>
+          {latest.state === 'READY' || latest.state === 'EXPIRED' ? (
+            <div>
+              <dt>Contents</dt>
+              <dd>
+                {megabytes(latest.sizeBytes ?? 0)}: {count.format(latest.rows ?? 0)} records in {String(latest.tables ?? 0)} tables, {count.format(latest.files ?? 0)} documents
+              </dd>
+            </div>
+          ) : null}
+          {latest.state === 'READY' && latest.expiresAt ? (
+            <div>
+              <dt>Available</dt>
+              <dd>Until {when(latest.expiresAt)}</dd>
+            </div>
+          ) : null}
+          {tenant.exports.length > 1 ? (
+            <div>
+              <dt>Earlier</dt>
+              <dd>{`${String(tenant.exports.length - 1)} more, the last ${when(tenant.exports[tenant.exports.length - 1]?.requestedAt ?? latest.requestedAt)}`}</dd>
+            </div>
+          ) : null}
+        </dl>
+      ) : (
+        <p className="pc-note">Its IT Admins haven’t asked for an export yet. They do it in their own workspace; UniVarse staff can’t take one for them.</p>
+      )}
+    </div>
   );
 }
 
@@ -128,6 +183,7 @@ function Leaving({ tenant, o, canOffboard, changing }: { tenant: Tenant; o: Plat
         <h3 className="pc-subhead">Warnings to its IT Admins</h3>
         <Warnings o={o} />
       </div>
+      <ExportRecord tenant={tenant} />
       {canOffboard && tenant.status === 'OFFBOARDING' ? (
         <div className="pc-row-actions pc-row-actions--start pc-row-actions--wrap">
           <Button type="button" variant="quiet" pending={busy} onClick={cancel}>
@@ -190,6 +246,7 @@ function Archived({ tenant, o, canOffboard, changing }: { tenant: Tenant; o: Pla
           </dd>
         </div>
       </dl>
+      <ExportRecord tenant={tenant} />
       {canOffboard && !o.extendedAt ? (
         <details className="pc-disclosure">
           <summary className="uv-link">

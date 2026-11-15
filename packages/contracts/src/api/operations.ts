@@ -369,6 +369,40 @@ export const FilesOps = defineOperations({
   },
 });
 
+const exportId: PathParam = {
+  schema: z.string().meta({ format: 'uuid' }),
+  description: "The export id. Any value that is not one of this institution's exports, including a malformed id, is 404.",
+  invalid: { status: 404, code: 'resource.not_found' },
+};
+
+/** Spec 0038 Q7, Q8: the institution's full export, for its IT Admins (`data.export.request`, with step-up). */
+export const ExportOps = defineOperations({
+  requestExport: {
+    operationId: 'requestExport',
+    summary: "Ask for the institution's full export; the answer carries its passphrase, shown once",
+    tag: 'exports',
+    success: 201,
+    response: R.DataExportRequested,
+    errors: { 409: ['export.in_progress', 'export.too_soon'] },
+  },
+  listExports: {
+    operationId: 'listExports',
+    summary: "The institution's exports, newest first",
+    tag: 'exports',
+    success: 200,
+    response: R.DataExportList,
+  },
+  downloadExport: {
+    operationId: 'downloadExport',
+    summary: 'The encrypted archive, streamed (binary)',
+    tag: 'exports',
+    params: { id: exportId },
+    success: 200,
+    binary: R.EXPORT_DOWNLOAD_TYPES,
+    errors: { 409: ['export.not_ready'] },
+  },
+});
+
 /** Spec 0033 Q11: the logo's hash, as the web app puts it in the URL, so the browser may keep that version. */
 const LogoQuery = z.object({ v: z.string().regex(/^[0-9a-f]{64}$/).optional() }).strict();
 

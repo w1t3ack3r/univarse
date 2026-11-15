@@ -89,6 +89,35 @@ export const FileViewResponse = z
   })
   .strict();
 export const FileList = z.object({ data: z.array(FileViewResponse) }).strict();
+/** Spec 0038 Q7, Q8: one of the institution's exports. Its counts are the manifest's; its content is never in the API. */
+export const DataExportView = z
+  .object({
+    id: Uuid,
+    state: z.enum(['REQUESTED', 'BUILDING', 'READY', 'FAILED', 'EXPIRED']),
+    requestedAt: Instant,
+    requestedBy: z.object({ id: Uuid, displayName: z.string() }).strict().nullable(),
+    readyAt: Instant.nullable(),
+    expiresAt: Instant.nullable(),
+    /** The archive's size; a JSON number (an export is far below 2^53 bytes). */
+    sizeBytes: z.number().int().min(0).nullable(),
+    tables: z.number().int().min(0).nullable(),
+    rows: z.number().int().min(0).nullable(),
+    files: z.number().int().min(0).nullable(),
+    /** The archive's SHA-256, hex, to check a download against. */
+    sha256: z.string().regex(/^[0-9a-f]{64}$/).nullable(),
+    downloadable: z.boolean(),
+  })
+  .strict();
+export const DataExportList = z
+  .object({
+    data: z.array(DataExportView),
+    /** Q-B5: when the next request is allowed, or null if now (or one is in progress). */
+    nextAllowedAt: Instant.nullable(),
+  })
+  .strict();
+/** Q-B4: the passphrase, in this answer only. It is never shown again. */
+export const DataExportRequested = z.object({ export: DataExportView, passphrase: z.string().regex(/^[0-9A-HJKMNP-TV-Z]{5}(?:-[0-9A-HJKMNP-TV-Z]{5}){5}$/) }).strict();
+export const EXPORT_DOWNLOAD_TYPES = ['application/zip'] as const;
 /** The presigned POST goes to storage, not to the API (spec 0010 D1); its fields are opaque strings. */
 export const UploadSlotResponse = z
   .object({

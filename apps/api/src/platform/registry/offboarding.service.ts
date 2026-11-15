@@ -4,7 +4,7 @@
 // sends the warnings (the IT Admins' addresses are the institution's, ADR-035), archives on the last day and ends the
 // sessions: the console holds no tenant credential (A2). Every change is audited in its own transaction.
 import { Inject, Injectable } from '@nestjs/common';
-import type { PlatformOffboarding } from '@univarse/contracts';
+import type { PlatformOffboarding, PlatformTenantExportView } from '@univarse/contracts';
 import type { PlatformClient } from '@univarse/db';
 import {
   cancellable,
@@ -130,6 +130,30 @@ export class TenantOffboarding {
       extensionReason: r.extensionReason,
       warnings: r.warnings.map((w) => ({ ...w, queuedAt: iso(w.queuedAt) })),
     };
+  }
+
+  /** Q15, Q-B7: the institution's latest exports, as the worker mirrored them: state and counts only. */
+  async exports(tenantId: string): Promise<PlatformTenantExportView[]> {
+    const rows = await this.db.platformTenantExport.findMany({
+      where: { tenantId },
+      orderBy: { requestedAt: 'desc' },
+      take: 5,
+      select: { id: true, state: true, requestedAt: true, readyAt: true, expiresAt: true, failedAt: true, expiredAt: true, sizeBytes: true, tables: true, rows: true, files: true },
+    });
+    const n = (v: bigint | null) => (v === null ? null : Number(v));
+    return rows.map((r) => ({
+      id: r.id,
+      state: r.state as PlatformTenantExportView['state'],
+      requestedAt: r.requestedAt.toISOString(),
+      readyAt: iso(r.readyAt),
+      expiresAt: iso(r.expiresAt),
+      failedAt: iso(r.failedAt),
+      expiredAt: iso(r.expiredAt),
+      sizeBytes: n(r.sizeBytes),
+      tables: r.tables,
+      rows: n(r.rows),
+      files: r.files,
+    }));
   }
 
   private open(tx: PlatformTx, tenantId: string) {

@@ -15,6 +15,7 @@ import {
   type PlatformClient,
   type TenantShardClient,
   type TenantTx,
+  type TenantTxOptions,
 } from '@univarse/db';
 import { APP_CONFIG, type AppConfig } from '../../config/config.js';
 
@@ -67,7 +68,7 @@ export class ShardRegistry implements OnApplicationBootstrap, OnApplicationShutd
   }
 
   /** Multi-statement use cases: one transaction, RLS context set first. */
-  async tx<T>(shardId: string, tenantId: string, fn: (tx: TenantTx) => Promise<T>, options?: { timeoutMs?: number }): Promise<T> {
+  async tx<T>(shardId: string, tenantId: string, fn: (tx: TenantTx) => Promise<T>, options?: TenantTxOptions): Promise<T> {
     return withTenantTx(await this.client(shardId), tenantId, fn, options);
   }
 

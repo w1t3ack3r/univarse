@@ -102,6 +102,19 @@ export const Download = (p: IconProps) => (
     <path d="M12 4v11M7 10.5l5 5 5-5M5 19.5h14" />
   </Icon>
 );
+/** Spec 0038: the institution's export, a box of records: lid, body and a handle slot. */
+export const Archive = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M4.5 5h15a1 1 0 0 1 1 1v2.5a1 1 0 0 1-1 1h-15a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1Z" />
+    <path d="M5 9.5V18a1.5 1.5 0 0 0 1.5 1.5h11A1.5 1.5 0 0 0 19 18V9.5M10 13.5h4" />
+  </Icon>
+);
+/** More destinations than the phone's bar holds: three dots, drawn as round-capped strokes. */
+export const More = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M5.5 12h.01M12 12h.01M18.5 12h.01" strokeWidth={3} />
+  </Icon>
+);
 export const Eye = (p: IconProps) => (
   <Icon {...p}>
     <path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z" />

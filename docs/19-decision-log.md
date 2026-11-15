@@ -597,3 +597,25 @@ Alternatives considered: option — why not.
 - One more Vault key and two more tokens to provision, renew and back up with the stack (PR C). A new dependency (BullMQ, with its optional native accelerator left unbuilt: it falls back to JavaScript).
 
 **Alternatives considered:** keep polling Postgres (ADR-019's way: no queue to build once for S6's fan-out, and A8 was approved); a plain column the console may insert but not read (readable in the database and every backup while a failed job waits); the tenant KEK or the console's key (each would hand one process the other's secret); a separate `provisioner` container (a tenth container on an 8 GB machine, for a job that runs a few times a year).
+
+## ADR-037 — The institution's export is an AES-256 ZIP written by zip.js, streamed into its own bucket
+**Status:** Accepted (2026-11-15) with [spec 0038](specs/0038-offboarding-and-purge.md) Q8 (the format and the new dependency, approved 2026-11-14 as part of Q8) and PR B's decisions Q-B1 to Q-B10. **Implemented** in its PR B.
+
+**Context:**
+- An institution leaving UniVarse takes all its records (05 §1, "full, for portability"); its IT Admins download them and open them with tools that aren't UniVarse's (7-Zip, the archive tools in Windows and macOS, `unzip` with AES support).
+- The archive must be unreadable without a passphrase the platform never keeps (T29, T35), and must never be a link that works outside the institution's workspace.
+- The worker that builds it runs read-only with 64 MB of `/tmp` and 512 MB of memory (docs/09), so the archive can't be assembled on disk or in memory.
+- Node has no AES ZIP of its own; its `zlib` writes plain deflate only.
+
+**Decision:**
+- **The format is a ZIP with WinZip AES-256 entries (AE-2, compression method 99),** never the legacy ZipCrypto. Each entry is deflated, then encrypted with a key derived from the passphrase (PBKDF2-HMAC-SHA1, 1,000 rounds, as the format fixes), with an HMAC on each entry. The passphrase is 150 bits (Q-B4), so the format's fixed derivation costs nothing.
+- **The writer is `@zip.js/zip.js` 2.24.0, pinned exactly:** BSD-3-Clause, no dependencies and no install scripts, maintained (releases monthly through 2026). It streams: the worker pipes each table's JSON Lines and each file through it, and its output into a multipart upload in parts of 8 MiB. It uses the Web Crypto and Compression Streams that Node 24 has, with its web workers turned off.
+- **The archive lives in its own bucket, `uv-exports`,** under `tenants/{tenantId}/exports/{exportId}/{leaseToken}.zip`, for 7 days. The backups copy `uv-clean` only, so no backup keeps an export.
+- **Tests open the archive two ways:** with zip.js's own reader (every run), and with 7-Zip on the CI runner (required in CI), so the format is checked by a tool that isn't the writer.
+
+**Consequences:**
+- An IT Admin opens the export with the tools they have; nobody without the passphrase can, UniVarse included. If the passphrase is lost, the export can't be recovered: they ask for another (one a day).
+- A new dependency in the worker's image, scanned with the rest (Trivy and Grype). zip.js's own reader is used only in tests.
+- The dev and CI SeaweedFS take the stack's volume settings (one volume at a time per bucket, 24 at most): with the old default of 7 at a time, a fourth bucket found no volume and its first write failed.
+
+**Alternatives considered:** `archiver` with `archiver-zip-encrypted` (two packages, the encrypting one unmaintained since 2024); 7-Zip's own `.7z` (needs a native binary in the worker, and Windows doesn't open it without one); an OpenPGP-encrypted `.tar.gz` (strong, but IT Admins at Nigerian institutions rarely have a PGP tool, and Windows opens neither layer); encrypting under a key the platform keeps (T35: the platform could then read every export); a presigned download link (works for anyone who has it, so it can be forwarded).

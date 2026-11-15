@@ -4,12 +4,12 @@
  * Prereqs: `pnpm db:migrate && pnpm db:seed`, Valkey and Vault running, `pnpm --filter @univarse/api build`
  * (RS8 boots the compiled production build).
  */
-import { randomBytes, randomUUID } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import type { NestFastifyApplication } from '@nestjs/platform-fastify';
-import { createPlatformClient, type PlatformClient } from '@univarse/db';
+import { createPlatformClient, createTenantShardClient, type PlatformClient, type TenantShardClient } from '@univarse/db';
 import { NoticeBoard } from './modules/notices/notice-board.service.js';
 import { forTenant } from '@univarse/db';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -20,6 +20,8 @@ import { base32Decode } from './modules/identity/totp.js';
 import { codeIn, createHarness, HOSTS, PASSWORD, randomIp, type Harness, type InjectResult } from './testing/int-harness.js';
 import { enrolTestTotp, resetReplayGuard, totpCode } from './testing/mfa-helpers.js';
 import { FileScanWorker } from './modules/files/file-scan.worker.js';
+import { FileStorage } from './modules/files/file-storage.js';
+import { exportArchiveKey } from './modules/exports/export-keys.js';
 import { CONTROL_ROUTES, LEAK_VICTIM, LeakyControlsController } from './testing/route-controls.js';
 import { attachConformance } from './testing/conformance.js';
 import {
@@ -217,7 +219,23 @@ const SETTING_B = { min: 2, max: 59 };
 const ETAG = async (cookie: string) => String((await send({ method: 'GET', host: A, url: '/api/v1/settings/registration.unitLimits', cookie })).headers.etag);
 
 /** B's names that must never appear through A. */
-const bMarkers = () => [marker.userB, '"max":59', 'Test State Polytechnic', tenant.B, FILE_B_NAME];
+const bMarkers = () => [marker.userB, '"max":59', 'Test State Polytechnic', tenant.B, FILE_B_NAME, ...(exportB ? [exportB] : [])];
+
+/** Spec 0038: a READY export of `t`'s, its archive in the exports bucket, as the builder leaves one. */
+async function readyExport(t: 'A' | 'B'): Promise<{ id: string; bytes: Buffer }> {
+  const id = randomUUID();
+  sweepExports.add(id);
+  const key = exportArchiveKey(tenant[t], id, randomUUID());
+  const bytes = Buffer.concat([Buffer.from('PK'), randomBytes(64)]);
+  const storage = app.get(FileStorage);
+  await storage.put(storage.exports, key, bytes, 'application/zip');
+  const now = new Date();
+  // Inserted as built: the trigger guards updates, and a waiting one would block the sweep's own request.
+  await db(t).dataExport.create({
+    data: { id, tenantId: tenant[t], state: 'READY', passphraseEnc: null, objectKey: key, sizeBytes: BigInt(bytes.length), sha256: createHash('sha256').update(bytes).digest(), tables: 1, rows: 1n, files: 0, readyAt: now, expiresAt: new Date(now.getTime() + 7 * 86_400_000) },
+  });
+  return { id, bytes };
+}
 
 // Files (spec 0010 FU2): A's Registrar owns A's files; a second A user and B's Registrar own others.
 const FILE_A_NAME = `00FA${run}.pdf`;
@@ -226,6 +244,22 @@ const pdfBytes = (tag: string) => Buffer.from(`%PDF-1.4\n% ${tag} ${randomBytes(
 let fileA = '';
 let fileA2 = '';
 let fileB = '';
+// Spec 0038: a ready export of B's (inserted directly, as the worker leaves one), and its id as a B marker.
+let exportB = '';
+const sweepExports = new Set<string>();
+/** The export routes' own IT Admin, so their step-ups don't spend the shared admin's rate limit. */
+let exporterA: Person;
+let exporterSteppedAt = 0;
+/** The tenant migrator: exports can't be deleted by the app's role (spec 0038), only cleared by the sweep's owner. */
+let tenantMigrator: TenantShardClient;
+/** A step-up lasts 5 minutes: renewed only when the last is over 3 minutes old. */
+async function exporterSession(): Promise<string> {
+  if (Date.now() - exporterSteppedAt > 3 * 60_000) {
+    await stepUp(exporterA);
+    exporterSteppedAt = Date.now();
+  }
+  return exporterA.session;
+}
 let scanner: FileScanWorker;
 
 /** Upload through the real flow (slot → presigned POST → complete) and scan it; returns the id. */
@@ -769,6 +803,68 @@ const DECLS: Record<RouteKey, Decl> = {
     }),
   },
 
+  // Spec 0038 Q7, Q8: the institution's export. IT Admins only, stepped up; the tenant is the Host's.
+  'POST /api/v1/exports': {
+    auth: 'session',
+    classes: ['self'],
+    skeleton: (cookie) => ({ method: 'POST', host: A, url: '/api/v1/exports', ...(cookie ? { cookie } : {}) }),
+    prepare: async () => {
+      // One at a time, one a day: each fixture starts from none (the migrator's client, as the sweep's own).
+      await forTenant(tenantMigrator, tenant.A).dataExport.deleteMany({ where: { OR: [{ state: { in: ['REQUESTED', 'BUILDING'] } }, { requestedAt: { gt: new Date(Date.now() - 2 * 86_400_000) } }] } });
+      const cookie = await exporterSession();
+      return {
+        req: { method: 'POST', host: A, url: '/api/v1/exports', cookie },
+        verify: async (r) => {
+          expectStatus(r, 201);
+          const body = json(r) as { export: { id: string; state: string }; passphrase: string };
+          sweepExports.add(body.export.id);
+          expect(body.export.state).toBe('REQUESTED');
+          expect(body.passphrase).toMatch(/^[0-9A-Z]{5}(-[0-9A-Z]{5}){5}$/);
+          expect(await db('A').dataExport.findUniqueOrThrow({ where: { id: body.export.id } })).toMatchObject({ tenantId: tenant.A, requestedBy: exporterA.id, state: 'REQUESTED' });
+        },
+      };
+    },
+  },
+
+  'GET /api/v1/exports': {
+    auth: 'session',
+    classes: ['collection'],
+    skeleton: (cookie) => ({ method: 'GET', host: A, url: '/api/v1/exports', ...(cookie ? { cookie } : {}) }),
+    prepare: async () => {
+      const own = await readyExport('A');
+      const cookie = await exporterSession();
+      return {
+        req: { method: 'GET', host: A, url: '/api/v1/exports', cookie },
+        verify: (r) => {
+          expectStatus(r, 200);
+          const ids = (json(r) as { data: { id: string }[] }).data.map((e) => e.id);
+          expect(ids).toContain(own.id);
+          expect(ids).not.toContain(exportB);
+          expect(checkCollection('GET /api/v1/exports', json(r), [own.id], bMarkers())).toEqual([]);
+        },
+      };
+    },
+  },
+
+  'GET /api/v1/exports/:id/content': {
+    auth: 'session',
+    classes: ['keyed'],
+    skeleton: (cookie) => ({ method: 'GET', host: A, url: `/api/v1/exports/${randomUUID()}/content`, ...(cookie ? { cookie } : {}) }),
+    prepare: async () => {
+      const own = await readyExport('A');
+      const cookie = await exporterSession();
+      return {
+        req: { method: 'GET', host: A, url: `/api/v1/exports/${own.id}/content`, cookie },
+        verify: async (r) => {
+          expectStatus(r, 200);
+          expect(r.headers['content-type']).toBe('application/zip');
+          expect(r.rawPayload.equals(own.bytes)).toBe(true);
+          expect(await db('A').auditEvent.count({ where: { entityType: 'data_export', entityId: own.id, action: 'data.export.downloaded' } })).toBeGreaterThanOrEqual(1);
+        },
+      };
+    },
+  },
+
   'PUT /api/v1/admin/products/:product': {
     auth: 'session',
     classes: ['keyed'],
@@ -996,6 +1092,9 @@ beforeAll(async () => {
   fileA = await uploadFile(regA, FILE_A_NAME);
   fileA2 = await uploadFile(await mfaPerson('A', 'STUDENT'), `00FA2${run}.pdf`);
   fileB = await uploadFile(regB, FILE_B_NAME);
+  tenantMigrator = createTenantShardClient(process.env.TENANT_POOL_01_MIGRATOR_URL!);
+  exporterA = await mfaPerson('A', 'INSTITUTION_ADMIN');
+  exportB = (await readyExport('B')).id;
 
   // Keyed markers: A's setting through the API, B's directly (B has no Academics, so no API for it).
   const cookie = await stepUp(regA);
@@ -1016,6 +1115,15 @@ afterAll(async () => {
   await setProduct(tenant.A, 'academics', false);
   await setProduct(tenant.B, 'admissions', false);
   await db('B').setting.deleteMany({ where: { key: 'registration.unitLimits' } });
+  // Spec 0038: the sweep's exports and their archives.
+  const storage = app.get(FileStorage);
+  for (const t of ['A', 'B'] as const) {
+    for (const id of sweepExports) {
+      for (const key of await storage.listKeys(storage.exports, `tenants/${tenant[t]}/exports/${id}/`, 10)) await storage.remove(storage.exports, key);
+    }
+    await forTenant(tenantMigrator, tenant[t]).dataExport.deleteMany({ where: { id: { in: [...sweepExports] } } });
+  }
+  await tenantMigrator.$disconnect();
   await migrator.platformNoticeDelivery.deleteMany({ where: { noticeId: { in: sweepNotices } } });
   await migrator.platformNotice.deleteMany({ where: { id: { in: sweepNotices } } });
   await migrator.platformUser.deleteMany({ where: { id: noticeAuthor } });
@@ -1092,6 +1200,7 @@ describe('[OA2] the OpenAPI document covers exactly the routes the app serves', 
     'PUT /api/v1/admin/products/:product': { role: 'INSTITUTION_ADMIN', stepUp: true, body: { enabled: true } },
     'POST /api/v1/users/:id/email': { role: 'INSTITUTION_ADMIN', stepUp: true, body: { email: 'x@sweep.test', oldAddressWrong: false } },
     'POST /api/v1/notices/:id/dismiss': { role: 'STUDENT' },
+    'GET /api/v1/exports/:id/content': { role: 'INSTITUTION_ADMIN', stepUp: true },
   };
   const withParams = [...docOps].filter(([, op]) => (op.parameters ?? []).some((x) => x.in === 'path')).map(([k]) => k);
 
@@ -1289,6 +1398,18 @@ describe('[RS6][RS8] resources by id, and the negative controls', () => {
     expect([elsewhere.statusCode, json(elsewhere).code]).toEqual([missing.statusCode, json(missing).code]);
     expect(elsewhere.statusCode).toBe(404);
     expect(await db('A').noticeDismissal.count({ where: { noticeId: noticeB } })).toBe(0);
+  });
+
+  it('[RS6] GET /api/v1/exports/:id/content: B’s export answers exactly like a nonexistent id; nothing is audited (spec 0038 T35)', async () => {
+    const cookie = await exporterSession();
+    const call = (id: string) => send({ method: 'GET', host: A, url: `/api/v1/exports/${id}/content`, cookie });
+    const missing = await call(randomUUID());
+    const elsewhere = await call(exportB);
+    expect([elsewhere.statusCode, json(elsewhere).code]).toEqual([missing.statusCode, json(missing).code]);
+    expect(elsewhere.statusCode).toBe(404);
+    expect(elsewhere.body).not.toContain(tenant.B);
+    expect(await db('B').auditEvent.count({ where: { entityType: 'data_export', entityId: exportB } })).toBe(0);
+    expect(await db('A').auditEvent.count({ where: { entityType: 'data_export', entityId: exportB } })).toBe(0);
   });
 
   it('[RS6] real resource routes exist now (spec 0010 FU2), reported separately from the controls', () => {

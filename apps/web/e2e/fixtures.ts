@@ -210,3 +210,14 @@ export async function animationsSettled(page: Page): Promise<void> {
     ),
   );
 }
+
+/**
+ * Follows a workspace navigation link. On a phone with more than five destinations, some are in the bar's "More" sheet
+ * (spec 0038): it's opened first when the link isn't in the bar.
+ */
+export async function navTo(page: Page, name: string): Promise<void> {
+  const nav = page.getByRole('navigation', { name: 'Workspace' });
+  const link = nav.getByRole('link', { name, exact: true });
+  if (!(await link.isVisible())) await nav.getByRole('button', { name: 'More' }).click();
+  await link.click();
+}

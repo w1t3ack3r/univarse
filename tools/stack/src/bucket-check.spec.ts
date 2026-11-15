@@ -41,7 +41,7 @@ function world(entries: readonly Entry[], over: Partial<World> = {}): World {
   const until = new Date(written);
   until.setUTCFullYear(until.getUTCFullYear() + 10);
   const objects = new Map(entries.map((e) => [objectKey(LEDGER, DIR, e), { body: `${canonical(e)}\n`, lastModified: written, retention: { Mode: 'COMPLIANCE', RetainUntilDate: until }, versionId: randomUUID() }]));
-  return { objects, others: new Map([['uv-quarantine', new Set()], ['uv-clean', new Set()]]), lockEnabled: true, ledgerCan: new Set(), appCanRead: true, appCanDelete: false, ledgerDenial: 403, ...over };
+  return { objects, others: new Map([['uv-quarantine', new Set()], ['uv-clean', new Set()], ['uv-exports', new Set()]]), lockEnabled: true, ledgerCan: new Set(), appCanRead: true, appCanDelete: false, ledgerDenial: 403, ...over };
 }
 
 type Cmd = { constructor: { name: string }; input: Record<string, unknown> };
@@ -111,6 +111,8 @@ describe('[A2-10] pnpm stack:bucket-check', () => {
       "PASS the ledger identity can't write uv-quarantine",
       "PASS the ledger identity can't list uv-clean",
       "PASS the ledger identity can't write uv-clean",
+      "PASS the ledger identity can't list uv-exports",
+      "PASS the ledger identity can't write uv-exports",
     ]);
   });
 
@@ -169,8 +171,8 @@ describe('[A2-10] pnpm stack:bucket-check', () => {
     const cases = [
       ['list', ['FAIL the ledger identity can list uv-shred-ledger']],
       ['read', ['FAIL the ledger identity can read uv-shred-ledger']],
-      ['list-other', ['FAIL the ledger identity can list uv-quarantine', 'FAIL the ledger identity can list uv-clean']],
-      ['write-other', ['FAIL the ledger identity can write uv-quarantine', 'FAIL the ledger identity can write uv-clean']],
+      ['list-other', ['FAIL the ledger identity can list uv-quarantine', 'FAIL the ledger identity can list uv-clean', 'FAIL the ledger identity can list uv-exports']],
+      ['write-other', ['FAIL the ledger identity can write uv-quarantine', 'FAIL the ledger identity can write uv-clean', 'FAIL the ledger identity can write uv-exports']],
     ] as const;
     for (const [what, expected] of cases) {
       const w = world(entries, { ledgerCan: new Set([what]) });
@@ -181,7 +183,7 @@ describe('[A2-10] pnpm stack:bucket-check', () => {
 
   it('[A2-10] a refusal must be a refusal (403): another error is not taken for one', async () => {
     const lines = fails(await run(entries, world(entries, { ledgerDenial: 500 })));
-    expect(lines).toHaveLength(6);
+    expect(lines).toHaveLength(8);
     expect(lines[0]).toBe("FAIL the ledger identity's attempt to list uv-shred-ledger failed, but not as refused: AccessDenied (500)");
   });
 

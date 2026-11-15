@@ -89,6 +89,8 @@ const schema = z.object({
   S3_SECRET_KEY: z.string().min(16).optional(),
   S3_QUARANTINE_BUCKET: z.string().regex(/^[a-z0-9-]{3,63}$/).default('uv-quarantine'),
   S3_CLEAN_BUCKET: z.string().regex(/^[a-z0-9-]{3,63}$/).default('uv-clean'),
+  /** Spec 0038 Q-B1: the institutions' exports (7 days; not in the backups, which copy uv-clean only). */
+  S3_EXPORTS_BUCKET: z.string().regex(/^[a-z0-9-]{3,63}$/).default('uv-exports'),
   CLAMD_HOST: z.string().default('127.0.0.1'),
   CLAMD_PORT: z.coerce.number().int().min(1).max(65535).default(3310),
   /** Per-scan timeout; a timeout is retried, never treated as clean (FU3). */
@@ -119,6 +121,8 @@ const schema = z.object({
   SUSPENSION_INTERVAL_MS: z.coerce.number().int().min(0).default(2_000),
   /** Spec 0038 Q4, Q5: how often the worker sends offboarding warnings, archives, and ends an archive's sessions. */
   OFFBOARDING_INTERVAL_MS: z.coerce.number().int().min(0).default(300_000),
+  /** Spec 0038 Q-B6: how often the worker looks for exports to build and to expire. 0 turns it off. */
+  EXPORT_INTERVAL_MS: z.coerce.number().int().min(0).default(15_000),
   /** Spec 0037 Q10: how often the worker queues notices' deliveries still to fan out to IT Admins. */
   NOTICE_RELAY_INTERVAL_MS: z.coerce.number().int().min(0).default(5_000),
   /** Spec 0037 Q11: how often the worker brings the notices' delivery log up to date. */

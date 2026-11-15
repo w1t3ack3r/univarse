@@ -1,7 +1,7 @@
 // Spec 0011 OA8: the shared behaviour every call gets from the client, against a fake fetch.
 import type { SettingValue } from '@univarse/contracts';
 import { describe, expect, expectTypeOf, it } from 'vitest';
-import { answer, ApiError, contentUrl, createApi, logoUrl, unwrap, type paths } from './client.js';
+import { answer, ApiError, contentUrl, createApi, exportContentUrl, logoUrl, unwrap, type paths } from './client.js';
 import { getSetting, putSetting, type SettingViewOf } from './settings.js';
 
 type Handler = (req: Request) => Response | Promise<Response>;
@@ -80,6 +80,10 @@ describe('[OA8] empty, binary, cookies and CSRF', () => {
 
   it('[OA8] the binary download is a link built from the documented path, never fetched or parsed', () => {
     expect(contentUrl('a/b c')).toBe('/api/v1/files/a%2Fb%20c/content');
+    // Spec 0038 Q-B9: an export's download is only ever an id's: anything else makes no URL.
+    expect(exportContentUrl('0196f3a2-1b2c-7d3e-8f40-123456789abc')).toBe('/api/v1/exports/0196f3a2-1b2c-7d3e-8f40-123456789abc/content');
+    expect(exportContentUrl('../files/x')).toBeNull();
+    expect(exportContentUrl('0196f3a2-1b2c-7d3e-8f40-123456789abc/../../x')).toBeNull();
     expectTypeOf<'/api/v1/files/{id}/content'>().toExtend<keyof paths>();
   });
 

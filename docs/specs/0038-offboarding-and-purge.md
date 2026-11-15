@@ -1,6 +1,6 @@
 # Spec 0038: Phase 1's S7, offboarding, the export and purge
 
-**Status:** **Approved by the owner on 2026-11-14, all as written:** Q1 to Q15. ADR-037 (the AES ZIP's dependency) is written with PR B.
+**Status:** **Approved by the owner on 2026-11-14, all as written:** Q1 to Q15. ADR-037 (the AES ZIP's dependency) is written with PR B. **PR A's decisions Q-A1 to Q-A9 approved by the owner on 2026-11-15.**
 **Phase:** 1, slice **S7** of [spec 0025](0025-phase-1-control-plane.md) (A7, A12, E10).
 **Builds on:**
 
@@ -139,7 +139,7 @@ About **two weeks** at S6's pace.
   - in the API: the status check, the note rule, cancelling after the end, the extension's once, starting with only read, warnings to everyone, warnings emailed twice after a stop, the archive leaving the sessions, an archived institution still served, the inbox item to everyone.
   - One survived at first (cancelling after the end, before the archive): no test covered that gap; one does now.
 
-**Decisions made while building, for approval:**
+**Decisions made while building (approved by the owner on 2026-11-15):**
 
 | # | Decision | Why |
 | --- | --- | --- |
@@ -152,3 +152,78 @@ About **two weeks** at S6's pace.
 | Q-A7 | **The database checks only that a window ends after it started.** An extension's end is normally later than the first end, but the database doesn't require it. | The extension is 14 days from the day it's given; the rule that matters (once) is the trigger's. |
 | Q-A8 | **The closing banner names the institution's ICT unit as who can take a copy;** PR B adds the export they take it with. | The banner shows to everyone; the export is for IT Admins. |
 | Q-A9 | **The key and backup tests' scratch institutions are now `ARCHIVED`, not `OFFBOARDING`.** They were `OFFBOARDING` because nothing served it; now something does (Q3). Left as they were, the worker polled them and retried their test emails every 200 ms during CI's tracing test (OB12), whose shutdown flush then failed under nine times the usual spans. | A test's "inert" status has to be one the code treats as inert. |
+
+## PR B: the design
+
+Written before the code, as the self-review asks; what changed while building is listed under "PR B: what was built".
+
+**The flow:**
+1. An IT Admin (`data.export.request`, step-up) asks for an export on the workspace's **Data export** page. The API makes a passphrase, writes a `data_export` row (`REQUESTED`) with the passphrase sealed under the institution's key, audits it in the same transaction, and answers with the passphrase. It is never shown again.
+2. The worker's **export pass** (every 15 s) looks at each served institution for exports that are waiting, mirrors them to the platform, and offers them to the **`tenant-export` queue** (BullMQ, one at a time, the job id the export's). Postgres holds every state; a lost queue loses nothing.
+3. The queue's job claims the export with a lease, reads the institution's tables in **one read-only snapshot**, then its clean files, and streams an **AES-256 ZIP** (zip.js, ADR-037) into the **`uv-exports` bucket** in parts. Nothing is written to disk: the worker has 64 MB of `/tmp` and 512 MB of memory.
+4. When the archive is sealed, the export becomes `READY` (its size, counts and the archive's SHA-256), the passphrase is wiped, and the mirror is updated. A job that fails three times is `FAILED`, and its passphrase is wiped too.
+5. The IT Admin downloads it on the same page, with step-up, as often as needed for **7 days**, each download audited. Then the pass deletes the object and marks it `EXPIRED`.
+
+**Decisions:**
+
+| # | Decision | Why |
+| --- | --- | --- |
+| Q-B1 | **A new private bucket, `uv-exports`,** with keys `tenants/{tenantId}/exports/{exportId}.zip`. The backups copy only `uv-clean`, so an export isn't kept in them. | Q8's "deleted after 7 days" holds only if no backup keeps a copy. The purge's "every bucket under `tenants/{tenantId}/`" covers it. |
+| Q-B2 | **What the archive holds:** `tables/{table}.jsonl` (one JSON object a row, columns by their database names; dates as ISO 8601, binary as hex, large integers as strings), `files/{fileId}/{name}` for every clean file not deleted, `manifest.json` (each table's rows, each file's bytes and SHA-256) and `README.txt`. | Readable with any tool, without UniVarse. |
+| Q-B3 | **What it never holds**, by a catalogue every tenant column must be in (a test fails on a column that isn't):<br>• whole tables: `session`, `mfa_challenge`, `recovery_code`, `one_time_token`, `outbox_event`;<br>• columns: `user_account.password_hash`, `mfa_factor.secret_enc`, `contact_change`'s code, undo and address hashes, `file_object.lease_token`, `data_export.passphrase_enc`.<br>Encrypted addresses (`contact_change`) are decrypted. | Q7: nothing in it lets anyone sign in. A new column can't slip in unclassified. |
+| Q-B4 | **The passphrase:** 30 characters in six groups of five, from Crockford's base-32 alphabet (no I, L, O or U), so 150 bits. Sealed with the institution's field key (AAD names the export), wiped once the archive is sealed or has failed. | Long enough that the archive's own key derivation doesn't matter; easy to read aloud and type. |
+| Q-B5 | **One at a time, at most one a day:** refused while another is waiting or being built, and within 24 hours of the last request, unless that one failed. | Q7; a failure shouldn't cost the institution a day. |
+| Q-B6 | **One snapshot:** the tables are read in one `REPEATABLE READ`, read-only transaction (up to 5 minutes), so the counts in the manifest are one moment's. The files listed in that snapshot are then copied. | The export matches the institution's row counts at one moment, not a moving one. |
+| Q-B7 | **The platform's mirror, `platform_tenant_export`:** state, dates, size and counts, written only by the worker; the console reads it. | Q8: the platform sees state and counts, never content; the console holds no tenant credential (A2). |
+| Q-B8 | **Institutions that exist already:** a tenant migration adds `data.export.request` to every institution's system `INSTITUTION_ADMIN` role. | Seeding grants it to new institutions only; the ones on the stack need it too. |
+| Q-B9 | **The download:** `GET /api/v1/exports/:id/content`, streamed from storage, `data.export.request` with step-up. The page confirms the step-up before it starts the download, so the browser never lands on an error page. Downloads are allowed while the institution is served (not suspended or archived). | Q8. |
+| Q-B10 | **Expiry runs from the mirror,** for every institution, suspended and archived ones included. | An archived institution's export still has to go after 7 days, though nothing serves it. |
+
+## PR B: what was built
+
+**Built:**
+- **The rules** (`packages/domain/src/data-export.ts`): the statuses an export is asked for at (the served ones); one at a time and one a day, a failed one not counting; when the next is allowed; the 7 days; when one downloads; the passphrase from 30 random bytes (Crockford base 32, six groups of five); a file's safe name in the archive.
+- **The tables:**
+  - tenant `data_export` (migration `20261119120000_data_export`): one open per institution (a unique index); a trigger keeps its steps forward and its request unchanged; the passphrase there exactly while it waits or is built (a check); the app's role can't delete it. The same migration gives `data.export.request` to every institution's system `INSTITUTION_ADMIN` (Q-B8).
+  - platform `platform_tenant_export` (migration `20261119120000_tenant_export`): the mirror, written by the worker's role, read by the console's.
+  - `data_export.passphrase_enc` is in the key sweep's registry (rotation re-seals it while it waits).
+- **The tenant API** (`modules/exports`): `POST /api/v1/exports` (201 with the passphrase, once), `GET /api/v1/exports`, `GET /api/v1/exports/:id/content` (streamed, audited), all `data.export.request` with step-up; the use case checks the institution's scope and status again.
+- **The worker:** `ExportPass` (every 15 s) mirrors, queues on `tenant-export` (BullMQ, one at a time), fails a closed institution's waiting export and expires ready ones from the mirror; `ExportBuilder` claims with a lease, reads the tables in one read-only `REPEATABLE READ` snapshot (`export-catalogue.ts`: every tenant table and column, exported or left out with a reason), then the clean files, and streams the AES-256 ZIP (zip.js 2.24.0, ADR-037) through `FileStorage.multipart` into `uv-exports`.
+- **Storage:** the `uv-exports` bucket in the dev, CI and stack setups, and `stack:bucket-check`'s refusals for the ledger's identity.
+- **The web app:** the Data export page (Confirm it's me, Prepare, the passphrase moment, the list with its states, counts, fingerprint and Download), its nav item for holders of `data.export.request`, and the closing banner's link for them.
+- **The console:** the institution's Offboarding section shows its data export's state and counts (the tenant detail's `exports`).
+- **Docs:** ADR-037; 03 (`DataExport`, `PlatformTenantExport`), 05 §1, 08 (T35), 12, 18, and both DESIGN.md files.
+- **The phone's navigation:** with more than five destinations (an IT Admin now has six), the thumb bar shows four and "More", whose sheet holds the rest (Q-B20).
+
+
+**Evidence:**
+- **Domain:** 146 tests (12 new): the served statuses, one at a time, one a day and a failure not counting, when the next is allowed, the 7 days, the passphrase's alphabet and bits, a file's safe name (paths, Windows' refused characters, control characters, length).
+- **Integration** (the whole API suite with ClamAV: 672 passed, 1 skipped by design, exit 0):
+  - `exports.int.spec.ts` (14): who may ask (anonymous, a student, no MFA, no step-up, a department's administrator), and nothing written for them; the passphrase once, sealed and bound to its export; one at a time and one a day; the build, its audit and its mirror (state and counts only); the archive (AES method 99) refusing a wrong or missing passphrase, holding every table's rows at its snapshot, every JSON line exactly its columns, the address decrypted, no password hash, authenticator secret, recovery, token, session or address hash anywhere in it, the clean file under a safe name and the deleted one not; the download for this institution's IT Admin only (another institution's id and a malformed one 404, a session from another host 401, no step-up 428, nothing audited for them); the use case's own scope, status and archive-key checks; the 7 days (archive deleted, then the row, audited); a closed institution's waiting export failed with its passphrase wiped; three tries then failed; a crash past the last try failed; a lost lease, before and after the other builder finishes; the database's trigger, check and index.
+  - `export-catalogue.int.spec.ts` (3): every tenant table and column classified, and no stored secret written.
+  - 7-Zip opens the archive and refuses a wrong passphrase (required in CI; skipped on this laptop, which has no 7-Zip).
+  - Updated: the route sweep (the three routes declared, a B export's id answering like none, B's markers), the grants pin, the key sweep's isolation fixture, the writer-bound check (the passphrase's seal; the snapshot as a reviewed long transaction), the OpenAPI step-up list.
+- **E2E**, desktop and phone, axe on every state:
+  - web `export.e2e.ts` (4): an IT Admin confirms, prepares, keeps the passphrase (shown once, focused, "Done" waiting), sees it ready, downloads it and opens it with the passphrase (a wrong one refused); a lecturer has no link and gets 404. The settings, sign-in and offboarding suites pass with the phone bar's "More".
+  - console `offboarding.e2e.ts` (4): the leaving view says no export was asked for; the closed view shows a ready export's size and counts.
+  - On this laptop the export journey's first sign-in met a cold API (~2 s a password check, spikes past 5 s) and the demo institution's export is 65 MB of earlier test runs (about 90 s to build): the test waits for both.
+- **Mutations: 23 tried, 23 caught:**
+  - in the domain: exporting while suspended, a failure counting against the day, two at a time, downloading after expiry, a weaker passphrase, a path in a file name;
+  - in the API and worker: the use case's scope check, its served check, streaming any key, the download unaudited, no daily limit, building for a closed institution, sealing over a lost lease, retrying forever, keeping the passphrase, ZipCrypto, exporting deleted files, the password hash exported, addresses not decrypted, expiry keeping the archive, a closed institution keeping its passphrase, a crashed build claimed forever, the download needing only `files.file.read`.
+  - Two survived at first (sealing over a lost lease; deleted files): the tests didn't cover the case each guards; they do now. The crash guard (Q-B14) came from the review.
+**Decisions made while building, for approval:**
+
+| # | Decision | Why |
+| --- | --- | --- |
+| Q-B11 | **The dev and CI SeaweedFS take the stack's volume settings** (one volume at a time per bucket, 24 at most). The dev container was recreated with them; its data volume is unchanged. | With SeaweedFS's default of 7 at a time, three buckets had taken all 16 slots, and the exports bucket's first write failed (`InternalError`). The stack already had the fix (spec 0020). |
+| Q-B12 | **An archive's key carries its builder's lease token** (`tenants/{t}/exports/{id}/{token}.zip`), and a builder seals only while its token is the row's. The download streams only a key under its own export's prefix. | A builder that stalled past its lease can't overwrite or seal over the one that took over; a row can't point the download anywhere else. |
+| Q-B13 | **The builder takes the institution from the platform mirror,** which the worker's own pass wrote from the registry; the queue carries the export's id only, and the row is read under that institution's RLS. | T35: a job can't name an institution. A job before its mirror is a no-op until the next pass. |
+| Q-B14 | **A build that died past its third attempt** (a crash, so no failure was recorded) is failed at its next claim, with its passphrase wiped. | Otherwise a crash on every try would claim it forever. |
+| Q-B15 | **Every export route needs a fresh step-up, the list included,** because the permission is flagged; the page asks "Confirm it's me" first (as Products does), and confirms again before a download, so the browser never lands on an error. | One permission, one rule; the list names who took exports and when. |
+| Q-B16 | **The snapshot is a reviewed long transaction** (5 minutes, read-only), listed in the writer-bound check. | It decrypts but can't write; the 10-second bound is for writers (spec 0020 D15). |
+| Q-B17 | **A file whose bytes don't match the SHA-256 recorded at upload is still exported,** flagged `matches: false` in the manifest; a file missing from storage is listed as missing. | The institution gets everything there is, and is told what can't be vouched for. |
+| Q-B18 | **The download is named `{slug}-export-{date}.zip`,** and its SHA-256 is on the page behind "Check the download". | Recognisable in a downloads folder; checkable without UniVarse. |
+| Q-B19 | **The worker and the tenant API share one platform role,** so "only the worker writes the mirror" holds by code, not by grant (as PR A's warnings). The console's role can only read it. | A separate role for one table would be a new credential on every process. |
+| Q-B20 | **The phone's thumb bar shows at most five destinations; past that, four and "More"** (the browser's popover: Escape and a tap outside close it). "More" carries the lime when the current page is inside it. | An IT Admin now has six; five already clipped "Settings" on a 375-pixel phone. |
+| Q-B21 | **The E2E journey clears the demo institution's recent exports as the tenant migrator,** so it runs on desktop and phone the same day; on the stack run it's skipped (the migrator isn't held), and criterion 9 is the owner's check there. | One a day would otherwise stop the second run. |
+| Q-B22 | **7-Zip opens the archive in CI** (installed if the runner lacks it), besides zip.js's own reader in every run. | The format is checked by a tool that isn't its writer. |

@@ -1,5 +1,5 @@
 export { createTenantShardClient, forTenant, TENANT_TX_TIMEOUT_MS, withTenantTx } from './tenant.js';
-export type { TenantShardClient, TenantTx } from './tenant.js';
+export type { TenantShardClient, TenantTx, TenantTxOptions } from './tenant.js';
 export { createPlatformClient } from './platform.js';
 export { seedTenantBase } from './tenant-base.js';
 export type { PlatformClient } from './platform.js';

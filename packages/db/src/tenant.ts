@@ -47,12 +47,18 @@ export type TenantTx = Parameters<Parameters<TenantShardClient['$transaction']>[
  */
 export const TENANT_TX_TIMEOUT_MS = 10_000;
 
+export interface TenantTxOptions {
+  readonly timeoutMs?: number;
+  /** Spec 0038 Q-B6: a read that must see one moment (the export's snapshot). Default: the database's (READ COMMITTED). */
+  readonly isolationLevel?: 'RepeatableRead';
+}
+
 /** Interactive transaction bound to a tenant — use for multi-statement use cases. */
 export async function withTenantTx<T>(
   shard: TenantShardClient,
   tenantId: string,
   fn: (tx: TenantTx) => Promise<T>,
-  options?: { timeoutMs?: number },
+  options?: TenantTxOptions,
 ): Promise<T> {
   assertTenantId(tenantId);
   return shard.$transaction(
@@ -60,6 +66,6 @@ export async function withTenantTx<T>(
       await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenantId}, true)`;
       return fn(tx);
     },
-    { timeout: options?.timeoutMs ?? TENANT_TX_TIMEOUT_MS },
+    { timeout: options?.timeoutMs ?? TENANT_TX_TIMEOUT_MS, ...(options?.isolationLevel ? { isolationLevel: options.isolationLevel } : {}) },
   );
 }

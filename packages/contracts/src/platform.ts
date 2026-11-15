@@ -219,6 +219,21 @@ const offboardingView = z.strictObject({
   warnings: z.array(z.strictObject({ round: z.number().int(), daysLeft: z.number().int(), itAdmins: z.number().int().nullable(), emailsQueued: z.number().int().nullable(), queuedAt: z.iso.datetime().nullable() })),
 });
 
+/** Spec 0038 Q8, Q-B7: one of an institution's exports as the platform knows it: state, dates and counts, never content. */
+const exportMirrorView = z.strictObject({
+  id: z.uuid(),
+  state: z.enum(['REQUESTED', 'BUILDING', 'READY', 'FAILED', 'EXPIRED']),
+  requestedAt: z.iso.datetime(),
+  readyAt: z.iso.datetime().nullable(),
+  expiresAt: z.iso.datetime().nullable(),
+  failedAt: z.iso.datetime().nullable(),
+  expiredAt: z.iso.datetime().nullable(),
+  sizeBytes: z.number().int().nullable(),
+  tables: z.number().int().nullable(),
+  rows: z.number().int().nullable(),
+  files: z.number().int().nullable(),
+});
+
 /** Spec 0037 Q6: the fixed list (packages/domain SUSPENSION_REASONS). Non-payment isn't a reason. */
 const suspensionReason = z.enum(['SECURITY_INCIDENT', 'REGULATOR_ORDER', 'CONTRACT_ENDED', 'INSTITUTION_ASKED', 'OTHER']);
 const suspensionView = z.strictObject({
@@ -401,6 +416,8 @@ export const PlatformOps = {
       suspensions: z.array(suspensionView),
       /** Spec 0038: its latest offboarding (open, archived or cancelled), or null. */
       offboarding: offboardingView.nullable(),
+      /** Spec 0038 Q15: its exports, newest first, at most 5 (mirrored by the worker). */
+      exports: z.array(exportMirrorView),
       /** Spec 0037 Q11: the notices it got, newest first, at most 10. */
       notices: z.array(z.strictObject({ id: z.uuid(), kind: noticeKind, title: z.string(), publishedAt: z.iso.datetime(), live: z.boolean(), withdrawnAt: z.iso.datetime().nullable() })),
     }),
@@ -574,6 +591,7 @@ export type PlatformInbox = z.infer<typeof PlatformOps.inbox.response>;
 export type PlatformInboxItem = PlatformInbox['items'][number];
 export type PlatformSuspension = z.infer<typeof suspensionView>;
 export type PlatformOffboarding = z.infer<typeof offboardingView>;
+export type PlatformTenantExportView = z.infer<typeof exportMirrorView>;
 export type PlatformOffboardingReason = z.infer<typeof offboardingReason>;
 export type PlatformNotice = z.infer<typeof noticeView>;
 export type PlatformIncident = z.infer<typeof incidentView>;
