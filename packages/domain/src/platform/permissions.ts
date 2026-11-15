@@ -22,6 +22,7 @@ export const PLATFORM_PERMISSIONS = [
   'platform.notice.publish',
   'platform.release.manage',
   'platform.incident.manage',
+  'platform.tenant.offboard',
 ] as const;
 export type PlatformPermission = (typeof PLATFORM_PERMISSIONS)[number];
 
@@ -48,6 +49,7 @@ export const PLATFORM_PERMISSION_CATALOG: Readonly<Record<PlatformPermission, { 
   'platform.notice.publish': { stepUp: true, description: 'Write, publish and withdraw notices to institutions (spec 0037 Q1, Q9).' },
   'platform.release.manage': { stepUp: true, description: "Set an institution's release ring (spec 0037 Q1, Q12)." },
   'platform.incident.manage': { stepUp: true, description: 'Open, update and resolve incidents, and record their follow-up (spec 0037 Q1, Q13).' },
+  'platform.tenant.offboard': { stepUp: true, description: "Start, cancel or extend an institution's offboarding, and ask for its purge (spec 0038 Q1)." },
 });
 
 /** The roles' grants, in code (A5): a change here is a reviewed change, never data. Only OWNER manages staff. */
@@ -71,6 +73,7 @@ export const PLATFORM_ROLE_PERMISSIONS: Readonly<Record<PlatformRole, readonly P
     'platform.notice.publish',
     'platform.release.manage',
     'platform.incident.manage',
+    'platform.tenant.offboard',
   ],
   SUPER_ADMIN: [
     'platform.self',
@@ -89,6 +92,7 @@ export const PLATFORM_ROLE_PERMISSIONS: Readonly<Record<PlatformRole, readonly P
     'platform.notice.publish',
     'platform.release.manage',
     'platform.incident.manage',
+    'platform.tenant.offboard',
   ],
   SUPPORT: ['platform.self', 'platform.tenant.read', 'platform.notice.publish', 'platform.incident.manage'],
   FINANCE: ['platform.self', 'platform.tenant.read'],

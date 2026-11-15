@@ -15,3 +15,4 @@ export * from './platform/approvals.js';
 export * from './platform/suspension.js';
 export * from './platform/notices.js';
 export * from './platform/incidents.js';
+export * from './platform/offboarding.js';

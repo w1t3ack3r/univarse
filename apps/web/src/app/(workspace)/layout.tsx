@@ -6,6 +6,7 @@ import { StepUpProvider } from '@/components/StepUp';
 import { buildNav, NAV } from '@/lib/nav';
 import { serverGet } from '@/lib/server-api';
 import { requireSession } from '@/lib/session';
+import { ClosingBanner } from '@/components/ClosingBanner';
 import { IncidentBanners } from '@/components/IncidentBanners';
 import { NoticeBanners } from '@/components/NoticeBanners';
 import { brandStyle, incidents, logoUrl, notices, tenantProfile } from '@/lib/tenant';
@@ -69,6 +70,7 @@ export default async function WorkspaceLayout({ children }: { children: ReactNod
             </div>
           </header>
           <main id="main" className="ws__main">
+            <ClosingBanner legalName={profile?.legalName ?? ''} closesAt={profile?.closesAt ?? null} />
             <IncidentBanners incidents={status} />
             <NoticeBanners notices={banners} dismissible />
             {children}

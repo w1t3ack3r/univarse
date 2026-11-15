@@ -3,7 +3,7 @@
  * Prereqs: `pnpm dev:infra` (Valkey, Vault), `pnpm db:migrate && pnpm db:seed`.
  *
  * Processes: the harness's API app (instance 1) and worker, plus extra API instances and a CLI-like context
- * created per test. Key tests use scratch tenants (OFFBOARDING); product tests toggle demo's `helpdesk`.
+ * created per test. Key tests use scratch tenants (ARCHIVED: nothing serves them; spec 0038 made OFFBOARDING served); product tests toggle demo's `helpdesk`.
  */
 import { spawnSync } from 'node:child_process';
 import { randomBytes, randomUUID } from 'node:crypto';
@@ -116,6 +116,7 @@ beforeAll(async () => {
     status: 'ACTIVE',
     primaryColor: null,
     logoSha256: null,
+    closesAt: null,
   };
   await h.app.get(InvalidationBus).ready();
   await h.workerCtx.get(InvalidationBus).ready();
@@ -324,7 +325,7 @@ async function scratchTenant(label: string): Promise<string> {
       shortName: `C-${label}`.toUpperCase(),
       type: 'UNIVERSITY',
       ownership: 'PRIVATE',
-      status: 'OFFBOARDING',
+      status: 'ARCHIVED',
       shardId,
     },
   });

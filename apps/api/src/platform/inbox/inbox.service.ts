@@ -7,6 +7,7 @@ import type { PlatformClient } from '@univarse/db';
 import {
   APPROVAL_KINDS,
   breachDeadline,
+  daysLeft,
   effectiveApprovalStatus,
   isApprovalKind,
   isPlatformRole,
@@ -27,6 +28,8 @@ export const DECIDED_FOR_MS = 7 * DAY_MS;
 export const SECURITY_WINDOW_MS = DAY_MS;
 /** Spec 0037 Q15: how soon maintenance must start to be in the inbox. */
 export const MAINTENANCE_SOON_MS = DAY_MS;
+/** Spec 0038 Q15: how soon an offboarding window must end to be in the inbox. */
+export const OFFBOARDING_SOON_MS = 7 * DAY_MS;
 
 @Injectable()
 export class PlatformInboxView {
@@ -41,6 +44,7 @@ export class PlatformInboxView {
       ...(can('platform.security.read') ? await this.securityAct(now) : []),
       ...(can('platform.incident.manage') ? await this.openIncidents() : []),
       ...(can('platform.notice.publish') ? await this.maintenanceSoon(now) : []),
+      ...(can('platform.tenant.offboard') ? await this.offboardingEnding(now) : []),
     ];
     return { items, count: items.length };
   }
@@ -144,6 +148,16 @@ export class PlatformInboxView {
     return rows
       .filter((r): r is typeof r & { startsAt: Date } => r.startsAt !== null)
       .map((r) => ({ type: 'maintenance_soon' as const, noticeId: r.id, title: r.title, startsAt: r.startsAt.toISOString(), institutions: r._count.deliveries }));
+  }
+
+  /** Spec 0038 Q15: institutions whose offboarding window ends within a week, soonest first. */
+  private async offboardingEnding(now: Date): Promise<PlatformInboxItem[]> {
+    const rows = await this.db.platformTenantOffboarding.findMany({
+      where: { cancelledAt: null, endsAt: { gt: now, lte: new Date(now.getTime() + OFFBOARDING_SOON_MS) }, tenant: { status: { in: ['OFFBOARDING', 'SUSPENDED'] } } },
+      orderBy: { endsAt: 'asc' },
+      select: { endsAt: true, tenant: { select: { id: true, slug: true, shortName: true } } },
+    });
+    return rows.map((r) => ({ type: 'offboarding_ending' as const, tenant: { id: r.tenant.id, slug: r.tenant.slug, name: r.tenant.shortName }, endsAt: r.endsAt.toISOString(), daysLeft: daysLeft(r.endsAt, now) }));
   }
 
   /** Spec 0031 Q12's "act" events in the last day, per event and institution: "S3 shows; S6 tells". */

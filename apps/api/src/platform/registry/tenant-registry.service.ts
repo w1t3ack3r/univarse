@@ -17,7 +17,7 @@ import { CONSOLE_DB } from '../platform-config.js';
 type ListQuery = z.infer<typeof PlatformOps.tenants.query>;
 type ListResponse = z.infer<typeof PlatformOps.tenants.response>;
 // The suspensions are added by the controller, from TenantSuspension.
-type Detail = Omit<z.infer<typeof PlatformOps.tenant.response>, 'suspensions' | 'notices'>;
+type Detail = Omit<z.infer<typeof PlatformOps.tenant.response>, 'suspensions' | 'notices' | 'offboarding'>;
 type ProfileBody = z.infer<typeof PlatformOps.tenantProfile.body>;
 type RegulatoryBody = z.infer<typeof PlatformOps.tenantRegulatory.body>;
 type ProductBody = z.infer<typeof PlatformOps.tenantProduct.body>;

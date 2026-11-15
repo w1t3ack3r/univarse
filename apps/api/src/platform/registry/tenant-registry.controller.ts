@@ -8,6 +8,7 @@ import { parse } from '../../shared/http/validate.js';
 import { CurrentPlatformActor, RequirePlatformPermission, requestMeta } from '../identity/access.js';
 import type { PlatformActor } from '../identity/types.js';
 import { PlatformNotices } from '../notices/notices.service.js';
+import { TenantOffboarding } from './offboarding.service.js';
 import { TenantSuspension } from './suspension.service.js';
 import { TenantRegistry } from './tenant-registry.service.js';
 
@@ -17,6 +18,7 @@ export class PlatformTenantsController {
     private readonly registry: TenantRegistry,
     private readonly suspension: TenantSuspension,
     private readonly notices: PlatformNotices,
+    private readonly offboarding: TenantOffboarding,
   ) {}
 
   @Get()
@@ -30,8 +32,8 @@ export class PlatformTenantsController {
   async detail(@Param('id', new ParseUUIDPipe()) id: string, @Res({ passthrough: true }) res: FastifyReply) {
     const t = await this.registry.detail(id);
     res.header('etag', `"v${String(t.version)}"`);
-    const [suspensions, notices] = await Promise.all([this.suspension.history(id), this.notices.forTenant(id)]);
-    return { ...t, suspensions, notices };
+    const [suspensions, notices, offboarding] = await Promise.all([this.suspension.history(id), this.notices.forTenant(id), this.offboarding.view(id)]);
+    return { ...t, suspensions, notices, offboarding };
   }
 
   @Put(':id')
@@ -111,5 +113,29 @@ export class PlatformTenantsController {
   @HttpCode(204)
   async ring(@CurrentPlatformActor() actor: PlatformActor, @Param('id', new ParseUUIDPipe()) id: string, @Body() body: unknown, @Req() req: FastifyRequest) {
     await this.registry.setRing(actor, id, parse(PlatformOps.ring.body, body).ring, requestMeta(req));
+  }
+
+  /** Spec 0038 Q2: opens the 60-day window, with a step-up (the permission's catalogue entry) and a reason. */
+  @Post(':id/offboarding')
+  @RequirePlatformPermission('platform.tenant.offboard')
+  @HttpCode(204)
+  async startOffboarding(@CurrentPlatformActor() actor: PlatformActor, @Param('id', new ParseUUIDPipe()) id: string, @Body() body: unknown, @Req() req: FastifyRequest) {
+    await this.offboarding.start(actor, id, parse(PlatformOps.startOffboarding.body, body), requestMeta(req));
+  }
+
+  /** Q2: back to the status it had, while the window is open. */
+  @Post(':id/offboarding/cancel')
+  @RequirePlatformPermission('platform.tenant.offboard')
+  @HttpCode(204)
+  async cancelOffboarding(@CurrentPlatformActor() actor: PlatformActor, @Param('id', new ParseUUIDPipe()) id: string, @Req() req: FastifyRequest) {
+    await this.offboarding.cancel(actor, id, requestMeta(req));
+  }
+
+  /** Q6: an archived institution's 14 more days, once. */
+  @Post(':id/offboarding/extend')
+  @RequirePlatformPermission('platform.tenant.offboard')
+  @HttpCode(204)
+  async extendOffboarding(@CurrentPlatformActor() actor: PlatformActor, @Param('id', new ParseUUIDPipe()) id: string, @Body() body: unknown, @Req() req: FastifyRequest) {
+    await this.offboarding.extend(actor, id, parse(PlatformOps.extendOffboarding.body, body).reason, requestMeta(req));
   }
 }

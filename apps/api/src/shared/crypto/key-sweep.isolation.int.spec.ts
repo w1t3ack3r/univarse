@@ -1,7 +1,7 @@
 /**
  * Spec 0014 (cross-tenant suite, layer 4): the key sweep processes only the tenant whose request it claimed.
  * Prereqs: `pnpm dev:infra` (Vault configured), `pnpm db:migrate && pnpm db:seed`.
- * Scratch tenants only (OFFBOARDING: no resolver, no outbox delivery); the seeded tenants' keys are never rotated.
+ * Scratch tenants only (ARCHIVED: nothing serves them, no outbox delivery; spec 0038 made OFFBOARDING served); the seeded tenants' keys are never rotated.
  *
  * The tenant-context spy wraps the worker's own ShardRegistry (tx and forTenant), passing calls through and
  * recording each call's tenant id. Every pass is checked on its own: whatever request a pass claims (other
@@ -91,7 +91,7 @@ async function scratch(label: string, outbox = 3): Promise<Scratch> {
       shortName: `ISO-${label}`.toUpperCase(),
       type: 'UNIVERSITY',
       ownership: 'PRIVATE',
-      status: 'OFFBOARDING',
+      status: 'ARCHIVED',
       shardId,
     },
   });

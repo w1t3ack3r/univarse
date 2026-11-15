@@ -67,6 +67,8 @@ function keyOf(i: PlatformInboxItem): string {
       return `${i.type}:${i.incidentId}`;
     case 'maintenance_soon':
       return `${i.type}:${i.noticeId}`;
+    case 'offboarding_ending':
+      return `${i.type}:${i.tenant.id}`;
   }
 }
 
@@ -98,6 +100,16 @@ function Item({ item }: { item: PlatformInboxItem }) {
         />
       );
     }
+    case 'offboarding_ending':
+      return (
+        <Row
+          href={`/institutions/${item.tenant.id}`}
+          icon={<Building />}
+          title={`${item.tenant.name ?? item.tenant.slug ?? 'An institution'} closes ${item.daysLeft === 1 ? 'today' : `in ${String(item.daysLeft)} days`}`}
+          meta={`Its offboarding window ends ${when(item.endsAt)}. Cancel or let it close from the institution’s page.`}
+          chip={<span className="pc-status pc-status--wait">Closing</span>}
+        />
+      );
     case 'maintenance_soon':
       return (
         <Row

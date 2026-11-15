@@ -117,6 +117,8 @@ const schema = z.object({
   ONBOARDING_CHECK_INTERVAL_MS: z.coerce.number().int().min(0).default(60_000),
   /** Spec 0037 Q7: how often the worker looks for suspensions whose sessions it hasn't ended yet. A resume waits for it. */
   SUSPENSION_INTERVAL_MS: z.coerce.number().int().min(0).default(2_000),
+  /** Spec 0038 Q4, Q5: how often the worker sends offboarding warnings, archives, and ends an archive's sessions. */
+  OFFBOARDING_INTERVAL_MS: z.coerce.number().int().min(0).default(300_000),
   /** Spec 0037 Q10: how often the worker queues notices' deliveries still to fan out to IT Admins. */
   NOTICE_RELAY_INTERVAL_MS: z.coerce.number().int().min(0).default(5_000),
   /** Spec 0037 Q11: how often the worker brings the notices' delivery log up to date. */

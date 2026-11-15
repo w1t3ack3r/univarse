@@ -102,7 +102,9 @@ export const PublicProfileResponse = z
   .object({
     /** Spec 0033 Q11: the institution's colour and the text colour that reads on it, or null; the logo's hash, or null. */
     branding: z.object({ primaryColor: z.string().nullable(), textColor: z.string().nullable(), logoSha256: z.string().nullable() }).strict(),
-    slug: z.string(), shortName: z.string(), legalName: z.string(), type: z.enum(['UNIVERSITY', 'POLYTECHNIC', 'COLLEGE_OF_EDUCATION']) })
+    slug: z.string(), shortName: z.string(), legalName: z.string(), type: z.enum(['UNIVERSITY', 'POLYTECHNIC', 'COLLEGE_OF_EDUCATION']),
+    /** Spec 0038 Q3: when an offboarding institution's account closes, or null. */
+    closesAt: z.string().meta({ format: 'date-time' }).nullable() })
   .strict();
 
 /**

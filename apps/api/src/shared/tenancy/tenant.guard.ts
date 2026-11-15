@@ -22,12 +22,12 @@ declare module 'fastify' {
   }
 }
 
-/** Status → whether tenant-facing requests are served. */
-const SERVABLE = new Set(['ACTIVE', 'ONBOARDING']);
+/** Status → whether tenant-facing requests are served. An offboarding institution works as before (spec 0038 Q3). */
+const SERVABLE = new Set(['ACTIVE', 'ONBOARDING', 'OFFBOARDING']);
 
 /**
  * Global guard: every route is tenant-scoped unless marked @NoTenant().
- * Unknown / unverified hosts → 404. Suspended → 423 (docs/05 §1).
+ * Unknown / unverified hosts → 404. Suspended → 423 (docs/05 §1). Archived → 410 (spec 0038 Q5).
  */
 @Injectable()
 export class TenantGuard implements CanActivate {
@@ -42,15 +42,19 @@ export class TenantGuard implements CanActivate {
     const req = ctx.switchToHttp().getRequest<FastifyRequest>();
     const tenant = await this.resolver.resolveHost(req.hostname);
     if (!tenant) throw new ProblemError(404, 'tenant.not_found', 'Institution not found');
-    if (tenant.status === 'SUSPENDED') {
-      // Spec 0037 Q8: its public name and colours (what its sign-in page showed anyone), so the page says so in them.
+    if (tenant.status === 'SUSPENDED' || tenant.status === 'ARCHIVED') {
+      // Spec 0037 Q8, 0038 Q5: its public name and colours (what its sign-in page showed anyone), so the page says so in them.
       const institution: SuspendedInstitution = {
         legalName: tenant.legalName,
         shortName: tenant.shortName,
         primaryColor: tenant.primaryColor,
         textColor: tenant.primaryColor ? textColorOn(tenant.primaryColor) : null,
       };
-      throw Object.assign(new ProblemError(423, 'tenant.suspended', 'Institution suspended', 'This institution is temporarily unavailable. Please contact your ICT unit.'), { institution });
+      const problem =
+        tenant.status === 'SUSPENDED'
+          ? new ProblemError(423, 'tenant.suspended', 'Institution suspended', 'This institution is temporarily unavailable. Please contact your ICT unit.')
+          : new ProblemError(410, 'tenant.archived', 'Institution closed', 'This institution’s UniVarse account has closed.');
+      throw Object.assign(problem, { institution });
     }
     if (!SERVABLE.has(tenant.status)) throw new ProblemError(404, 'tenant.not_found', 'Institution not found');
 

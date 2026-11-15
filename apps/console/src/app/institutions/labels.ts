@@ -19,6 +19,14 @@ export const SUSPENSION_REASON: Readonly<Record<'SECURITY_INCIDENT' | 'REGULATOR
   OTHER: 'Other',
 };
 
+/** Spec 0038 Q2: why an institution leaves, as staff read it. */
+export const OFFBOARDING_REASON: Readonly<Record<'CONTRACT_ENDED' | 'INSTITUTION_ASKED' | 'REGULATOR_ORDER' | 'OTHER', string>> = {
+  CONTRACT_ENDED: 'The contract ended',
+  INSTITUTION_ASKED: 'The institution asked',
+  REGULATOR_ORDER: 'A regulator’s order',
+  OTHER: 'Other',
+};
+
 export const TYPE: Readonly<Record<string, string>> = {
   UNIVERSITY: 'University',
   POLYTECHNIC: 'Polytechnic',

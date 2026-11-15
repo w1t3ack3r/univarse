@@ -2118,3 +2118,46 @@ html {
   white-space: pre-line;
   overflow-wrap: anywhere;
 }
+
+/*
+ * Spec 0038 Q2–Q5: an institution that is leaving. The section leads the page on the warning wash, with the days left
+ * as a large tabular number beside the heading that says them in words (never the number alone). Once closed, it
+ * uses the suspension's danger band and pause mark (`pc-suspended`).
+ */
+.pc-leaving {
+  display: grid;
+  gap: var(--uv-space-4);
+  padding: var(--uv-space-5);
+  border-radius: var(--uv-radius-card);
+  background: var(--uv-warning-bg);
+  border: 1px solid color-mix(in srgb, var(--uv-warning) 28%, transparent);
+}
+.pc-leaving__head {
+  display: flex;
+  gap: var(--uv-space-4);
+  align-items: center;
+}
+.pc-leaving__count {
+  flex: 0 0 auto;
+  display: grid;
+  justify-items: center;
+  min-width: 72px;
+  margin: 0;
+  padding: var(--uv-space-2) var(--uv-space-3);
+  border-radius: var(--uv-radius);
+  background: var(--uv-white);
+  color: var(--uv-warning);
+}
+.pc-leaving__days {
+  font-size: 2rem;
+  font-weight: 700;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.pc-leaving__unit {
+  font-size: var(--uv-text-xs);
+  font-weight: 600;
+}
+.pc-leaving .pc-facts--card {
+  box-shadow: none;
+}

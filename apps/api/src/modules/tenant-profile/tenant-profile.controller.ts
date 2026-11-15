@@ -29,6 +29,7 @@ export class TenantProfileController {
       legalName: tenant.legalName,
       type: tenant.type,
       branding: { primaryColor, textColor: primaryColor ? textColorOn(primaryColor) : null, logoSha256: tenant.logoSha256 },
+      closesAt: tenant.closesAt?.toISOString() ?? null,
     };
   }
 

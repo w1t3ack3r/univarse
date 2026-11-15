@@ -13,10 +13,13 @@ export const isSuspensionReason = (v: string): v is SuspensionReason => (SUSPENS
 export const SUSPENSION_NOTE_MIN = 3;
 export const SUSPENSION_NOTE_MAX = 200;
 
-/** The statuses a suspension can start from, and so the ones a resume can return to. */
-const SUSPENDABLE: ReadonlySet<TenantStatusName> = new Set(['ACTIVE', 'ONBOARDING']);
+/**
+ * The statuses a suspension can start from, and so the ones a resume can return to. An institution leaving can still be
+ * suspended (spec 0038 Q3): its resume returns it to offboarding, and the window's clock doesn't stop.
+ */
+const SUSPENDABLE: ReadonlySet<TenantStatusName> = new Set(['ACTIVE', 'ONBOARDING', 'OFFBOARDING']);
 export const suspendable = (status: TenantStatusName): boolean => SUSPENDABLE.has(status);
-export const resumableTo = (status: string): status is 'ACTIVE' | 'ONBOARDING' => SUSPENDABLE.has(status as TenantStatusName);
+export const resumableTo = (status: string): status is 'ACTIVE' | 'ONBOARDING' | 'OFFBOARDING' => SUSPENDABLE.has(status as TenantStatusName);
 
 export type SuspensionNoteProblem = 'note_required' | 'note_length';
 

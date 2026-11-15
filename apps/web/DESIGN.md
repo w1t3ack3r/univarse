@@ -351,6 +351,9 @@ A calm strip, not an alarm, at the top of the sign-in shell (maintenance) and of
 ### Service Status (spec 0037)
 Above any notice, an incident affecting the institution: the warning wash with an alert while open, the success wash with a check once resolved (it stays a day). The status leads in words ("Investigating", "Cause found, fixing", "Fixed, watching", "Resolved") with when it was last updated, then the title and the latest public update as plain text. Everyone sees it; it isn't dismissible.
 
+### Closing (spec 0038)
+While an institution is leaving, a strip on the warning wash with a clock leads every page, above any incident or notice: "UniVarse closes for {institution} at the end of {day}", then a line on what happens. Once archived, the sign-in shell shows the institution's name and a card headed "This account has closed": a single-bar mark (not the pause's two: it isn't coming back on its own), the fixed message and where to ask. No form.
+
 ### Step-up Dialog
 Native dialog, max 440px, 22px corners, raised shadow, 24px padding; backdrop deep at 55%. Rises 16px and fades in over 280ms.
 

@@ -194,6 +194,31 @@ const noticeView = z.strictObject({
   ),
 });
 
+/** Spec 0038 Q2–Q6: an institution's departure. */
+const offboardingReason = z.enum(['CONTRACT_ENDED', 'INSTITUTION_ASKED', 'REGULATOR_ORDER', 'OTHER']);
+const offboardingView = z.strictObject({
+  id: z.uuid(),
+  reason: offboardingReason,
+  /** Staff only. */
+  note: z.string().nullable(),
+  previousStatus: z.enum(['ACTIVE', 'ONBOARDING']),
+  startedAt: z.iso.datetime(),
+  startedBy: z.strictObject({ id: z.uuid(), name: z.string().nullable() }),
+  firstEndsAt: z.iso.datetime(),
+  endsAt: z.iso.datetime(),
+  /** Whole days left, counted in Nigerian time: 1 on the last day, 0 once it's over. */
+  daysLeft: z.number().int(),
+  cancelledAt: z.iso.datetime().nullable(),
+  cancelledBy: z.strictObject({ id: z.uuid(), name: z.string().nullable() }).nullable(),
+  archivedAt: z.iso.datetime().nullable(),
+  sessionsEndedAt: z.iso.datetime().nullable(),
+  extendedAt: z.iso.datetime().nullable(),
+  extendedBy: z.strictObject({ id: z.uuid(), name: z.string().nullable() }).nullable(),
+  extensionReason: z.string().nullable(),
+  /** Q4's warnings sent, oldest first: counts only. */
+  warnings: z.array(z.strictObject({ round: z.number().int(), daysLeft: z.number().int(), itAdmins: z.number().int().nullable(), emailsQueued: z.number().int().nullable(), queuedAt: z.iso.datetime().nullable() })),
+});
+
 /** Spec 0037 Q6: the fixed list (packages/domain SUSPENSION_REASONS). Non-payment isn't a reason. */
 const suspensionReason = z.enum(['SECURITY_INCIDENT', 'REGULATOR_ORDER', 'CONTRACT_ENDED', 'INSTITUTION_ASKED', 'OTHER']);
 const suspensionView = z.strictObject({
@@ -201,7 +226,7 @@ const suspensionView = z.strictObject({
   reason: suspensionReason,
   /** Staff only: never shown at the institution. */
   note: z.string().nullable(),
-  previousStatus: z.enum(['ACTIVE', 'ONBOARDING']),
+  previousStatus: z.enum(['ACTIVE', 'ONBOARDING', 'OFFBOARDING']),
   suspendedAt: z.iso.datetime(),
   suspendedBy: z.strictObject({ id: z.uuid(), name: z.string().nullable() }),
   resumedAt: z.iso.datetime().nullable(),
@@ -282,6 +307,7 @@ const incidentView = z.strictObject({
 });
 
 const inboxItem = z.discriminatedUnion('type', [
+  z.strictObject({ type: z.literal('offboarding_ending'), tenant: institution, endsAt: z.iso.datetime(), daysLeft: z.number().int() }),
   z.strictObject({ type: z.literal('incident_open'), incidentId: z.uuid(), title: z.string(), severity: incidentSeverity, status: incidentStatus, breachDeadline: z.iso.datetime().nullable(), lastUpdateAt: z.iso.datetime() }),
   z.strictObject({ type: z.literal('maintenance_soon'), noticeId: z.uuid(), title: z.string(), startsAt: z.iso.datetime(), institutions: z.number().int() }),
   z.strictObject({ type: z.literal('approval_waiting'), approvalId: z.uuid(), kind: approvalKind, requestedBy: person, expiresAt: z.iso.datetime() }),
@@ -373,6 +399,8 @@ export const PlatformOps = {
       template: z.string().nullable(),
       /** Spec 0037 Q6: its suspensions, newest first (the open one, if any, is first), at most 10. */
       suspensions: z.array(suspensionView),
+      /** Spec 0038: its latest offboarding (open, archived or cancelled), or null. */
+      offboarding: offboardingView.nullable(),
       /** Spec 0037 Q11: the notices it got, newest first, at most 10. */
       notices: z.array(z.strictObject({ id: z.uuid(), kind: noticeKind, title: z.string(), publishedAt: z.iso.datetime(), live: z.boolean(), withdrawnAt: z.iso.datetime().nullable() })),
     }),
@@ -381,6 +409,9 @@ export const PlatformOps = {
   suspend: { body: z.strictObject({ reason: suspensionReason, note: z.string().trim().max(200).optional() }) },
   /** Spec 0037 Q12. */
   ring: { body: z.strictObject({ ring: releaseRing }) },
+  /** Spec 0038 Q2, Q6. The note is required for OTHER (the domain's rule too). */
+  startOffboarding: { body: z.strictObject({ reason: offboardingReason, note: z.string().trim().max(200).optional() }) },
+  extendOffboarding: { body: z.strictObject({ reason: z.string().trim().min(3).max(200) }) },
   /** Spec 0037 Q9. */
   notices: {
     query: z.strictObject({ status: noticeStatus.optional() }),
@@ -542,6 +573,8 @@ export type PlatformApprovalRequest = z.infer<typeof PlatformOps.requestApproval
 export type PlatformInbox = z.infer<typeof PlatformOps.inbox.response>;
 export type PlatformInboxItem = PlatformInbox['items'][number];
 export type PlatformSuspension = z.infer<typeof suspensionView>;
+export type PlatformOffboarding = z.infer<typeof offboardingView>;
+export type PlatformOffboardingReason = z.infer<typeof offboardingReason>;
 export type PlatformNotice = z.infer<typeof noticeView>;
 export type PlatformIncident = z.infer<typeof incidentView>;
 export type PlatformIncidentSummary = z.infer<typeof incidentSummary>;
