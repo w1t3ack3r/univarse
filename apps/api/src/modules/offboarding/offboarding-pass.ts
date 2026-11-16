@@ -6,12 +6,12 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { writePlatformAudit } from '@univarse/crypto';
 import type { PlatformClient } from '@univarse/db';
-import { archiveDue, daysLeft, dueWarning, type TenantStatusName } from '@univarse/domain';
-import { AuditWriter } from '../../shared/audit/audit-writer.js';
+import { archiveDue, dueWarning, type TenantStatusName } from '@univarse/domain';
 import { PLATFORM_DB, ShardRegistry } from '../../shared/db/db.module.js';
 import { backgroundPass } from '../../shared/observability/background.js';
 import { Outbox } from '../../shared/outbox/outbox.js';
 import { IT_ADMIN_PERMISSION } from '../notices/notice-board.service.js';
+import { OffboardingArchive } from './offboarding-archive.js';
 
 const day = new Intl.DateTimeFormat('en-NG', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Africa/Lagos' });
 
@@ -45,7 +45,7 @@ export class OffboardingPass {
     @Inject(PLATFORM_DB) private readonly platform: PlatformClient,
     private readonly shards: ShardRegistry,
     private readonly outbox: Outbox,
-    private readonly audit: AuditWriter,
+    private readonly archiver: OffboardingArchive,
   ) {}
 
   /** One pass over every open offboarding. One institution's failure doesn't hold the others. */
@@ -87,10 +87,10 @@ export class OffboardingPass {
         if (w) await this.send(o, { id: w.id, round, daysLeft: due }, now);
       }
     }
-    if (archiveDue(status, o.endsAt, now)) await this.archive(o, now);
+    if (archiveDue(status, o.endsAt, now)) await this.archiver.archive(o, now);
     const archivedAt = status === 'ARCHIVED' ? o.archivedAt : (await this.platform.platformTenantOffboarding.findUniqueOrThrow({ where: { id: o.id }, select: { archivedAt: true } })).archivedAt;
     const current = (await this.platform.tenant.findUniqueOrThrow({ where: { id: o.tenantId }, select: { status: true } })).status;
-    if (current === 'ARCHIVED' && archivedAt && (!o.sessionsEndedAt || o.sessionsEndedAt < archivedAt)) await this.endSessions(o, now);
+    if (current === 'ARCHIVED' && archivedAt && (!o.sessionsEndedAt || o.sessionsEndedAt < archivedAt)) await this.archiver.endSessions(o, now);
   }
 
   /** Q4: one warning's emails, one per IT Admin with an address, named by the warning so a retry adds none. */
@@ -114,30 +114,6 @@ export class OffboardingPass {
     await this.platform.$transaction(async (tx) => {
       const r = await tx.platformOffboardingWarning.updateMany({ where: { id: w.id, queuedAt: null }, data: { queuedAt: now, itAdmins: counts.itAdmins, emailsQueued: counts.queued } });
       if (r.count === 1) await writePlatformAudit(tx, { actorId: null, action: 'platform.tenant.offboarding_warning_sent', tenantId: o.tenantId, metadata: { offboardingId: o.id, round: w.round, daysLeft: w.daysLeft, itAdmins: counts.itAdmins } });
-    });
-  }
-
-  /** Q5: OFFBOARDING → ARCHIVED, once the last day is over. */
-  private async archive(o: { id: string; tenantId: string; endsAt: Date }, now: Date): Promise<void> {
-    await this.platform.$transaction(async (tx) => {
-      const n = await tx.tenant.updateMany({ where: { id: o.tenantId, status: 'OFFBOARDING' }, data: { status: 'ARCHIVED' } });
-      if (n.count !== 1) return;
-      await tx.platformTenantOffboarding.update({ where: { id: o.id }, data: { archivedAt: now }, select: { id: true } });
-      await writePlatformAudit(tx, { actorId: null, action: 'platform.tenant.archived', tenantId: o.tenantId, metadata: { offboardingId: o.id, endedAt: o.endsAt.toISOString(), daysLeft: daysLeft(o.endsAt, now) } });
-    });
-  }
-
-  /** Q5: every session and pending challenge at an archived institution ends, audited on both sides. */
-  private async endSessions(o: { id: string; tenantId: string; tenant: { shardId: string } }, now: Date): Promise<void> {
-    const ended = await this.shards.tx(o.tenant.shardId, o.tenantId, async (tx) => {
-      const { count } = await tx.session.updateMany({ where: { revokedAt: null }, data: { revokedAt: now, revokeReason: 'tenant_archived' } });
-      await tx.mfaChallenge.updateMany({ where: { usedAt: null, revokedAt: null }, data: { revokedAt: now } });
-      await this.audit.write(tx, o.tenantId, { actorType: 'SYSTEM', actorId: null, action: 'auth.sessions.ended_by_archive', entityType: 'tenant', entityId: o.tenantId, after: { offboardingId: o.id, sessionsEnded: count } });
-      return count;
-    });
-    await this.platform.$transaction(async (tx) => {
-      await tx.platformTenantOffboarding.update({ where: { id: o.id }, data: { sessionsEndedAt: now }, select: { id: true } });
-      await writePlatformAudit(tx, { actorId: null, action: 'platform.tenant.archive_sessions_ended', tenantId: o.tenantId, metadata: { offboardingId: o.id, sessionsEnded: ended } });
     });
   }
 

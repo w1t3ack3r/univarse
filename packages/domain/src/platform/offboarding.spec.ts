@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { archiveDue, cancellable, daysLeft, dueWarning, extendable, offboardable, offboardingNoteProblem, windowEnd } from './offboarding.js';
+import { archiveDue, cancellable, daysLeft, dueWarning, extendable, offboardable, offboardingNoteProblem, testClockArchiveProblem, windowEnd } from './offboarding.js';
 import { PLATFORM_PERMISSION_CATALOG, PLATFORM_ROLE_PERMISSIONS } from './permissions.js';
 import { resumableTo, suspendable } from './suspension.js';
 import type { TenantStatusName } from './tenant-registry.js';
@@ -71,5 +71,26 @@ describe('offboarding (spec 0038 Q2–Q6)', () => {
   it('is OWNER and SUPER_ADMIN, with a step-up (Q1)', () => {
     expect(PLATFORM_PERMISSION_CATALOG['platform.tenant.offboard'].stepUp).toBe(true);
     expect(Object.entries(PLATFORM_ROLE_PERMISSIONS).filter(([, ps]) => ps.includes('platform.tenant.offboard')).map(([r]) => r)).toEqual(['OWNER', 'SUPER_ADMIN']);
+  });
+});
+
+describe("the stack's test clock (spec 0038 Q-D3)", () => {
+  it('archives only an institution leaving that never went live', () => {
+    const allowed = ALL.flatMap((status) => ALL.map((previousStatus) => ({ status, previousStatus }))).filter((i) => testClockArchiveProblem(i) === null);
+    expect(allowed).toEqual([{ status: 'OFFBOARDING', previousStatus: 'ONBOARDING' }]);
+  });
+
+  it('refuses one that went live, whatever its status now', () => {
+    for (const status of ALL) expect(testClockArchiveProblem({ status, previousStatus: 'ACTIVE' })).toBe('went_live');
+  });
+
+  it('refuses one with no open offboarding, and one suspended during it', () => {
+    expect(testClockArchiveProblem({ status: 'ONBOARDING', previousStatus: null })).toBe('not_offboarding');
+    expect(testClockArchiveProblem({ status: 'OFFBOARDING', previousStatus: null })).toBe('not_offboarding');
+    expect(testClockArchiveProblem({ status: 'SUSPENDED', previousStatus: 'ONBOARDING' })).toBe('not_offboarding');
+  });
+
+  it('reports an archived one as already archived', () => {
+    expect(testClockArchiveProblem({ status: 'ARCHIVED', previousStatus: 'ONBOARDING' })).toBe('already_archived');
   });
 });

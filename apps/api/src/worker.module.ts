@@ -27,6 +27,7 @@ import { provisioningKeyFrom } from './shared/crypto/provisioning-key.js';
 import { OnboardingCheck } from './modules/provisioning/onboarding-check.js';
 import { SuspensionSessionEnding } from './modules/suspension/session-ending.js';
 import { NoticeFanOut } from './modules/notices/notice-fan-out.js';
+import { OffboardingArchive } from './modules/offboarding/offboarding-archive.js';
 import { OffboardingPass } from './modules/offboarding/offboarding-pass.js';
 import { ExportBuilder } from './modules/exports/export-builder.js';
 import { ExportMirror } from './modules/exports/export-mirror.js';
@@ -121,6 +122,7 @@ export class WorkerModule {
         Outbox,
         NoticeFanOut,
         // Spec 0038 Q4, Q5: offboarding's warnings, the archive and its session ending.
+        OffboardingArchive,
         OffboardingPass,
         // Spec 0038 Q7, Q8: the exports: mirrored, queued, built (one at a time) and expired.
         ExportMirror,

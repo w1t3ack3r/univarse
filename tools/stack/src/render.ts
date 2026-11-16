@@ -147,6 +147,14 @@ export function renderEnvFiles(s: StackSecrets, v: VaultTokens): Readonly<Record
       S3_ACCESS_KEY: s.s3AccessKey,
       S3_SECRET_KEY: s.s3SecretKey,
     },
+    // Spec 0038 Q-D1: the test clock's job: the app's two database URLs, through PgBouncer, as the worker connects. No
+    // Valkey, Vault, storage or mail: it archives one institution and ends its sessions, and sends nothing.
+    'clock.env': {
+      NODE_ENV: 'production',
+      NODE_EXTRA_CA_CERTS: '/ca/ca.crt',
+      PLATFORM_DATABASE_URL: common.PLATFORM_DATABASE_URL ?? '',
+      TENANT_POOL_01_DATABASE_URL: common.TENANT_POOL_01_DATABASE_URL ?? '',
+    },
     'migrate.env': {
       NODE_ENV: 'production',
       NODE_EXTRA_CA_CERTS: '/ca/ca.crt',

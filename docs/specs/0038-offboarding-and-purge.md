@@ -1,6 +1,6 @@
 # Spec 0038: Phase 1's S7, offboarding, the export and purge
 
-**Status:** **Approved by the owner on 2026-11-14, all as written:** Q1 to Q15. ADR-037 (the AES ZIP's dependency) is written with PR B. **PR A's decisions Q-A1 to Q-A9 and PR B's Q-B1 to Q-B22 approved by the owner on 2026-11-15.**
+**Status:** **Approved by the owner on 2026-11-14, all as written:** Q1 to Q15. ADR-037 (the AES ZIP's dependency) is written with PR B. **PR A's decisions Q-A1 to Q-A9, PR B's Q-B1 to Q-B22 and PR C's Q-C1 to Q-C17 approved by the owner on 2026-11-15. PR D (the test clock, Q-D1 to Q-D6) approved on 2026-11-16.**
 **Phase:** 1, slice **S7** of [spec 0025](0025-phase-1-control-plane.md) (A7, A12, E10).
 **Builds on:**
 
@@ -61,7 +61,7 @@ An institution leaves: its contract ends, or it asks to go. The platform must th
 6. **After a purge, a restore of a set taken before it leaves the institution `key_destroyed`** (spec 0025, the drill's check, reused). Its rows and files are gone from the live stack, its slug can't be reused, and the certificate states what was deleted and when the last backup expires.
 7. A purge stopped at any step resumes from that step.
 8. The new console screens, the export page, the banner and the closed page pass axe at WCAG 2.2 AA on desktop and phone.
-9. Released and deployed; **on the stack, the owner offboards a test institution, downloads and opens its export, takes it through archive (the day moved by a test clock), and purges it with a second person, then checks the certificate and a restore's `key_destroyed`.**
+9. Released and deployed; **on the stack, the owner offboards a test institution, downloads and opens its export, takes it through archive (the day moved by the test clock, `pnpm stack:clock`, PR D), and purges it with a second person, then checks the certificate and a restore's `key_destroyed`.**
 10. Mutation checks on the guards: the statuses each step allows, the warning days, the export's exclusions and its owner check, the two-person check and the solo check, the purge's step order, and the drill refusal.
 
 ## The PRs
@@ -71,6 +71,7 @@ An institution leaves: its contract ends, or it asks to go. The platform must th
 | A | Offboarding: start, cancel, the warnings, the banner, archive on day 60, the closed page, the extension | M |
 | B | The export: the request, the worker's archive, the encryption (ADR-037), the download | M–L |
 | C | Purge: the approval kind, the authorisation, `pnpm stack:purge` and its steps, the certificate, the drill check reused | L |
+| D | The test clock for criterion 9: `pnpm stack:clock archive`, added on 2026-11-16 when criterion 9 found nothing could move the day on the stack | S |
 
 About **two weeks** at S6's pace.
 
@@ -291,3 +292,45 @@ Written before the code, as the self-review asks; what changed while building is
 | Q-C15 | **A purged institution's page leads with its "Purged" section,** as a leaving one leads with its offboarding. | Found in the visual check: the certificate sat below the products. |
 | Q-C16 | **The integration test marks the institution's data keys destroyed directly** for the keys step; the protocol itself is tested with its ledger in `tools/stack`, and on the stack by criterion 9. | The protocol runs on the host with the ledger outside the stack; the job only checks that every key is destroyed before recording it. |
 | Q-C17 | **The release adds the `purge` compose job and `purge.env`;** the stack's deploy renders the file with the others. | Criterion 9 runs on the stack after the release and deploy. |
+
+## PR D: the test clock (approved 2026-11-16)
+
+Criterion 9 says the day is "moved by a test clock", but S7 built none. The worker archives on the real date, so a window started on the stack ends 61 days later, and the database rightly refuses to backdate an offboarding. Moving the Docker VM's clock would break Vault's tokens, TLS and the backups. The owner chose a guarded command (option A, over a superuser SQL edit or waiting until 2027-01-15).
+
+| # | Decision | Why |
+| --- | --- | --- |
+| Q-D1 | **`pnpm stack:clock archive <slug> --confirm <slug>`**, the owner's command on the host, as `stack:purge`. It runs a one-shot `clock` job from the deployed API image as the worker's own roles, with no new write. | The same code and identity as the archive on day 60, so the check proves the real path. |
+| Q-D2 | **It does only what day 60 does, for that one institution:** OFFBOARDING → ARCHIVED, then every session and pending challenge there ends. No warning is sent, no other clock moves, and no other institution's offboarding, export or session is touched. The real time is recorded as the archive's time, never a fake date. | A test clock that shifted everything, or left false dates in the records, would be worse than none. |
+| Q-D3 | **Refused (exit 3) unless the institution is OFFBOARDING, its open offboarding started from ONBOARDING (it never went live), and `--confirm` repeats the slug.** Unknown, cancelled, suspended and once-live institutions are refused. Already archived: it says so, finishes any session ending left, and exits 0. | No institution that went live can be closed early, by anyone. A typed confirmation catches a slip of the slug. |
+| Q-D4 | **Audited as what it was:** the usual `platform.tenant.archived`, with `testClock: true` and the days that were left, by a host command (no actor, as a solo purge); the institution's own `auth.sessions.ended_by_archive` as usual. No console change. | The record says plainly that the window was cut short. |
+| Q-D5 | **Tests:** the rule as a pure function in the domain; integration for each refusal, the archive and its sessions, another institution untouched, no warning, running it twice; the host's arguments, confirmation and exit codes; the compose job pinned; mutation checks on the guards. | As every S7 PR. |
+| Q-D6 | **Docs:** this section and criterion 9's wording; 10 (the stack's commands), 08 (T36), 05, 12 and 18. | The same change carries its docs. |
+
+
+## PR D: what was built
+
+**Built:**
+- **The rule** (`packages/domain/src/platform/offboarding.ts`, `testClockArchiveProblem`): only OFFBOARDING whose open offboarding started from ONBOARDING; `went_live`, `not_offboarding` or `already_archived` otherwise.
+- **The archive in one place** (`apps/api/src/modules/offboarding/offboarding-archive.ts`): the archive and its session ending moved out of `OffboardingPass` into `OffboardingArchive`, which the pass calls on day 60 and the test clock calls now. `byTestClock(slug)` checks the rule, archives with `testClock: true` and the days that were left, ends the sessions, and on an archived institution only finishes a session ending left.
+- **The job** (`apps/api/src/cli/test-clock.ts`): `test-clock archive <slug> --confirm <slug>`, exit 0 done, 3 refused, 2 usage, 1 failed; it prints ids, codes and counts only.
+- **The migration** `20261121120000_test_clock`: the worker's platform role reads `previous_status` (one column, read only).
+- **The stack:** the `clock` compose job (the API image, the app network, `clock.env`), `clock.env` rendered with the app's two database URLs only, and `pnpm stack:clock archive <slug> --confirm <slug>` on the host (`tools/stack/src/clock.ts`), which says in plain words what it did or why it refused.
+
+**Evidence:**
+- **Domain:** 156 tests (4 new): only OFFBOARDING from ONBOARDING passes, across every status pair; a once-live institution refused whatever its status; no open offboarding, suspended; already archived.
+- **Integration** (`offboarding.int.spec.ts`, 12, 3 new): an institution archived now with the real time (before its window's end), its sessions ended, the audit marked `testClock` by no actor, no warning sent, a second leaving institution untouched, and a second run changing nothing; each refusal (went live, not leaving, suspended, cancelled, unknown) leaving the status as it was; the job's slug twice and its exit codes, as the app's roles. With `purge.int.spec.ts` and `platform.int.spec.ts`: 29 passed. The API's unit suite (455, the static checks included) passes.
+- **Host:** `clock.spec.ts` (4): the arguments, the confirmation, the slug passed twice, the plain-words outcomes, a job that exits 0 without saying it archived counted as a failure. `render.spec.ts` pins `clock.env`'s four keys (the worker's own URLs, through PgBouncer); `compose.spec.ts` pins the job's command, profile, image, network and env file. The `tools/stack` suite passes (627, one skipped as before).
+- **Mutations: 16 tried, 15 caught:**
+  - in the domain: a once-live institution, a suspended one, no open offboarding;
+  - in the archive: a refusal ignored, the audit not marked, the sessions left, a fake date, the job's confirmation ignored, a refusal exiting 0;
+  - on the host: a mismatched confirmation, a refusal reported as success, exit 0 without success, the slug passed once, `clock.env` gaining Valkey, the job on the database network.
+  - One was equivalent: archiving again on an archived institution changes nothing, because the archive's own update requires OFFBOARDING. Its replacement, with both guards removed, is caught.
+
+**Decisions made while building (for the owner's approval):**
+
+| # | Decision | Why |
+| --- | --- | --- |
+| Q-D7 | **The worker's platform role reads one more column, `previous_status`** (a read-only grant in its own migration). Q-D1 said no new grants; this adds no write. | The rule needs to know where the offboarding started, and the role could read every other column of the record but that one. |
+| Q-D8 | **The job's settings are a new `clock.env` with the app's two database URLs only**, not `worker.env`. | The job needs no Valkey, Vault, storage, mail or relay role, so it gets none of their secrets: less than Q-D1 said. |
+| Q-D9 | **The archive and its session ending moved into `OffboardingArchive`,** which both the worker's pass and the job use. | The job builds only that class, not the worker's whole module, and day 60 and the test clock stay one code path. |
+| Q-D10 | **The host command exits 1 on a refusal,** as `stack:purge` does; the job's own codes stay 0, 3, 2 and 1. | One rule for the owner's host commands: 0 done, anything else not. |

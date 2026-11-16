@@ -206,6 +206,14 @@ describe('[0034 Q7] the provisioning key, split between two processes', () => {
     for (const name of ['api.env', 'keys.env', 'migrate.env']) expect([name, Object.keys(f(name)).filter((k) => k.startsWith('PROVISIONING_'))]).toEqual([name, []]);
   });
 
+  it('[spec 0038 Q-D1] the clock job holds the app’s two database URLs through PgBouncer, and nothing else', () => {
+    expect(Object.keys(f('clock.env')).sort()).toEqual(['NODE_ENV', 'NODE_EXTRA_CA_CERTS', 'PLATFORM_DATABASE_URL', 'TENANT_POOL_01_DATABASE_URL']);
+    expect(f('clock.env').PLATFORM_DATABASE_URL).toBe(f('worker.env').PLATFORM_DATABASE_URL);
+    expect(f('clock.env').TENANT_POOL_01_DATABASE_URL).toBe(f('worker.env').TENANT_POOL_01_DATABASE_URL);
+    expect(f('clock.env').PLATFORM_DATABASE_URL).toContain('univarse_app_platform');
+    expect(f('clock.env').PLATFORM_DATABASE_URL).toContain('@pgbouncer:6432/');
+  });
+
   it('[spec 0038 Q-C2] the purge job holds the migrator and the app storage identity, and nothing else', () => {
     expect(Object.keys(f('purge.env')).sort()).toEqual(['NODE_ENV', 'NODE_EXTRA_CA_CERTS', 'PLATFORM_MIGRATOR_URL', 'S3_ACCESS_KEY', 'S3_ENDPOINT', 'S3_SECRET_KEY', 'TENANT_POOL_01_MIGRATOR_URL']);
     const text = envText(f('purge.env'));
