@@ -49,6 +49,7 @@
     "stack:isolation": "pnpm --filter @univarse/stack run isolation",
     "stack:keys": "pnpm --filter @univarse/stack run keys",
     "stack:purge": "pnpm --filter @univarse/stack run purge",
+    "stack:clock": "pnpm --filter @univarse/stack run clock",
     "stack:bucket-check": "pnpm --filter @univarse/stack run bucket-check",
     "stack:backup": "pnpm --filter @univarse/stack run backup",
     "stack:restore-rehearsal": "pnpm --filter @univarse/stack run restore-rehearsal",

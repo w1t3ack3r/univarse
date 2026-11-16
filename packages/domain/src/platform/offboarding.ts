@@ -73,3 +73,18 @@ export function offboardingNoteProblem(reason: OffboardingReason, note: string |
   if (n === '') return reason === 'OTHER' ? 'note_required' : null;
   return n.length < 3 || n.length > OFFBOARDING_NOTE_MAX ? 'note_length' : null;
 }
+
+export type TestClockProblem = 'not_offboarding' | 'went_live' | 'already_archived';
+
+/**
+ * Spec 0038 Q-D3: whether the stack's test clock may archive an institution now, as if its window had ended. Only an
+ * institution that is leaving and never went live: its open offboarding started from ONBOARDING. `previousStatus` is
+ * that offboarding's, or null when none is open. An archived one is `already_archived` (the caller finishes its
+ * session ending and reports success); one that went live is refused whatever its status now.
+ */
+export function testClockArchiveProblem(i: { status: TenantStatusName; previousStatus: TenantStatusName | null }): TestClockProblem | null {
+  if (i.previousStatus === null) return 'not_offboarding';
+  if (i.previousStatus !== 'ONBOARDING') return 'went_live';
+  if (i.status === 'ARCHIVED') return 'already_archived';
+  return i.status === 'OFFBOARDING' ? null : 'not_offboarding';
+}

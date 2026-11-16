@@ -27,6 +27,8 @@ import { WorkerModule } from '../../worker.module.js';
 import { hashPassword } from '../identity/password.js';
 import { base32Decode, hotp, timeStep } from '../identity/totp.js';
 import { TenantOffboarding } from '../../platform/registry/offboarding.service.js';
+import { main as testClock } from '../../cli/test-clock.js';
+import { OffboardingArchive } from './offboarding-archive.js';
 import { OffboardingPass } from './offboarding-pass.js';
 
 const rootEnv = new URL('../../../../../.env', import.meta.url);
@@ -42,6 +44,7 @@ let consoleApp: NestFastifyApplication;
 let tenantApp: NestFastifyApplication;
 let worker: INestApplicationContext;
 let pass: OffboardingPass;
+let clock: OffboardingArchive;
 let consoleDb: PlatformClient;
 let migrator: PlatformClient;
 let shard: TenantShardClient;
@@ -107,7 +110,7 @@ async function as(role: Role, steppedUp = true): Promise<string> {
 }
 
 /** An institution with a data key, an IT Admin with an address, and a student who signs in with a password. */
-async function institution(status: 'ACTIVE' | 'REQUESTED' | 'SUSPENDED' = 'ACTIVE') {
+async function institution(status: 'ACTIVE' | 'ONBOARDING' | 'REQUESTED' | 'SUSPENDED' = 'ACTIVE') {
   const slug = `${PREFIX}${randomBytes(4).toString('hex')}`;
   const host = `${slug}.univarse.localhost`;
   const t = await migrator.tenant.create({ data: { slug, legalName: `Leaving Polytechnic ${slug}`, shortName: 'LP', type: 'POLYTECHNIC', ownership: 'STATE', status, shardId: poolId }, select: { id: true } });
@@ -123,7 +126,7 @@ async function institution(status: 'ACTIVE' | 'REQUESTED' | 'SUSPENDED' = 'ACTIV
   };
   await person(await role('INSTITUTION_ADMIN', ['settings.product.manage']), `it-${slug}@test.local`);
   const student = await person(await role('STUDENT', []), `student-${slug}@test.local`);
-  return { id: t.id, host, student };
+  return { id: t.id, slug, host, student };
 }
 
 const offboarding = (tenantId: string) => migrator.platformTenantOffboarding.findFirstOrThrow({ where: { tenantId }, orderBy: { startedAt: 'desc' } });
@@ -148,6 +151,7 @@ beforeAll(async () => {
     { logger: false },
   );
   pass = worker.get(OffboardingPass);
+  clock = worker.get(OffboardingArchive);
 });
 
 afterAll(async () => {
@@ -337,5 +341,92 @@ describe('[Q2, Q15] the database, and the inbox', () => {
     expect((await inbox.read(actor('OWNER'), soon)).items.some((i) => i.type === 'offboarding_ending' && i.tenant.id === t.id)).toBe(true);
     expect((await inbox.read(actor('SUPPORT'), soon)).items.some((i) => i.type === 'offboarding_ending')).toBe(false);
     expect((await inbox.read(actor('OWNER'), new Date())).items.some((i) => i.type === 'offboarding_ending' && i.tenant.id === t.id)).toBe(false);
+  });
+});
+
+describe("[Q-D1–Q-D4] the stack's test clock", () => {
+  const login = async (t: { host: string; student: string }) => {
+    fresh();
+    expect((await inject(tenantApp, t.host, 'POST', '/api/v1/auth/login', { body: { username: t.student, password: PASSWORD } })).status).toBe(200);
+  };
+  const live = (tenantId: string) => forTenant(shard, tenantId).session.count({ where: { revokedAt: null } });
+  const archived = (tenantId: string) =>
+    migrator.platformAuditEvent.findMany({ where: { tenantId, action: 'platform.tenant.archived' }, select: { actorId: true, metadata: true } });
+
+  it('archives an institution leaving that never went live, now, and nothing else', async () => {
+    const owner = await as('OWNER');
+    const a = await institution('ONBOARDING');
+    const b = await institution('ONBOARDING');
+    await start(owner, a.id);
+    await start(owner, b.id);
+    await pass.pass(new Date());
+    await login(a);
+    await login(b);
+    const warningsBefore = await migrator.platformOffboardingWarning.count({ where: { offboarding: { tenantId: { in: [a.id, b.id] } } } });
+
+    const before = Date.now();
+    const r = await clock.byTestClock(a.slug);
+    expect(r).toMatchObject({ ok: true, tenantId: a.id, archived: 'now', sessionsEnded: true });
+    expect(r.ok && r.daysLeft).toBeGreaterThanOrEqual(60);
+    expect(await statusOf(a.id)).toBe('ARCHIVED');
+    const o = await offboarding(a.id);
+    // The real time, never a fake date; the window's end is left as it was.
+    expect(o.archivedAt!.getTime()).toBeGreaterThanOrEqual(before - 1000);
+    expect(o.archivedAt!.getTime()).toBeLessThan(o.endsAt.getTime());
+    expect(o.sessionsEndedAt).not.toBeNull();
+    expect(await live(a.id)).toBe(0);
+    const audit = await archived(a.id);
+    expect(audit).toHaveLength(1);
+    expect(audit[0]?.actorId).toBeNull();
+    expect(audit[0]?.metadata).toMatchObject({ testClock: true, daysLeft: r.ok ? r.daysLeft : -1 });
+    // No warning sent, and the other institution untouched.
+    expect(await migrator.platformOffboardingWarning.count({ where: { offboarding: { tenantId: { in: [a.id, b.id] } } } })).toBe(warningsBefore);
+    expect(await statusOf(b.id)).toBe('OFFBOARDING');
+    expect((await offboarding(b.id)).archivedAt).toBeNull();
+    expect(await live(b.id)).toBe(1);
+    expect(await archived(b.id)).toHaveLength(0);
+
+    // Again: already archived, nothing new.
+    expect(await clock.byTestClock(a.slug)).toMatchObject({ ok: true, archived: 'already', sessionsEnded: false });
+    expect(await archived(a.id)).toHaveLength(1);
+  });
+
+  it('refuses one that went live, one not leaving, one suspended, one cancelled, and an unknown slug', async () => {
+    const owner = await as('OWNER');
+    const wentLive = await institution('ACTIVE');
+    await start(owner, wentLive.id);
+    expect(await clock.byTestClock(wentLive.slug)).toEqual({ ok: false, refused: 'went_live' });
+    expect(await statusOf(wentLive.id)).toBe('OFFBOARDING');
+
+    const staying = await institution('ONBOARDING');
+    expect(await clock.byTestClock(staying.slug)).toEqual({ ok: false, refused: 'not_offboarding' });
+
+    const suspended = await institution('ONBOARDING');
+    await start(owner, suspended.id);
+    expect((await cons('POST', `/tenants/${suspended.id}/suspend`, { cookie: owner, body: { reason: 'SECURITY_INCIDENT' } })).status).toBe(204);
+    expect(await clock.byTestClock(suspended.slug)).toEqual({ ok: false, refused: 'not_offboarding' });
+    expect(await statusOf(suspended.id)).toBe('SUSPENDED');
+
+    const cancelled = await institution('ONBOARDING');
+    await start(owner, cancelled.id);
+    expect((await cons('POST', `/tenants/${cancelled.id}/offboarding/cancel`, { cookie: owner })).status).toBe(204);
+    expect(await clock.byTestClock(cancelled.slug)).toEqual({ ok: false, refused: 'not_offboarding' });
+    expect(await statusOf(cancelled.id)).toBe('ONBOARDING');
+
+    expect(await clock.byTestClock(`${PREFIX}nobody`)).toEqual({ ok: false, refused: 'no_tenant' });
+    expect(await archived(wentLive.id)).toHaveLength(0);
+  });
+
+  it('the job: the slug twice, exit 3 when refused, 0 when done, as the app roles', async () => {
+    const owner = await as('OWNER');
+    const t = await institution('ONBOARDING');
+    await start(owner, t.id);
+    expect(await testClock(['archive', t.slug])).toBe(2);
+    expect(await testClock(['archive', t.slug, '--confirm', `${t.slug}x`])).toBe(2);
+    expect(await statusOf(t.id)).toBe('OFFBOARDING');
+    expect(await testClock(['archive', `${PREFIX}nobody`, '--confirm', `${PREFIX}nobody`])).toBe(3);
+    expect(await testClock(['archive', t.slug, '--confirm', t.slug])).toBe(0);
+    expect(await statusOf(t.id)).toBe('ARCHIVED');
+    expect(await testClock(['archive', t.slug, '--confirm', t.slug])).toBe(0);
   });
 });

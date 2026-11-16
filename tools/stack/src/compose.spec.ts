@@ -36,7 +36,7 @@ let config: Config;
 let stackDir: string;
 beforeAll(() => {
   stackDir = mkdtempSync(join(tmpdir(), 'uv-stack-compose-'));
-  for (const f of ['postgres.env', 'migrate.env', 'api.env', 'worker.env', 'web.env', 'keys.env', 'purge.env', 'backup.env', 'platform-api.env', 'console.env']) writeFileSync(join(stackDir, f), '');
+  for (const f of ['postgres.env', 'migrate.env', 'api.env', 'worker.env', 'web.env', 'keys.env', 'purge.env', 'clock.env', 'backup.env', 'platform-api.env', 'console.env']) writeFileSync(join(stackDir, f), '');
   const r = spawnSync('docker', ['compose', '-p', PROJECT, '-f', COMPOSE_FILE, '--profile', 'scan', '--profile', 'job', 'config', '--format', 'json'], {
     encoding: 'utf8',
     env: { ...process.env, UNIVARSE_STACK_DIR: stackDir, ...STAND_IN },
@@ -99,6 +99,17 @@ describe('[LS1] the shape', () => {
 
   it('[spec 0027 P4] the edge network has the fixed subnet whose gateway is the console\'s allowlist', () => {
     expect(config.networks.edge?.ipam?.config).toEqual([{ subnet: EDGE_SUBNET, gateway: EDGE_GATEWAY }]);
+  });
+
+  it('[spec 0038 Q-D1] the clock job runs test-clock.js from the API image, as a job, with clock.env only, on the app network', () => {
+    const c = svc('clock') as Service & { command?: string[]; profiles?: string[]; image?: string };
+    expect(c.command).toEqual(['--enable-source-maps', 'dist/cli/test-clock.js']);
+    expect(c.profiles).toEqual(['job']);
+    expect(c.image).toBe(svc('api').image);
+    expect(Object.keys(c.networks ?? {})).toEqual(['app']);
+    const text = readFileSync(COMPOSE_FILE, 'utf8');
+    const block = text.slice(text.indexOf('\n  clock:'), text.indexOf('\n  console-owner:'));
+    expect([...block.matchAll(/\/([a-z-]+\.env)'/g)].map((m) => m[1])).toEqual(['clock.env']);
   });
 
   it('[spec 0027 P1, P5] the platform API runs platform.js from the API image, with its own env file only', () => {
@@ -233,7 +244,7 @@ describe('[LS3] env files reach the containers exactly as written', () => {
     try {
       // Not a real verifier: the same characters, in the same places.
       const value = 'SCRAM-SHA-256$4096:c2FsdA==$c3RvcmVkS2V5$c2VydmVyS2V5$$x${y}$';
-      for (const f of ['postgres.env', 'api.env', 'worker.env', 'web.env', 'keys.env', 'purge.env', 'backup.env', 'platform-api.env', 'console.env']) writeFileSync(join(dir, f), '');
+      for (const f of ['postgres.env', 'api.env', 'worker.env', 'web.env', 'keys.env', 'purge.env', 'clock.env', 'backup.env', 'platform-api.env', 'console.env']) writeFileSync(join(dir, f), '');
       writeFileSync(join(dir, 'migrate.env'), envText({ ROLE_VERIFIER_PROBE: value }));
       const r = spawnSync('docker', ['compose', '-p', PROJECT, '-f', COMPOSE_FILE, '--profile', 'job', 'config', '--format', 'json', 'migrate'], {
         encoding: 'utf8',
