@@ -1,6 +1,6 @@
 # Spec 0038: Phase 1's S7, offboarding, the export and purge
 
-**Status:** **Approved by the owner on 2026-11-14, all as written:** Q1 to Q15. ADR-037 (the AES ZIP's dependency) is written with PR B. **PR A's decisions Q-A1 to Q-A9, PR B's Q-B1 to Q-B22 and PR C's Q-C1 to Q-C17 approved by the owner on 2026-11-15. PR D (the test clock, Q-D1 to Q-D6) approved on 2026-11-16.**
+**Status:** **Done (2026-11-22).** Released as `135236a` and deployed; criterion 9 passed on the stack (below). **Approved by the owner on 2026-11-14, all as written:** Q1 to Q15. ADR-037 (the AES ZIP's dependency) is written with PR B. **PR A's decisions Q-A1 to Q-A9, PR B's Q-B1 to Q-B22 and PR C's Q-C1 to Q-C17 approved by the owner on 2026-11-15. PR D (the test clock, Q-D1 to Q-D6) approved on 2026-11-16, and its decisions made while building, Q-D7 to Q-D10, on 2026-11-16.**
 **Phase:** 1, slice **S7** of [spec 0025](0025-phase-1-control-plane.md) (A7, A12, E10).
 **Builds on:**
 
@@ -326,7 +326,7 @@ Criterion 9 says the day is "moved by a test clock", but S7 built none. The work
   - on the host: a mismatched confirmation, a refusal reported as success, exit 0 without success, the slug passed once, `clock.env` gaining Valkey, the job on the database network.
   - One was equivalent: archiving again on an archived institution changes nothing, because the archive's own update requires OFFBOARDING. Its replacement, with both guards removed, is caught.
 
-**Decisions made while building (for the owner's approval):**
+**Decisions made while building (approved by the owner on 2026-11-16):**
 
 | # | Decision | Why |
 | --- | --- | --- |
@@ -334,3 +334,23 @@ Criterion 9 says the day is "moved by a test clock", but S7 built none. The work
 | Q-D8 | **The job's settings are a new `clock.env` with the app's two database URLs only**, not `worker.env`. | The job needs no Valkey, Vault, storage, mail or relay role, so it gets none of their secrets: less than Q-D1 said. |
 | Q-D9 | **The archive and its session ending moved into `OffboardingArchive`,** which both the worker's pass and the job use. | The job builds only that class, not the worker's whole module, and day 60 and the test clock stay one code path. |
 | Q-D10 | **The host command exits 1 on a refusal,** as `stack:purge` does; the job's own codes stay 0, 3, 2 and 1. | One rule for the owner's host commands: 0 done, anything else not. |
+
+## Done: the release, the deploy and criterion 9
+
+- **Released and deployed on 2026-11-22** as `135236a` (record `releases/2026-11-22-135236a.json`): five images built, scanned, signed, attested and verified, and the stack runs them.
+- **On the way there:**
+  - **The PR C release (`cbe2746`, 2026-11-16) failed twice at the web E2E,** as S6's did: the main checkout's packages were older than the release (first `@zip.js/zip.js` missing, then a database client without `data_export`). An install and a package build fixed it. S6's proposed follow-up, that the release prepares the host's packages itself, would have prevented both.
+  - **The first PR D release stopped at the image gate** on two HIGH findings in the fresh vulnerability database, and CI then blocked on seven Next.js advisories. #193 fixed them: `effect` 3.22 by an override (ADR-017), `next` 16.4.6, and a 30-day exception for OpenSSL's CVE-2026-124709, not reachable (no QUIC server in any image), until 2026-12-22.
+- **Criterion 9, the owner's check on the stack, passed (2026-11-22):**
+  1. **The institution:** `exit-test`, provisioned from the console and never taken live.
+  2. **Offboarding:** started on 2026-11-16, its window ending 2027-01-15; the closing banner and the warning email to its IT Admin.
+  3. **The export:** taken by its IT Admin with step-up and opened with its passphrase.
+  4. **A backup before the purge:** set `20261122T112108Z-1ccb`.
+  5. **The archive by the test clock:** `pnpm stack:clock archive exit-test --confirm exit-test` archived it 55 days before its window's end and ended its sessions, audited as a test-clock archive.
+  6. **Two people:** the owner asked for the purge, and a second member (a SUPER_ADMIN added for the check and removed after) approved it (approval `01a203e5-5e94-707f-bd8f-c8b5d11e58de`).
+  7. **The purge:** `pnpm stack:purge exit-test` destroyed its keys through the ledger (op `3a20bbc7-fb75-40c7-9308-4869cdaa434f`), then deleted 52 rows in 17 tables (its audit trail and its export's row included), 1 stored object (the export) and 13 platform rows, and left it PURGED.
+  8. **The certificate:** `~/.univarse/purges/exit-test-2026-11-22.{json,txt}`, SHA-256 `2866c658e4f69a8f05d105e81590f07471b0fcbd1901926e5d84d73f5afbe16f` (the hash on its tombstone). It names who asked and who approved, the destruction, the counts, and that the last backup holding it is deleted by 2026-12-27.
+  9. **A restore after the purge:** the rehearsal of set `20261122T112108Z-1ccb` found `exit-test` readable before recovery and **`key_destroyed` after it**, every other institution as before, every check passing (RTO 145 s, RPO 144 s). Its record is [`docs/ops/drills/2026-11-22-restore-rehearsal.md`](../ops/drills/2026-11-22-restore-rehearsal.md).
+  10. **The slug:** a new institution named `exit-test` was refused.
+- **What the check showed that the docs didn't say:** a real restore (`stack:restore`) of a set taken before a purge brings back the institution's rows and its tenant record as they were then: unreadable, with no key, but present. The ledger re-destroys the keys; it can't delete rows. The runbook in [10 §4](../10-infrastructure-and-deployment.md) now says to run the purge again after such a restore.
+
