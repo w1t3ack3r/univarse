@@ -18,5 +18,11 @@ vulnerabilities:
     statement: "Not reachable, on the same evidence as CVE-2026-76844 above (the same Debian fix). The overflow is in gz_vacate, reached only through gzwrite or gzprintf after a write stall. In all five release images no ELF but the system libz.so.1 and Node's own bundled zlib names gzwrite, gzputs or gzprintf; the only ELF linking libz.so.1 is libcrypto.so.3 (deflate and inflate only), and Node's zlib module exposes no gz* file API. Debian 13 has no fixed zlib yet (fixed in sid with 76844). Remove with 76844."
     owner: samuel
     expired_at: 2026-12-05
+  - id: CVE-2026-124709
+    purls:
+      - pkg:deb/debian/libssl3t64@3.5.7-1~deb13u3?arch=amd64&distro=debian-13.7
+    statement: "Not reachable. The leak is in OpenSSL's QUIC server: a stream the server rejects is kept (about 300 bytes) when the client resets it first, so only a process that accepts QUIC connections is affected. Nothing in the five release images is a QUIC server. Of all their ELFs, only three link the system libssl.so.3: Prisma's schema engine (api, migrate; a TLS client to PostgreSQL) and pgbouncer (TLS over TCP); none of them imports any QUIC API (OSSL_QUIC_*_method, SSL_new_listener, SSL_new_stream, SSL_accept_stream, SSL_accept_connection). web and console link it not at all. Node does not use the system libssl: it carries its own OpenSSL 3.5.8 with QUIC compiled out (process.features.quic false; node:quic does not exist), and no UniVarse code, config or the stack uses QUIC or HTTP/3. Debian 13 has no fixed libssl3t64 yet (upstream fixed in 3.5.10). Remove when the base images carry it."
+    owner: samuel
+    expired_at: 2026-12-22
 secrets: []
 misconfigurations: []
