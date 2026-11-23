@@ -117,6 +117,7 @@ beforeAll(async () => {
     primaryColor: null,
     logoSha256: null,
     closesAt: null,
+    shardStatus: 'ACTIVE',
   };
   await h.app.get(InvalidationBus).ready();
   await h.workerCtx.get(InvalidationBus).ready();

@@ -691,7 +691,7 @@ export interface components {
                 code: string;
                 message: string;
             }[];
-            /** @description A suspended institution’s public name and colours, so its page can say so in its branding (423 tenant.suspended and 410 tenant.archived only). */
+            /** @description A suspended institution’s public name and colours, so its page can say so in its branding (423 tenant.suspended, 410 tenant.archived and 503 tenant.maintenance only). */
             institution?: {
                 legalName: string;
                 shortName: string;
@@ -842,7 +842,7 @@ export interface operations {
                     } & components["schemas"]["Problem"];
                 };
             };
-            /** @description server.busy */
+            /** @description server.busy, tenant.maintenance */
             503: {
                 headers: {
                     /** @description Seconds to wait before retrying. */
@@ -854,7 +854,7 @@ export interface operations {
                         /** @constant */
                         status?: 503;
                         /** @enum {unknown} */
-                        code?: "server.busy";
+                        code?: "server.busy" | "tenant.maintenance";
                     } & components["schemas"]["Problem"];
                 };
             };
@@ -1033,7 +1033,7 @@ export interface operations {
                     } & components["schemas"]["Problem"];
                 };
             };
-            /** @description server.busy */
+            /** @description server.busy, tenant.maintenance */
             503: {
                 headers: {
                     /** @description Seconds to wait before retrying. */
@@ -1045,7 +1045,7 @@ export interface operations {
                         /** @constant */
                         status?: 503;
                         /** @enum {unknown} */
-                        code?: "server.busy";
+                        code?: "server.busy" | "tenant.maintenance";
                     } & components["schemas"]["Problem"];
                 };
             };
@@ -1189,7 +1189,7 @@ export interface operations {
                     } & components["schemas"]["Problem"];
                 };
             };
-            /** @description server.busy */
+            /** @description server.busy, tenant.maintenance */
             503: {
                 headers: {
                     /** @description Seconds to wait before retrying. */
@@ -1201,7 +1201,7 @@ export interface operations {
                         /** @constant */
                         status?: 503;
                         /** @enum {unknown} */
-                        code?: "server.busy";
+                        code?: "server.busy" | "tenant.maintenance";
                     } & components["schemas"]["Problem"];
                 };
             };
@@ -1333,7 +1333,7 @@ export interface operations {
                     } & components["schemas"]["Problem"];
                 };
             };
-            /** @description server.busy */
+            /** @description server.busy, tenant.maintenance */
             503: {
                 headers: {
                     /** @description Seconds to wait before retrying. */
@@ -1345,7 +1345,7 @@ export interface operations {
                         /** @constant */
                         status?: 503;
                         /** @enum {unknown} */
-                        code?: "server.busy";
+                        code?: "server.busy" | "tenant.maintenance";
                     } & components["schemas"]["Problem"];
                 };
             };
@@ -1475,7 +1475,7 @@ export interface operations {
                     } & components["schemas"]["Problem"];
                 };
             };
-            /** @description server.busy */
+            /** @description server.busy, tenant.maintenance */
             503: {
                 headers: {
                     /** @description Seconds to wait before retrying. */
@@ -1487,7 +1487,7 @@ export interface operations {
                         /** @constant */
                         status?: 503;
                         /** @enum {unknown} */
-                        code?: "server.busy";
+                        code?: "server.busy" | "tenant.maintenance";
                     } & components["schemas"]["Problem"];
                 };
             };
@@ -1616,7 +1616,7 @@ export interface operations {
                     } & components["schemas"]["Problem"];
                 };
             };
-            /** @description server.busy */
+            /** @description server.busy, tenant.maintenance */
             503: {
                 headers: {
                     /** @description Seconds to wait before retrying. */
@@ -1628,7 +1628,7 @@ export interface operations {
                         /** @constant */
                         status?: 503;
                         /** @enum {unknown} */
-                        code?: "server.busy";
+                        code?: "server.busy" | "tenant.maintenance";
                     } & components["schemas"]["Problem"];
                 };
             };
@@ -1743,7 +1743,7 @@ export interface operations {
                     } & components["schemas"]["Problem"];
                 };
             };
-            /** @description server.busy */
+            /** @description server.busy, tenant.maintenance */
             503: {
                 headers: {
                     /** @description Seconds to wait before retrying. */
@@ -1755,7 +1755,7 @@ export interface operations {
                         /** @constant */
                         status?: 503;
                         /** @enum {unknown} */
-                        code?: "server.busy";
+                        code?: "server.busy" | "tenant.maintenance";
                     } & components["schemas"]["Problem"];
                 };
             };
@@ -1929,7 +1929,7 @@ export interface operations {
                     } & components["schemas"]["Problem"];
                 };
             };
-            /** @description server.busy */
+            /** @description server.busy, tenant.maintenance */
             503: {
                 headers: {
                     /** @description Seconds to wait before retrying. */
@@ -1941,7 +1941,7 @@ export interface operations {
                         /** @constant */
                         status?: 503;
                         /** @enum {unknown} */
-                        code?: "server.busy";
+                        code?: "server.busy" | "tenant.maintenance";
                     } & components["schemas"]["Problem"];
                 };
             };
@@ -2067,7 +2067,7 @@ export interface operations {
                     } & components["schemas"]["Problem"];
                 };
             };
-            /** @description server.busy */
+            /** @description server.busy, tenant.maintenance */
             503: {
                 headers: {
                     /** @description Seconds to wait before retrying. */
@@ -2079,7 +2079,7 @@ export interface operations {
                         /** @constant */
                         status?: 503;
                         /** @enum {unknown} */
-                        code?: "server.busy";
+                        code?: "server.busy" | "tenant.maintenance";
                     } & components["schemas"]["Problem"];
                 };
             };
@@ -2238,7 +2238,7 @@ export interface operations {
                     } & components["schemas"]["Problem"];
                 };
             };
-            /** @description server.busy */
+            /** @description server.busy, tenant.maintenance */
             503: {
                 headers: {
                     /** @description Seconds to wait before retrying. */
@@ -2250,7 +2250,7 @@ export interface operations {
                         /** @constant */
                         status?: 503;
                         /** @enum {unknown} */
-                        code?: "server.busy";
+                        code?: "server.busy" | "tenant.maintenance";
                     } & components["schemas"]["Problem"];
                 };
             };
@@ -2358,7 +2358,7 @@ export interface operations {
                     } & components["schemas"]["Problem"];
                 };
             };
-            /** @description server.busy */
+            /** @description server.busy, tenant.maintenance */
             503: {
                 headers: {
                     /** @description Seconds to wait before retrying. */
@@ -2370,7 +2370,7 @@ export interface operations {
                         /** @constant */
                         status?: 503;
                         /** @enum {unknown} */
-                        code?: "server.busy";
+                        code?: "server.busy" | "tenant.maintenance";
                     } & components["schemas"]["Problem"];
                 };
             };
@@ -2472,7 +2472,7 @@ export interface operations {
                     } & components["schemas"]["Problem"];
                 };
             };
-            /** @description server.busy */
+            /** @description server.busy, tenant.maintenance */
             503: {
                 headers: {
                     /** @description Seconds to wait before retrying. */
@@ -2484,7 +2484,7 @@ export interface operations {
                         /** @constant */
                         status?: 503;
                         /** @enum {unknown} */
-                        code?: "server.busy";
+                        code?: "server.busy" | "tenant.maintenance";
                     } & components["schemas"]["Problem"];
                 };
             };
@@ -2622,7 +2622,7 @@ export interface operations {
                     } & components["schemas"]["Problem"];
                 };
             };
-            /** @description server.busy */
+            /** @description server.busy, tenant.maintenance */
             503: {
                 headers: {
                     /** @description Seconds to wait before retrying. */
@@ -2634,7 +2634,7 @@ export interface operations {
                         /** @constant */
                         status?: 503;
                         /** @enum {unknown} */
-                        code?: "server.busy";
+                        code?: "server.busy" | "tenant.maintenance";
                     } & components["schemas"]["Problem"];
                 };
             };
@@ -2782,7 +2782,7 @@ export interface operations {
                     } & components["schemas"]["Problem"];
                 };
             };
-            /** @description server.busy */
+            /** @description server.busy, tenant.maintenance */
             503: {
                 headers: {
                     /** @description Seconds to wait before retrying. */
@@ -2794,7 +2794,7 @@ export interface operations {
                         /** @constant */
                         status?: 503;
                         /** @enum {unknown} */
-                        code?: "server.busy";
+                        code?: "server.busy" | "tenant.maintenance";
                     } & components["schemas"]["Problem"];
                 };
             };
@@ -2937,7 +2937,7 @@ export interface operations {
                     } & components["schemas"]["Problem"];
                 };
             };
-            /** @description server.busy */
+            /** @description server.busy, tenant.maintenance */
             503: {
                 headers: {
                     /** @description Seconds to wait before retrying. */
@@ -2949,7 +2949,7 @@ export interface operations {
                         /** @constant */
                         status?: 503;
                         /** @enum {unknown} */
-                        code?: "server.busy";
+                        code?: "server.busy" | "tenant.maintenance";
                     } & components["schemas"]["Problem"];
                 };
             };
@@ -3110,7 +3110,7 @@ export interface operations {
                     } & components["schemas"]["Problem"];
                 };
             };
-            /** @description server.busy */
+            /** @description server.busy, tenant.maintenance */
             503: {
                 headers: {
                     /** @description Seconds to wait before retrying. */
@@ -3122,7 +3122,7 @@ export interface operations {
                         /** @constant */
                         status?: 503;
                         /** @enum {unknown} */
-                        code?: "server.busy";
+                        code?: "server.busy" | "tenant.maintenance";
                     } & components["schemas"]["Problem"];
                 };
             };
@@ -3277,7 +3277,7 @@ export interface operations {
                     } & components["schemas"]["Problem"];
                 };
             };
-            /** @description server.busy */
+            /** @description server.busy, tenant.maintenance */
             503: {
                 headers: {
                     /** @description Seconds to wait before retrying. */
@@ -3289,7 +3289,7 @@ export interface operations {
                         /** @constant */
                         status?: 503;
                         /** @enum {unknown} */
-                        code?: "server.busy";
+                        code?: "server.busy" | "tenant.maintenance";
                     } & components["schemas"]["Problem"];
                 };
             };
@@ -3433,7 +3433,7 @@ export interface operations {
                     } & components["schemas"]["Problem"];
                 };
             };
-            /** @description server.busy */
+            /** @description server.busy, tenant.maintenance */
             503: {
                 headers: {
                     /** @description Seconds to wait before retrying. */
@@ -3445,7 +3445,7 @@ export interface operations {
                         /** @constant */
                         status?: 503;
                         /** @enum {unknown} */
-                        code?: "server.busy";
+                        code?: "server.busy" | "tenant.maintenance";
                     } & components["schemas"]["Problem"];
                 };
             };
@@ -3577,7 +3577,7 @@ export interface operations {
                     } & components["schemas"]["Problem"];
                 };
             };
-            /** @description server.busy */
+            /** @description server.busy, tenant.maintenance */
             503: {
                 headers: {
                     /** @description Seconds to wait before retrying. */
@@ -3589,7 +3589,7 @@ export interface operations {
                         /** @constant */
                         status?: 503;
                         /** @enum {unknown} */
-                        code?: "server.busy";
+                        code?: "server.busy" | "tenant.maintenance";
                     } & components["schemas"]["Problem"];
                 };
             };
@@ -3740,7 +3740,7 @@ export interface operations {
                     } & components["schemas"]["Problem"];
                 };
             };
-            /** @description server.busy */
+            /** @description server.busy, tenant.maintenance */
             503: {
                 headers: {
                     /** @description Seconds to wait before retrying. */
@@ -3752,7 +3752,7 @@ export interface operations {
                         /** @constant */
                         status?: 503;
                         /** @enum {unknown} */
-                        code?: "server.busy";
+                        code?: "server.busy" | "tenant.maintenance";
                     } & components["schemas"]["Problem"];
                 };
             };
@@ -3897,7 +3897,7 @@ export interface operations {
                     } & components["schemas"]["Problem"];
                 };
             };
-            /** @description server.busy */
+            /** @description server.busy, tenant.maintenance */
             503: {
                 headers: {
                     /** @description Seconds to wait before retrying. */
@@ -3909,7 +3909,7 @@ export interface operations {
                         /** @constant */
                         status?: 503;
                         /** @enum {unknown} */
-                        code?: "server.busy";
+                        code?: "server.busy" | "tenant.maintenance";
                     } & components["schemas"]["Problem"];
                 };
             };
@@ -4068,7 +4068,7 @@ export interface operations {
                     } & components["schemas"]["Problem"];
                 };
             };
-            /** @description server.busy */
+            /** @description server.busy, tenant.maintenance */
             503: {
                 headers: {
                     /** @description Seconds to wait before retrying. */
@@ -4080,7 +4080,7 @@ export interface operations {
                         /** @constant */
                         status?: 503;
                         /** @enum {unknown} */
-                        code?: "server.busy";
+                        code?: "server.busy" | "tenant.maintenance";
                     } & components["schemas"]["Problem"];
                 };
             };
@@ -4227,7 +4227,7 @@ export interface operations {
                     } & components["schemas"]["Problem"];
                 };
             };
-            /** @description server.busy */
+            /** @description server.busy, tenant.maintenance */
             503: {
                 headers: {
                     /** @description Seconds to wait before retrying. */
@@ -4239,7 +4239,7 @@ export interface operations {
                         /** @constant */
                         status?: 503;
                         /** @enum {unknown} */
-                        code?: "server.busy";
+                        code?: "server.busy" | "tenant.maintenance";
                     } & components["schemas"]["Problem"];
                 };
             };
@@ -4361,7 +4361,7 @@ export interface operations {
                     } & components["schemas"]["Problem"];
                 };
             };
-            /** @description server.busy */
+            /** @description server.busy, tenant.maintenance */
             503: {
                 headers: {
                     /** @description Seconds to wait before retrying. */
@@ -4373,7 +4373,7 @@ export interface operations {
                         /** @constant */
                         status?: 503;
                         /** @enum {unknown} */
-                        code?: "server.busy";
+                        code?: "server.busy" | "tenant.maintenance";
                     } & components["schemas"]["Problem"];
                 };
             };
@@ -4496,7 +4496,7 @@ export interface operations {
                     } & components["schemas"]["Problem"];
                 };
             };
-            /** @description server.busy */
+            /** @description server.busy, tenant.maintenance */
             503: {
                 headers: {
                     /** @description Seconds to wait before retrying. */
@@ -4508,7 +4508,7 @@ export interface operations {
                         /** @constant */
                         status?: 503;
                         /** @enum {unknown} */
-                        code?: "server.busy";
+                        code?: "server.busy" | "tenant.maintenance";
                     } & components["schemas"]["Problem"];
                 };
             };
@@ -4617,7 +4617,7 @@ export interface operations {
                     } & components["schemas"]["Problem"];
                 };
             };
-            /** @description server.busy */
+            /** @description server.busy, tenant.maintenance */
             503: {
                 headers: {
                     /** @description Seconds to wait before retrying. */
@@ -4629,7 +4629,7 @@ export interface operations {
                         /** @constant */
                         status?: 503;
                         /** @enum {unknown} */
-                        code?: "server.busy";
+                        code?: "server.busy" | "tenant.maintenance";
                     } & components["schemas"]["Problem"];
                 };
             };
@@ -4766,7 +4766,7 @@ export interface operations {
                     } & components["schemas"]["Problem"];
                 };
             };
-            /** @description server.busy */
+            /** @description server.busy, tenant.maintenance */
             503: {
                 headers: {
                     /** @description Seconds to wait before retrying. */
@@ -4778,7 +4778,7 @@ export interface operations {
                         /** @constant */
                         status?: 503;
                         /** @enum {unknown} */
-                        code?: "server.busy";
+                        code?: "server.busy" | "tenant.maintenance";
                     } & components["schemas"]["Problem"];
                 };
             };
@@ -4913,7 +4913,7 @@ export interface operations {
                     } & components["schemas"]["Problem"];
                 };
             };
-            /** @description server.busy */
+            /** @description server.busy, tenant.maintenance */
             503: {
                 headers: {
                     /** @description Seconds to wait before retrying. */
@@ -4925,7 +4925,7 @@ export interface operations {
                         /** @constant */
                         status?: 503;
                         /** @enum {unknown} */
-                        code?: "server.busy";
+                        code?: "server.busy" | "tenant.maintenance";
                     } & components["schemas"]["Problem"];
                 };
             };
@@ -5105,7 +5105,7 @@ export interface operations {
                     } & components["schemas"]["Problem"];
                 };
             };
-            /** @description server.busy */
+            /** @description server.busy, tenant.maintenance */
             503: {
                 headers: {
                     /** @description Seconds to wait before retrying. */
@@ -5117,7 +5117,7 @@ export interface operations {
                         /** @constant */
                         status?: 503;
                         /** @enum {unknown} */
-                        code?: "server.busy";
+                        code?: "server.busy" | "tenant.maintenance";
                     } & components["schemas"]["Problem"];
                 };
             };
@@ -5238,7 +5238,7 @@ export interface operations {
                     } & components["schemas"]["Problem"];
                 };
             };
-            /** @description server.busy */
+            /** @description server.busy, tenant.maintenance */
             503: {
                 headers: {
                     /** @description Seconds to wait before retrying. */
@@ -5250,7 +5250,7 @@ export interface operations {
                         /** @constant */
                         status?: 503;
                         /** @enum {unknown} */
-                        code?: "server.busy";
+                        code?: "server.busy" | "tenant.maintenance";
                     } & components["schemas"]["Problem"];
                 };
             };
@@ -5359,7 +5359,7 @@ export interface operations {
                     } & components["schemas"]["Problem"];
                 };
             };
-            /** @description server.busy */
+            /** @description server.busy, tenant.maintenance */
             503: {
                 headers: {
                     /** @description Seconds to wait before retrying. */
@@ -5371,7 +5371,7 @@ export interface operations {
                         /** @constant */
                         status?: 503;
                         /** @enum {unknown} */
-                        code?: "server.busy";
+                        code?: "server.busy" | "tenant.maintenance";
                     } & components["schemas"]["Problem"];
                 };
             };
@@ -5481,7 +5481,7 @@ export interface operations {
                     } & components["schemas"]["Problem"];
                 };
             };
-            /** @description server.busy */
+            /** @description server.busy, tenant.maintenance */
             503: {
                 headers: {
                     /** @description Seconds to wait before retrying. */
@@ -5493,7 +5493,7 @@ export interface operations {
                         /** @constant */
                         status?: 503;
                         /** @enum {unknown} */
-                        code?: "server.busy";
+                        code?: "server.busy" | "tenant.maintenance";
                     } & components["schemas"]["Problem"];
                 };
             };
@@ -5643,7 +5643,7 @@ export interface operations {
                     } & components["schemas"]["Problem"];
                 };
             };
-            /** @description server.busy */
+            /** @description server.busy, tenant.maintenance */
             503: {
                 headers: {
                     /** @description Seconds to wait before retrying. */
@@ -5655,7 +5655,7 @@ export interface operations {
                         /** @constant */
                         status?: 503;
                         /** @enum {unknown} */
-                        code?: "server.busy";
+                        code?: "server.busy" | "tenant.maintenance";
                     } & components["schemas"]["Problem"];
                 };
             };
@@ -5808,7 +5808,7 @@ export interface operations {
                     } & components["schemas"]["Problem"];
                 };
             };
-            /** @description server.busy */
+            /** @description server.busy, tenant.maintenance */
             503: {
                 headers: {
                     /** @description Seconds to wait before retrying. */
@@ -5820,7 +5820,7 @@ export interface operations {
                         /** @constant */
                         status?: 503;
                         /** @enum {unknown} */
-                        code?: "server.busy";
+                        code?: "server.busy" | "tenant.maintenance";
                     } & components["schemas"]["Problem"];
                 };
             };
@@ -6038,7 +6038,7 @@ export interface operations {
                     } & components["schemas"]["Problem"];
                 };
             };
-            /** @description server.busy */
+            /** @description server.busy, tenant.maintenance */
             503: {
                 headers: {
                     /** @description Seconds to wait before retrying. */
@@ -6050,7 +6050,7 @@ export interface operations {
                         /** @constant */
                         status?: 503;
                         /** @enum {unknown} */
-                        code?: "server.busy";
+                        code?: "server.busy" | "tenant.maintenance";
                     } & components["schemas"]["Problem"];
                 };
             };
@@ -6234,7 +6234,7 @@ export interface operations {
                     } & components["schemas"]["Problem"];
                 };
             };
-            /** @description server.busy */
+            /** @description server.busy, tenant.maintenance */
             503: {
                 headers: {
                     /** @description Seconds to wait before retrying. */
@@ -6246,7 +6246,7 @@ export interface operations {
                         /** @constant */
                         status?: 503;
                         /** @enum {unknown} */
-                        code?: "server.busy";
+                        code?: "server.busy" | "tenant.maintenance";
                     } & components["schemas"]["Problem"];
                 };
             };
@@ -6342,7 +6342,7 @@ export interface operations {
                     } & components["schemas"]["Problem"];
                 };
             };
-            /** @description server.busy */
+            /** @description server.busy, tenant.maintenance */
             503: {
                 headers: {
                     /** @description Seconds to wait before retrying. */
@@ -6354,7 +6354,7 @@ export interface operations {
                         /** @constant */
                         status?: 503;
                         /** @enum {unknown} */
-                        code?: "server.busy";
+                        code?: "server.busy" | "tenant.maintenance";
                     } & components["schemas"]["Problem"];
                 };
             };
@@ -6468,7 +6468,7 @@ export interface operations {
                     } & components["schemas"]["Problem"];
                 };
             };
-            /** @description server.busy */
+            /** @description server.busy, tenant.maintenance */
             503: {
                 headers: {
                     /** @description Seconds to wait before retrying. */
@@ -6480,7 +6480,7 @@ export interface operations {
                         /** @constant */
                         status?: 503;
                         /** @enum {unknown} */
-                        code?: "server.busy";
+                        code?: "server.busy" | "tenant.maintenance";
                     } & components["schemas"]["Problem"];
                 };
             };
@@ -6573,7 +6573,7 @@ export interface operations {
                     } & components["schemas"]["Problem"];
                 };
             };
-            /** @description server.busy */
+            /** @description server.busy, tenant.maintenance */
             503: {
                 headers: {
                     /** @description Seconds to wait before retrying. */
@@ -6585,7 +6585,7 @@ export interface operations {
                         /** @constant */
                         status?: 503;
                         /** @enum {unknown} */
-                        code?: "server.busy";
+                        code?: "server.busy" | "tenant.maintenance";
                     } & components["schemas"]["Problem"];
                 };
             };
@@ -6677,7 +6677,7 @@ export interface operations {
                     } & components["schemas"]["Problem"];
                 };
             };
-            /** @description server.busy */
+            /** @description server.busy, tenant.maintenance */
             503: {
                 headers: {
                     /** @description Seconds to wait before retrying. */
@@ -6689,7 +6689,7 @@ export interface operations {
                         /** @constant */
                         status?: 503;
                         /** @enum {unknown} */
-                        code?: "server.busy";
+                        code?: "server.busy" | "tenant.maintenance";
                     } & components["schemas"]["Problem"];
                 };
             };
@@ -6831,7 +6831,7 @@ export interface operations {
                     } & components["schemas"]["Problem"];
                 };
             };
-            /** @description server.busy */
+            /** @description server.busy, tenant.maintenance */
             503: {
                 headers: {
                     /** @description Seconds to wait before retrying. */
@@ -6843,7 +6843,7 @@ export interface operations {
                         /** @constant */
                         status?: 503;
                         /** @enum {unknown} */
-                        code?: "server.busy";
+                        code?: "server.busy" | "tenant.maintenance";
                     } & components["schemas"]["Problem"];
                 };
             };
@@ -7035,7 +7035,7 @@ export interface operations {
                     } & components["schemas"]["Problem"];
                 };
             };
-            /** @description server.busy */
+            /** @description server.busy, tenant.maintenance */
             503: {
                 headers: {
                     /** @description Seconds to wait before retrying. */
@@ -7047,7 +7047,7 @@ export interface operations {
                         /** @constant */
                         status?: 503;
                         /** @enum {unknown} */
-                        code?: "server.busy";
+                        code?: "server.busy" | "tenant.maintenance";
                     } & components["schemas"]["Problem"];
                 };
             };

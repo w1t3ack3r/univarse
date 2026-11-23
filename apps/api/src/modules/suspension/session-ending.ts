@@ -7,7 +7,7 @@ import { Inject, Injectable, Logger } from '@nestjs/common';
 import { writePlatformAudit } from '@univarse/crypto';
 import type { PlatformClient } from '@univarse/db';
 import { AuditWriter } from '../../shared/audit/audit-writer.js';
-import { PLATFORM_DB, ShardRegistry } from '../../shared/db/db.module.js';
+import { ON_SERVABLE_SHARD, PLATFORM_DB, ShardRegistry } from '../../shared/db/db.module.js';
 import { backgroundPass } from '../../shared/observability/background.js';
 
 export const SUSPENSION_REVOKE_REASON = 'tenant_suspended';
@@ -50,7 +50,7 @@ export class SuspensionSessionEnding {
   /** One pass: every suspension whose sessions aren't ended yet. One institution's failure doesn't hold the others. */
   async pass(): Promise<void> {
     const pending = await this.platform.platformTenantSuspension.findMany({
-      where: { sessionsEndedAt: null },
+      where: { sessionsEndedAt: null, tenant: ON_SERVABLE_SHARD },
       orderBy: { suspendedAt: 'asc' },
       select: { id: true, tenantId: true, tenant: { select: { shardId: true } } },
     });

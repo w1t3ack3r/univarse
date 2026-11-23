@@ -271,6 +271,24 @@ describe('[LS3][LS4] a verified record: the order of the deploy', () => {
     expect(calls).not.toContain('saveState');
   });
 
+  it('[spec 0039 Q9] a migrate job that exits 3 (a shard in maintenance) starts the release anyway and says so', async () => {
+    const d = deps({ compose: (args) => (calls.push(`compose:${args.join(' ')}`), { status: args.includes('migrate') ? 3 : 0 }) });
+    const r = await deploy(record(), COMMIT, d);
+    expect(r.ok).toBe(true);
+    expect(r.warnings).toEqual([expect.stringMatching(/a shard failed its migration and is in maintenance/)]);
+    expect(calls.some((c) => c.includes('--remove-orphans'))).toBe(true);
+    expect(calls).toContain('saveState');
+  });
+
+  it('[spec 0039 Q9] any other migrate failure (exit 1, 2, 4, 137 for a kill) still starts nothing', async () => {
+    for (const status of [1, 2, 4, 137]) {
+      calls.length = 0;
+      const d = deps({ compose: (args) => (calls.push(`compose:${args.join(' ')}`), { status: args.includes('migrate') ? status : 0 }) });
+      expect((await deploy(record(), COMMIT, d)).ok).toBe(false);
+      expect(calls.some((c) => c.includes('--remove-orphans'))).toBe(false);
+    }
+  });
+
   it('[LS4] buckets that cannot be created stop the deploy before the API and worker start', async () => {
     const r = await deploy(record(), COMMIT, deps({ buckets: () => (calls.push('buckets'), ['bucket uv-clean was not created']) }));
     expect(r).toEqual({ ok: false, problems: ['bucket uv-clean was not created'] });

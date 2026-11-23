@@ -450,7 +450,7 @@ describe('[Q1, T35] the use case checks again, whatever reached it', () => {
   it('refuses an actor whose grant is a department’s, at an institution not served, and a row naming an archive outside its own', async () => {
     const i = await institution();
     const service = tenantApp.get(ExportsService);
-    const tenant = { tenantId: i.id, shardId: poolId, slug: 'x', shortName: 'x', legalName: 'x', type: 'UNIVERSITY', status: 'ACTIVE', primaryColor: null, logoSha256: null, closesAt: null } satisfies TenantContext;
+    const tenant = { tenantId: i.id, shardId: poolId, slug: 'x', shortName: 'x', legalName: 'x', type: 'UNIVERSITY', status: 'ACTIVE', primaryColor: null, logoSha256: null, closesAt: null, shardStatus: 'ACTIVE' } satisfies TenantContext;
     const actor = (scopeType: string, tenantId = i.id): Actor => ({
       tenantId,
       userId: i.admin.id,

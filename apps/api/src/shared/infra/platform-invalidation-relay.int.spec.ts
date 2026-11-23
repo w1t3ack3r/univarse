@@ -148,8 +148,11 @@ async function killPausedRelay(): Promise<number> {
 beforeAll(async () => {
   mig = createPlatformClient(process.env.PLATFORM_MIGRATOR_URL!);
   const [shard] = await q<{ id: string }>(
-    `INSERT INTO public.shard (name, kind, secret_ref, region) VALUES ($1, 'POOL', 'RELAY_TEST_DATABASE_URL', 'local') RETURNING id::text`,
+    // Spec 0039: a scratch shard that is never opened; RETIRED, so readiness and the worker's passes leave it alone.
+    `INSERT INTO public.shard (name, kind, secret_ref, region, server_id, database, capacity, pool_size, status)
+     SELECT $1, 'DEDICATED', 'RELAY_TEST_DATABASE_URL', 'local', id, $2, 1, 3, 'RETIRED' FROM db_server WHERE name = 'local' RETURNING id::text`,
     `relay-test-${randomBytes(4).toString('hex')}`,
+    `univarse_t_${randomBytes(6).toString('hex')}`,
   );
   shardId = shard!.id;
 });

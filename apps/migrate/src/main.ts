@@ -2,6 +2,7 @@
 // Configuration comes only from the environment (the stack's env file); nothing is read from disk but the Prisma
 // configs and migrations shipped in the image.
 import { spawnSync } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import pg from 'pg';
@@ -9,6 +10,8 @@ import { keyProviderFrom, provisionTenantKey } from '@univarse/crypto';
 import { createPlatformClient } from '@univarse/db';
 import { bootstrap, rlsCheck, seed } from '@univarse/db-ops';
 import { runJob, type JobEnv } from './job.js';
+import { appliedMigrations, commitFrom, databaseOf, prismaTenant, realShardSteps, recordPlatformRun } from './real-shards.js';
+import { migrateShards, newlyApplied, type RunOutcome } from './shards.js';
 
 const require = createRequire(import.meta.url);
 const PRISMA_CLI = require.resolve('prisma/build/index.js');
@@ -28,15 +31,21 @@ async function superuser(url: string, database: string): Promise<pg.Client> {
   return c;
 }
 
-/** `prisma migrate <command>` for one database, its output shown (it names hosts and databases, never passwords). */
-function prisma(command: 'deploy' | 'status', which: 'platform' | 'tenant'): Promise<void> {
-  const r = spawnSync(process.execPath, [PRISMA_CLI, 'migrate', command, '--config', config(which)], {
+/** `prisma migrate <command>` for the platform database, its output shown (it names hosts and databases, never passwords). */
+function prismaPlatform(command: 'deploy' | 'status'): Promise<void> {
+  const r = spawnSync(process.execPath, [PRISMA_CLI, 'migrate', command, '--config', config('platform')], {
     stdio: 'inherit',
     env: { ...process.env, CHECKPOINT_DISABLE: '1', PRISMA_HIDE_UPDATE_MESSAGE: '1' },
   });
-  if (r.status !== 0) return Promise.reject(new Error(`prisma migrate ${command} (${which}) exited ${String(r.status ?? r.signal)}`));
+  if (r.status !== 0) return Promise.reject(new Error(`prisma migrate ${command} (platform) exited ${String(r.status ?? r.signal)}`));
   return Promise.resolve();
 }
+
+// Spec 0039 Q8: one id for every run this job records; the release's commit from the image's version.
+const JOB_ID = randomUUID();
+const TENANT = { prismaCli: PRISMA_CLI, tenantConfig: config('tenant') };
+const shardSteps = (env: JobEnv, log: (l: string) => void) =>
+  realShardSteps({ env, platformMigratorUrl: need(env, 'PLATFORM_MIGRATOR_URL'), jobId: JOB_ID, ...TENANT, rlsCheck, log });
 
 await runJob(process.env, {
   bootstrap: (env) =>
@@ -53,9 +62,60 @@ await runJob(process.env, {
       consolePassword: env.ROLE_VERIFIER_CONSOLE, // spec 0027 P5: the platform API's role
       log: (l) => console.log(l),
     }),
-  migrate: (which) => prisma('deploy', which),
-  status: (which) => prisma('status', which),
-  rlsCheck: (env) => rlsCheck({ tenantMigratorUrl: need(env, 'TENANT_POOL_01_MIGRATOR_URL'), platformMigratorUrl: need(env, 'PLATFORM_MIGRATOR_URL') }),
+  // Q8: the platform's run, recorded after its migrations (they create the table on the first deploy).
+  migratePlatform: async (env) => {
+    const url = need(env, 'PLATFORM_MIGRATOR_URL');
+    const startedAt = new Date();
+    const before = await appliedMigrations(url);
+    if (before === 'unreachable') throw new Error('the platform database is unreachable as the migrator');
+    let failure: unknown = null;
+    try {
+      await prismaPlatform('deploy');
+    } catch (e) {
+      failure = e;
+    }
+    const after = await appliedMigrations(url);
+    const done = after === 'unreachable' ? [] : newlyApplied(before, after);
+    const outcome: RunOutcome = failure
+      ? { status: 'FAILED', code: 'migrate_failed', applied: done.length, lastMigration: done.at(-1) ?? null }
+      : { status: 'SUCCEEDED', applied: done.length, lastMigration: done.at(-1) ?? null };
+    try {
+      await recordPlatformRun(url, { jobId: JOB_ID, commit: commitFrom(env.UNIVARSE_VERSION), database: databaseOf(url), startedAt, outcome });
+    } catch (e) {
+      // Before this release's migration the table doesn't exist: a failed platform run can't always be recorded.
+      if (!failure) throw e;
+    }
+    if (failure) throw failure instanceof Error ? failure : new Error('the platform migration failed');
+    console.log(`[migrate] platform: ${String(done.length)} migration(s) applied`);
+  },
+  migrateShards: async (env) => {
+    const steps = await shardSteps(env, (l) => console.log(l));
+    try {
+      return await migrateShards(steps);
+    } finally {
+      await steps.close();
+    }
+  },
+  status: () => prismaPlatform('status'),
+  // B-14: every shard up to date and isolated; changes nothing (no run is recorded, no status set).
+  checkShards: async (env) => {
+    const steps = await shardSteps(env, (l) => console.log(l));
+    const problems: string[] = [];
+    try {
+      for (const shard of await steps.listShards()) {
+        const url = steps.migratorUrl(shard);
+        if (!url) {
+          problems.push(`${shard.name}: no migrator URL in the environment`);
+          continue;
+        }
+        await prismaTenant(TENANT, 'status', url).catch(() => problems.push(`${shard.name}: migrations not up to date`));
+        for (const p of await steps.rlsCheck(url)) problems.push(`${shard.name}: ${p}`);
+      }
+    } finally {
+      await steps.close();
+    }
+    return problems;
+  },
   seed: (env) =>
     seed({
       platformUrl: need(env, 'PLATFORM_DATABASE_URL'),
@@ -84,7 +144,16 @@ await runJob(process.env, {
     }
   },
   log: (l) => console.log(l),
-}, { checkOnly: process.argv.includes('--check-only') }).catch((err: unknown) => {
-  console.error(`[migrate] FAILED: ${err instanceof Error ? err.message : String(err)}`);
-  process.exit(1);
-});
+}, { checkOnly: process.argv.includes('--check-only') }).then(
+  ({ failedShards }) => {
+    // Q9: the platform and every other shard migrated; these are in maintenance. The deploy goes on and says so.
+    if (failedShards.length) {
+      console.error(`[migrate] SHARDS IN MAINTENANCE: ${failedShards.map((f) => `${f.name} (${f.code})`).join(', ')}`);
+      process.exit(3);
+    }
+  },
+  (err: unknown) => {
+    console.error(`[migrate] FAILED: ${err instanceof Error ? err.message : String(err)}`);
+    process.exit(1);
+  },
+);

@@ -19,6 +19,7 @@ const row = (tenantId: string) => ({
     legalName: 'X',
     type: 'UNIVERSITY',
     status: 'ACTIVE',
+    shard: { status: 'ACTIVE' },
   },
 });
 

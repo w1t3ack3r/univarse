@@ -32,12 +32,15 @@ export class HealthController {
   async ready() {
     try {
       await withTimeout(this.platform.$queryRaw`SELECT 1`, 500);
-      const shards = await withTimeout(this.platform.shard.findMany({ where: { isActive: true } }), 500);
-      // Readiness requires at least one reachable tenant shard.
-      const first = shards[0];
-      if (!first) throw new Error('no active shards');
-      const client = await this.shards.client(first.id);
-      await withTimeout(client.$queryRaw`SELECT 1`, 500);
+      // Readiness needs a reachable tenant shard when one is ACTIVE. Spec 0039 Q10: with every shard in maintenance the
+      // API is still ready, since answering 503 for them is its job then; with no shard registered at all, it isn't.
+      const shards = await withTimeout(this.platform.shard.findMany({ where: { status: { in: ['ACTIVE', 'MAINTENANCE'] } }, select: { id: true, status: true } }), 500);
+      if (shards.length === 0) throw new Error('no shards');
+      const first = shards.find((s) => s.status === 'ACTIVE');
+      if (first) {
+        const client = await this.shards.client(first.id);
+        await withTimeout(client.$queryRaw`SELECT 1`, 500);
+      }
     } catch (err) {
       // Reason goes to logs only; the public response stays generic.
       this.logger.warn({ event: 'health.not_ready', err }, 'Not ready');

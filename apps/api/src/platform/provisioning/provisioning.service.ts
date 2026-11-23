@@ -66,7 +66,7 @@ export class PlatformProvisioning {
 
     // Q11: the active pool with the fewest institutions. Placed here because a tenant row needs its shard; the worker's
     // first step checks the shard can be reached before anything is written to it.
-    const pools = await this.db.shard.findMany({ where: { kind: 'POOL', isActive: true }, select: { id: true } });
+    const pools = await this.db.shard.findMany({ where: { kind: 'POOL', status: 'ACTIVE' }, select: { id: true } });
     if (pools.length === 0) throw new ProblemError(503, 'provisioning.unavailable', 'No active shard');
     const counts = await this.db.tenant.groupBy({ by: ['shardId'], where: { shardId: { in: pools.map((p) => p.id) } }, _count: { _all: true } });
     const load = new Map(counts.map((c) => [c.shardId, c._count._all]));

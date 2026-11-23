@@ -148,7 +148,7 @@ export async function verifyChains(platform: PlatformClient, shards: ShardRegist
 export async function createDrillTenant(platform: PlatformClient, shards: ShardRegistry, provider: KeyProvider, crypto: FieldCrypto, audit: AuditWriter, slug: string) {
   if (!DRILL_SLUG.test(slug)) throw new Error('a drill tenant is named shred-drill-YYYYMMDD');
   if (await platform.tenant.findUnique({ where: { slug }, select: { id: true } })) throw new Error(`${slug} exists: each drill gets a fresh tenant`);
-  const shard = await platform.shard.findFirstOrThrow({ where: { kind: 'POOL', isActive: true }, orderBy: { id: 'asc' }, select: { id: true } });
+  const shard = await platform.shard.findFirstOrThrow({ where: { kind: 'POOL', status: 'ACTIVE' }, orderBy: { id: 'asc' }, select: { id: true } });
   const tenant = await platform.$transaction(async (tx) => {
     // Suspended, with no domain and no product: no request can ever reach it.
     const t = await tx.tenant.create({

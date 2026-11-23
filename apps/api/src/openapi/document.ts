@@ -321,7 +321,7 @@ const PROBLEM: Json = {
     },
     institution: {
       type: 'object',
-      description: 'A suspended institution’s public name and colours, so its page can say so in its branding (423 tenant.suspended and 410 tenant.archived only).',
+      description: 'A suspended institution’s public name and colours, so its page can say so in its branding (423 tenant.suspended, 410 tenant.archived and 503 tenant.maintenance only).',
       required: ['legalName', 'shortName', 'primaryColor', 'textColor'],
       additionalProperties: false,
       properties: {
@@ -402,6 +402,7 @@ function errorResponses(op: ApiOperation, c: ErrorContext): Record<string, Respo
     add(404, 'tenant.not_found');
     add(423, 'tenant.suspended');
     add(410, 'tenant.archived'); // spec 0038 Q5: an archived institution
+    add(503, 'tenant.maintenance'); // spec 0039 Q10: its shard's migration failed
   }
   if (c.product && c.product !== 'core') add(404, 'resource.not_found'); // product switched off (spec 0003 P3)
   if (!c.isPublic) {

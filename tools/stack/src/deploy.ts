@@ -88,7 +88,7 @@ export function imagesFrom(v: Verification, roles: readonly string[] = RELEASE_R
   return { images, problems };
 }
 
-export async function deploy(record: ReleaseRecord, commit: string, deps: DeployDeps, opts: { initLedger?: boolean } = {}): Promise<{ ok: boolean; problems: string[] }> {
+export async function deploy(record: ReleaseRecord, commit: string, deps: DeployDeps, opts: { initLedger?: boolean } = {}): Promise<{ ok: boolean; problems: string[]; warnings?: string[] }> {
   const lock = deps.lock('deploy');
   let stopRegistry = () => undefined as unknown;
   try {
@@ -132,8 +132,12 @@ export async function deploy(record: ReleaseRecord, commit: string, deps: Deploy
       if (deps.compose(['restart', 'postgres'], images).status !== 0 || deps.compose(['up', '-d', '--wait', 'postgres'], images).status !== 0)
         return { ok: false, problems: ['PostgreSQL did not restart healthy'] };
     }
-    if (deps.compose(['--profile', 'job', 'run', '--rm', 'migrate'], images).status !== 0)
-      return { ok: false, problems: ['the migrate job failed: nothing new was started (its output is above)'] };
+    // Spec 0039 Q9: exit 3 is "the platform and every other shard migrated; these shards are in maintenance": the
+    // release goes on for everyone else, and the deploy says so. Any other failure starts nothing new, as before.
+    const migrate = deps.compose(['--profile', 'job', 'run', '--rm', 'migrate'], images).status;
+    const warnings: string[] = [];
+    if (migrate === 3) warnings.push('a shard failed its migration and is in maintenance: its institutions answer 503 until a run succeeds (the migrate job named it above; see the Shards page and the runbook in docs/10 §4)');
+    else if (migrate !== 0) return { ok: false, problems: ['the migrate job failed: nothing new was started (its output is above)'] };
 
     // ── Storage: the buckets exist before the API and worker use them.
     if (deps.compose(['up', '-d', '--wait', 'seaweedfs'], images).status !== 0) return { ok: false, problems: ['SeaweedFS did not start'] };
@@ -206,7 +210,8 @@ export async function deploy(record: ReleaseRecord, commit: string, deps: Deploy
     }
     deps.saveState(images);
     for (const w of deps.backupWarnings()) deps.log(`[stack:deploy] WARN backup: ${w}`);
-    return { ok: true, problems: [] };
+    for (const w of warnings) deps.log(`[stack:deploy] WARN ${w}`);
+    return { ok: true, problems: [], ...(warnings.length ? { warnings } : {}) };
   } finally {
     stopRegistry();
     lock.release(); // ── LS3 (1): held to here, success or failure
@@ -227,7 +232,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   }
   const commit = arg('commit') ?? spawnSync('git', ['rev-parse', 'HEAD'], { cwd: REPO, encoding: 'utf8' }).stdout.trim();
   const record = JSON.parse(readFileSync(file, 'utf8')) as ReleaseRecord;
-  let result: { ok: boolean; problems: string[] };
+  let result: { ok: boolean; problems: string[]; warnings?: string[] };
   try {
     // --init-ledger: once, for a stack that has never had a shred ledger (spec 0020 A2-3); never implied.
     result = await deploy(record, commit, realDeps(), { initLedger: rest.includes('--init-ledger') });
@@ -239,4 +244,6 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     process.exit(1);
   }
   console.log(`[stack:deploy] PASS: the stack runs ${commit.slice(0, 7)}'s verified images; state in ${join(RELEASES, 'deploy-state.json')}`);
+  // Spec 0039 Q9: in red, last, so a shard in maintenance isn't lost above the PASS.
+  for (const w of result.warnings ?? []) console.error(`[31m[stack:deploy] SHARDS IN MAINTENANCE: ${w}[0m`);
 }

@@ -52,7 +52,7 @@ Phase 1 ends with every institution's lifecycle in the console. One piece is mis
 | # | Threat | Vector | Controls |
 | --- | --- | --- | --- |
 | T37 | **A shard row points the app at the wrong database** | A tampered or mistaken `shard` row (another institution's database, the platform's, a database outside UniVarse) | A pool's URL only from its own `secret_ref`; a dedicated database only by a name matching `univarse_t_[a-z0-9]{12}`, on a server whose template comes from the env; `univarse_app` has `CONNECT` on tenant databases only; RLS forced in every database, so even a wrong database shows nothing without the right `tenant_id` context |
-| T38 | **A half-migrated database serves new code** | One shard's migration fails during a deploy | The shard goes `MAINTENANCE` and its institutions answer 503 until a run succeeds (Q9, Q10); each migration is its own transaction; the run and its fixed error code are recorded and shown |
+| T38 | **A half-migrated database serves new code** | One shard's migration fails during a deploy | The shard goes `MAINTENANCE` and its institutions answer 503 until a run succeeds (Q9, Q10); the run and its fixed error code are recorded and shown. **Prisma does not roll a failed PostgreSQL migration back** (measured in PR A: the statements before the failing one stay), so a shard in maintenance may be half-migrated, and its retry follows the runbook (the cause fixed, then `prisma migrate resolve`) |
 | T39 | **The platform's runtime roles gain the power to create databases** | A worker compromised, or a convenience grant | Only the owner's host job, as the superuser, creates a database (Q5); a test reads the API's and worker's grants (Q15) |
 
 ## Acceptance criteria
@@ -94,3 +94,130 @@ About **two to two and a half weeks** at S7's pace. **S8 closes Phase 1.**
 - **New pools from the console:** a new pool is a new database with its own `secret_ref` in the deploy, done by the owner when the Shards page warns. Automating it waits for a second pool being needed.
 - **Read replicas, sharding one institution across servers, schema-per-tenant** (spec 0036's out of scope).
 - **Dedicated hosting's price** (T12, S10).
+
+## PR A: the design
+
+Written before the code, as the self-review asks; what changes while building is listed under "PR A: what was built".
+
+**The schema** (platform migration `20261124120000_shards`, expand only):
+- `db_server`: `name` (unique), `region`, `max_connections`, `reserved_connections`, and `secret_ref`, the **prefix** of the env variables holding its URL templates (`<prefix>_APP_URL`, `<prefix>_MIGRATOR_URL`, each with `{database}` in place of the name). The stack's server is `local`, prefix `DB_SERVER_LOCAL`.
+- `shard` gains `server_id`, `database`, `capacity`, `pool_size`, `status` (`READY`, `ACTIVE`, `MAINTENANCE`, `RETIRED`) and `status_changed_at`. Checks:
+  - a pool's database is `univarse_pool_NN`; a dedicated one is `univarse_t_` and 12 lower-case letters or digits;
+  - a dedicated shard's capacity is 1;
+  - a pool size is 1 to 50;
+  - one database name per server.
+- The existing `pool-01` is backfilled: server `local`, `univarse_pool_01`, capacity 50, pool size 10, `ACTIVE` (or `RETIRED` where `is_active` was false). **`is_active` stays, unused:** a later release drops it (expand → contract).
+- `migration_run`: one row per database per migrate job:
+  - its job id and the release's commit;
+  - the shard, or none for the platform;
+  - the database name, its start and end, and `status` (`RUNNING`, `SUCCEEDED`, `FAILED`);
+  - how many migrations it applied and the last one's name;
+  - a **fixed error code**: `unreachable`, `no_credentials`, `migrate_failed`, `rls_failed` or `unexpected`.
+  A trigger lets a run move from `RUNNING` to an end state once and freezes everything else, for every role.
+- **Grants:**
+  - the console reads `db_server` (not `secret_ref`), the shard's new columns and `migration_run`;
+  - the API's and worker's role reads `shard.status`;
+  - only the migrator writes `migration_run` and a shard's status.
+
+**The migrate job, per shard:**
+1. Bootstrap (unchanged), then the **platform**'s migrations, recorded as a run. **A platform failure stops the job (exit 1) and the deploy, as today.**
+2. **Registration:** the bootstrap's pool (`pool-01` on `local`) is registered if missing. The seed did this before, after the migrations, which left a fresh stack with no shard to migrate.
+3. **Every `ACTIVE`, `MAINTENANCE` and `READY` shard in turn** (pools first, then by name):
+   - its migrator URL: a pool's from `<secret_ref without _DATABASE_URL>_MIGRATOR_URL`, a dedicated one's from its server's template;
+   - `prisma migrate deploy` on it, the migrations applied read from `_prisma_migrations` before and after;
+   - `rls:check` on it.
+   A failure records its code, **sets the shard `MAINTENANCE` and goes on to the next shard.** A success returns a shard in maintenance to `ACTIVE`, or to `READY` if it's a dedicated database with no institution.
+4. The seed and the data keys, as today, **skipping any shard in maintenance.**
+5. **Exit 0** if everything succeeded; **exit 3** if the platform succeeded and some shard failed, with the shards named.
+
+`--check-only` (the restore rehearsal) checks every shard's migration status and `rls:check`, and changes nothing.
+
+**The deploy:** the migrate job's exit 3 starts the new release anyway, then reports the shards in maintenance in red, and the deploy's result carries them. Exit 1 starts nothing, as today.
+
+**Maintenance on the API and in the web app:**
+- **The guard:** the tenant resolver also reads the institution's shard status (inside its 60-second cache). An institution whose shard is in `MAINTENANCE` answers **503 `tenant.maintenance`** with its public name and colours, as a suspended one answers 423. A suspension or an archive takes precedence. The OpenAPI documents the 503 on every institution route.
+- **The worker:** `ShardRegistry` refuses a shard that's in `MAINTENANCE` or `RETIRED` (with its own error, its status cached for 60 seconds). The passes that walk institutions leave out those on such a shard, and say once that they did, rather than failing for each one.
+- **Readiness:** the API needs the platform and an `ACTIVE` shard if one exists. A stack with every shard in maintenance is still ready: answering 503 is its job then.
+- **The web app:** the sign-in page shows a third state beside "temporarily unavailable" and "has closed": "{institution}'s UniVarse is closed for scheduled maintenance. Please try again shortly", in its name and colours.
+
+**ADR-038:** the hybrid tenancy model (spec 0036), with S8's server records and the per-shard runner.
+
+**Tests:**
+- **Unit:** the job's order, the platform-first stop, continuing past a failed shard, the exit codes and the status after each outcome; the URL resolution and its refusals.
+- **Integration:**
+  - a scratch dedicated database, made by the dev migrator (which may create databases in development), registered as a shard and **made to fail its first migration** (a table already in its way);
+  - it's recorded `FAILED`, set to maintenance, and its institutions answer 503, while `pool_01` stays served;
+  - a retry after removing the obstacle returns it, and the run is `SUCCEEDED` with every migration applied;
+  - the `migration_run` trigger, the grants, and the worker's skip.
+- **Web E2E:** the maintenance page, with axe, on desktop and phone.
+- **Mutation checks:** on the guards listed in criterion 10.
+
+## PR A: what was built
+
+**Built:**
+- **The schema** (`20261124120000_shards`):
+  - `db_server`, with the stack's `local` registered;
+  - the shard's server, database, capacity, pool size and status, with `pool-01` backfilled;
+  - `migration_run`, with its trigger and fixed error codes;
+  - the grants, and the checks on a dedicated database's name.
+- **The URL rules** (`packages/db/src/shard-url.ts`): a pool's own variable, or a server's template with a dedicated database's name as its whole path. Shared by the migrate job and `ShardRegistry`.
+- **The migrate job, per shard** (`apps/migrate/src/shards.ts`, `real-shards.ts`, `job.ts`):
+  - the platform first, its run recorded;
+  - every shard after it, each recorded, each with its own `rls:check`;
+  - a failed shard put in maintenance while the next goes on;
+  - the seed skipped when its pool is in maintenance;
+  - exit 3 naming the shards in maintenance;
+  - `--check-only` per shard.
+- **The deploy:** exit 3 starts the release and reports the shards in red; any other failure starts nothing, as before.
+- **Maintenance:**
+  - the guard's 503 `tenant.maintenance` in the institution's name and colours, with `Retry-After: 300`, a suspension or an archive first;
+  - `ShardRegistry` refusing a shard in maintenance or retired (its status read at most once a minute);
+  - the worker's passes leaving those institutions out (`ON_SERVABLE_SHARD`);
+  - readiness healthy while every shard is in maintenance;
+  - the web app's "Closed for maintenance" card, with the clock the maintenance notices use.
+- **Docs:** ADR-038, 02 §7.1, 03, 07 §4, 08 (T37 to T39), 10 (the deploy and the runbook for a shard in maintenance), 12 and 18.
+
+**Evidence:**
+- **Unit:**
+  - `shard-url.spec.ts` (6): the URL rules, and every steering attempt refused;
+  - the migrate app (24 with `tls.spec.ts`): the order, the platform-first stop, carrying on past a failed shard, each error code, the status after each outcome, the exit codes, `--check-only`;
+  - two new deploy tests (exit 3 starts the release; 1, 2, 4 and 137 don't);
+  - `health.controller.spec.ts` (3): readiness;
+  - the web app's 49, including maintenance read and a busy database's 503 not mistaken for it.
+  - The API's unit suite: 458, its static checks included. `tools/stack`: 629, one skipped as before.
+- **Integration:**
+  - `apps/migrate` `shards.int.spec.ts` (4) on real databases:
+    - a scratch dedicated database fails its first migration, is recorded `FAILED` (`migrate_failed`) and goes to maintenance;
+    - once resolved, it's retried to `READY` with every migration applied;
+    - **a failed migration is measured as not rolled back;**
+    - the run's trigger, and the grants.
+  - The API's `maintenance.int.spec.ts` (5): the 503 and its `Retry-After`, a suspension's precedence, the registry's refusal and the passes' filter, readiness, back in service.
+  - The API's whole integration suite: 670 passed. Its 28 failures on the first run:
+    - 25 were the dev ClamAV being stopped, and pass with it running (170 tests in those 5 files);
+    - 3 were two test fixtures and a grant pin that predated the new shard columns, now fixed (27 passed in those 3 files).
+- **E2E:** `maintenance.e2e.ts` on desktop and phone (4): the card in the institution's name and colour, axe clean, the workspace and reset pages leading there.
+- **Mutations: 21 tried, 21 caught:**
+  - the URL rules: any `univarse_` name, the placeholder twice, the path unchecked, any variable;
+  - the runner: no maintenance on failure, a failure stopping the next shard, a ready shard sent to ACTIVE, `rls:check` ignored, a failed deploy unseen;
+  - the job: a platform failure carrying on, seeding a pool in maintenance, the failures unreported;
+  - the guard serving maintenance, the registry opening such a shard, maintenance in the passes' filter, a 2-second `Retry-After`;
+  - readiness failing when every shard is in maintenance, and passing with no shard;
+  - the deploy stopping on exit 3, and going on after any failure;
+  - the web app not reading maintenance.
+
+**Decisions made while building (for the owner's approval):**
+
+| # | Decision | Why |
+| --- | --- | --- |
+| Q-A1 | **The platform migration registers the `local` server and `pool-01`**, not a step in the job. The seed now only reads the shard, since the app's role no longer writes shards (Q15). | Every environment runs the migrations first: dev, CI, the stack, the release's migrate smoke and a restore. The seed created `pool-01` only after them, which left a fresh stack with nothing for the per-shard runner to migrate. |
+| Q-A2 | **The API's and worker's role reads two columns of `db_server`: `id` and `secret_ref`** (a variable-name prefix, not a secret). The design said it read nothing of servers. | `ShardRegistry` needs a dedicated database's server prefix to find its URL template (Q4). Without it readiness failed, which the integration suite caught. |
+| Q-A3 | **Prisma doesn't roll a failed PostgreSQL migration back,** measured on a real database: the statements before the failing one stay. T38's "each migration is its own transaction" was wrong and is corrected, and the runbook (10 §4) says what to do. **Proposed, for a later decision:** new migrations wrap themselves in `BEGIN … COMMIT`, which Prisma allows, except a `CREATE INDEX CONCURRENTLY`, which has its own migration already. | What a shard in maintenance may look like has to be stated honestly. Closing its institutions (Q10) is right precisely because it can be half-migrated. |
+| Q-A4 | **A retry after a failure needs `prisma migrate resolve`** (`--applied` or `--rolled-back`, once the cause is fixed); otherwise the failed migration's record blocks every later deploy (P3009). PR B's `stack:shards migrate <shard>` takes it as an explicit option, never guessed. | Only a person who has looked can say whether a half-applied migration was finished or undone. |
+| Q-A5 | **A maintenance 503 carries `Retry-After: 300`;** every other 503 keeps 2 seconds. | A shard in maintenance stays closed until someone fixes it; a busy database clears in seconds. |
+| Q-A6 | **Readiness checks an `ACTIVE` shard when there is one, and stays ready when every shard is in maintenance. With no shard at all, it isn't ready.** | A deploy whose only pool failed must still start, to serve its 503s. A platform with no shard can serve nothing. |
+| Q-A7 | **The worker's passes filter institutions in their own platform queries** (`ON_SERVABLE_SHARD`), and `ShardRegistry`'s refusal is the backstop. The key sweep relies on the backstop alone; its per-institution error is already logged. | One shared filter in eight queries, rather than eight new error paths. |
+| Q-A8 | **The migrate app gets its own integration tests** (`test:int`, run in CI with the rest). Their scratch databases are made by the development migrator, which may create databases there (never on the stack). Each test removes its own runs with the trigger set aside, as the offboarding tests do for theirs. | The runner's real steps (Prisma, `_prisma_migrations`, the trigger) can only be proved on a real database. |
+| Q-A9 | **The seed is skipped when its pool is in maintenance; the data keys step still runs** (platform only). | The seed writes into that pool; the keys don't touch it. |
+| Q-A10 | **A platform run is recorded after its migrations,** since they create the table on the first deploy. A failed platform run is recorded only when the table exists. | Recording before would fail on exactly the deploy that adds the table. |
+| Q-A11 | **The web app's unavailable shape moves from a `closed` flag to a `kind`** (`suspended`, `closed`, `maintenance`). | Three states don't fit a boolean. |
+| Q-A12 | **`shard.is_active` stays, unused;** a later release drops it (expand → contract). | No destructive change in the release that stops using it (invariant 9). |

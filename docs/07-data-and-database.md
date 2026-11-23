@@ -120,7 +120,8 @@ The integration suite creates two tenants with identical data shapes and asserts
   3. Release N+2: drop old.
 - Destructive statements (`DROP`, `ALTER … TYPE`, `SET NOT NULL` on big tables) are flagged by the CI migration linter (e.g. Squawk) and need a `-- migration-approved: <reason>` annotation.
 - Big-table safety: `CREATE INDEX CONCURRENTLY` (in its own migration), add constraints `NOT VALID` then `VALIDATE`, and batch backfills (≤ 5k rows per batch).
-- **Migration runner:** a platform job applies migrations shard by shard (platform DB first, then pools, then dedicated DBs), records `MigrationRun` status and stops at the first failure. The deploy pipeline waits for success before rolling out new app pods.
+- **Migration runner (as built, [spec 0039](specs/0039-shards-and-migrations.md) PR A):** the migrate job applies the platform's migrations first, and **a platform failure stops it and the deploy**. Then it migrates every `ACTIVE`, `MAINTENANCE` and `READY` shard in turn (pools first), each recorded in `migration_run` with what it applied and a fixed error code, each followed by `rls:check` on that database. **A shard that fails is put in `MAINTENANCE` and the job goes on**; it exits 3, and the deploy starts the release for every other shard and reports the failure in red. A run that succeeds returns a shard in maintenance to service. `--check-only` (the restore rehearsal) checks every shard and changes nothing.
+- **A failed migration is not rolled back.** Prisma doesn't wrap a PostgreSQL migration in a transaction (measured in spec 0039 PR A): the statements before the failing one stay applied, and the failed migration's record blocks every later `migrate deploy` (P3009) until it's resolved. The runbook is in [10 §4](10-infrastructure-and-deployment.md).
 - Every migration is tested against a copy of an anonymised production-sized dataset in staging before the prod release.
 
 ## 5. Indexing guidelines

@@ -1359,6 +1359,15 @@
   width: 20px;
   height: 5px;
 }
+/* Spec 0039 Q10: maintenance keeps the tile but trades the pause's bars for the clock the maintenance notices use: it
+   comes back by itself, once the work is done. */
+.auth__paused-mark--clock {
+  color: var(--uv-on-brand, #ffffff);
+}
+.auth__paused-mark--clock::before,
+.auth__paused-mark--clock::after {
+  display: none;
+}
 
 /* ---------- The closing date (spec 0038 Q3) ----------
    Above any incident or notice, on the warning wash: the day the account closes, in words, for everyone there. Not

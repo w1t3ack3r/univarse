@@ -7,7 +7,7 @@ import { Inject, Injectable, Logger } from '@nestjs/common';
 import { writePlatformAudit } from '@univarse/crypto';
 import type { PlatformClient } from '@univarse/db';
 import { archiveDue, dueWarning, type TenantStatusName } from '@univarse/domain';
-import { PLATFORM_DB, ShardRegistry } from '../../shared/db/db.module.js';
+import { ON_SERVABLE_SHARD, PLATFORM_DB, ShardRegistry } from '../../shared/db/db.module.js';
 import { backgroundPass } from '../../shared/observability/background.js';
 import { Outbox } from '../../shared/outbox/outbox.js';
 import { IT_ADMIN_PERMISSION } from '../notices/notice-board.service.js';
@@ -51,7 +51,7 @@ export class OffboardingPass {
   /** One pass over every open offboarding. One institution's failure doesn't hold the others. */
   async pass(now = new Date()): Promise<void> {
     const open = await this.platform.platformTenantOffboarding.findMany({
-      where: { cancelledAt: null },
+      where: { cancelledAt: null, tenant: ON_SERVABLE_SHARD },
       select: { id: true, tenantId: true, endsAt: true, archivedAt: true, sessionsEndedAt: true, extendedAt: true, tenant: { select: { status: true, shardId: true, legalName: true } } },
     });
     let failed = 0;

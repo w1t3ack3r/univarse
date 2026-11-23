@@ -11,7 +11,7 @@ import type { NoticeKind } from '@univarse/domain';
 import { Queue, Worker } from 'bullmq';
 import { Redis } from 'ioredis';
 import { APP_CONFIG, type AppConfig } from '../../config/config.js';
-import { PLATFORM_DB, ShardRegistry } from '../../shared/db/db.module.js';
+import { ON_SERVABLE_SHARD, PLATFORM_DB, ShardRegistry } from '../../shared/db/db.module.js';
 import { backgroundPass } from '../../shared/observability/background.js';
 import { Outbox } from '../../shared/outbox/outbox.js';
 import { QUEUE_PREFIX } from '../provisioning/provisioning-queue.js';
@@ -126,7 +126,7 @@ export class NoticeFanOut {
 
   /** One relay pass: queue every delivery not yet fanned out. Returns how many it offered. */
   async relay(): Promise<number> {
-    const pending = await this.platform.platformNoticeDelivery.findMany({ where: { fannedOutAt: null }, select: { noticeId: true, tenantId: true }, orderBy: { createdAt: 'asc' }, take: 500 });
+    const pending = await this.platform.platformNoticeDelivery.findMany({ where: { fannedOutAt: null, tenant: ON_SERVABLE_SHARD }, select: { noticeId: true, tenantId: true }, orderBy: { createdAt: 'asc' }, take: 500 });
     if (pending.length === 0) return 0;
     const { queue } = this.open();
     await queue.addBulk(pending.map((d) => ({ name: 'fan-out', data: { noticeId: d.noticeId, tenantId: d.tenantId }, opts: { jobId: jobId(d.noticeId, d.tenantId), removeOnComplete: true, removeOnFail: true } })));
@@ -136,7 +136,7 @@ export class NoticeFanOut {
   /** One counting pass over the deliveries still worth counting. One institution's failure doesn't hold the others. */
   async countPass(now = new Date()): Promise<void> {
     const rows = await this.platform.platformNoticeDelivery.findMany({
-      where: { fannedOutAt: { not: null }, createdAt: { gt: new Date(now.getTime() - COUNT_FOR_MS) } },
+      where: { fannedOutAt: { not: null }, createdAt: { gt: new Date(now.getTime() - COUNT_FOR_MS) }, tenant: ON_SERVABLE_SHARD },
       select: { noticeId: true, tenantId: true, tenant: { select: { shardId: true } } },
     });
     let failed = 0;

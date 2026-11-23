@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation';
 import { serverGet } from './server-api';
 import { ApiUnavailableError, checkSession, type Me, type MeAnswer, type SessionCheck } from './session-check';
+import { UNAVAILABLE_CODES } from './tenant';
 
 export type { Me } from './session-check';
 
@@ -30,8 +31,9 @@ export async function requireSession(): Promise<Me> {
 /** A signed-in user (restricted or not); signed out → login; API trouble → error boundary. */
 export function signedInOrThrow(check: SessionCheck): Me {
   if (check.kind === 'signed-out') redirect('/login');
-  // Spec 0037 Q8, 0038 Q5: a suspended or closed institution isn't an error: the sign-in page says which it is.
-  if (check.kind === 'unavailable' && (check.code === 'tenant.suspended' || check.code === 'tenant.archived')) redirect('/login');
+  // Spec 0037 Q8, 0038 Q5, 0039 Q10: a suspended, closed or maintenance-closed institution isn't an error: the sign-in
+  // page says which it is.
+  if (check.kind === 'unavailable' && UNAVAILABLE_CODES.includes(check.code)) redirect('/login');
   if (check.kind === 'unavailable') throw new ApiUnavailableError(check.code, check.requestId);
   return check.me;
 }

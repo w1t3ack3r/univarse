@@ -41,11 +41,8 @@ export async function seed({ platformUrl, tenantUrl, domain = DEV_DOMAIN, log = 
   const platform = createPlatformClient(platformUrl);
   const shardClient = createTenantShardClient(tenantUrl);
 
-  const shard = await platform.shard.upsert({
-    where: { name: 'pool-01' },
-    update: {},
-    create: { name: 'pool-01', kind: 'POOL', secretRef: 'TENANT_POOL_01_DATABASE_URL', region: 'local' },
-  });
+  // Spec 0039: the platform migration registers the bootstrap's pool; the app's role only reads shards now.
+  const shard = await platform.shard.findUniqueOrThrow({ where: { name: 'pool-01' }, select: { id: true } });
 
   for (const t of TENANTS) {
     const tenant = await platform.tenant.upsert({

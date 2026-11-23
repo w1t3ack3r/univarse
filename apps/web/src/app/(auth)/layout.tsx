@@ -1,5 +1,5 @@
 import { messageFor } from '@univarse/contracts';
-import { Card, Notice } from '@univarse/ui';
+import { Card, Clock, Notice } from '@univarse/ui';
 import type { ReactNode } from 'react';
 import { ClosingBanner } from '@/components/ClosingBanner';
 import { IncidentBanners } from '@/components/IncidentBanners';
@@ -55,7 +55,7 @@ export default async function AuthLayout({ children }: { children: ReactNode }) 
               <p className="auth__institution">{suspended.legalName}</p>
             </div>
             <div className="auth__panel">
-              {suspended.closed ? (
+              {suspended.kind === 'closed' ? (
                 // Spec 0038 Q5: the account has closed. Said plainly, with no form and no promise.
                 <Card className="auth__card auth__card--paused">
                   <span className="auth__paused-mark auth__paused-mark--closed" aria-hidden="true" />
@@ -64,6 +64,19 @@ export default async function AuthLayout({ children }: { children: ReactNode }) 
                   </h1>
                   <p className="auth__sub">{messageFor('tenant.archived')}</p>
                   <p className="auth__paused-note">If you need something from your records, ask your institution’s ICT unit.</p>
+                </Card>
+              ) : suspended.kind === 'maintenance' ? (
+                // Spec 0039 Q10: its database is being fixed after an update. The maintenance clock (as the notices use),
+                // the fixed message, and that it comes back by itself: nothing to do, nothing lost.
+                <Card className="auth__card auth__card--paused">
+                  <span className="auth__paused-mark auth__paused-mark--clock" aria-hidden="true">
+                    <Clock size={22} />
+                  </span>
+                  <h1 id="paused-heading" className="auth__heading">
+                    Closed for maintenance
+                  </h1>
+                  <p className="auth__sub">{messageFor('tenant.maintenance')}</p>
+                  <p className="auth__paused-note">Your account and records are safe. This page opens again by itself once the work is done.</p>
                 </Card>
               ) : (
                 <Card className="auth__card auth__card--paused">
