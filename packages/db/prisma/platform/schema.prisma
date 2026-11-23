@@ -45,6 +45,38 @@ enum ShardKind {
   DEDICATED
 }
 
+/// Spec 0039 Q3: a shard's state. READY: a dedicated database with no institution yet. MAINTENANCE: its last migration
+/// failed, and its institutions answer 503 until a run succeeds (Q9, Q10). RETIRED: no longer used.
+enum ShardStatus {
+  READY
+  ACTIVE
+  MAINTENANCE
+  RETIRED
+}
+
+/// Spec 0039 Q8: a migration run on one database.
+enum MigrationRunStatus {
+  RUNNING
+  SUCCEEDED
+  FAILED
+}
+
+/// Spec 0039 Q2: a PostgreSQL server holding shards, with its connection budget. Its URL templates live in the env,
+/// named by `secretRef` (`<secretRef>_APP_URL`, `<secretRef>_MIGRATOR_URL`, each with `{database}`), never here.
+model DbServer {
+  id                  String   @id @default(dbgenerated("uuidv7()")) @db.Uuid
+  name                String   @unique
+  region              String
+  maxConnections      Int      @map("max_connections")
+  reservedConnections Int      @map("reserved_connections")
+  secretRef           String   @map("secret_ref")
+  createdAt           DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  shards Shard[]
+
+  @@map("db_server")
+}
+
 model Shard {
   id        String    @id @default(dbgenerated("uuidv7()")) @db.Uuid
   name      String    @unique
@@ -52,12 +84,46 @@ model Shard {
   /// Name of the env var / secret holding the connection string — never the URL itself.
   secretRef String    @map("secret_ref")
   region    String
+  /// Spec 0039: unused since `status` (expand → contract: a later release drops it).
   isActive  Boolean   @default(true) @map("is_active")
   createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  /// Spec 0039 Q2–Q3: the server it lives on, its database's name there, how many institutions it takes, its PgBouncer
+  /// server connections, and its state.
+  serverId        String      @map("server_id") @db.Uuid
+  database        String
+  capacity        Int
+  poolSize        Int         @map("pool_size")
+  status          ShardStatus @default(ACTIVE)
+  statusChangedAt DateTime    @default(now()) @map("status_changed_at") @db.Timestamptz(3)
 
-  tenants Tenant[]
+  server        DbServer       @relation(fields: [serverId], references: [id], onDelete: Restrict)
+  tenants       Tenant[]
+  migrationRuns MigrationRun[]
 
+  @@unique([serverId, database])
   @@map("shard")
+}
+
+/// Spec 0039 Q8: one database's migration run, per migrate job: the platform's (no shard) or a shard's. Written by the
+/// migrate job as the migrator; a run ends once (a trigger), with a fixed error code, never a message.
+model MigrationRun {
+  id            String             @id @default(dbgenerated("uuidv7()")) @db.Uuid
+  jobId         String             @map("job_id") @db.Uuid
+  commit        String?
+  shardId       String?            @map("shard_id") @db.Uuid
+  database      String
+  status        MigrationRunStatus @default(RUNNING)
+  startedAt     DateTime           @default(now()) @map("started_at") @db.Timestamptz(3)
+  finishedAt    DateTime?          @map("finished_at") @db.Timestamptz(3)
+  applied       Int?
+  lastMigration String?            @map("last_migration")
+  errorCode     String?            @map("error_code")
+
+  shard Shard? @relation(fields: [shardId], references: [id], onDelete: Restrict)
+
+  @@index([shardId, startedAt(sort: Desc)])
+  @@index([jobId])
+  @@map("migration_run")
 }
 
 model Tenant {

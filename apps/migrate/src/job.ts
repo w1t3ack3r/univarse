@@ -1,14 +1,18 @@
-// Spec 0019 D3/LS4: the migrate job, in order, stopping at the first failure:
+// Spec 0019 D3/LS4, spec 0039 Q9: the migrate job, in order:
 //   1. bootstrap: roles, databases and privileges, as the superuser (only when its variables are given);
-//   2. migrations: platform, then the tenant pool (`prisma migrate deploy`, direct to PostgreSQL, never PgBouncer);
-//   3. rls:check, the static isolation gate, which fails the job;
-//   4. the idempotent seed, on SEED_DOMAIN;
+//   2. the platform's migrations (`prisma migrate deploy`, direct to PostgreSQL, never PgBouncer), recorded as a run.
+//      A platform failure stops the job: every shard depends on it;
+//   3. every shard's migrations, each recorded, each with its own rls:check (shards.ts). A shard that fails is put in
+//      maintenance and the job goes on to the next;
+//   4. the idempotent seed, on SEED_DOMAIN, unless its pool is in maintenance;
 //   5. tenant data keys (spec 0006 E11), through the key provider.
-// With `--check-only` (spec 0020 B-14, the restore rehearsal's check of a restored database) it changes nothing:
-// each database's migration status must be up to date, then rls:check; no bootstrap, migration, seed or keys.
+// It returns the shards that failed: the caller exits 3 for those (the platform and every other shard migrated).
+// With `--check-only` (spec 0020 B-14, the restore rehearsal's check of a restored database) it changes nothing: the
+// platform's and every shard's migration status must be up to date, and every shard passes rls:check.
 // The steps are injected so the order and the stops are unit-tested; main.ts wires the real ones. Errors name
 // variables, never their values.
 import { vaultAddrProblem } from '@univarse/crypto';
+import type { ShardsResult } from './shards.js';
 import { verifiesServer } from './tls.js';
 
 export const REQUIRED = [
@@ -39,13 +43,25 @@ export type JobEnv = Readonly<Record<string, string | undefined>>;
 
 export interface JobSteps {
   bootstrap(env: JobEnv): Promise<void>;
-  migrate(which: 'platform' | 'tenant'): Promise<void>;
-  /** Rejects unless every migration is applied and none failed (`prisma migrate status`); changes nothing. */
-  status(which: 'platform' | 'tenant'): Promise<void>;
-  rlsCheck(env: JobEnv): Promise<{ problems: string[]; tables: number }>;
+  /** The platform's migrations, recorded as a run (spec 0039 Q8); rejects on failure. */
+  migratePlatform(env: JobEnv): Promise<void>;
+  /** Q9: every shard's migrations, each recorded; one shard's failure never stops the next. */
+  migrateShards(env: JobEnv): Promise<ShardsResult>;
+  /** Rejects unless every platform migration is applied and none failed (`prisma migrate status`); changes nothing. */
+  status(which: 'platform'): Promise<void>;
+  /** --check-only: every shard's migration status and rls:check; the problems, by shard name. Changes nothing. */
+  checkShards(env: JobEnv): Promise<readonly string[]>;
   seed(env: JobEnv): Promise<void>;
   provisionKeys(env: JobEnv): Promise<void>;
   log(line: string): void;
+}
+
+/** The pool the seed writes to (its institutions live there). */
+export const SEED_SHARD = 'pool-01';
+
+export interface JobResult {
+  /** The shards whose migration failed, now in maintenance (empty when everything migrated). */
+  readonly failedShards: ShardsResult['failed'];
 }
 
 /** What's wrong with the environment, by name only. */
@@ -67,18 +83,18 @@ export function envProblems(env: JobEnv): string[] {
   return problems;
 }
 
-export async function runJob(env: JobEnv, steps: JobSteps, { checkOnly = false }: { checkOnly?: boolean } = {}): Promise<void> {
+export async function runJob(env: JobEnv, steps: JobSteps, { checkOnly = false }: { checkOnly?: boolean } = {}): Promise<JobResult> {
   const problems = envProblems(env);
   if (problems.length) throw new Error(`invalid environment:\n  ${problems.join('\n  ')}`);
 
   if (checkOnly) {
-    for (const which of ['platform', 'tenant'] as const) {
-      steps.log(`[migrate] check-only: migration status (${which})`);
-      await steps.status(which);
-    }
-    await isolationGate(env, steps);
+    steps.log('[migrate] check-only: migration status (platform)');
+    await steps.status('platform');
+    steps.log('[migrate] check-only: every shard (migration status, rls:check)');
+    const shardProblems = await steps.checkShards(env);
+    if (shardProblems.length) throw new Error(`check-only failed (${String(shardProblems.length)} problem(s)):\n  ${shardProblems.join('\n  ')}`);
     steps.log('[migrate] check-only: done, nothing changed');
-    return;
+    return { failedShards: [] };
   }
 
   if (env.BOOTSTRAP_SUPERUSER_URL) {
@@ -86,24 +102,22 @@ export async function runJob(env: JobEnv, steps: JobSteps, { checkOnly = false }
     await steps.bootstrap(env);
   } else steps.log('[migrate] bootstrap skipped (no superuser given)');
 
-  for (const which of ['platform', 'tenant'] as const) {
-    steps.log(`[migrate] migrations: ${which}`);
-    await steps.migrate(which);
+  steps.log('[migrate] migrations: platform');
+  await steps.migratePlatform(env);
+
+  steps.log('[migrate] migrations: every shard');
+  const { migrated, failed } = await steps.migrateShards(env);
+  if (migrated.length === 0 && failed.length === 0) steps.log('[migrate] WARN no shard to migrate');
+
+  if (failed.some((f) => f.name === SEED_SHARD)) steps.log(`[migrate] seed skipped: ${SEED_SHARD} is in maintenance`);
+  else {
+    steps.log(`[migrate] seed on ${env.SEED_DOMAIN ?? ''}`);
+    await steps.seed(env);
   }
-
-  await isolationGate(env, steps);
-
-  steps.log(`[migrate] seed on ${env.SEED_DOMAIN ?? ''}`);
-  await steps.seed(env);
 
   steps.log('[migrate] tenant data keys');
   await steps.provisionKeys(env);
-  steps.log('[migrate] done');
-}
-
-async function isolationGate(env: JobEnv, steps: JobSteps): Promise<void> {
-  steps.log('[migrate] rls:check');
-  const { problems: isolation, tables } = await steps.rlsCheck(env);
-  if (isolation.length) throw new Error(`rls:check failed (${String(isolation.length)} problem(s)):\n  ${isolation.join('\n  ')}`);
-  steps.log(`[migrate] rls:check passed: ${String(tables)} tenant tables isolated; platform capture intact`);
+  if (failed.length) steps.log(`[migrate] done, except: ${failed.map((f) => `${f.name} (${f.code})`).join(', ')} in maintenance`);
+  else steps.log('[migrate] done');
+  return { failedShards: failed };
 }

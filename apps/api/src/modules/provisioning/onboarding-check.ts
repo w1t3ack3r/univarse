@@ -4,7 +4,7 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { writePlatformAudit } from '@univarse/crypto';
 import type { PlatformClient } from '@univarse/db';
-import { PLATFORM_DB, ShardRegistry } from '../../shared/db/db.module.js';
+import { ON_SERVABLE_SHARD, PLATFORM_DB, ShardRegistry } from '../../shared/db/db.module.js';
 import { backgroundPass } from '../../shared/observability/background.js';
 
 @Injectable()
@@ -48,7 +48,7 @@ export class OnboardingCheck {
 
   async pass(): Promise<void> {
     const tenants = await this.platform.tenant.findMany({
-      where: { status: 'ONBOARDING', OR: [{ onboarding: null }, { onboarding: { adminReadyAt: null } }] },
+      where: { status: 'ONBOARDING', OR: [{ onboarding: null }, { onboarding: { adminReadyAt: null } }], ...ON_SERVABLE_SHARD },
       select: { id: true, shardId: true },
     });
     for (const t of tenants) await this.checkTenant(t);

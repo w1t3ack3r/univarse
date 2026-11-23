@@ -1,7 +1,8 @@
-// Spec 0019 LS4: the migrate job runs its steps in order, stops at the first failure, and names variables, never
-// their values.
+// Spec 0019 LS4, spec 0039 Q9: the migrate job runs its steps in order, stops at a platform failure, goes on past a
+// failed shard, and names variables, never their values.
 import { describe, expect, it } from 'vitest';
-import { BOOTSTRAP, BOOTSTRAP_OPTIONAL, envProblems, runJob, type JobEnv, type JobSteps } from './job.js';
+import { BOOTSTRAP, BOOTSTRAP_OPTIONAL, envProblems, runJob, SEED_SHARD, type JobEnv, type JobSteps } from './job.js';
+import type { ShardsResult } from './shards.js';
 
 const SECRET = 'not-a-real-password-0123456789';
 const ENV: JobEnv = {
@@ -22,7 +23,7 @@ const WITH_BOOTSTRAP: JobEnv = {
   ROLE_VERIFIER_RELAY_PLATFORM: 'SCRAM-SHA-256$4096:a$b:c',
 };
 
-function recorder(fail?: string, isolation: string[] = []) {
+function recorder(fail?: string, opts: { shardProblems?: string[]; shards?: ShardsResult } = {}) {
   const calls: string[] = [];
   const step = (name: string) => {
     calls.push(name);
@@ -30,9 +31,10 @@ function recorder(fail?: string, isolation: string[] = []) {
   };
   const steps: JobSteps = {
     bootstrap: () => step('bootstrap'),
-    migrate: (which) => step(`migrate:${which}`),
+    migratePlatform: () => step('migrate:platform'),
+    migrateShards: async () => (await step('migrate:shards'), opts.shards ?? { migrated: [SEED_SHARD], failed: [] }),
     status: (which) => step(`status:${which}`),
-    rlsCheck: async () => (await step('rlsCheck'), { problems: isolation, tables: 14 }),
+    checkShards: async () => (await step('checkShards'), opts.shardProblems ?? []),
     seed: () => step('seed'),
     provisionKeys: () => step('provisionKeys'),
     log: () => undefined,
@@ -41,10 +43,10 @@ function recorder(fail?: string, isolation: string[] = []) {
 }
 
 describe('[LS4] the migrate job', () => {
-  it('[LS4] runs bootstrap, both migrations, rls:check, the seed and the keys, in that order', async () => {
+  it('[LS4] runs bootstrap, the platform, every shard, the seed and the keys, in that order', async () => {
     const r = recorder();
-    await runJob(WITH_BOOTSTRAP, r.steps);
-    expect(r.calls).toEqual(['bootstrap', 'migrate:platform', 'migrate:tenant', 'rlsCheck', 'seed', 'provisionKeys']);
+    expect(await runJob(WITH_BOOTSTRAP, r.steps)).toEqual({ failedShards: [] });
+    expect(r.calls).toEqual(['bootstrap', 'migrate:platform', 'migrate:shards', 'seed', 'provisionKeys']);
   });
 
   it('[LS4] skips bootstrap when no superuser is given', async () => {
@@ -53,16 +55,22 @@ describe('[LS4] the migrate job', () => {
     expect(r.calls[0]).toBe('migrate:platform');
   });
 
-  it('[LS4] stops at the first failure: nothing after a failed migration runs', async () => {
-    const r = recorder('migrate:tenant');
-    await expect(runJob(WITH_BOOTSTRAP, r.steps)).rejects.toThrow('migrate:tenant failed');
-    expect(r.calls).toEqual(['bootstrap', 'migrate:platform', 'migrate:tenant']);
+  it('[spec 0039 Q9] a platform failure stops the job: no shard, seed or key runs', async () => {
+    const r = recorder('migrate:platform');
+    await expect(runJob(WITH_BOOTSTRAP, r.steps)).rejects.toThrow('migrate:platform failed');
+    expect(r.calls).toEqual(['bootstrap', 'migrate:platform']);
   });
 
-  it('[LS4] a failed rls:check fails the job before the seed', async () => {
-    const r = recorder(undefined, ['user_account: row level security not FORCED']);
-    await expect(runJob(ENV, r.steps)).rejects.toThrow(/rls:check failed \(1 problem\(s\)\)/);
-    expect(r.calls).not.toContain('seed');
+  it('[spec 0039 Q9] a failed shard doesn’t stop the job: the seed and the keys run, and it is reported', async () => {
+    const r = recorder(undefined, { shards: { migrated: [SEED_SHARD], failed: [{ name: 't-abc', code: 'migrate_failed' }] } });
+    expect(await runJob(ENV, r.steps)).toEqual({ failedShards: [{ name: 't-abc', code: 'migrate_failed' }] });
+    expect(r.calls).toEqual(['migrate:platform', 'migrate:shards', 'seed', 'provisionKeys']);
+  });
+
+  it('[spec 0039 Q9] the seed is skipped when its own pool is in maintenance; the keys still run', async () => {
+    const r = recorder(undefined, { shards: { migrated: [], failed: [{ name: SEED_SHARD, code: 'rls_failed' }] } });
+    expect(await runJob(ENV, r.steps)).toEqual({ failedShards: [{ name: SEED_SHARD, code: 'rls_failed' }] });
+    expect(r.calls).toEqual(['migrate:platform', 'migrate:shards', 'provisionKeys']);
   });
 
   it('[LS4] refuses an incomplete environment before any step, naming variables and never values', async () => {
@@ -115,15 +123,15 @@ describe('[LS4] the migrate job', () => {
     expect(envProblems({ ...ENV, NODE_ENV: 'test' })).toEqual([]);
   });
 
-  it('[B-14] --check-only checks both migration statuses and rls:check, and changes nothing, even given the bootstrap', async () => {
+  it('[B-14] --check-only checks the platform’s status and every shard, and changes nothing, even given the bootstrap', async () => {
     const { calls, steps } = recorder();
-    await runJob({ ...WITH_BOOTSTRAP, ROLE_VERIFIER_BACKUP: 'SCRAM-SHA-256$4096:a$b:c' }, steps, { checkOnly: true });
-    expect(calls).toEqual(['status:platform', 'status:tenant', 'rlsCheck']);
+    expect(await runJob({ ...WITH_BOOTSTRAP, ROLE_VERIFIER_BACKUP: 'SCRAM-SHA-256$4096:a$b:c' }, steps, { checkOnly: true })).toEqual({ failedShards: [] });
+    expect(calls).toEqual(['status:platform', 'checkShards']);
   });
 
-  it('[B-14] --check-only fails on a pending migration, and on an rls:check problem', async () => {
-    await expect(runJob(ENV, recorder('status:tenant').steps, { checkOnly: true })).rejects.toThrow(/status:tenant failed/);
-    await expect(runJob(ENV, recorder(undefined, ['t: no RLS']).steps, { checkOnly: true })).rejects.toThrow(/rls:check failed/);
+  it('[B-14] --check-only fails on the platform’s pending migration, and on any shard’s problem', async () => {
+    await expect(runJob(ENV, recorder('status:platform').steps, { checkOnly: true })).rejects.toThrow(/status:platform failed/);
+    await expect(runJob(ENV, recorder(undefined, { shardProblems: ['pool-01: t: no RLS'] }).steps, { checkOnly: true })).rejects.toThrow(/check-only failed \(1 problem\(s\)\):\n {2}pool-01: t: no RLS/);
   });
 
   it('[B-3] the backup verifier is optional with the bootstrap, and refused without it', () => {

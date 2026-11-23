@@ -620,3 +620,29 @@ Alternatives considered: option — why not.
 - The dev and CI SeaweedFS take the stack's volume settings (one volume at a time per bucket, 24 at most): with the old default of 7 at a time, a fourth bucket found no volume and its first write failed.
 
 **Alternatives considered:** `archiver` with `archiver-zip-encrypted` (two packages, the encrypting one unmaintained since 2024); 7-Zip's own `.7z` (needs a native binary in the worker, and Windows doesn't open it without one); an OpenPGP-encrypted `.tar.gz` (strong, but IT Admins at Nigerian institutions rarely have a PGP tool, and Windows opens neither layer); encrypting under a key the platform keeps (T35: the platform could then read every export); a presigned download link (works for anyone who has it, so it can be forwarded).
+
+## ADR-038 — Hybrid tenancy: shared pools by default, a dedicated database where needed, each one a shard
+**Status:** Accepted (2026-11-23) with [spec 0036](specs/0036-hybrid-tenancy.md) (T1 to T14, approved 2026-11-13) and [spec 0039](specs/0039-shards-and-migrations.md) (Q1 to Q16, approved 2026-11-23). **PR A implements** the server records, a shard's status, the migration runs and maintenance; PRs B to D the rest.
+
+**Context:**
+- Every institution's data sits in one pool database (`univarse_pool_01`), isolated by `tenant_id` and forced RLS. That suits most institutions, but some contracts and regulators require a database of the institution's own. One database for everyone, or one per institution, would each fail one of the two.
+- A PostgreSQL server's backend connections fill before its disk does (100 by default; managed servers often have fewer).
+- Until S8 the migrate job knew one tenant database by its variable's name, recorded nothing, and a failure anywhere failed the whole deploy.
+
+**Decision:**
+- **Every placement is a shard; the app never asks which level an institution is at.** A pool holds many institutions (capacity 50, `[VERIFY]`); a dedicated database holds one; a dedicated cluster is a dedicated database on another server. RLS stays forced in every database.
+- **Servers are platform records with a connection budget** (`db_server`: `max_connections` less what's reserved). A shard has a server, a database name, a capacity, a PgBouncer pool size and a status (`READY`, `ACTIVE`, `MAINTENANCE`, `RETIRED`).
+- **URLs come only from the environment** (T37): a pool's from its own variable, a dedicated database's from its server's URL template, with only a name matching `univarse_t_[a-z0-9]{12}` put in. A new dedicated database on an existing server needs no restart.
+- **Dedicated databases are made in advance by the owner's host job** (`stack:shards ready`, PR B), as the superuser. The API and worker never hold the right to create a database or a role.
+- **Migrations run per shard and are recorded** (`migration_run`, fixed error codes). The platform goes first, and its failure stops the deploy. A shard that fails is put in `MAINTENANCE`, its institutions answer 503 `tenant.maintenance`, the worker leaves them out, and every other shard takes the release (the migrate job's exit 3).
+
+**Consequences:**
+- A dedicated institution costs a server's connections (3 by default) rather than a server; the stack's server holds about 20 beside its pool.
+- One shard's broken migration no longer blocks the platform, but the institutions on that shard are closed until an operator fixes it.
+- **Prisma doesn't roll back a failed PostgreSQL migration** (measured in spec 0039 PR A: the statements before the failing one stay). A shard in maintenance may be half-migrated. Its retry follows the runbook: fix the cause, then `prisma migrate resolve`. That's why its institutions are closed rather than served.
+- The retired `shard.is_active` stays, unused, until a later release drops it (expand → contract).
+
+**Alternatives considered:**
+- **Schema per tenant:** a pool's connection limits with a database's migration cost.
+- **One database per institution for everyone:** a hundred databases' connections and migrations for institutions that need none of it.
+- **Failing the whole deploy on any shard's failure, as before:** one institution's database would hold every other institution's release.

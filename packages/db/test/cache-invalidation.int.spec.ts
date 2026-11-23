@@ -133,8 +133,10 @@ beforeAll(async () => {
   app = await connect(requireEnv('PLATFORM_DATABASE_URL'));
   relay = await connect(relayUrl());
   const s = await mig.query<{ id: string }>(
-    `INSERT INTO public.shard (name, kind, secret_ref, region) VALUES ($1, 'POOL', 'IO_TEST_DATABASE_URL', 'local') RETURNING id`,
-    [`io-test-${randomBytes(4).toString('hex')}`],
+    // Spec 0039: a scratch shard that is never opened; RETIRED, so nothing serves or works on it.
+    `INSERT INTO public.shard (name, kind, secret_ref, region, server_id, database, capacity, pool_size, status)
+     SELECT $1, 'DEDICATED', 'IO_TEST_DATABASE_URL', 'local', id, $2, 1, 3, 'RETIRED' FROM db_server WHERE name = 'local' RETURNING id`,
+    [`io-test-${randomBytes(4).toString('hex')}`, `univarse_t_${randomBytes(6).toString('hex')}`],
   );
   shardId = s.rows[0]!.id;
 });

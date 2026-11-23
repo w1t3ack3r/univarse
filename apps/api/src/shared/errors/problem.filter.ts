@@ -21,6 +21,8 @@ const TITLES: Record<number, [string, string]> = {
  * connection queue to drain. Readiness 503s carry it too; probes ignore it.
  */
 export const UNAVAILABLE_RETRY_AFTER_SEC = 2;
+/** Spec 0039 Q10: a shard in maintenance stays closed until someone fixes it; asking every 2 s helps nobody. */
+export const MAINTENANCE_RETRY_AFTER_SEC = 300;
 
 /** Maps every error to application/problem+json. Never leaks stack traces or internals. */
 @Catch()
@@ -36,7 +38,7 @@ export class ProblemFilter implements ExceptionFilter {
     const retryAfter = (exception as { retryAfterSec?: number } | null)?.retryAfterSec;
     if (body.status === 429 && retryAfter) void reply.header('retry-after', String(retryAfter));
 
-    if (body.status === 503) void reply.header('retry-after', String(UNAVAILABLE_RETRY_AFTER_SEC));
+    if (body.status === 503) void reply.header('retry-after', String(body.code === 'tenant.maintenance' ? MAINTENANCE_RETRY_AFTER_SEC : UNAVAILABLE_RETRY_AFTER_SEC));
 
     if (body.code === 'server.busy') {
       // ADR-026: no database connection in time. Backpressure, not a bug: a capacity signal for humans.

@@ -9,7 +9,7 @@ import { z } from 'zod';
 import { FieldCrypto } from '@univarse/crypto';
 import { APP_CONFIG, type AppConfig } from '../../config/config.js';
 import { ProductService } from '../../modules/products/product.service.js';
-import { PLATFORM_DB, ShardRegistry } from '../db/db.module.js';
+import { ON_SERVABLE_SHARD, PLATFORM_DB, ShardRegistry } from '../db/db.module.js';
 import { MAILER, type Mailer } from '../infra/mailer.js';
 import { backoffMs, errorSummary, MAX_ATTEMPTS } from './delivery-policy.js';
 import { EMAIL_EVENT, outboxAad } from './outbox.js';
@@ -77,7 +77,8 @@ export class OutboxWorker {
   private async runPass(): Promise<BatchCounts> {
     const total: BatchCounts = { claimed: 0, sent: 0, retried: 0, dead: 0 };
     const tenants = await this.platform.tenant.findMany({
-      where: { status: { in: [...SERVABLE, NOTICES_ONLY] } },
+      // Spec 0039 Q10: never an institution whose shard is in maintenance.
+      where: { status: { in: [...SERVABLE, NOTICES_ONLY] }, ...ON_SERVABLE_SHARD },
       select: { id: true, shardId: true, status: true },
     });
     for (const { status, ...ref } of tenants) {

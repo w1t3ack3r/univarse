@@ -24,5 +24,11 @@ vulnerabilities:
     statement: "Not reachable. The leak is in OpenSSL's QUIC server: a stream the server rejects is kept (about 300 bytes) when the client resets it first, so only a process that accepts QUIC connections is affected. Nothing in the five release images is a QUIC server. Of all their ELFs, only three link the system libssl.so.3: Prisma's schema engine (api, migrate; a TLS client to PostgreSQL) and pgbouncer (TLS over TCP); none of them imports any QUIC API (OSSL_QUIC_*_method, SSL_new_listener, SSL_new_stream, SSL_accept_stream, SSL_accept_connection). web and console link it not at all. Node does not use the system libssl: it carries its own OpenSSL 3.5.8 with QUIC compiled out (process.features.quic false; node:quic does not exist), and no UniVarse code, config or the stack uses QUIC or HTTP/3. Debian 13 has no fixed libssl3t64 yet (upstream fixed in 3.5.10). Remove when the base images carry it."
     owner: samuel
     expired_at: 2026-12-22
+  - id: CVE-2026-107494
+    purls:
+      - pkg:deb/debian/libssl3t64@3.5.7-1~deb13u3?arch=amd64&distro=debian-13.7
+    statement: "Not reachable, on the same evidence as CVE-2026-124709 above (the same package, also in OpenSSL's QUIC stack). The flaw is in QUIC's handling of RETIRE_CONNECTION_ID frames, so only a process holding a QUIC connection is affected, as client or server. Of all the ELFs in the five release images, only Prisma's schema engine (api, migrate) and pgbouncer link the system libssl.so.3, and none of them imports any QUIC API, client or server (OSSL_QUIC_client_method, OSSL_QUIC_client_thread_method, OSSL_QUIC_server_method, SSL_new_listener, SSL_new_stream, SSL_accept_stream, SSL_accept_connection); web and console link it not at all. Node uses its own OpenSSL with QUIC compiled out, and no UniVarse code, config or the stack uses QUIC or HTTP/3. Debian has no fixed libssl3t64 in any release yet. Remove when the base images carry it."
+    owner: samuel
+    expired_at: 2026-12-23
 secrets: []
 misconfigurations: []

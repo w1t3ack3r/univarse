@@ -4,7 +4,7 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import type { PlatformClient } from '@univarse/db';
 import { CONTACT_UNDO_WINDOW_MS } from '@univarse/domain';
-import { PLATFORM_DB, ShardRegistry } from '../../shared/db/db.module.js';
+import { ON_SERVABLE_SHARD, PLATFORM_DB, ShardRegistry } from '../../shared/db/db.module.js';
 import { backgroundPass } from '../../shared/observability/background.js';
 
 const HOUR_MS = 3_600_000;
@@ -39,7 +39,7 @@ export class ContactBlanker {
   }
 
   private async pass(): Promise<void> {
-    const tenants = await this.platform.tenant.findMany({ select: { id: true, shardId: true } });
+    const tenants = await this.platform.tenant.findMany({ where: ON_SERVABLE_SHARD, select: { id: true, shardId: true } });
     for (const t of tenants) await this.blankTenant(t);
   }
 

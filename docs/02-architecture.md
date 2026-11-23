@@ -192,6 +192,7 @@ modules/results/
 - **Tenant shard DBs:** every tenant-owned table has `tenant_id uuid NOT NULL`, and every table has RLS enabled **and forced**.
   - `pool-01`, `pool-02`… hold many tenants. Add a new pool when one reaches roughly 50 tenants or 500 GB.
   - A **dedicated** shard holds exactly one tenant, with the **same schema and same RLS**. The only difference is placement.
+  - **As built (spec 0039, ADR-038):** every shard lives on a `db_server` with a connection budget, and has a capacity, a PgBouncer pool size and a status. `ACTIVE` is served. `READY` is a dedicated database waiting for its institution. `MAINTENANCE` means its last migration failed: its institutions answer 503 `tenant.maintenance` and the worker leaves them out until a run succeeds. `RETIRED` is no longer used. A shard's URL comes only from the environment (a pool's own variable, or its server's template with a dedicated database's name), never from the row.
 
 ### 7.2 Request flow
 

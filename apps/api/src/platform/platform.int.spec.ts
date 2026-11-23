@@ -144,6 +144,8 @@ describe('[P5] the console role, in the database', () => {
         platform_tenant_export: 'S',
         // Spec 0038 PR C: the purge's record is the host job's (the migrator); the console only reads it.
         platform_tenant_purge: 'S',
+        // Spec 0039 Q8: migration runs are the migrate job's (the migrator); the console only reads them.
+        migration_run: 'S',
         platform_one_time_code: 'SIU',
         platform_recovery_code: 'SIU',
         platform_security_event_rollup: 'SIU',

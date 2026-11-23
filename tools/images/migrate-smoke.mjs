@@ -1,7 +1,7 @@
 // Spec 0019 D3/LS4: the migrate image does its job, hardened. Against a disposable PostgreSQL 18 on an internal
-// network of its own, it runs twice: the first bootstraps roles and databases from nothing, migrates both schemas,
-// passes rls:check, seeds and creates the tenant data keys; the second changes nothing (idempotent). Used by the
-// release and by CI.
+// network of its own, it runs twice: the first bootstraps roles and databases from nothing, migrates the platform and
+// every shard (spec 0039), passes rls:check on each, seeds and creates the tenant data keys; the second changes
+// nothing (idempotent). Used by the release and by CI.
 //   node tools/images/migrate-smoke.mjs <image>
 // Secrets are generated here and reach the containers only by environment (`-e NAME`), never on a command line;
 // the output is checked for each of them. The key provider is `local` (NODE_ENV=test): the image's production
@@ -22,10 +22,13 @@ export function smokeProblems(first, second, secrets) {
     [first, 'first', /\[migrate\] bootstrap: roles, databases, privileges/],
     [first, 'first', /role univarse_relay_platform \(created\)/],
     [first, 'first', /role univarse_console \(created\)/],
-    [first, 'first', /rls:check passed: \d+ tenant tables isolated/],
+    // Spec 0039 Q8, Q9: the platform's run, then the pool's, each recorded, with rls:check on the pool.
+    [first, 'first', /\[migrate\] platform: \d+ migration\(s\) applied/],
+    [first, 'first', /\[migrate\] shard pool-01: [1-9]\d* migration\(s\) applied, rls:check passed/],
     [first, 'first', /created data key v1 for demo-uni/],
     [first, 'first', /\[migrate\] done/],
     [second, 'second', /No pending migrations to apply/],
+    [second, 'second', /\[migrate\] shard pool-01: 0 migration\(s\) applied, rls:check passed/],
     [second, 'second', /kept {4}data key v1 for demo-uni/],
     [second, 'second', /\[migrate\] done/],
   ];

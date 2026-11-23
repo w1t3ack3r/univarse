@@ -19,6 +19,8 @@ export interface TenantContext {
   readonly logoSha256: string | null;
   /** Spec 0038 Q3: when an offboarding institution's account closes, or null. */
   readonly closesAt: Date | null;
+  /** Spec 0039 Q10: its shard's status; MAINTENANCE closes it with a 503 until a migration run succeeds. */
+  readonly shardStatus: string;
 }
 
 interface CacheEntry {
@@ -68,7 +70,7 @@ export class TenantResolver implements OnModuleInit {
 
     const domain = await this.platform.tenantDomain.findUnique({
       where: { hostname: host },
-      include: { tenant: { include: { branding: { select: { primaryColor: true, logoSha256: true } } } } },
+      include: { tenant: { include: { branding: { select: { primaryColor: true, logoSha256: true } }, shard: { select: { status: true } } } } },
     });
     // Custom domains only count once verified; subdomains are created verified by provisioning. Spec 0027 P2: a reserved
     // name (the console's own, say) never resolves to a tenant, whether it's the tenant's slug or the subdomain's label.
@@ -86,6 +88,7 @@ export class TenantResolver implements OnModuleInit {
             primaryColor: domain.tenant.branding?.primaryColor ?? null,
             logoSha256: domain.tenant.branding?.logoSha256 ?? null,
             closesAt: domain.tenant.status === 'OFFBOARDING' ? domain.tenant.purgeAfter : null,
+            shardStatus: domain.tenant.shard.status,
           }
         : null;
 

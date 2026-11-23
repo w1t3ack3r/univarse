@@ -23,6 +23,7 @@ describe('[W7] /auth/me status → page behaviour', () => {
     [403, 'auth.forbidden'],
     [404, 'tenant.not_found'],
     [423, 'tenant.suspended'],
+    [503, 'tenant.maintenance'],
     [429, 'request.rate_limited'],
   ])('%i keeps its problem code (%s) instead of looking signed out', (status, code) => {
     expect(checkSession(problem(status, code))).toEqual({ kind: 'unavailable', code, requestId: REQ });

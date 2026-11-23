@@ -27,7 +27,8 @@ const SERVABLE = new Set(['ACTIVE', 'ONBOARDING', 'OFFBOARDING']);
 
 /**
  * Global guard: every route is tenant-scoped unless marked @NoTenant().
- * Unknown / unverified hosts → 404. Suspended → 423 (docs/05 §1). Archived → 410 (spec 0038 Q5).
+ * Unknown / unverified hosts → 404. Suspended → 423 (docs/05 §1). Archived → 410 (spec 0038 Q5). On a shard in
+ * maintenance → 503 (spec 0039 Q10).
  */
 @Injectable()
 export class TenantGuard implements CanActivate {
@@ -57,6 +58,17 @@ export class TenantGuard implements CanActivate {
       throw Object.assign(problem, { institution });
     }
     if (!SERVABLE.has(tenant.status)) throw new ProblemError(404, 'tenant.not_found', 'Institution not found');
+    // Spec 0039 Q10: its shard's last migration failed. Closed, in its name and colours, until a run succeeds; a
+    // suspension or an archive (above) takes precedence.
+    if (tenant.shardStatus === 'MAINTENANCE') {
+      const institution: SuspendedInstitution = {
+        legalName: tenant.legalName,
+        shortName: tenant.shortName,
+        primaryColor: tenant.primaryColor,
+        textColor: tenant.primaryColor ? textColorOn(tenant.primaryColor) : null,
+      };
+      throw Object.assign(new ProblemError(503, 'tenant.maintenance', 'Institution under maintenance', 'This institution’s UniVarse is closed for scheduled maintenance. Please try again shortly.'), { institution });
+    }
 
     req.tenant = tenant;
     setLogContext({ tenantId: tenant.tenantId }); // spec 0012 OB2: from the Host, never from input

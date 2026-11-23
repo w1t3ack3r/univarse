@@ -71,6 +71,7 @@ export const ERROR_MESSAGES = {
   'incident.no_institutions': 'No institution would be affected. Choose the institutions it affects.',
   'notice.already_withdrawn': 'This notice was already withdrawn.',
   'tenant.archived': 'This institution’s UniVarse account has closed.',
+  'tenant.maintenance': 'This institution’s UniVarse is closed for scheduled maintenance. Please try again shortly.',
   'tenant.not_offboardable': 'Only an institution that is live or onboarding can start offboarding. Resume a suspended one first.',
   'tenant.not_offboarding': 'This institution isn’t offboarding, or its window has already ended.',
   'tenant.offboarding_note': 'Add a note of 3 to 200 characters. It’s required when the reason is “Other”.',

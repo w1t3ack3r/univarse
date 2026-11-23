@@ -12,7 +12,7 @@ import { Queue, Worker } from 'bullmq';
 import { Redis } from 'ioredis';
 import { APP_CONFIG, type AppConfig } from '../../config/config.js';
 import { AuditWriter } from '../../shared/audit/audit-writer.js';
-import { PLATFORM_DB, ShardRegistry } from '../../shared/db/db.module.js';
+import { ON_SERVABLE_SHARD, PLATFORM_DB, ShardRegistry } from '../../shared/db/db.module.js';
 import { backgroundPass } from '../../shared/observability/background.js';
 import { FileStorage } from '../files/file-storage.js';
 import { QUEUE_PREFIX } from '../provisioning/provisioning-queue.js';
@@ -55,7 +55,7 @@ export class ExportPass {
   async pass(now = new Date(), offer: (exportId: string) => Promise<void> = (id) => this.enqueue(id)): Promise<PassCounts> {
     const c: PassCounts = { offered: 0, mirrored: 0, closedFailed: 0, expired: 0 };
     let failed = 0;
-    const served = await this.platform.tenant.findMany({ where: { status: { in: [...SERVED] } }, select: { id: true, shardId: true } });
+    const served = await this.platform.tenant.findMany({ where: { status: { in: [...SERVED] }, ...ON_SERVABLE_SHARD }, select: { id: true, shardId: true } });
     for (const t of served) {
       try {
         const rows = await this.shards.tx(t.shardId, t.id, (tx) =>
@@ -94,7 +94,7 @@ export class ExportPass {
   /** Q5: an institution that closed while its export waited gets none; its passphrase is wiped. */
   private async failClosed(now: Date): Promise<number> {
     const waiting = await this.platform.platformTenantExport.findMany({
-      where: { state: { in: ['REQUESTED', 'BUILDING'] }, tenant: { status: { in: [...CLOSED] } } },
+      where: { state: { in: ['REQUESTED', 'BUILDING'] }, tenant: { status: { in: [...CLOSED] }, ...ON_SERVABLE_SHARD } },
       select: { id: true, tenantId: true, tenant: { select: { shardId: true } } },
     });
     let n = 0;
@@ -118,7 +118,7 @@ export class ExportPass {
   /** Q8, Q-B10: a ready export's 7 days are up: its archive goes, then its row says so, audited. */
   private async expire(now: Date): Promise<number> {
     const due = await this.platform.platformTenantExport.findMany({
-      where: { state: 'READY', expiresAt: { lte: now } },
+      where: { state: 'READY', expiresAt: { lte: now }, tenant: ON_SERVABLE_SHARD },
       select: { id: true, tenantId: true, tenant: { select: { shardId: true } } },
     });
     let n = 0;

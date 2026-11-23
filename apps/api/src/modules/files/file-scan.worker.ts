@@ -13,7 +13,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import type { PlatformClient, TenantTx } from '@univarse/db';
 import { AuditWriter } from '../../shared/audit/audit-writer.js';
-import { PLATFORM_DB, ShardRegistry } from '../../shared/db/db.module.js';
+import { ON_SERVABLE_SHARD, PLATFORM_DB, ShardRegistry } from '../../shared/db/db.module.js';
 import { ClamdScanner, ScannerUnavailable } from './clamd-scanner.js';
 import { contentProblem } from './file-types.js';
 import { FileStorage } from './file-storage.js';
@@ -103,7 +103,7 @@ export class FileScanWorker {
       lost: 0,
     };
     const tenants = await this.platform.tenant.findMany({
-      where: { status: { in: [...SERVABLE] } },
+      where: { status: { in: [...SERVABLE] }, ...ON_SERVABLE_SHARD },
       select: { id: true, shardId: true },
     });
     for (const t of tenants) {
