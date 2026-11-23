@@ -1,6 +1,6 @@
 # Spec 0039: Phase 1's S8, shards and migrations
 
-**Status:** **Draft for the owner's approval** (Q1 to Q16).
+**Status:** **Approved by the owner on 2026-11-23, all as written:** Q1 to Q16, and the `[VERIFY]` numbers (a pool's capacity of 50, pool sizes of 10 and 3, a minimum of 2 ready shards) until load tests replace them.
 **Phase:** 1, slice **S8** of [spec 0025](0025-phase-1-control-plane.md), the last slice of Phase 1.
 **Builds on:**
 
