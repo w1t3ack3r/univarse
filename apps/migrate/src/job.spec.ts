@@ -131,7 +131,7 @@ describe('[LS4] the migrate job', () => {
 
   it('[B-14] --check-only fails on the platform’s pending migration, and on any shard’s problem', async () => {
     await expect(runJob(ENV, recorder('status:platform').steps, { checkOnly: true })).rejects.toThrow(/status:platform failed/);
-    await expect(runJob(ENV, recorder(undefined, { shardProblems: ['pool-01: t: no RLS'] }).steps, { checkOnly: true })).rejects.toThrow(/check-only failed \(1 problem\(s\)\):\n  pool-01: t: no RLS/);
+    await expect(runJob(ENV, recorder(undefined, { shardProblems: ['pool-01: t: no RLS'] }).steps, { checkOnly: true })).rejects.toThrow(/check-only failed \(1 problem\(s\)\):\n {2}pool-01: t: no RLS/);
   });
 
   it('[B-3] the backup verifier is optional with the bootstrap, and refused without it', () => {
