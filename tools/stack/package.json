@@ -17,6 +17,7 @@
     "keys": "tsx src/keys.ts",
     "purge": "tsx src/purge.ts",
     "clock": "tsx src/clock.ts",
+    "shards": "tsx src/shards.ts",
     "bucket-check": "tsx src/bucket-check.ts",
     "console": "tsx src/console.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",

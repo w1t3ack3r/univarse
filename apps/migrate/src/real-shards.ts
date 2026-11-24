@@ -54,8 +54,8 @@ export async function appliedMigrations(url: string): Promise<readonly string[] 
 }
 
 /** `prisma migrate <command>` for one tenant database; rejects on a non-zero exit. Its output is shown. */
-export function prismaTenant(o: Pick<RealShardOptions, 'prismaCli' | 'tenantConfig'>, command: 'deploy' | 'status', url: string): Promise<void> {
-  const r = spawnSync(process.execPath, [o.prismaCli, 'migrate', command, '--config', o.tenantConfig], {
+export function prismaTenant(o: Pick<RealShardOptions, 'prismaCli' | 'tenantConfig'>, command: 'deploy' | 'status' | 'resolve', url: string, extra: readonly string[] = []): Promise<void> {
+  const r = spawnSync(process.execPath, [o.prismaCli, 'migrate', command, ...extra, '--config', o.tenantConfig], {
     stdio: 'inherit',
     env: { ...process.env, TENANT_MIGRATE_URL: url, CHECKPOINT_DISABLE: '1', PRISMA_HIDE_UPDATE_MESSAGE: '1' },
   });

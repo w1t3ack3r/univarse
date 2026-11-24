@@ -106,6 +106,11 @@ The integration suite creates two tenants with identical data shapes and asserts
   - every connection sends `-c TimeZone=UTC` (`packages/db/src/pool.ts`), and PgBouncer carries that option to the server;
   - `db:setup` also gives the app roles a `timezone = 'UTC'` default, for any session that sends nothing. It is a default, not a force.
 - **Authentication (PB9):** PgBouncer's `auth_file` holds each app role's SCRAM verifier, copied exactly from `pg_authid` by `db:setup`, and is owner-only. There is no forced `user=`, and the admin console belongs to `pgbouncer_admin`, which is not a PostgreSQL role.
+- **Dedicated databases ([spec 0039](specs/0039-shards-and-migrations.md) PR B):** PgBouncer lists the platform and `pool_01` explicitly, and serves every dedicated database (`univarse_t_…`) through one fallback entry (`* = host=postgres port=5432 pool_size=3`). A new dedicated database therefore needs no edit or reload. The fallback reaches only databases a role may connect to:
+  - the bootstrap revokes `CONNECT` on `postgres` and `template1` from PUBLIC;
+  - a dedicated database grants it to `univarse_app` alone.
+
+  The API reaches one through the `local` server's template, `DB_SERVER_LOCAL_APP_URL`, with only a dedicated database's name put in (T37).
 - **Saturation:** PgBouncer's `query_wait_timeout` ending a wait in its queue is shed as `503 server.busy`, like Prisma's own transaction wait ([ADR-026](19-decision-log.md); spec 0017 PB7).
 - **In the deployed path** (the local production-like stack, [spec 0019](specs/0019-local-production-stack.md)): the API's and worker's only route to PostgreSQL is PgBouncer, with client TLS required (`client_tls_sslmode = require`) and PostgreSQL verified against the stack CA (`server_tls_sslmode = verify-full`). The app connects with `sslmode=verify-full`. The migrate job connects directly, as above.
 - **The evidence:** the probes and the three isolation suites run through PgBouncer in CI (`pgbouncer-isolation`), and are compared with the direct run (`pgbouncer-compare`); see [12 §3](12-testing-strategy.md).

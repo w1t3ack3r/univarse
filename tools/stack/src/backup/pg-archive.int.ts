@@ -25,7 +25,7 @@ const container = `uv-pgarch-${id}`;
 function resolved(): { user?: string; command: string[] } {
   const dir = mkdtempSync(join(tmpdir(), 'uv-pgarch-compose-'));
   try {
-    for (const f of ['postgres.env', 'migrate.env', 'api.env', 'worker.env', 'web.env', 'keys.env', 'purge.env', 'clock.env', 'backup.env', 'platform-api.env', 'console.env']) writeFileSync(join(dir, f), '');
+    for (const f of ['postgres.env', 'migrate.env', 'api.env', 'worker.env', 'web.env', 'keys.env', 'purge.env', 'clock.env', 'shards.env', 'backup.env', 'platform-api.env', 'console.env']) writeFileSync(join(dir, f), '');
     const stand = Object.fromEntries(Object.values(ROLE_VARS).map((v) => [v, `localhost:5000/x@sha256:${'1'.repeat(64)}`]));
     const r = spawnSync('docker', ['compose', '-p', PROJECT, '-f', COMPOSE_FILE, 'config', '--format', 'json'], { encoding: 'utf8', env: { ...process.env, UNIVARSE_STACK_DIR: dir, ...stand } });
     if (r.status !== 0) throw new Error(`docker compose config failed: ${r.stderr}`);

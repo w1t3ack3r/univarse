@@ -52,6 +52,10 @@ export type EnvFile = Readonly<Record<string, string>>;
 const PG = 'postgres:5432';
 const BOUNCER = 'pgbouncer:6432';
 const enc = encodeURIComponent;
+/** Spec 0039 Q4: where a server's URL template takes a dedicated database's name. */
+export const DATABASE_PLACEHOLDER = '{database}';
+/** Spec 0039 Q3, Q6: a dedicated database's PgBouncer pool (the migrate app's `DEDICATED_POOL_SIZE`, pinned in a test). */
+export const DEDICATED_POOL_SIZE = 3;
 /**
  * Every database connection verifies its server against the stack CA (D7), as `sslmode=verify-full`. The API and
  * worker trust the CA through NODE_EXTRA_CA_CERTS. The migrate job's URLs, direct to PostgreSQL, also name the CA in
@@ -72,6 +76,9 @@ function appCommon(s: StackSecrets, v: VaultTokens): EnvFile {
     NODE_EXTRA_CA_CERTS: '/ca/ca.crt',
     PLATFORM_DATABASE_URL: url('univarse_app_platform', s.roles.appPlatform, BOUNCER, 'univarse_platform'),
     TENANT_POOL_01_DATABASE_URL: url('univarse_app', s.roles.app, BOUNCER, 'univarse_pool_01'),
+    // Spec 0039 Q4: the `local` server's template for a dedicated database, through PgBouncer's fallback entry; the app
+    // puts in only a dedicated database's name (packages/db/src/shard-url.ts).
+    DB_SERVER_LOCAL_APP_URL: url('univarse_app', s.roles.app, BOUNCER, DATABASE_PLACEHOLDER),
     VALKEY_URL: `redis://:${enc(s.valkeyPassword)}@valkey:6379`,
     SESSION_PEPPER: s.sessionPepper,
     KEY_PROVIDER: 'vault',
@@ -90,6 +97,27 @@ function appCommon(s: StackSecrets, v: VaultTokens): EnvFile {
 
 export function renderEnvFiles(s: StackSecrets, v: VaultTokens): Readonly<Record<string, EnvFile>> {
   const common = appCommon(s, v);
+  const migrateEnv: EnvFile = {
+    NODE_ENV: 'production',
+    NODE_EXTRA_CA_CERTS: '/ca/ca.crt',
+    BOOTSTRAP_SUPERUSER_URL: direct('postgres', s.postgresSuperuser, 'postgres'),
+    ROLE_VERIFIER_MIGRATOR: s.verifiers.migrator,
+    ROLE_VERIFIER_APP: s.verifiers.app,
+    ROLE_VERIFIER_APP_PLATFORM: s.verifiers.appPlatform,
+    ROLE_VERIFIER_RELAY_PLATFORM: s.verifiers.relayPlatform,
+    ROLE_VERIFIER_BACKUP: s.backupVerifier,
+    ...(s.consoleVerifier ? { ROLE_VERIFIER_CONSOLE: s.consoleVerifier } : {}),
+    PLATFORM_MIGRATOR_URL: direct('univarse_migrator', s.roles.migrator, 'univarse_platform'),
+    TENANT_POOL_01_MIGRATOR_URL: direct('univarse_migrator', s.roles.migrator, 'univarse_pool_01'),
+    // Spec 0039 Q4: every dedicated database, as the migrator, direct (PB8).
+    DB_SERVER_LOCAL_MIGRATOR_URL: direct('univarse_migrator', s.roles.migrator, DATABASE_PLACEHOLDER),
+    PLATFORM_DATABASE_URL: direct('univarse_app_platform', s.roles.appPlatform, 'univarse_platform'),
+    TENANT_POOL_01_DATABASE_URL: direct('univarse_app', s.roles.app, 'univarse_pool_01'),
+    SEED_DOMAIN: STACK_DOMAIN,
+    KEY_PROVIDER: 'vault',
+    VAULT_ADDR: 'https://vault:8200', // C2: TLS only, verified against the stack CA (NODE_EXTRA_CA_CERTS)
+    VAULT_TOKEN: v.appToken,
+  };
   return {
     'postgres.env': { POSTGRES_PASSWORD: s.postgresSuperuser },
     'api.env': {
@@ -143,6 +171,8 @@ export function renderEnvFiles(s: StackSecrets, v: VaultTokens): Readonly<Record
       NODE_EXTRA_CA_CERTS: '/ca/ca.crt',
       PLATFORM_MIGRATOR_URL: direct('univarse_migrator', s.roles.migrator, 'univarse_platform'),
       TENANT_POOL_01_MIGRATOR_URL: direct('univarse_migrator', s.roles.migrator, 'univarse_pool_01'),
+      // Spec 0039 Q13: a dedicated institution's rows, on its own database.
+      DB_SERVER_LOCAL_MIGRATOR_URL: direct('univarse_migrator', s.roles.migrator, DATABASE_PLACEHOLDER),
       S3_ENDPOINT: 'http://seaweedfs:8333',
       S3_ACCESS_KEY: s.s3AccessKey,
       S3_SECRET_KEY: s.s3SecretKey,
@@ -154,26 +184,12 @@ export function renderEnvFiles(s: StackSecrets, v: VaultTokens): Readonly<Record
       NODE_EXTRA_CA_CERTS: '/ca/ca.crt',
       PLATFORM_DATABASE_URL: common.PLATFORM_DATABASE_URL ?? '',
       TENANT_POOL_01_DATABASE_URL: common.TENANT_POOL_01_DATABASE_URL ?? '',
+      DB_SERVER_LOCAL_APP_URL: common.DB_SERVER_LOCAL_APP_URL ?? '',
     },
-    'migrate.env': {
-      NODE_ENV: 'production',
-      NODE_EXTRA_CA_CERTS: '/ca/ca.crt',
-      BOOTSTRAP_SUPERUSER_URL: direct('postgres', s.postgresSuperuser, 'postgres'),
-      ROLE_VERIFIER_MIGRATOR: s.verifiers.migrator,
-      ROLE_VERIFIER_APP: s.verifiers.app,
-      ROLE_VERIFIER_APP_PLATFORM: s.verifiers.appPlatform,
-      ROLE_VERIFIER_RELAY_PLATFORM: s.verifiers.relayPlatform,
-      ROLE_VERIFIER_BACKUP: s.backupVerifier,
-      ...(s.consoleVerifier ? { ROLE_VERIFIER_CONSOLE: s.consoleVerifier } : {}),
-      PLATFORM_MIGRATOR_URL: direct('univarse_migrator', s.roles.migrator, 'univarse_platform'),
-      TENANT_POOL_01_MIGRATOR_URL: direct('univarse_migrator', s.roles.migrator, 'univarse_pool_01'),
-      PLATFORM_DATABASE_URL: direct('univarse_app_platform', s.roles.appPlatform, 'univarse_platform'),
-      TENANT_POOL_01_DATABASE_URL: direct('univarse_app', s.roles.app, 'univarse_pool_01'),
-      SEED_DOMAIN: STACK_DOMAIN,
-      KEY_PROVIDER: 'vault',
-      VAULT_ADDR: 'https://vault:8200', // C2: TLS only, verified against the stack CA (NODE_EXTRA_CA_CERTS)
-      VAULT_TOKEN: v.appToken,
-    },
+    'migrate.env': migrateEnv,
+    // Spec 0039 Q5: `pnpm stack:shards`' job: the migrate job's settings (the superuser only to create and drop a
+    // database), and the app's template through PgBouncer, to reach a new database the way the API will.
+    'shards.env': { ...migrateEnv, DB_SERVER_LOCAL_APP_URL: common.DB_SERVER_LOCAL_APP_URL ?? '' },
   };
 }
 
@@ -230,6 +246,10 @@ export function renderPgBouncerIni(): string {
     '; Generated by pnpm stack:deploy (spec 0019). The stack only.',
     '[databases]',
     ...['univarse_platform', 'univarse_pool_01'].map((d) => `${d} = host=postgres port=5432 dbname=${d}`),
+    // Spec 0039 Q5, Q6: every dedicated database (`univarse_t_…`), each its own pool of 3, with no edit or reload when one
+    // is made. It reaches only databases a role may connect to: the bootstrap revokes CONNECT on postgres and template1
+    // from PUBLIC, and a dedicated database grants it to univarse_app alone.
+    `* = host=postgres port=5432 pool_size=${String(DEDICATED_POOL_SIZE)}`,
     '',
     '[pgbouncer]',
     'listen_addr = 0.0.0.0',

@@ -11,7 +11,8 @@ import { createPlatformClient } from '@univarse/db';
 import { bootstrap, rlsCheck, seed } from '@univarse/db-ops';
 import { runJob, type JobEnv } from './job.js';
 import { appliedMigrations, commitFrom, databaseOf, prismaTenant, realShardSteps, recordPlatformRun } from './real-shards.js';
-import { migrateShards, newlyApplied, type RunOutcome } from './shards.js';
+import { migrateShards, newlyApplied, type RunOutcome, type ShardsResult } from './shards.js';
+import { list, readyWarning } from './shard-ops.js';
 
 const require = createRequire(import.meta.url);
 const PRISMA_CLI = require.resolve('prisma/build/index.js');
@@ -90,11 +91,16 @@ await runJob(process.env, {
   },
   migrateShards: async (env) => {
     const steps = await shardSteps(env, (l) => console.log(l));
+    let result: ShardsResult;
     try {
-      return await migrateShards(steps);
+      result = await migrateShards(steps);
     } finally {
       await steps.close();
     }
+    // Spec 0039 Q5: the deploy shows it when too few dedicated databases are ready.
+    const warning = readyWarning((await list({ platformMigratorUrl: need(env, 'PLATFORM_MIGRATOR_URL') })).ready);
+    if (warning) console.log(`[migrate] WARN ${warning}`);
+    return result;
   },
   status: () => prismaPlatform('status'),
   // B-14: every shard up to date and isolated; changes nothing (no run is recorded, no status set).
