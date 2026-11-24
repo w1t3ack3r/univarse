@@ -152,6 +152,7 @@ beforeAll(async () => {
     name: SERVER,
     migratorTemplate: at(ROLES.migrator, passwords.migrator, '{database}'),
     admin: connectAsSuperuser,
+    from: 'postgres',
   };
   ded = await readyDedicatedShard(server, PLATFORM_MIGRATOR);
   there = createTenantShardClient(ded.migratorUrl);

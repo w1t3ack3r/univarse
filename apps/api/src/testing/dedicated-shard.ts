@@ -42,6 +42,11 @@ export interface TestServer {
   readonly migratorTemplate: string;
   /** A connection that may create and drop databases there, to the given database. */
   readonly admin: (database: string) => Promise<pg.Client>;
+  /**
+   * The database `admin` opens to create or drop another. The bootstrap closes `postgres` to PUBLIC (spec 0039 Q-B2),
+   * so on development's server the migrator works from `univarse_pool_01`; a superuser may use `postgres`.
+   */
+  readonly from: string;
 }
 
 /** Development's server, as the migrator. */
@@ -51,6 +56,7 @@ export function localServer(env: NodeJS.ProcessEnv = process.env): TestServer {
   return {
     name: 'local',
     migratorTemplate,
+    from: 'univarse_pool_01',
     admin: async (database) => {
       const c = new pg.Client({
         connectionString: migratorTemplate.replace('{database}', database),
@@ -95,7 +101,7 @@ export async function readyDedicatedShard(
 ): Promise<DedicatedShard> {
   const suffix = randomBytes(6).toString('hex');
   const database = `univarse_t_${suffix}`;
-  const admin = await server.admin('postgres');
+  const admin = await server.admin(server.from);
   try {
     await createDedicatedDatabase(admin, (d) => server.admin(d), database);
   } finally {
@@ -142,7 +148,7 @@ export async function dropDedicatedShard(
   s: DedicatedShard,
   platformMigratorUrl: string,
 ): Promise<void> {
-  const admin = await s.server.admin('postgres');
+  const admin = await s.server.admin(s.server.from);
   try {
     await dropDedicatedDatabase(admin, s.database);
   } finally {
