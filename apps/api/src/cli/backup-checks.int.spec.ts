@@ -34,7 +34,7 @@ beforeAll(async () => {
   provider = keyProviderFrom(config);
   crypto = ctx.get(FieldCrypto);
   // Another scratch tenant with an encrypted value of its own: the cross-tenant control.
-  const shardId = (await platform.shard.findFirstOrThrow({ where: { isActive: true } })).id;
+  const shardId = (await platform.shard.findUniqueOrThrow({ where: { name: 'pool-01' } })).id;
   const t = await platform.tenant.create({
     data: { slug: `bk-other-${randomBytes(3).toString('hex')}`, legalName: 'Backup checks', shortName: 'BK', type: 'UNIVERSITY', ownership: 'PRIVATE', status: 'ARCHIVED', shardId },
   });

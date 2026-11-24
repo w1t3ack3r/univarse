@@ -5,6 +5,7 @@ import { existsSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { coverageReport } from './conformance.js';
+import { useLocalTemplates } from './dedicated-shard.js';
 import { pruneRetiredTestStaff } from './staff-cleanup.js';
 import { createTenantShardClient } from '@univarse/db';
 import { Redis } from 'ioredis';
@@ -17,6 +18,8 @@ export default async function setup(): Promise<() => Promise<void>> {
 
   const rootEnv = new URL('../../../../.env', import.meta.url);
   if (existsSync(rootEnv)) process.loadEnvFile(rootEnv);
+  // Spec 0039 Q4: the local server's templates, for dedicated databases; every test worker inherits them.
+  useLocalTemplates();
 
   const problems: string[] = [];
 

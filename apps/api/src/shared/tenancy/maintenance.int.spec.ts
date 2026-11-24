@@ -41,7 +41,7 @@ beforeAll(async () => {
   const server = await migrator.dbServer.findUniqueOrThrow({ where: { name: 'local' }, select: { id: true } });
   shardId = (
     await migrator.shard.create({
-      data: { name: `t-${suffix}`, kind: 'DEDICATED', secretRef: 'UNUSED_DATABASE_URL', region: 'local', serverId: server.id, database: `univarse_t_${suffix}`, capacity: 1, poolSize: 3, status: 'MAINTENANCE' },
+      data: { name: `t-${suffix}`, kind: 'DEDICATED', secretRef: 'UNUSED_DATABASE_URL', region: 'local', serverId: server.id, database: `univarse_t_${suffix}`, capacity: 1, poolSize: 3, status: 'ACTIVE' },
       select: { id: true },
     })
   ).id;
@@ -51,6 +51,8 @@ beforeAll(async () => {
       select: { id: true },
     })
   ).id;
+  // Spec 0039 PR C: placed while the shard is open (the placement trigger), then put in maintenance.
+  await migrator.shard.update({ where: { id: shardId }, data: { status: 'MAINTENANCE' } });
   await migrator.tenantDomain.create({ data: { tenantId, hostname: host, kind: 'SUBDOMAIN', verifiedAt: new Date() } });
   await migrator.tenantBranding.create({ data: { tenantId, primaryColor: '#1F4E79' } });
   app = await createApp(loadConfig({ ...process.env, NODE_ENV: 'test', LOG_LEVEL: 'silent' }));

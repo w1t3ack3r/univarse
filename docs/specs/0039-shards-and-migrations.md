@@ -1,6 +1,6 @@
 # Spec 0039: Phase 1's S8, shards and migrations
 
-**Status:** **Approved by the owner on 2026-11-23, all as written:** Q1 to Q16, and the `[VERIFY]` numbers (a pool's capacity of 50, pool sizes of 10 and 3, a minimum of 2 ready shards) until load tests replace them. **PR A's decisions Q-A1 to Q-A12 approved on 2026-11-24**, including Q-A3's proposal: new migrations wrap themselves in `BEGIN … COMMIT`, except a `CREATE INDEX CONCURRENTLY` (its own migration).
+**Status:** **Approved by the owner on 2026-11-23, all as written:** Q1 to Q16, and the `[VERIFY]` numbers (a pool's capacity of 50, pool sizes of 10 and 3, a minimum of 2 ready shards) until load tests replace them. **PR A's decisions Q-A1 to Q-A12 approved on 2026-11-24**, including Q-A3's proposal: new migrations wrap themselves in `BEGIN … COMMIT`, except a `CREATE INDEX CONCURRENTLY` (its own migration). **PR B's decisions Q-B1 to Q-B8 approved on 2026-11-24.** **Q7 changed by the owner on 2026-11-24:** a dedicated institution claims its database when the console creates it, and is refused at once when none is ready (see "PR C: the design").
 **Phase:** 1, slice **S8** of [spec 0025](0025-phase-1-control-plane.md), the last slice of Phase 1.
 **Builds on:**
 
@@ -59,7 +59,7 @@ Phase 1 ends with every institution's lifecycle in the console. One piece is mis
 
 1. Every new route declares its permission, the route sweeps cover them, and out of scope is 404.
 2. A pooled and a dedicated-database institution are provisioned through the same steps, each on the right shard; a dedicated-cluster one in the integration test with a second PostgreSQL (Q14).
-3. Placement never exceeds a pool's capacity; a full set of pools refuses a pooled request; with no ready shard, a dedicated provisioning fails with `no_shard` and resumes after `stack:shards ready`.
+3. Placement never exceeds a pool's capacity; a full set of pools refuses a pooled request; with no ready shard, a dedicated provisioning ~~fails with `no_shard` and resumes after `stack:shards ready`~~ is refused at once with 409 `provisioning.no_ready_shard` (the owner's change to Q7, 2026-11-24), and succeeds after `stack:shards ready`.
 4. `stack:shards ready` refuses past the connection budget, and the API and the worker can't create a database or a role (a test reads their grants).
 5. **Migrations run per shard, each recorded. A failure on one shard sets it to maintenance, its institutions answer 503, every other shard is migrated and serves the new release, and the console shows the failure** (spec 0025 S8). A retry returns it to service.
 6. A dedicated institution's rows exist only in its own database; `rls:check` and the cross-tenant suite pass on a pool and a dedicated shard.
@@ -310,7 +310,7 @@ Written before the code, as the self-review asks; what changes while building is
   - One survived at first ("ready past the budget"): the test spent the budget entirely, so a guard that only refused a negative budget still passed. It now sets exactly 2 connections left.
 - **On the stack:** PgBouncer's fallback entry is proved by `stack:shards ready`'s own reach check, through PgBouncer as the app, in criterion 9. Neither development nor CI runs the stack's PgBouncer.
 
-**Decisions made while building (for the owner's approval):**
+**Decisions made while building (approved by the owner on 2026-11-24):**
 
 | # | Decision | Why |
 | --- | --- | --- |
@@ -322,3 +322,145 @@ Written before the code, as the self-review asks; what changes while building is
 | Q-B6 | **`retire` needs a complete backup set newer than the last purge on that database;** a database that never had an institution needs none. | A purge leaves backups as the only copy until they expire; the newest set after it must not be one that still holds the data unencrypted. |
 | Q-B7 | **The templates are added now to the clock, keys and purge jobs' files;** the purge's own use of them comes with PR C, when a dedicated institution can exist. | One env-file change per job, made once. |
 | Q-B8 | **Three new platform audit actions, written by the host command with no actor:** `platform.shard.readied`, `platform.shard.migration_resolved`, `platform.shard.retired`. The labels test now reads `apps/migrate` too. | Consequential actions are audited (invariant 12), as the purge's host steps are. |
+
+## PR C: the design
+
+Written before the code, as the self-review asks; what changes while building is listed under "PR C: what was built".
+
+**Q7 as the owner changed it (2026-11-24): a dedicated institution claims its database at creation.** Q7 had the institution created without a shard and the worker claiming one later, failing with `no_shard` and resuming. That made `tenant.shard_id` nullable, and 164 places in 31 API files read it as always set. The owner chose instead:
+- the console's create request claims a `READY` dedicated database **in its own transaction**, before the institution is written;
+- with none ready, it is **refused at once** (409), and nothing is written;
+- `tenant.shard_id` stays `NOT NULL`, and the worker's steps don't change.
+
+**The create request (`POST /platform/v1/tenants`):**
+- **The body gains `level`:** `POOLED` (the default, so today's callers are unchanged) or `DEDICATED`.
+- **Pooled:** the active pool with the fewest institutions, among those **under their capacity** (purged institutions don't count).
+  - Every active pool full: **409 `provisioning.no_pool_room`**, "Every pool is full: add one before provisioning".
+  - No active pool at all stays 503 `provisioning.unavailable`, as today.
+- **Dedicated:** in the create transaction, `SELECT public.claim_ready_shard()`:
+  - one statement: `UPDATE shard SET status = 'ACTIVE' … WHERE id = (SELECT id … WHERE kind = 'DEDICATED' AND status = 'READY' ORDER BY status_changed_at, id LIMIT 1 FOR UPDATE SKIP LOCKED) RETURNING id`, so two requests never claim the same one;
+  - `SECURITY DEFINER`, owned by the migrator, `search_path` fixed; `EXECUTE` for the console's role alone. The console still can't write `shard`;
+  - nothing returned: **409 `provisioning.no_ready_shard`**, "No dedicated database is ready: run pnpm stack:shards ready";
+  - a later failure in the same transaction (a taken subdomain) rolls the claim back with it.
+- **The audit event** (`platform.tenant.provisioning_requested`) gains `level` and `shardId`.
+
+**The database keeps placement honest, for every role (a trigger on `tenant`):** `place_tenant`, `BEFORE INSERT OR UPDATE OF shard_id, tier`. It is `SECURITY DEFINER` (it locks the shard row, which no runtime role may update), owned by the migrator. It:
+- locks the shard row, so two placements on one pool are counted one after the other;
+- refuses a shard that isn't `ACTIVE` (a ready one must be claimed first; one in maintenance or retired takes no one);
+- refuses a pool at its capacity, and a dedicated database that has ever held an institution;
+- sets `tier` from the shard's kind (`DEDICATED` or `POOLED`), so a tier can't disagree with where the data is.
+
+The API maps the trigger's refusal on a full pool to the same 409; its own check first gives the plain answer without a failed insert.
+
+**The console's New institution form gains Level:** "Pooled (a shared database)" and "Dedicated database", Pooled selected. Both 409s show in plain words beside the form. Built with impeccable (`--target apps/console`), checked with axe on desktop and phone.
+
+**The purge on a dedicated database (Q13):** its rows step reaches **the institution's own shard** as the migrator, through `shardUrl(…, 'migrator')`: a pool's `…_MIGRATOR_URL`, or a dedicated database's server template, both already in `purge.env` (Q-B7). It no longer assumes `pool_01`. An institution whose shard has no usable URL is refused before anything is deleted.
+
+**Backups:** no change in kind.
+- `pg_basebackup` copies the whole server, so a dedicated database is in every set.
+- The facts and the rehearsal's checks (row counts, chains, decrypt) go through `ShardRegistry`, which reaches a dedicated database through the keys job's template (PR B).
+- An integration test proves `backup-facts` and `verify-chains` cover an institution on a dedicated shard.
+- The shred drill's tenant stays on a pool.
+
+**Shard health (Q11):**
+- **A platform table, `shard_health`:** one row per shard, upserted with:
+  - `checked_at`, `ok` and `latency_ms`;
+  - `last_success_at`;
+  - a fixed `error_code` (`unreachable`, `timeout`, `no_credentials`, `unexpected`), never a driver's message.
+- **A worker pass every minute** (`SHARD_HEALTH_INTERVAL_MS`, 60 s) over every shard not `RETIRED`:
+  - `ShardRegistry.probe(shardId)`: `SELECT 1` with a 5 s limit;
+  - it **bypasses the maintenance gate**, so a shard in maintenance is still checked;
+  - one shard's failure is recorded and the pass goes on.
+- **Grants:** the worker's role may `SELECT`, `INSERT` and `UPDATE` the table; the console's role reads it, for PR D's page. The console still has no tenant credential (spec 0025 A2).
+
+**Development:**
+- `pnpm db:setup` writes the `local` server's two templates into `.env` for new setups.
+- The integration tests derive them from `pool_01`'s URLs, as PR B's did, so existing `.env` files keep working.
+
+**Q14, a second PostgreSQL:**
+- An API integration test starts a throwaway **`postgres:18` with `docker run`**: a random local port, a random superuser password held only in memory, removed afterwards.
+  - Not the Testcontainers library, which this repository doesn't use; one CLI call doesn't need a new dependency.
+  - It runs wherever the integration tests run: CI's runner and this machine both have Docker.
+- On it, the test:
+  1. creates UniVarse's roles with the bootstrap's own code;
+  2. creates a dedicated database with `createDedicatedDatabase`;
+  3. applies the tenant migrations and runs `rls:check`.
+- It registers server `second` (`DB_SERVER_SECOND`) and the shard `READY` on the development platform, then provisions an institution there through the console's create request and the worker's steps.
+- It proves:
+  - the institution's rows are on the second server and nowhere on the first;
+  - its isolation holds there.
+- Its rows are removed at the end.
+
+**Q15, isolation:**
+- **A dedicated-shard isolation test** (an institution provisioned on a dedicated database, beside `demo-uni` on the pool):
+  - its rows exist only in its own database;
+  - each institution's host answers 404 for the other's records;
+  - each one's id, opened on the other's shard, reads nothing.
+- **The route sweep stays on the seeded pair**, `demo-uni` and `test-poly`, both on `pool-01`. Moving one of them to a dedicated database would change every other test's fixtures; the new test covers the dedicated side.
+- **A grants test reads the roles:**
+  - the API's, the worker's and the console's roles have no `CREATEDB`, no `CREATEROLE` and no superuser;
+  - none may write `shard` or `db_server`;
+  - the console may execute `claim_ready_shard` and nothing else that writes a shard.
+- **`rls:check`** already runs on every shard in the migrate job (PR A) and on a ready database in PR B's test.
+
+**Tests:**
+- **Unit:** pool choice under capacity; the 409s' mapping; the contract's default; the health error codes; the pass going on past a failure.
+- **Integration:**
+  - the claim: one request claims one database, two never claim the same one (`SKIP LOCKED`), and none ready is refused;
+  - the trigger: a full pool, a reused dedicated database and a shard not `ACTIVE`, each for the console's and the app's role, and the tier set;
+  - the purge on a dedicated institution;
+  - backup facts and chains on a dedicated institution;
+  - the health pass, including a shard in maintenance;
+  - Q14's second server; Q15's isolation and grants.
+- **E2E:** the console provisions a dedicated institution, after the test readies a database. The refusal's words are checked in the form's unit test, since the shared development database may hold ready ones.
+- **Mutation checks:** the capacity check (API and trigger), the claim's single statement and `SKIP LOCKED`, the trigger's `ACTIVE` rule and its tier, the purge's shard, the probe bypassing the gate.
+
+## PR C: what was built
+
+**Built:**
+- **Placement by level, claimed at creation** (Q7 as the owner changed it):
+  - the create request's `level` (`POOLED` by default, or `DEDICATED`);
+  - the pool chosen under its capacity (`choosePool` in `packages/domain`), and 409 `provisioning.no_pool_room` when every pool is full;
+  - a ready database claimed in the create transaction (`claim_ready_shard()`), and 409 `provisioning.no_ready_shard` when none is ready, with nothing written;
+  - the audit event carrying the level and the shard.
+- **The database's rule, `tenant_place`:** a shard that isn't `ACTIVE` takes no one; a pool takes up to its capacity; a dedicated database takes one, ever; the tier is the shard's kind. The capture gate checks both functions (definer, owned by the migrator, `search_path` fixed, not PUBLIC) and the trigger (`ENABLE ALWAYS`).
+- **The console's New institution form:** "Where its data lives", Pooled or Dedicated database, with both refusals beside the choice and above the form.
+- **The purge on a dedicated database:** the rows step reaches the institution's own shard as the migrator (`migratorShards`, through `shardUrl`), and refuses one with no URL (`no_shard_url`) before deleting anything.
+- **Backups with a shard in maintenance:** the facts and the rehearsal's tenant checks pass over its institutions and name them (`skipped`).
+- **Shard health:** `shard_health`, the worker's pass every minute (`ShardHealthPass`, `ShardRegistry.probe`), its grants.
+- **Development:**
+  - `pnpm db:setup` writes the `local` server's two templates;
+  - its PgBouncer config gains the fallback entry the stack has;
+  - `pnpm db:seed` gives development's pool room for its tests' institutions.
+- **Docs:** 03, 07 §3.5, 08 (T37, T39), 10 (the runbook), 12 §3, 18.
+
+**Evidence:**
+- **Unit:** every package passes (API 462, the health pass's 4 among them; domain 161, the pool choice's 5 among them; `tools/stack` 639, one skipped as before; the migrate app 31; PgBouncer's config 23, its fallback entry among them).
+- **Integration, on the development databases:**
+  - `placement.int.spec.ts` 17, `shard-health.int.spec.ts` 5, `dedicated.int.spec.ts` 6, `second-server.int.spec.ts` 4, and the purge's suite 9 with its two dedicated tests;
+  - `packages/db` 55, `packages/crypto` 19, the migrate app 10 (one CI-only, as before);
+  - the whole API suite passes except the file scanner's tests, run without ClamAV on this machine (0.7 GB free); CI runs them with it.
+- **E2E:** the console's level and refusal (desktop and phone, axe), J1 unchanged, and the web app's maintenance page (4).
+- **Mutations: 17 tried, 17 caught:**
+  - the trigger: a shard not `ACTIVE` taking one, a pool past capacity, a dedicated database reused once purged, the tier not set, the migrator's exemption widened to everyone;
+  - the claim: without `SKIP LOCKED`, any dedicated shard ready or not;
+  - the pool choice: a full pool chosen, purged institutions counted, the 409 answered as something else, the claim never asked;
+  - health: the probe through the maintenance gate, retired shards checked, a failure forgetting the last success, the pass stopping at a failure;
+  - the purge on the pool whatever the shard; the backups reading a shard in maintenance.
+- **Fixtures:** five suites picked "the first active shard" (four by the retired `is_active`); they now name `pool-01`, since a dedicated database can be active too.
+
+**Decisions made while building (for the owner's approval):**
+
+| # | Decision | Why |
+| --- | --- | --- |
+| Q-C1 | **A dedicated institution claims its database when the console creates it, and is refused at once when none is ready** (409 `provisioning.no_ready_shard`), instead of Q7's create-then-fail-and-resume. **The owner chose this on 2026-11-24**, before the design; it is recorded here with the rest. | `tenant.shard_id` stays `NOT NULL`: 164 places in 31 API files read it as always set. The worker's steps don't change, and nothing waits half-made for a database. |
+| Q-C2 | **The placement rule binds the runtime roles** (console, app, relay); **the migrator, the schema's owner, is exempt from its refusals.** The tier follows the shard for every login. | Three test suites keep several scratch institutions on one retired shard, as the migrator. The migrator could drop the trigger anyway, so the exemption gives away nothing the threat model guards. |
+| Q-C3 | **Development's and CI's pool takes 10 000 institutions** (`pnpm db:seed` sets it before seeding); the stack keeps the approved 50. | Development's database already holds 285 test institutions on `pool-01`; at 50, every test that makes one would be refused. |
+| Q-C4 | **The backup's facts and the rehearsal's tenant checks pass over institutions on a shard in maintenance or retired, and name them** (`skipped`). | Found while building: since PR A's gate, one shard in maintenance would have failed every backup and rehearsal, against Q9's "a failure blocks nothing else". The base backup still copies every database. |
+| Q-C5 | **Development's and CI's PgBouncer gets the stack's fallback entry** (`* = host=… port=…`, at the profile's pool size). | CI runs the API's integration suite through PgBouncer too, and the dedicated databases' tests reach them through the app's template there. |
+| Q-C6 | **The second PostgreSQL (Q14) is started by the test with `docker run`**, not the Testcontainers library Q14 named. | The repository doesn't use the library; one CLI call needs no new dependency. Docker is on CI's runner and on this machine. |
+| Q-C7 | **The route sweep stays on the seeded pair**; the dedicated side has its own isolation tests: rows only in its database, each host signing in only its own people, each id reading nothing on the other's shard. | Moving `test-poly` to a dedicated database would change every other suite's fixtures. Q15's "the cross-tenant suite on a dedicated shard" is met by these tests, not by the sweep. |
+| Q-C8 | **The console's E2E checks the level and the refusal against the real API** (with the ready databases held locked); **a dedicated provisioning end to end is the API's integration test, and criterion 9 in the browser on the stack.** | Making a ready database needs the database tools the console's E2E doesn't carry. |
+| Q-C9 | **`apps/api` gains three dev dependencies** (`@univarse/db-ops`, `pg`, `@types/pg`), already in the lockfile, so nothing new is downloaded. | The tests make real dedicated databases with db-ops' own code. |
+| Q-C10 | **Shard health's codes are `unreachable`, `timeout`, `no_credentials` and `unexpected`; a check waits 5 s; a failure keeps the last success.** A retired shard isn't checked. | The console shows how long a shard has been down, never a driver's words. |
+| Q-C11 | **A pool that goes into maintenance between the check and the insert answers 503 `provisioning.unavailable`**, as no active pool does today. | Rare, and "every pool is full" would be the wrong words. |

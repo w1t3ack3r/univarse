@@ -77,7 +77,7 @@ const as = async (role: Role) => {
 };
 
 async function scratch(over: { status?: 'ACTIVE' | 'ONBOARDING' | 'ARCHIVED'; legalName?: string } = {}) {
-  const shard = await migrator.shard.findFirstOrThrow({ select: { id: true } });
+  const shard = await migrator.shard.findUniqueOrThrow({ where: { name: 'pool-01' }, select: { id: true } });
   const tag = randomBytes(5).toString('hex');
   const slug = `reg-${tag}`;
   const t = await migrator.tenant.create({

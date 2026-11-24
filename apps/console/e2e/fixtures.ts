@@ -46,7 +46,7 @@ export async function makeInstitution(): Promise<{ id: string; slug: string; leg
   const db = createPlatformClient(migratorUrl());
   try {
     const tag = randomBytes(4).toString('hex');
-    const shard = await db.shard.findFirstOrThrow({ select: { id: true } });
+    const shard = await db.shard.findUniqueOrThrow({ where: { name: 'pool-01' }, select: { id: true } });
     const t = await db.tenant.create({
       data: { slug: `${E2E_TENANT_PREFIX}${tag}`, legalName: `E2E University ${tag}`, shortName: `E2E${tag}`.toUpperCase(), type: 'UNIVERSITY', ownership: 'PRIVATE', status: 'ACTIVE', shardId: shard.id },
       select: { id: true, slug: true, legalName: true, shortName: true },

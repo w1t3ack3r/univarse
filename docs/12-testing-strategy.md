@@ -62,6 +62,21 @@ The images carry the same walls: the image smoke runs the platform API from the 
 
 **Platform identity** ([spec 0028](specs/0028-console-identity.md)): `platform-routes.spec.ts` sweeps every platform route (each declares its access; the public ones are exactly health and sign-in, each rate-limited; nothing creates a member but an OWNER's invite; every staff change needs `platform.staff.manage`). `permissions.spec.ts` tests the whole role × permission matrix. `platform-identity.int.spec.ts` drives sign-in, enrolment, sessions, lockout, new-browser mail, step-up, staff changes, recovery codes and password reset through the platform API's own HTTP stack against the real database, as the console role. The console's E2E (`apps/console/e2e/journeys.e2e.ts`) drives the same journeys through a browser, the dev edge and the platform API: the first sign-in and setup, an invite with a step-up, an activation, and a password alone opening nothing. **Seeing what happened** ([spec 0031](specs/0031-seeing-what-happened.md)): tampering is proved on the pure chain walk, with rows in memory (`platform-audit.spec.ts`), and never against the real chain, which is append-only and shared with development. `observe.int.spec.ts` drives the audit viewer, verification, the rollups and the access review as the console role; what would stick is dated in the far future, and the integration tests' teardown removes it as the migrator. `rls-event.int.spec.ts` proves `db.rls_violation` with a real cross-tenant insert.
 
+**Placement and dedicated databases** ([spec 0039](specs/0039-shards-and-migrations.md) PR C), in the API's integration suite:
+- `placement.int.spec.ts`:
+  - the claim: one database per request; two requests at once never the same one; none ready refused with nothing written; a refused request giving its claim back;
+  - the pool's capacity: its last place, two requests racing for it, a purged institution's place;
+  - `tenant_place` for the console's and the app's roles;
+  - the runtime roles' grants.
+- `dedicated.int.spec.ts`:
+  - a real dedicated database, made as `stack:shards ready` makes one (`testing/dedicated-shard.ts`), with an institution provisioned onto it through the console and the worker;
+  - its rows there and none on the pool; each host signing in only its own people; each institution's id reading nothing on the other's shard;
+  - the backup's facts and chain check covering it, and passing over it while it is in maintenance.
+- `second-server.int.spec.ts` (Q14): a second PostgreSQL started with `docker run` (`postgres:18`, a random port and superuser password, removed afterwards). It gets UniVarse's roles from the bootstrap's own code and is registered as a server of its own; an institution is provisioned there, and its rows are on that server only. The repository doesn't use the Testcontainers library, and one CLI call needs no new dependency.
+- `shard-health.int.spec.ts`, and the purge's own suite on a dedicated institution.
+
+The route sweep stays on the seeded pair (`demo-uni`, `test-poly`), both on `pool-01`; the tests above cover the dedicated side.
+
 The platform API's role, `univarse_console`, is checked in the real database: `CONNECT` on the platform database only, read from the catalogue for every UniVarse database, and a real connection to a tenant database refused. A reserved name (`console`, `api`…) never resolves to a tenant.
 
 ### 3.2 Through PgBouncer, in transaction mode ([spec 0017](specs/0017-pgbouncer-isolation.md))

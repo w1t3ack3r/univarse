@@ -22,7 +22,7 @@ test.skip(E2E.stack, 'the institutions are made as the migrator here, which the 
 async function institution(status: 'OFFBOARDING' | 'ARCHIVED', name: string): Promise<string> {
   const db = migrator!;
   const slug = `e2e-off-${randomBytes(4).toString('hex')}`;
-  const shard = await db.shard.findFirstOrThrow({ select: { id: true } });
+  const shard = await db.shard.findUniqueOrThrow({ where: { name: 'pool-01' }, select: { id: true } });
   const closesAt = new Date(Date.now() + (status === 'OFFBOARDING' ? 20 : -1) * 86_400_000);
   const t = await db.tenant.create({
     data: { slug, legalName: name, shortName: 'LEAVING', type: 'POLYTECHNIC', ownership: 'STATE', status, shardId: shard.id, offboardingStartedAt: new Date(), purgeAfter: closesAt },

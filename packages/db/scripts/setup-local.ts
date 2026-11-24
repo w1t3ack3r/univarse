@@ -101,6 +101,10 @@ async function main() {
     // Through PgBouncer (spec 0017): app roles only. Migrations, setup, seeding and rls:check stay direct (PB8).
     generated[`PGBOUNCER_${db.envPrefix}_DATABASE_URL`] = url(db.appRole, appPw, db.name, bouncer);
   }
+  // Spec 0039 Q4: the `local` server's URL templates, for dedicated databases (`{database}`, put in by shardUrl). Direct,
+  // as the development API and worker reach the pool.
+  generated.DB_SERVER_LOCAL_APP_URL = url(ROLES.app, passwords.app, '{database}');
+  generated.DB_SERVER_LOCAL_MIGRATOR_URL = url(ROLES.migrator, passwords.migrator, '{database}');
   generated.PGBOUNCER_ADMIN_URL = url(PGBOUNCER_ADMIN, adminPassword, 'pgbouncer', bouncer);
   writeEnv(generated, WORKER_ONLY_KEYS);
   // Spec 0016 IO17: the relay's URLs go to .env.worker only, which only the worker entrypoint loads.

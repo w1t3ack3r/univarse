@@ -22,6 +22,26 @@ export function slugProblem(slug: string): SlugProblem | null {
   return null;
 }
 
+// ── Placement (spec 0039 Q7)
+
+/** An active pool, with how many institutions not purged it holds and how many it takes. */
+export interface PoolLoad {
+  readonly id: string;
+  readonly held: number;
+  readonly capacity: number;
+}
+
+/**
+ * The pool a pooled institution goes to: the one with the fewest institutions among those with room, the lowest id
+ * on a tie (so two requests read the same answer). Null when every pool is full. The database's trigger holds the same
+ * capacity rule under a lock; this answers first, in plain words, without a failed insert.
+ */
+export function choosePool(pools: readonly PoolLoad[]): string | null {
+  const open = pools.filter((p) => p.held < p.capacity);
+  open.sort((a, b) => a.held - b.held || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  return open[0]?.id ?? null;
+}
+
 // ── The steps (Q5)
 
 /** In order. Each is idempotent; a resumed job starts at the first one that isn't done. */

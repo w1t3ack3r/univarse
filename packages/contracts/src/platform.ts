@@ -35,6 +35,8 @@ export type PlatformMember = z.infer<typeof PlatformMember>;
 /** Spec 0031 Q2: the audit viewer's query. Strict: any other parameter is a 400. No free text over metadata. */
 const tenantType = z.enum(['UNIVERSITY', 'POLYTECHNIC', 'COLLEGE_OF_EDUCATION']);
 const tenantOwnership = z.enum(['FEDERAL', 'STATE', 'PRIVATE']);
+/** Spec 0036 T2: where an institution's data lives, a pool or a dedicated database (the create request's `level`). */
+const tenantTier = z.enum(['POOLED', 'DEDICATED']);
 const tenantStatus = z.enum(['REQUESTED', 'PROVISIONING', 'ONBOARDING', 'ACTIVE', 'SUSPENDED', 'OFFBOARDING', 'ARCHIVED', 'PURGED']);
 const tenantSummary = z.strictObject({
   id: z.uuid(),
@@ -44,7 +46,7 @@ const tenantSummary = z.strictObject({
   type: tenantType,
   ownership: tenantOwnership,
   status: tenantStatus,
-  tier: z.enum(['POOLED', 'DEDICATED']),
+  tier: tenantTier,
   /** Spec 0037 Q12. */
   releaseRing: z.enum(['PILOT', 'GENERAL']),
 });
@@ -516,6 +518,8 @@ export const PlatformOps = {
       type: tenantType,
       ownership: tenantOwnership,
       template: z.enum(['university', 'polytechnic', 'college-of-education']),
+      /** Spec 0039 Q7: a pool (the default) or a dedicated database, claimed at creation. */
+      level: tenantTier.default('POOLED'),
       state: z.enum(NIGERIAN_STATES).nullable(),
       /** Entitled at step 6; core is always included. */
       products: z.array(z.string().regex(/^[a-z_]{2,40}$/)).max(20),

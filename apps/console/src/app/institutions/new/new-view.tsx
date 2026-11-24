@@ -16,6 +16,15 @@ import { StepTrack } from '../step-track';
 
 const OPTIONAL_PRODUCTS = Object.keys(PRODUCT).filter((p) => p !== 'core');
 
+/** Spec 0039 Q7: where its data lives. Pooled first: most institutions start there. */
+const LEVELS = [
+  ['POOLED', 'Pooled', 'A shared database, each institution kept apart by the database itself. Most start here.'],
+  ['DEDICATED', 'Dedicated database', 'A database of its own, taken from those made ready in advance.'],
+] as const;
+type Level = (typeof LEVELS)[number][0];
+/** The refusals that are about the level, shown beside it as well as above the form. */
+const LEVEL_CODES = new Set(['provisioning.no_ready_shard', 'provisioning.no_pool_room']);
+
 interface Created {
   readonly tenantId: string;
   readonly jobId: string;
@@ -35,6 +44,7 @@ export function NewInstitutionView() {
   const [type, setType] = useState('UNIVERSITY');
   const [template, setTemplate] = useState('university');
   const [templateChosen, setTemplateChosen] = useState(false);
+  const [level, setLevel] = useState<Level>('POOLED');
   const [slug, setSlug] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<ApiError | null>(null);
@@ -62,6 +72,7 @@ export function NewInstitutionView() {
       type,
       ownership: field(data, 'ownership'),
       template,
+      level,
       state: field(data, 'state') || null,
       products: data.getAll('products').filter((p): p is string => typeof p === 'string'),
       admin: { displayName: field(data, 'adminName'), email: field(data, 'adminEmail'), username: field(data, 'adminUsername') },
@@ -80,6 +91,7 @@ export function NewInstitutionView() {
         const byField: Record<string, string> = {};
         for (const f of failed.fieldErrors) byField[f.path.split('.').at(-1) ?? f.path] = failed.message;
         if (failed.code === 'tenant.slug_taken') byField.slug = failed.message;
+        if (failed.code && LEVEL_CODES.has(failed.code)) byField.level = failed.message;
         setFields(byField);
         // A refused request was never recorded: the next try is a new one.
         if (failed.status >= 400 && failed.status < 500) key.current = crypto.randomUUID();
@@ -195,6 +207,26 @@ export function NewInstitutionView() {
                 </p>
               </div>
             </div>
+          </fieldset>
+
+          <fieldset className="pc-group" aria-describedby={fields.level ? 'new-level-error' : undefined}>
+            <legend className="pc-group__title">Where its data lives</legend>
+            <div className="pc-choices">
+              {LEVELS.map(([value, label, about]) => (
+                <label key={value} className="pc-check">
+                  <input type="radio" name="level" value={value} checked={level === value} onChange={() => setLevel(value)} />
+                  <span>
+                    <strong>{label}</strong>
+                    <span className="pc-note">{about}</span>
+                  </span>
+                </label>
+              ))}
+            </div>
+            {fields.level ? (
+              <span className="uv-field__error" id="new-level-error">
+                {fields.level}
+              </span>
+            ) : null}
           </fieldset>
 
           <fieldset className="pc-group">

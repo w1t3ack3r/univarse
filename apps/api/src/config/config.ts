@@ -121,6 +121,8 @@ const schema = z.object({
   SUSPENSION_INTERVAL_MS: z.coerce.number().int().min(0).default(2_000),
   /** Spec 0038 Q4, Q5: how often the worker sends offboarding warnings, archives, and ends an archive's sessions. */
   OFFBOARDING_INTERVAL_MS: z.coerce.number().int().min(0).default(300_000),
+  /** Spec 0039 Q11: how often the worker checks every shard and records its health. 0 turns it off. */
+  SHARD_HEALTH_INTERVAL_MS: z.coerce.number().int().min(0).default(60_000),
   /** Spec 0038 Q-B6: how often the worker looks for exports to build and to expire. 0 turns it off. */
   EXPORT_INTERVAL_MS: z.coerce.number().int().min(0).default(15_000),
   /** Spec 0037 Q10: how often the worker queues notices' deliveries still to fan out to IT Admins. */
