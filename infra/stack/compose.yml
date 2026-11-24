@@ -222,6 +222,21 @@ services:
     networks: [db, app]
     mem_limit: 512m
 
+  # Spec 0039 Q5, Q13: `pnpm stack:shards` (ready, migrate, retire, drill, list), one run per use, from the deployed
+  # migrate image. shards.env is the migrate job's settings (the superuser only to create and drop a dedicated database)
+  # and the app's template through PgBouncer, to reach a new database the way the API will.
+  shards:
+    image: ${UNIVARSE_MIGRATE_IMAGE:?pnpm stack:deploy sets the verified image}
+    <<: *hardening
+    profiles: [job]
+    restart: 'no'
+    command: ['--enable-source-maps', 'dist/shards-main.js', 'list']
+    env_file: ['${UNIVARSE_STACK_DIR:?run pnpm stack:init}/shards.env']
+    volumes:
+      - stack-ca:/ca:ro
+    networks: [db, app]
+    mem_limit: 512m
+
   # Spec 0038 Q-D1: the stack's test clock (`pnpm stack:clock archive <slug> --confirm <slug>`), one run per use, from the
   # deployed API image. clock.env holds the app's two database URLs and nothing else; it archives one institution that
   # never went live, now, through the worker's own code, and sends nothing.

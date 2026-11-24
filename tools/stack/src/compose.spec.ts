@@ -36,7 +36,7 @@ let config: Config;
 let stackDir: string;
 beforeAll(() => {
   stackDir = mkdtempSync(join(tmpdir(), 'uv-stack-compose-'));
-  for (const f of ['postgres.env', 'migrate.env', 'api.env', 'worker.env', 'web.env', 'keys.env', 'purge.env', 'clock.env', 'backup.env', 'platform-api.env', 'console.env']) writeFileSync(join(stackDir, f), '');
+  for (const f of ['postgres.env', 'migrate.env', 'api.env', 'worker.env', 'web.env', 'keys.env', 'purge.env', 'clock.env', 'shards.env', 'backup.env', 'platform-api.env', 'console.env']) writeFileSync(join(stackDir, f), '');
   const r = spawnSync('docker', ['compose', '-p', PROJECT, '-f', COMPOSE_FILE, '--profile', 'scan', '--profile', 'job', 'config', '--format', 'json'], {
     encoding: 'utf8',
     env: { ...process.env, UNIVARSE_STACK_DIR: stackDir, ...STAND_IN },
@@ -75,7 +75,7 @@ describe('[LS1] the shape', () => {
     expect(config.networks.db?.internal).toBe(true);
     expect(Object.keys(svc('postgres').networks ?? {})).toEqual(['db']);
     const onDb = Object.entries(config.services).filter(([, s]) => 'db' in (s.networks ?? {})).map(([n]) => n).sort();
-    expect(onDb).toEqual(['migrate', 'pgbackup', 'pgbouncer', 'postgres', 'purge']);
+    expect(onDb).toEqual(['migrate', 'pgbackup', 'pgbouncer', 'postgres', 'purge', 'shards']);
     expect(Object.keys(svc('pgbackup').networks ?? {})).toEqual(['db']);
     for (const s of ['api', 'worker', 'web', 'platform-api', 'console']) expect(Object.keys(svc(s).networks ?? {})).toEqual(['app']);
   });
@@ -99,6 +99,17 @@ describe('[LS1] the shape', () => {
 
   it('[spec 0027 P4] the edge network has the fixed subnet whose gateway is the console\'s allowlist', () => {
     expect(config.networks.edge?.ipam?.config).toEqual([{ subnet: EDGE_SUBNET, gateway: EDGE_GATEWAY }]);
+  });
+
+  it('[spec 0039 Q5] the shards job runs shards-main.js from the migrate image, as a job, with shards.env only', () => {
+    const c = svc('shards') as Service & { command?: string[]; profiles?: string[]; image?: string };
+    expect(c.command).toEqual(['--enable-source-maps', 'dist/shards-main.js', 'list']);
+    expect(c.profiles).toEqual(['job']);
+    expect(c.image).toBe(svc('migrate').image);
+    expect(Object.keys(c.networks ?? {}).sort()).toEqual(['app', 'db']);
+    const text = readFileSync(COMPOSE_FILE, 'utf8');
+    const block = text.slice(text.indexOf('\n  shards:'), text.indexOf('\n  clock:'));
+    expect([...block.matchAll(/\/([a-z-]+\.env)'/g)].map((m) => m[1])).toEqual(['shards.env']);
   });
 
   it('[spec 0038 Q-D1] the clock job runs test-clock.js from the API image, as a job, with clock.env only, on the app network', () => {
@@ -244,7 +255,7 @@ describe('[LS3] env files reach the containers exactly as written', () => {
     try {
       // Not a real verifier: the same characters, in the same places.
       const value = 'SCRAM-SHA-256$4096:c2FsdA==$c3RvcmVkS2V5$c2VydmVyS2V5$$x${y}$';
-      for (const f of ['postgres.env', 'api.env', 'worker.env', 'web.env', 'keys.env', 'purge.env', 'clock.env', 'backup.env', 'platform-api.env', 'console.env']) writeFileSync(join(dir, f), '');
+      for (const f of ['postgres.env', 'api.env', 'worker.env', 'web.env', 'keys.env', 'purge.env', 'clock.env', 'shards.env', 'backup.env', 'platform-api.env', 'console.env']) writeFileSync(join(dir, f), '');
       writeFileSync(join(dir, 'migrate.env'), envText({ ROLE_VERIFIER_PROBE: value }));
       const r = spawnSync('docker', ['compose', '-p', PROJECT, '-f', COMPOSE_FILE, '--profile', 'job', 'config', '--format', 'json', 'migrate'], {
         encoding: 'utf8',

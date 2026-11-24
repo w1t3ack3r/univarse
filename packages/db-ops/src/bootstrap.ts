@@ -89,6 +89,11 @@ export async function bootstrap({ connect, passwords, migratorCreatedb, backupPa
       await admin.query(`ALTER ROLE ${ROLES.relayPlatform} SET ${setting}`);
     log(`  ✓ role settings (UTC; ${ROLES.relayPlatform} timeouts 5 s)`);
 
+    // Spec 0039 PR B: PgBouncer's fallback entry serves any database name a dedicated database might have; the two
+    // databases every role could connect to by default are closed, so it reaches only what a role was granted.
+    for (const builtIn of ['postgres', 'template1']) await admin.query(`REVOKE CONNECT ON DATABASE ${ident(builtIn)} FROM PUBLIC`);
+    log('  ✓ CONNECT on postgres and template1 revoked from PUBLIC');
+
     for (const db of DATABASES) {
       const exists = (await admin.query('SELECT 1 FROM pg_database WHERE datname = $1', [db.name])).rowCount;
       if (!exists) await admin.query(`CREATE DATABASE ${ident(db.name)} OWNER ${ROLES.migrator} ENCODING 'UTF8' TEMPLATE template0`);
@@ -116,3 +121,36 @@ export async function bootstrap({ connect, passwords, migratorCreatedb, backupPa
     await admin.end();
   }
 }
+
+/** Spec 0039 Q4 (T37): a dedicated database's name; nothing else is created or dropped as one. */
+export const DEDICATED_DATABASE_NAME = /^univarse_t_[a-z0-9]{12}$/;
+
+/**
+ * Spec 0039 Q5: a dedicated database, made ready the way the bootstrap makes `pool_01` (the same statements, compared in
+ * the integration test): owned by the migrator, CONNECT for `univarse_app` only, the public schema the migrator's with
+ * USAGE for the app, and the app's default privileges on what the migrator creates. `admin` creates it (the superuser on
+ * the stack; the development migrator, which may create databases there); `connect` opens it as the same identity.
+ */
+export async function createDedicatedDatabase(admin: pg.Client, connect: (database: string) => Promise<pg.Client>, database: string): Promise<void> {
+  if (!DEDICATED_DATABASE_NAME.test(database)) throw new Error('not a dedicated database name');
+  await admin.query(`CREATE DATABASE ${ident(database)} OWNER ${ROLES.migrator} ENCODING 'UTF8' TEMPLATE template0`);
+  await admin.query(`REVOKE ALL ON DATABASE ${ident(database)} FROM PUBLIC`);
+  await admin.query(`GRANT CONNECT ON DATABASE ${ident(database)} TO ${ident(ROLES.app)}`);
+  const c = await connect(database);
+  try {
+    await c.query(`ALTER SCHEMA public OWNER TO ${ROLES.migrator}`);
+    await c.query('REVOKE ALL ON SCHEMA public FROM PUBLIC');
+    await c.query(`GRANT USAGE ON SCHEMA public TO ${ident(ROLES.app)}`);
+    await c.query(`ALTER DEFAULT PRIVILEGES FOR ROLE ${ROLES.migrator} IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO ${ident(ROLES.app)}`);
+    await c.query(`ALTER DEFAULT PRIVILEGES FOR ROLE ${ROLES.migrator} IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO ${ident(ROLES.app)}`);
+  } finally {
+    await c.end();
+  }
+}
+
+/** Spec 0039 Q13: drops a dedicated database, its connections ended first. Only a dedicated database's name. */
+export async function dropDedicatedDatabase(admin: pg.Client, database: string): Promise<void> {
+  if (!DEDICATED_DATABASE_NAME.test(database)) throw new Error('not a dedicated database name');
+  await admin.query(`DROP DATABASE IF EXISTS ${ident(database)} WITH (FORCE)`);
+}
+

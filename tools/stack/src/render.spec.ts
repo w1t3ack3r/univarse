@@ -19,7 +19,8 @@ describe('[LS5] the database path', () => {
         expect([f, k, masked(env(f)[k])]).toEqual([f, k, expect.stringMatching(/^postgresql:\/\/\w+:\*\*\*@pgbouncer:6432\/univarse_\w+\?sslmode=verify-full$/)]);
       }
     for (const [k, val] of Object.entries(env('migrate.env')).filter(([key]) => key.endsWith('_URL')))
-      expect([k, masked(val)]).toEqual([k, expect.stringMatching(/^postgresql:\/\/\w+:\*\*\*@postgres:5432\/\w+\?sslmode=verify-full&sslrootcert=\/ca\/ca\.crt$/)]);
+      // Spec 0039 Q4: a server's template has `{database}` where the name goes.
+      expect([k, masked(val)]).toEqual([k, expect.stringMatching(/^postgresql:\/\/\w+:\*\*\*@postgres:5432\/(\w+|\{database\})\?sslmode=verify-full&sslrootcert=\/ca\/ca\.crt$/)]);
     for (const f of ['api.env', 'worker.env', 'migrate.env']) expect(env(f).NODE_EXTRA_CA_CERTS).toBe('/ca/ca.crt');
   });
 
@@ -207,21 +208,48 @@ describe('[0034 Q7] the provisioning key, split between two processes', () => {
   });
 
   it('[spec 0038 Q-D1] the clock job holds the app’s two database URLs through PgBouncer, and nothing else', () => {
-    expect(Object.keys(f('clock.env')).sort()).toEqual(['NODE_ENV', 'NODE_EXTRA_CA_CERTS', 'PLATFORM_DATABASE_URL', 'TENANT_POOL_01_DATABASE_URL']);
+    expect(Object.keys(f('clock.env')).sort()).toEqual(['DB_SERVER_LOCAL_APP_URL', 'NODE_ENV', 'NODE_EXTRA_CA_CERTS', 'PLATFORM_DATABASE_URL', 'TENANT_POOL_01_DATABASE_URL']);
     expect(f('clock.env').PLATFORM_DATABASE_URL).toBe(f('worker.env').PLATFORM_DATABASE_URL);
     expect(f('clock.env').TENANT_POOL_01_DATABASE_URL).toBe(f('worker.env').TENANT_POOL_01_DATABASE_URL);
     expect(f('clock.env').PLATFORM_DATABASE_URL).toContain('univarse_app_platform');
     expect(f('clock.env').PLATFORM_DATABASE_URL).toContain('@pgbouncer:6432/');
   });
 
+  it('[spec 0039 Q4] a dedicated database is reached by the local server’s templates: the app’s through PgBouncer, the migrator’s direct', () => {
+    for (const name of ['api.env', 'worker.env', 'keys.env', 'clock.env'])
+      expect([name, masked(f(name).DB_SERVER_LOCAL_APP_URL)]).toEqual([name, 'postgresql://univarse_app:***@pgbouncer:6432/{database}?sslmode=verify-full']);
+    for (const name of ['migrate.env', 'purge.env'])
+      expect([name, masked(f(name).DB_SERVER_LOCAL_MIGRATOR_URL)]).toEqual([name, 'postgresql://univarse_migrator:***@postgres:5432/{database}?sslmode=verify-full&sslrootcert=/ca/ca.crt']);
+    // The placeholder is the whole path, once: what packages/db/src/shard-url.ts requires.
+    for (const v of [f('api.env').DB_SERVER_LOCAL_APP_URL, f('migrate.env').DB_SERVER_LOCAL_MIGRATOR_URL]) expect((v ?? '').split('{database}').length).toBe(2);
+  });
+
+  it('[spec 0039 Q5] the shards job: the migrate job’s settings, and the app’s template through PgBouncer for its reach check; nothing else', () => {
+    const { DB_SERVER_LOCAL_APP_URL: app, ...rest } = f('shards.env');
+    expect(rest).toEqual(f('migrate.env'));
+    expect(app).toBe(f('api.env').DB_SERVER_LOCAL_APP_URL);
+    // The migrate job itself stays direct-only (PB8).
+    expect(f('migrate.env').DB_SERVER_LOCAL_APP_URL).toBeUndefined();
+  });
+
+  it('[spec 0039 Q5, Q6] PgBouncer serves every dedicated database through one fallback entry, a pool of 3, after the explicit two', () => {
+    const lines = renderPgBouncerIni().split('\n');
+    const db = lines.slice(lines.indexOf('[databases]') + 1, lines.indexOf('[pgbouncer]')).filter((l) => l && !l.startsWith(';'));
+    expect(db).toEqual([
+      'univarse_platform = host=postgres port=5432 dbname=univarse_platform',
+      'univarse_pool_01 = host=postgres port=5432 dbname=univarse_pool_01',
+      '* = host=postgres port=5432 pool_size=3',
+    ]);
+  });
+
   it('[spec 0038 Q-C2] the purge job holds the migrator and the app storage identity, and nothing else', () => {
-    expect(Object.keys(f('purge.env')).sort()).toEqual(['NODE_ENV', 'NODE_EXTRA_CA_CERTS', 'PLATFORM_MIGRATOR_URL', 'S3_ACCESS_KEY', 'S3_ENDPOINT', 'S3_SECRET_KEY', 'TENANT_POOL_01_MIGRATOR_URL']);
+    expect(Object.keys(f('purge.env')).sort()).toEqual(['DB_SERVER_LOCAL_MIGRATOR_URL', 'NODE_ENV', 'NODE_EXTRA_CA_CERTS', 'PLATFORM_MIGRATOR_URL', 'S3_ACCESS_KEY', 'S3_ENDPOINT', 'S3_SECRET_KEY', 'TENANT_POOL_01_MIGRATOR_URL']);
     const text = envText(f('purge.env'));
     // Never the superuser, a Vault token, the ledger's identity, Valkey, or a session pepper.
     for (const secret of [s.postgresSuperuser, pv.appToken, s.ledgerS3SecretKey, s.valkeyPassword, s.sessionPepper]) expect(text.includes(secret)).toBe(false);
     expect(f('purge.env').PLATFORM_MIGRATOR_URL).toContain('univarse_migrator');
     // And the migrator's password is only in the migrate and purge jobs' files.
-    for (const [name, e] of Object.entries(out)) expect([name, envText(e).includes(encodeURIComponent(s.roles.migrator))]).toEqual([name, name === 'migrate.env' || name === 'purge.env']);
+    for (const [name, e] of Object.entries(out)) expect([name, envText(e).includes(encodeURIComponent(s.roles.migrator))]).toEqual([name, name === 'migrate.env' || name === 'purge.env' || name === 'shards.env']);
   });
 
   it('before Vault has made the tokens, both files leave provisioning out (it is off, not refused)', () => {

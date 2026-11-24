@@ -1,6 +1,6 @@
 # Spec 0039: Phase 1's S8, shards and migrations
 
-**Status:** **Approved by the owner on 2026-11-23, all as written:** Q1 to Q16, and the `[VERIFY]` numbers (a pool's capacity of 50, pool sizes of 10 and 3, a minimum of 2 ready shards) until load tests replace them.
+**Status:** **Approved by the owner on 2026-11-23, all as written:** Q1 to Q16, and the `[VERIFY]` numbers (a pool's capacity of 50, pool sizes of 10 and 3, a minimum of 2 ready shards) until load tests replace them. **PR A's decisions Q-A1 to Q-A12 approved on 2026-11-24**, including Q-A3's proposal: new migrations wrap themselves in `BEGIN … COMMIT`, except a `CREATE INDEX CONCURRENTLY` (its own migration).
 **Phase:** 1, slice **S8** of [spec 0025](0025-phase-1-control-plane.md), the last slice of Phase 1.
 **Builds on:**
 
@@ -205,7 +205,7 @@ Written before the code, as the self-review asks; what changes while building is
   - the deploy stopping on exit 3, and going on after any failure;
   - the web app not reading maintenance.
 
-**Decisions made while building (for the owner's approval):**
+**Decisions made while building (approved by the owner on 2026-11-24):**
 
 | # | Decision | Why |
 | --- | --- | --- |
@@ -221,3 +221,104 @@ Written before the code, as the self-review asks; what changes while building is
 | Q-A10 | **A platform run is recorded after its migrations,** since they create the table on the first deploy. A failed platform run is recorded only when the table exists. | Recording before would fail on exactly the deploy that adds the table. |
 | Q-A11 | **The web app's unavailable shape moves from a `closed` flag to a `kind`** (`suspended`, `closed`, `maintenance`). | Three states don't fit a boolean. |
 | Q-A12 | **`shard.is_active` stays, unused;** a later release drops it (expand → contract). | No destructive change in the release that stops using it (invariant 9). |
+
+## PR B: the design
+
+Written before the code, as the self-review asks; what changes while building is listed under "PR B: what was built".
+
+**The stack reaches a dedicated database (Q4):**
+- the env files carry the `local` server's two URL templates:
+  - `DB_SERVER_LOCAL_APP_URL`, through PgBouncer, for the API, the worker, the keys job and the clock job;
+  - `DB_SERVER_LOCAL_MIGRATOR_URL`, direct to PostgreSQL, for the migrate and purge jobs.
+  Both verify the server against the stack CA, as every connection does (D7).
+- **PgBouncer gets one fallback entry for dedicated databases** (`* = host=postgres port=5432 pool_size=3`), beside its explicit entries for the platform and `pool_01`. Q5 said each new database would be added to PgBouncer's config and PgBouncer reloaded; the fallback does the same with no edit and no reload.
+- The fallback reaches only databases a role may connect to. So the bootstrap revokes `CONNECT` on `postgres` and `template1` from PUBLIC; the dedicated databases grant it to `univarse_app` alone.
+
+**`pnpm stack:shards`, the owner's command on the host,** runs a one-shot `shards` job from the migrate image with the migrate job's settings (the superuser only to create and drop a database):
+- **`ready [--count <n>]` (Q5):**
+  1. checks the server's connection budget (Q6): `max_connections` − reserved − the platform's and relay's pools − every non-retired shard's pool size, which must leave 3 for each new database, or it refuses and says how many are left;
+  2. creates `univarse_t_<12 random characters>`, owned by the migrator, with the per-database preparation the bootstrap gives `pool_01` (shared code): `CONNECT` revoked from PUBLIC and granted to `univarse_app`, the schema's owner and its default privileges;
+  3. registers it `READY` and migrates it through the per-shard runner (its run recorded; a failure leaves it in maintenance, as for any shard);
+  4. connects through PgBouncer as the app's role, to prove the database is reachable the way the API will reach it.
+  Each creation and registration is audited on the platform as a host command.
+- **`migrate <shard> [--applied <migration> | --rolled-back <migration>]` (Q-A4):** first tells Prisma, if asked, how a failed migration was settled, then runs the per-shard runner on that shard alone. It never guesses which.
+- **`retire <shard> --confirm <shard>` (Q13):**
+  - only a dedicated shard whose every institution is purged, or that never had one;
+  - only once the newest backup set is newer than the last of those purges (checked on the host, where the sets are);
+  - it drops the database, sets the shard `RETIRED` and is audited.
+- **`drill`:** criterion 9's migration drill, on the stack. It readies a database with its first migration deliberately in the way. It shows the shard in maintenance with its failed run while nothing else is touched. Then it removes the obstacle, settles the failed migration as rolled back, migrates again, and shows the shard `READY`. The shard stays, as a ready one.
+- **`list`:** each server's budget and each shard's status, institutions and last run.
+
+**The minimum (Q5):** every migrate job ends with a warning when fewer than 2 dedicated databases are `READY`, and the deploy shows it.
+
+**Tests:**
+- **Unit:** the budget arithmetic and its refusals; the arguments of each command; the host command's orchestration and its plain messages (with a fake job); the env files' two templates; PgBouncer's fallback line.
+- **Integration (the migrate app, on the development databases, as the migrator, which may create databases there):**
+  - `ready` creates, prepares, registers and migrates a database to `READY`, and the app's role can connect to it and nothing else;
+  - `migrate` with `--rolled-back` recovers a broken one;
+  - `retire` refuses while an institution there isn't purged, and drops it once allowed;
+  - the budget refuses past its limit.
+- **Mutation checks:** on the guards listed in criterion 10.
+
+
+## PR B: what was built
+
+**Built:**
+- **`pnpm stack:shards`** (`tools/stack/src/shards.ts`): `ready`, `migrate`, `retire`, `drill`, `list`. It runs the `shards` job from the migrate image (`apps/migrate/src/shards-main.ts`, `shard-ops.ts`) and says in plain words what happened; for `retire`, the host adds the newest complete backup set's time.
+- **A dedicated database, made ready** (`packages/db-ops`, `createDedicatedDatabase`):
+  - created by the superuser, owned by the migrator;
+  - `CONNECT` for `univarse_app` alone, the schema and default privileges as `pool_01` has them;
+  - registered `READY`, migrated through the per-shard runner, reached through PgBouncer as the app;
+  - audited as a host command (`platform.shard.readied`).
+- **The connection budget:** `max_connections` − reserved − the platform's three pools (30) − every non-retired shard's pool. Refused below 3, with the count left.
+- **`migrate`:** settles a failed migration only as the owner says (`--applied` or `--rolled-back`, audited), then runs that shard.
+- **`retire`:** refused for a pool, while an institution there isn't purged, while a purge hasn't finished, or until a backup set is newer than the last purge. It then drops the database, sets the shard `RETIRED` and is audited.
+- **`drill`:** a database whose first migration is in the way, recorded as failed and put in maintenance, then settled as rolled back and migrated to `READY`.
+- **The minimum:** every migrate job warns when fewer than 2 dedicated databases are ready, with the command that fixes it.
+- **The stack:**
+  - the `local` server's URL templates in the env files: the app's through PgBouncer for the API, worker, keys and clock jobs; the migrator's, direct, for the migrate and purge jobs;
+  - `shards.env` for the new job;
+  - PgBouncer's fallback entry for dedicated databases;
+  - the bootstrap closing `postgres` and `template1` to PUBLIC.
+- **Docs:** 07 §3.5, 08 (T39), 10 (the commands and the runbook's retry), 12 and 18.
+
+**Evidence:**
+- **Unit:**
+  - the migrate app: 31 (the budget, the arguments, the retire rule, the minimum);
+  - `tools/stack`: 639, one skipped as before (the host command's arguments and messages, the env files' templates, `shards.env`, PgBouncer's fallback line, the compose job);
+  - the API: 458, its static checks included;
+  - contracts: 6.
+- **Integration (`apps/migrate`, the development databases):**
+  - **10 tests:**
+    - `ready` makes a database whose privileges equal `pool_01`'s, PUBLIC with nothing, `rls:check` clean, registered, its run recorded, audited and reached as the app;
+    - the budget refuses at exactly 2 connections left, before anything is created;
+    - the drill fails one and recovers it;
+    - `migrate` refuses an unknown shard and a malformed migration name;
+    - `retire` refuses while an institution lives there and refuses a pool, then drops a database and retires it;
+    - `list` names every shard.
+  - **One more runs in CI only:** `postgres` and `template1` closed to PUBLIC. CI bootstraps a fresh database every run; this machine's database predates the change.
+- **Mutations: 18 tried, 18 caught:**
+  - the budget: the platform's pools forgotten; ready past it;
+  - retire: an unpurged institution, a backup as old as the purge, a pool;
+  - migrate: any migration name;
+  - the drill not recovering;
+  - the minimum: warning at 2;
+  - the job's arguments: retire without its name twice, any count;
+  - the host: a mismatched confirmation, an unreachable database counted as ready, no backup time passed;
+  - the stack's files: no fallback entry, the app's template in `migrate.env`;
+  - the database's preparation: no `CONNECT` for the app, PUBLIC keeping `CONNECT`, no default privileges.
+  - One survived at first ("ready past the budget"): the test spent the budget entirely, so a guard that only refused a negative budget still passed. It now sets exactly 2 connections left.
+- **On the stack:** PgBouncer's fallback entry is proved by `stack:shards ready`'s own reach check, through PgBouncer as the app, in criterion 9. Neither development nor CI runs the stack's PgBouncer.
+
+**Decisions made while building (for the owner's approval):**
+
+| # | Decision | Why |
+| --- | --- | --- |
+| Q-B1 | **PgBouncer serves dedicated databases through one fallback entry** (`* = host=postgres port=5432 pool_size=3`), instead of Q5's per-database edit and reload. | A new database needs no edit, no reload and no file kept beside the platform's list. |
+| Q-B2 | **The bootstrap revokes `CONNECT` on `postgres` and `template1` from PUBLIC.** | The fallback serves any database name, so it must find nothing a role wasn't granted. |
+| Q-B3 | **The budget counts PgBouncer's pools per database and role.** The platform's three roles at 10 each make 30, so the stack has room for **15** dedicated databases, not the "about 20" Q6 estimated. | PgBouncer pools per (database, role); the earlier figure counted the platform once. |
+| Q-B4 | **The `shards` job has its own `shards.env`:** the migrate job's settings, plus the app's template through PgBouncer for the reach check. | The migrate job stays direct-only (PB8), which its test enforces. |
+| Q-B5 | **`createDedicatedDatabase` repeats the bootstrap's statements for `pool_01`, rather than reshaping the bootstrap's loop.** The integration test compares the two databases' privileges. | The bootstrap runs at every deploy; it stays as it was, and the comparison proves they match. |
+| Q-B6 | **`retire` needs a complete backup set newer than the last purge on that database;** a database that never had an institution needs none. | A purge leaves backups as the only copy until they expire; the newest set after it must not be one that still holds the data unencrypted. |
+| Q-B7 | **The templates are added now to the clock, keys and purge jobs' files;** the purge's own use of them comes with PR C, when a dedicated institution can exist. | One env-file change per job, made once. |
+| Q-B8 | **Three new platform audit actions, written by the host command with no actor:** `platform.shard.readied`, `platform.shard.migration_resolved`, `platform.shard.retired`. The labels test now reads `apps/migrate` too. | Consequential actions are audited (invariant 12), as the purge's host steps are. |

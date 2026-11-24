@@ -6,7 +6,8 @@ import { describe, expect, it } from 'vitest';
 import { SECURITY_EVENTS } from '../../shared/observability/security.js';
 
 // The API's own writers, and the key store's, which has its own package.
-const SOURCES = [new URL('../../', import.meta.url), new URL('../../../../../packages/crypto/src/', import.meta.url)].map((u) => fileURLToPath(u));
+// Spec 0039 PR B: the shards job (apps/migrate) writes the platform.shard.* actions, as a host command.
+const SOURCES = [new URL('../../', import.meta.url), new URL('../../../../../packages/crypto/src/', import.meta.url), new URL('../../../../migrate/src/', import.meta.url)].map((u) => fileURLToPath(u));
 
 function sources(dir: string): string[] {
   return readdirSync(dir).flatMap((n) => {
