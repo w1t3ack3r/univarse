@@ -33,10 +33,15 @@ export const CAPTURE_TRIGGERS: readonly [table: string, trigger: string][] = [
   ['cache_invalidation_event', 'cache_invalidation_event_guard_update'],
   ['cache_invalidation_event', 'cache_invalidation_event_guard_delete'],
   ['cache_invalidation_event', 'cache_invalidation_event_refuse_truncate'],
+  // Spec 0039 PR C: placement (a tenant only on an ACTIVE shard with room; its tier the shard's kind), held the same way.
+  ['tenant', 'tenant_place'],
 ];
+/** Spec 0039 PR C: placement's definer functions, locked down as the capture's are. */
+export const PLACEMENT_FUNCTIONS = ['claim_ready_shard', 'place_tenant'];
 export const DEFINER_FUNCTIONS = [
   'capture_cache_invalidation',
   'purge_settled_invalidation_events',
+  ...PLACEMENT_FUNCTIONS,
 ];
 export const CAPTURE_FUNCTIONS = [
   ...DEFINER_FUNCTIONS,

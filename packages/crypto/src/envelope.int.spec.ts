@@ -35,7 +35,7 @@ afterAll(async () => {
 
 /** A throwaway tenant kept out of the resolver and the worker (no domain, OFFBOARDING). */
 async function scratchTenant(label: string): Promise<string> {
-  const shard = await platform.shard.findFirstOrThrow({ where: { isActive: true } });
+  const shard = await platform.shard.findUniqueOrThrow({ where: { name: 'pool-01' } });
   const t = await platform.tenant.create({
     data: {
       slug: `e2e-key-${label}-${run}`,

@@ -21,8 +21,9 @@ import { PlatformCredentials } from '../platform/identity/credentials.js';
 import { createPlatformApp } from '../platform/platform-app.js';
 import { CONSOLE_DB } from '../platform/platform-config.js';
 import { platformTestConfig } from '../testing/platform-env.js';
+import { dropDedicatedShard, localServer, readyDedicatedShard, type DedicatedShard } from '../testing/dedicated-shard.js';
 import { pruneTestTenants } from '../testing/tenant-cleanup.js';
-import { begin, check, facts, finish, keysDone, objects, platformRows, PURGE_TABLE_ORDER, PURGED_PLATFORM_TABLES, PurgeRefused, rows, type Storage } from './purge.js';
+import { begin, check, facts, finish, keysDone, migratorShards, objects, platformRows, PURGE_TABLE_ORDER, PURGED_PLATFORM_TABLES, PurgeRefused, rows, type Storage } from './purge.js';
 
 const rootEnv = new URL('../../../../.env', import.meta.url);
 if (existsSync(rootEnv)) process.loadEnvFile(rootEnv);
@@ -37,6 +38,11 @@ let consoleApp: NestFastifyApplication;
 let consoleDb: PlatformClient;
 let migrator: PlatformClient;
 let shard: TenantShardClient;
+/** Spec 0039 Q13: the job's own lookup, by the institution's shard. */
+let shards: ReturnType<typeof migratorShards>;
+/** Spec 0039 Q13: a dedicated database, for a dedicated institution's purge. */
+let dedicated: DedicatedShard;
+let dedicatedClient: TenantShardClient;
 let creds: PlatformCredentials;
 let poolId: string;
 let storage: Storage;
@@ -96,13 +102,13 @@ async function as(role: Role, key: string = role): Promise<{ cookie: string; id:
 }
 
 /** An archived institution with a data key, people, an audit trail, files in every bucket, and platform rows. */
-async function institution(status: 'ARCHIVED' | 'ACTIVE' = 'ARCHIVED', slug = `${PREFIX}${randomBytes(4).toString('hex')}`) {
-  const t = await migrator.tenant.create({ data: { slug, legalName: `Purged College ${slug}`, shortName: 'PC', type: 'COLLEGE_OF_EDUCATION', ownership: 'STATE', status, shardId: poolId }, select: { id: true } });
+async function institution(status: 'ARCHIVED' | 'ACTIVE' = 'ARCHIVED', slug = `${PREFIX}${randomBytes(4).toString('hex')}`, place: { shardId: string; client: TenantShardClient } = { shardId: poolId, client: shard }) {
+  const t = await migrator.tenant.create({ data: { slug, legalName: `Purged College ${slug}`, shortName: 'PC', type: 'COLLEGE_OF_EDUCATION', ownership: 'STATE', status, shardId: place.shardId }, select: { id: true } });
   await migrator.tenantDomain.create({ data: { tenantId: t.id, hostname: `${slug}.univarse.localhost`, kind: 'SUBDOMAIN', verifiedAt: new Date() } });
   await migrator.tenantProduct.create({ data: { tenantId: t.id, product: 'admissions', entitled: true } });
   await migrator.tenantBranding.create({ data: { tenantId: t.id, primaryColor: '#123456' } });
   await provisionTenantKey(migrator, keyProviderFrom(loadConfig({ ...process.env, NODE_ENV: 'test' })), t.id);
-  const db = forTenant(shard, t.id);
+  const db = forTenant(place.client, t.id);
   const root = await db.orgUnit.create({ data: { tenantId: t.id, code: 'ROOT', name: 'Root', kind: 'ACADEMIC', type: 'INSTITUTION', path: '/' }, select: { id: true } });
   const fac = await db.orgUnit.create({ data: { tenantId: t.id, code: 'FAC', name: 'Faculty', kind: 'ACADEMIC', type: 'FACULTY', parentId: root.id, path: `/${root.id}/` }, select: { id: true } });
   await db.orgUnit.create({ data: { tenantId: t.id, code: 'DEP', name: 'Department', kind: 'ACADEMIC', type: 'DEPARTMENT', parentId: fac.id, path: `/${root.id}/${fac.id}/` } });
@@ -137,10 +143,10 @@ async function authorised(t: { id: string; slug: string }): Promise<string> {
   return id;
 }
 
-const tenantRows = async (tenantId: string) => {
+const tenantRows = async (tenantId: string, on: TenantShardClient = shard) => {
   const out: Record<string, number> = {};
   for (const table of PURGE_TABLE_ORDER) {
-    const [r] = await shard.$transaction(async (tx) => {
+    const [r] = await on.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenantId}, true)`;
       return tx.$queryRawUnsafe<{ n: number }[]>(`SELECT count(*)::int AS n FROM "${table}" WHERE tenant_id = $1::uuid`, tenantId);
     });
@@ -165,6 +171,7 @@ beforeAll(async () => {
   creds = consoleApp.get(PlatformCredentials);
   migrator = createPlatformClient(process.env.PLATFORM_MIGRATOR_URL!);
   shard = createTenantShardClient(process.env.TENANT_POOL_01_MIGRATOR_URL!);
+  shards = migratorShards(migrator, process.env);
   poolId = (await migrator.shard.findUniqueOrThrow({ where: { name: 'pool-01' }, select: { id: true } })).id;
   storage = {
     s3: new S3Client({ endpoint: process.env.S3_ENDPOINT ?? 'http://127.0.0.1:8333', region: 'us-east-1', forcePathStyle: true, credentials: { accessKeyId: process.env.S3_ACCESS_KEY ?? '', secretAccessKey: process.env['S3_SECRET_KEY'] ?? '' } }),
@@ -174,7 +181,11 @@ beforeAll(async () => {
   // database starts with no members at all.
   await as('OWNER');
   await as('SUPER_ADMIN');
-});
+  // Last, and with time for it: a real database is created and migrated (spec 0039 Q13). Made last, so a slow machine's
+  // timeout here leaves everything above for afterAll to clean up.
+  dedicated = await readyDedicatedShard(localServer(), process.env.PLATFORM_MIGRATOR_URL!, 'ACTIVE');
+  dedicatedClient = createTenantShardClient(dedicated.migratorUrl);
+}, 180_000);
 
 afterAll(async () => {
   await consoleDb.platformSession.updateMany({ where: { userId: { in: staff }, revokedAt: null }, data: { revokedAt: new Date(), revokeReason: 'test_retired' } });
@@ -188,9 +199,15 @@ afterAll(async () => {
   storage.s3.destroy();
   await pruneTestTenants({ platformMigratorUrl: process.env.PLATFORM_MIGRATOR_URL, tenantMigratorUrl: process.env.TENANT_POOL_01_MIGRATOR_URL }, PREFIX);
   await shard.$disconnect();
+  await shards.close();
+  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- unset when beforeAll timed out before it
+  if (dedicated) {
+    await dedicatedClient.$disconnect();
+    await dropDedicatedShard(dedicated, process.env.PLATFORM_MIGRATOR_URL!);
+  }
   await migrator.$disconnect();
   await consoleApp.close();
-});
+}, 120_000);
 
 describe('[Q9, T36] asking and approving, in the console', () => {
   it('an archived institution only, two people, the shown hash naming it; the authorisation recorded and on its page', async () => {
@@ -262,7 +279,7 @@ describe('[Q10, Q-C3, A12] the job, step by step', () => {
     expect((await check(migrator, t.slug)).resuming).toBe(true);
 
     // The rows can't go before the keys, and the keys step needs the keys destroyed.
-    expect(await refusedWith(rows(migrator, shard, t.slug))).toBe('step_out_of_order');
+    expect(await refusedWith(rows(migrator, shards.of, t.slug))).toBe('step_out_of_order');
     expect(await refusedWith(keysDone(migrator, t.slug, randomUUID()))).toBe('keys_not_destroyed');
     // Q-C9: once begun, the console can't extend it.
     await migrator.platformTenantOffboarding.create({ data: { tenantId: t.id, reason: 'CONTRACT_ENDED', previousStatus: 'ACTIVE', startedBy: (await as('OWNER')).id, startedAt: new Date(Date.now() - 61 * DAY), firstEndsAt: new Date(Date.now() - DAY), endsAt: new Date(Date.now() - DAY), archivedAt: new Date() } });
@@ -277,7 +294,7 @@ describe('[Q10, Q-C3, A12] the job, step by step', () => {
     const before = await tenantRows(t.id);
     expect(before.audit_event).toBe(1);
     expect(before.org_unit).toBe(3);
-    expect((await rows(migrator, shard, t.slug)).rows).toEqual(before);
+    expect((await rows(migrator, shards.of, t.slug)).rows).toEqual(before);
     expect(Object.values(await tenantRows(t.id)).every((n) => n === 0)).toBe(true);
     // Another institution is untouched.
     expect(await tenantRows(other.id)).toEqual(otherBefore);
@@ -313,7 +330,7 @@ describe('[Q10, Q-C3, A12] the job, step by step', () => {
     const steps = (await migrator.platformAuditEvent.findMany({ where: { tenantId: t.id, action: 'platform.tenant.purge_step' }, orderBy: { seq: 'asc' } })).map((e) => (e.metadata as { step: string }).step);
     expect(steps).toEqual(['keys', 'rows', 'objects', 'platform']);
     // Done: every step a no-op now; the page shows the certificate; the inbox has let it go.
-    await rows(migrator, shard, t.slug);
+    await rows(migrator, shards.of, t.slug);
     await platformRows(migrator, t.slug);
     const page = (await cons('GET', `/tenants/${t.id}`, { cookie: (await as('OWNER')).cookie })).body.purge as { run: Record<string, unknown> };
     expect(page.run).toMatchObject({ solo: false, certificateSha256: sha });
@@ -321,6 +338,33 @@ describe('[Q10, Q-C3, A12] the job, step by step', () => {
     expect(inbox.some((x) => x.type === 'purge_waiting' && x.tenant?.id === t.id)).toBe(false);
     // A second purge of it, or a reused authorisation, is refused.
     expect(await refusedWith(begin(migrator, other.slug))).toBe('no_authorisation');
+  });
+
+  it('[spec 0039 Q13] a dedicated institution: the rows step empties its own database, and the pool is untouched', async () => {
+    const t = await institution('ARCHIVED', undefined, { shardId: dedicated.id, client: dedicatedClient });
+    const pooled = await institution();
+    const pooledBefore = await tenantRows(pooled.id);
+    await authorised(t);
+    await begin(migrator, t.slug);
+    await destroyKeys(t.id);
+    await keysDone(migrator, t.slug, randomUUID());
+    const before = await tenantRows(t.id, dedicatedClient);
+    expect(before.org_unit).toBe(3);
+    // Its rows are in its database alone: none under its id on the pool.
+    expect(Object.values(await tenantRows(t.id)).every((n) => n === 0)).toBe(true);
+    expect((await rows(migrator, shards.of, t.slug)).rows).toEqual(before);
+    expect(Object.values(await tenantRows(t.id, dedicatedClient)).every((n) => n === 0)).toBe(true);
+    expect(await tenantRows(pooled.id)).toEqual(pooledBefore);
+  });
+
+  it('[spec 0039 Q13] a shard with no URL in the job’s environment is refused before anything is deleted', async () => {
+    const lone = migratorShards(migrator, { ...process.env, DB_SERVER_LOCAL_MIGRATOR_URL: undefined });
+    try {
+      await expect(lone.of(dedicated.id)).rejects.toMatchObject({ why: 'no_shard_url' });
+      expect(await lone.of(poolId)).toBeDefined();
+    } finally {
+      await lone.close();
+    }
   });
 
   it('an authorisation expires after 7 days, and is used once', async () => {

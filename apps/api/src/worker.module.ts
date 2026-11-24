@@ -17,6 +17,7 @@ import { ContactBlanker } from './modules/identity/contact-blanker.js';
 import { FileStorage } from './modules/files/file-storage.js';
 import { createPlatformClient } from '@univarse/db';
 import { DbModule } from './shared/db/db.module.js';
+import { ShardHealthPass } from './shared/db/shard-health.js';
 import { MAILER, SmtpMailer, type Mailer } from './shared/infra/mailer.js';
 import { PlatformInvalidationRelay } from './shared/infra/platform-invalidation-relay.js';
 import { shutdownHook } from './shared/observability/shutdown-hook.js';
@@ -128,6 +129,8 @@ export class WorkerModule {
         ExportMirror,
         ExportBuilder,
         ExportPass,
+        // Spec 0039 Q11: every shard's health, once a minute, for the console's Shards page.
+        ShardHealthPass,
         ...provisioningProviders(config, overrides),
         // Spec 0016: the platform invalidation relay, on its own role's connection. Only the worker process has
         // PLATFORM_RELAY_URL (loadConfig refuses it elsewhere), so the keys CLI never gets one.

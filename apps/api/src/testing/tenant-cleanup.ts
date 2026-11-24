@@ -33,10 +33,10 @@ export interface CleanupUrls {
 
 /**
  * Removes the test institutions whose slug starts with `prefix`. A prefix is required and must look like a test's
- * (`e2e-`, `prov-`, `susp-`, `exp-`): nothing else is ever pruned. Returns how many were removed.
+ * (`e2e-`, `prov-`, `susp-`, `exp-`, `plc-`, `ded-`): nothing else is ever pruned. Returns how many were removed.
  */
 export async function pruneTestTenants(urls: CleanupUrls, prefix: string): Promise<number> {
-  if (!/^(e2e|prov|susp|ntc|inc|exp|prg)-[a-z0-9-]*$/.test(prefix)) throw new Error(`refusing to prune tenants by the prefix "${prefix}"`);
+  if (!/^(e2e|prov|susp|ntc|inc|exp|prg|plc|ded)-[a-z0-9-]*$/.test(prefix)) throw new Error(`refusing to prune tenants by the prefix "${prefix}"`);
   if (!urls.platformMigratorUrl || !urls.tenantMigratorUrl) return 0;
   const platform = createPlatformClient(urls.platformMigratorUrl);
   const shard = createTenantShardClient(urls.tenantMigratorUrl);

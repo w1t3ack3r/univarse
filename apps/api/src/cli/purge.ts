@@ -22,7 +22,7 @@ import {
   S3Client,
 } from '@aws-sdk/client-s3';
 import { writePlatformAudit } from '@univarse/crypto';
-import { createPlatformClient, createTenantShardClient, withTenantTx, type PlatformClient, type PlatformModels, type TenantShardClient, type TenantTx } from '@univarse/db';
+import { createPlatformClient, createTenantShardClient, shardUrl, withTenantTx, type PlatformClient, type PlatformModels, type TenantShardClient, type TenantTx } from '@univarse/db';
 import type { PlatformTx } from '../platform/identity/types.js';
 import {
   authorisationUsable,
@@ -108,6 +108,7 @@ export type Refusal =
   | 'step_out_of_order'
   | 'keys_not_destroyed'
   | 'unknown_tenant_table'
+  | 'no_shard_url'
   | 'certificate_hash';
 
 export class PurgeRefused extends Error {
@@ -230,12 +231,40 @@ export async function keysDone(platform: PlatformClient, slug: string, op: strin
  * Step 2 (Q10.2, Q14): every tenant table's rows of the institution, children first, each table in its own transaction
  * under the institution's RLS context. A tenant table this list doesn't know stops the step before anything is deleted.
  */
-export async function rows(platform: PlatformClient, shard: TenantShardClient, slug: string, now = new Date()) {
+/** Spec 0039 Q13: the migrator's client for a shard, by its id. */
+export type MigratorShards = (shardId: string) => Promise<TenantShardClient>;
+
+/**
+ * Spec 0039 Q13: the institution's own shard, as the migrator: a pool's `…_MIGRATOR_URL`, or a dedicated database's
+ * server template, both from the environment (T37), never from a row. One client per shard, closed by `close`.
+ */
+export function migratorShards(platform: PlatformClient, env: NodeJS.ProcessEnv): { of: MigratorShards; close: () => Promise<void> } {
+  const clients = new Map<string, TenantShardClient>();
+  return {
+    of: async (shardId) => {
+      const cached = clients.get(shardId);
+      if (cached) return cached;
+      const s = await platform.shard.findUniqueOrThrow({ where: { id: shardId }, select: { name: true, kind: true, secretRef: true, database: true, server: { select: { secretRef: true } } } });
+      const r = shardUrl(s, 'migrator', env);
+      if ('problem' in r) throw new PurgeRefused('no_shard_url');
+      const client = createTenantShardClient(r.url);
+      clients.set(shardId, client);
+      return client;
+    },
+    close: async () => {
+      await Promise.all([...clients.values()].map((c) => c.$disconnect()));
+    },
+  };
+}
+
+export async function rows(platform: PlatformClient, shards: MigratorShards, slug: string, now = new Date()) {
   const s = await platform.$transaction((tx) => stepStart(tx, slug, 'rows'));
   if (s.outOfOrder) throw new PurgeRefused('step_out_of_order');
   if (s.done) return s.run;
   const live = await platform.tenantDataKey.count({ where: { tenantId: s.t.id, destroyedAt: null } });
   if (live > 0) throw new PurgeRefused('keys_not_destroyed');
+  // Spec 0039 Q13: wherever the institution lives, a pool or its own database; refused before anything is deleted.
+  const shard = await shards(s.t.shardId);
   const tables = await shard.$queryRaw<{ table_name: string }[]>`
     SELECT c.table_name FROM information_schema.columns c
     JOIN information_schema.tables t ON t.table_schema = c.table_schema AND t.table_name = c.table_name AND t.table_type = 'BASE TABLE'
@@ -402,7 +431,7 @@ const readStdin = async (): Promise<string> => {
 export async function main(argv: readonly string[], env: NodeJS.ProcessEnv = process.env): Promise<number> {
   const [command, ...rest] = argv;
   const platform = createPlatformClient(env.PLATFORM_MIGRATOR_URL ?? '');
-  const shard = createTenantShardClient(env.TENANT_POOL_01_MIGRATOR_URL ?? '');
+  const shards = migratorShards(platform, env);
   const s3 = new S3Client({
     endpoint: env.S3_ENDPOINT ?? 'http://127.0.0.1:8333',
     region: env.S3_REGION ?? 'us-east-1',
@@ -429,7 +458,7 @@ export async function main(argv: readonly string[], env: NodeJS.ProcessEnv = pro
         out({ ok: true, step: 'keys' });
         return 0;
       case 'rows':
-        out({ ok: true, step: 'rows', rows: (await rows(platform, shard, slug)).rows });
+        out({ ok: true, step: 'rows', rows: (await rows(platform, shards.of, slug)).rows });
         return 0;
       case 'objects':
         out({ ok: true, step: 'objects', objects: (await objects(platform, { s3, buckets }, slug)).objects });
@@ -457,7 +486,7 @@ export async function main(argv: readonly string[], env: NodeJS.ProcessEnv = pro
     return 1;
   } finally {
     s3.destroy();
-    await Promise.all([platform.$disconnect(), shard.$disconnect()]);
+    await Promise.all([platform.$disconnect(), shards.close()]);
   }
 }
 

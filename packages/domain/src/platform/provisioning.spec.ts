@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  choosePool,
   goLiveChecklist,
   maskEmail,
   nextStep,
@@ -71,5 +72,31 @@ describe('spec 0034: provisioning rules', () => {
     expect(maskEmail('ngozi.adeyemi@unilag.edu.ng')).toBe('n•••@unilag.edu.ng');
     expect(maskEmail('@x.ng')).toBe('•••');
     expect(maskEmail('nobody')).toBe('•••');
+  });
+});
+
+describe('spec 0039 Q7: a pooled institution’s pool', () => {
+  const pool = (id: string, held: number, capacity = 50) => ({ id, held, capacity });
+
+  it('takes the pool with the fewest institutions', () => {
+    expect(choosePool([pool('b', 10), pool('a', 3), pool('c', 7)])).toBe('a');
+  });
+
+  it('passes over a full pool, even the emptiest by count', () => {
+    expect(choosePool([pool('a', 2, 2), pool('b', 40)])).toBe('b');
+  });
+
+  it('takes a pool with exactly one place left', () => {
+    expect(choosePool([pool('a', 49)])).toBe('a');
+  });
+
+  it('is null when every pool is full, or there is none', () => {
+    expect(choosePool([pool('a', 50), pool('b', 51)])).toBeNull();
+    expect(choosePool([])).toBeNull();
+  });
+
+  it('breaks a tie by the lowest id, whatever the order given', () => {
+    expect(choosePool([pool('b', 5), pool('a', 5)])).toBe('a');
+    expect(choosePool([pool('a', 5), pool('b', 5)])).toBe('a');
   });
 });

@@ -41,6 +41,17 @@ export class ShardUnavailableError extends Error {
   }
 }
 
+/** Spec 0039 Q11: a shard health check's fixed codes (no driver's message: it can carry a host). */
+export type ShardProbeCode = 'unreachable' | 'timeout' | 'no_credentials' | 'unexpected';
+
+/** Spec 0039 Q4 (T37): the environment holds no usable URL for this shard. */
+export class NoShardUrlError extends Error {
+  constructor(shardName: string, problem: string) {
+    super(`Shard ${shardName}: no usable connection (${problem})`);
+    this.name = 'NoShardUrlError';
+  }
+}
+
 /** How long a shard's status is trusted before it's read again: the tenant cache's bound (Q10). */
 const STATUS_TTL_MS = 60_000;
 
@@ -72,6 +83,35 @@ export class ShardRegistry implements OnApplicationBootstrap, OnApplicationShutd
 
   async client(shardId: string): Promise<TenantShardClient> {
     await this.assertServable(shardId);
+    return this.connect(shardId);
+  }
+
+  /**
+   * Spec 0039 Q11: the shard's health, for the worker's check alone. `SELECT 1`, bounded, and **without** the
+   * maintenance gate, so a shard in maintenance is still checked. Never used for data.
+   */
+  async probe(shardId: string, timeoutMs: number): Promise<{ ok: true; latencyMs: number } | { ok: false; code: ShardProbeCode }> {
+    let client: TenantShardClient;
+    try {
+      client = await this.connect(shardId);
+    } catch (err) {
+      return { ok: false, code: err instanceof NoShardUrlError ? 'no_credentials' : 'unexpected' };
+    }
+    const started = performance.now();
+    let timer: NodeJS.Timeout | undefined;
+    const timedOut = new Promise<'timeout'>((resolve) => (timer = setTimeout(() => resolve('timeout'), timeoutMs)));
+    try {
+      const r = await Promise.race([client.$queryRaw`SELECT 1`.then(() => 'ok' as const), timedOut]);
+      if (r === 'timeout') return { ok: false, code: 'timeout' };
+      return { ok: true, latencyMs: Math.max(0, Math.round(performance.now() - started)) };
+    } catch {
+      return { ok: false, code: 'unreachable' };
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  private async connect(shardId: string): Promise<TenantShardClient> {
     const cached = this.clients.get(shardId);
     if (cached) return cached;
     const shard = await this.platform.shard.findUnique({ where: { id: shardId }, include: { server: { select: { secretRef: true } } } });
@@ -79,7 +119,7 @@ export class ShardRegistry implements OnApplicationBootstrap, OnApplicationShutd
     // Spec 0039 Q4 (T37): the URL only from the environment, by the shard's own variable (a pool) or its server's
     // template with a dedicated database's name (never from the row itself).
     const r = shardUrl({ name: shard.name, kind: shard.kind, secretRef: shard.secretRef, database: shard.database, server: shard.server }, 'app', process.env);
-    if ('problem' in r) throw new Error(`Shard ${shard.name}: no usable connection (${r.problem})`);
+    if ('problem' in r) throw new NoShardUrlError(shard.name, r.problem);
     const client = createTenantShardClient(r.url);
     this.clients.set(shardId, client);
     return client;

@@ -24,6 +24,7 @@ let mig: pg.Client; // univarse_migrator
 let app: pg.Client; // univarse_app_platform
 let relay: pg.Client; // univarse_relay_platform
 let shardId: string;
+let poolId = '';
 const created = new Set<string>();
 
 interface Ev {
@@ -44,7 +45,9 @@ async function newTenant(c: pg.ClientBase, id: string = randomUUID()): Promise<s
   await c.query(
     `INSERT INTO public.tenant (id, slug, legal_name, short_name, type, ownership, shard_id, updated_at)
      VALUES ($1, $2, 'Invalidation Test University', 'ITU', 'UNIVERSITY', 'FEDERAL', $3, now())`,
-    [id, slug, shardId],
+    // Spec 0039 PR C: the placement rule binds the app's role, which may place an institution only on an open shard
+    // with room; the migrator's go on the scratch shard. Either is removed at the end.
+    [id, slug, c === app ? poolId : shardId],
   );
   await c.query(
     `INSERT INTO public.tenant_domain (tenant_id, hostname, kind) VALUES ($1, $2, 'SUBDOMAIN')`,
@@ -139,6 +142,7 @@ beforeAll(async () => {
     [`io-test-${randomBytes(4).toString('hex')}`, `univarse_t_${randomBytes(6).toString('hex')}`],
   );
   shardId = s.rows[0]!.id;
+  poolId = (await mig.query<{ id: string }>(`SELECT id FROM public.shard WHERE name = 'pool-01'`)).rows[0]!.id;
 });
 
 afterAll(async () => {

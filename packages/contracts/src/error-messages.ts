@@ -36,6 +36,9 @@ export const ERROR_MESSAGES = {
   'tenant.product_unknown': 'One of those products doesn’t exist.',
   'provisioning.unavailable': 'Provisioning isn’t set up on this platform yet.',
   'provisioning.not_failed': 'This provisioning hasn’t failed, so there’s nothing to resume.',
+  // Spec 0039 Q7 (changed by the owner, 2026-11-24): placement by level, refused before anything is written.
+  'provisioning.no_pool_room': 'Every pool is full: add one before provisioning.',
+  'provisioning.no_ready_shard': 'No dedicated database is ready: run pnpm stack:shards ready, then try again.',
   'tenant.not_onboarding': 'Only an institution that is onboarding can go live.',
   'tenant.go_live_incomplete': 'Every item on the checklist has to pass first.',
   'tenant.dpa_date': 'The date signed can’t be in the future.',

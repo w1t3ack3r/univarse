@@ -54,7 +54,7 @@ beforeAll(async () => {
   fieldCrypto = ctx.get(FieldCrypto);
   provider = keyProviderFrom(config);
   shard = createTenantShardClient(process.env.TENANT_POOL_01_DATABASE_URL!);
-  shardId = (await platform.shard.findFirstOrThrow({ where: { isActive: true } })).id;
+  shardId = (await platform.shard.findUniqueOrThrow({ where: { name: 'pool-01' } })).id;
 });
 afterAll(async () => {
   await shard.$disconnect();

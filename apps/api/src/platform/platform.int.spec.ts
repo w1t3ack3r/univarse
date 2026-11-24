@@ -146,6 +146,8 @@ describe('[P5] the console role, in the database', () => {
         platform_tenant_purge: 'S',
         // Spec 0039 Q8: migration runs are the migrate job's (the migrator); the console only reads them.
         migration_run: 'S',
+        // Spec 0039 Q11: shard health is the worker's; the console only reads it.
+        shard_health: 'S',
         platform_one_time_code: 'SIU',
         platform_recovery_code: 'SIU',
         platform_security_event_rollup: 'SIU',

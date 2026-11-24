@@ -8,6 +8,8 @@
 //   verify-unwrap    every data key not destroyed unwraps through the key provider (Vault).
 //   verify-decrypt   a sample of every tenant's encrypted values, per tenant: ok, key_destroyed, failed, or empty.
 //   verify-chains    every audit chain verifies; with a checkpoint (stdin), each holds its recorded head exactly.
+//   (spec 0039 Q10) The tenant-side facts and checks pass over an institution whose shard is in maintenance or retired,
+//                    and name it (`skipped`): one shard in maintenance never fails every backup and rehearsal.
 //   drill-tenant create <shred-drill-YYYYMMDD>   D11's drill tenant: suspended, no domain, no product, a data key, and
 //                    a few encrypted values in outbox rows already DEAD (never delivered), audited on both chains.
 import { randomBytes, randomUUID } from 'node:crypto';
@@ -15,7 +17,7 @@ import { FieldCrypto, KeyUnavailableError, provisionTenantKey, verifyPlatformAud
 import type { PlatformClient, TenantTx } from '@univarse/db';
 import { AuditWriter, verifyAuditChain } from '../shared/audit/audit-writer.js';
 import { ENCRYPTED_COLUMNS } from '../shared/crypto/encrypted-columns.js';
-import type { ShardRegistry } from '../shared/db/db.module.js';
+import { SERVABLE_SHARD_STATUSES, type ShardRegistry } from '../shared/db/db.module.js';
 import { outboxAad } from '../shared/outbox/outbox.js';
 
 export const DRILL_SLUG = /^shred-drill-\d{8}$/;
@@ -47,6 +49,17 @@ export interface ChainHead {
   readonly hash: string;
 }
 
+/**
+ * Spec 0039 Q10: the institutions whose tenant side may be read, and the slugs of those that may not (their shard in
+ * maintenance or retired: ShardRegistry refuses it). One shard in maintenance must not fail every backup and rehearsal
+ * (Q9: a failure blocks nothing else); the base backup still copies its database, and the skipped are named.
+ */
+async function readableTenants(platform: PlatformClient) {
+  const all = await platform.tenant.findMany({ select: { id: true, slug: true, shardId: true, shard: { select: { status: true } } }, orderBy: { slug: 'asc' } });
+  const servable = (t: (typeof all)[number]) => (SERVABLE_SHARD_STATUSES as readonly string[]).includes(t.shard.status);
+  return { all, tenants: all.filter(servable), skipped: all.filter((t) => !servable(t)).map((t) => t.slug) };
+}
+
 export async function backupFacts(platform: PlatformClient, shards: ShardRegistry) {
   const p = await platform.$transaction(
     async (tx) => {
@@ -59,14 +72,14 @@ export async function backupFacts(platform: PlatformClient, shards: ShardRegistr
     },
     { isolationLevel: 'RepeatableRead' },
   );
-  const tenants = await platform.tenant.findMany({ select: { id: true, slug: true, shardId: true }, orderBy: { slug: 'asc' } });
+  const { tenants, skipped } = await readableTenants(platform);
   const out: Record<string, { slug: string; chain: ChainHead | null; counts: Record<string, string> }> = {};
   for (const t of tenants)
     out[t.id] = await shards.tx(t.shardId, t.id, async (tx) => {
       const head = await tx.auditEvent.findFirst({ orderBy: { seq: 'desc' }, select: { seq: true, hash: true } });
       return { slug: t.slug, chain: head ? { seq: String(head.seq), hash: hex(head.hash) } : null, counts: await counts(tx, true) };
     });
-  return { platform: p, tenants: out };
+  return { platform: p, tenants: out, skipped };
 }
 
 export async function verifyUnwrap(platform: PlatformClient, provider: KeyProvider) {
@@ -98,7 +111,7 @@ export function decryptStatus(results: readonly ('ok' | 'key_destroyed' | 'faile
 }
 
 export async function verifyDecrypt(platform: PlatformClient, shards: ShardRegistry, crypto: FieldCrypto) {
-  const tenants = await platform.tenant.findMany({ select: { id: true, slug: true, shardId: true }, orderBy: { slug: 'asc' } });
+  const { tenants } = await readableTenants(platform);
   const out: Record<string, { status: DecryptStatus; sampled: number }> = {};
   for (const t of tenants) {
     const values = await shards.tx(t.shardId, t.id, async (tx) => (await Promise.all(ENCRYPTED_COLUMNS.map((c) => c.sample(tx, t.id, SAMPLE)))).flat());
@@ -130,7 +143,7 @@ export async function verifyChains(platform: PlatformClient, shards: ShardRegist
     const row = await platform.platformAuditEvent.findUnique({ where: { seq: BigInt(checkpoint.platform.seq) }, select: { hash: true } });
     if (!holds(row, checkpoint.platform)) problems.push(`platform chain does not hold the checkpoint's seq ${checkpoint.platform.seq} with its hash`);
   }
-  const tenants = await platform.tenant.findMany({ select: { id: true, slug: true, shardId: true }, orderBy: { slug: 'asc' } });
+  const { all, tenants, skipped } = await readableTenants(platform);
   for (const t of tenants) {
     const r = await shards.tx(t.shardId, t.id, async (tx) => {
       const v = await verifyAuditChain(tx, t.id);
@@ -141,8 +154,8 @@ export async function verifyChains(platform: PlatformClient, shards: ShardRegist
     if (!r.v.ok) problems.push(`${t.slug}: chain broken at seq ${String(r.v.brokenAtSeq)} (${r.v.reason})`);
     if (!r.ok) problems.push(`${t.slug}: chain does not hold the checkpoint's head`);
   }
-  if (checkpoint) for (const id of Object.keys(checkpoint.tenants)) if (!tenants.some((t) => t.id === id)) problems.push(`tenant ${id} is in the checkpoint but not restored`);
-  return { ok: problems.length === 0, tenants: tenants.length, problems };
+  if (checkpoint) for (const id of Object.keys(checkpoint.tenants)) if (!all.some((t) => t.id === id)) problems.push(`tenant ${id} is in the checkpoint but not restored`);
+  return { ok: problems.length === 0, tenants: tenants.length, problems, skipped };
 }
 
 export async function createDrillTenant(platform: PlatformClient, shards: ShardRegistry, provider: KeyProvider, crypto: FieldCrypto, audit: AuditWriter, slug: string) {

@@ -99,6 +99,7 @@ model Shard {
   server        DbServer       @relation(fields: [serverId], references: [id], onDelete: Restrict)
   tenants       Tenant[]
   migrationRuns MigrationRun[]
+  health        ShardHealth?
 
   @@unique([serverId, database])
   @@map("shard")
@@ -124,6 +125,21 @@ model MigrationRun {
   @@index([shardId, startedAt(sort: Desc)])
   @@index([jobId])
   @@map("migration_run")
+}
+
+/// Spec 0039 Q11: the worker's last check of a shard (`SELECT 1` and its latency), once a minute. A fixed error code,
+/// never a message. The console reads it; the console has no tenant credential.
+model ShardHealth {
+  shardId       String    @id @map("shard_id") @db.Uuid
+  checkedAt     DateTime  @map("checked_at") @db.Timestamptz(3)
+  ok            Boolean
+  latencyMs     Int?      @map("latency_ms")
+  lastSuccessAt DateTime? @map("last_success_at") @db.Timestamptz(3)
+  errorCode     String?   @map("error_code")
+
+  shard Shard @relation(fields: [shardId], references: [id], onDelete: Cascade)
+
+  @@map("shard_health")
 }
 
 model Tenant {

@@ -8,6 +8,7 @@ import { ALWAYS_ON, isProduct, type PlatformCreateTenant, type PlatformGoLive, t
 import { sealInvite, type KeyProvider } from '@univarse/crypto';
 import type { PlatformClient } from '@univarse/db';
 import {
+  choosePool,
   goLiveChecklist,
   maskEmail,
   PROVISIONING_STEPS,
@@ -27,16 +28,31 @@ export const PROVISIONING_KEYS = Symbol('PROVISIONING_KEYS');
 
 const notFound = () => new ProblemError(404, 'resource.not_found', 'Not found');
 const unavailable = () => new ProblemError(503, 'provisioning.unavailable', 'Provisioning is not set up');
+const noPoolRoom = () => new ProblemError(409, 'provisioning.no_pool_room', 'Every pool is full: add one before provisioning');
+const noReadyShard = () => new ProblemError(409, 'provisioning.no_ready_shard', 'No dedicated database is ready: run pnpm stack:shards ready');
 const invalid = (code: string, path: string, message: string) =>
   Object.assign(new ProblemError(422, code, message), { errors: [{ path, code: code.split('.')[1] ?? code, message }] });
+
+const errorText = (err: unknown) => {
+  const e = err as { meta?: { message?: string }; message?: string };
+  return `${e.meta?.message ?? ''} ${e.message ?? ''}`;
+};
+
+/** Spec 0039 Q7: the placement trigger's refusal (its fixed prefix, never a value), or null. */
+function placementOn(err: unknown): 'full' | 'not_open' | null {
+  const text = errorText(err);
+  if (text.includes('tenant_shard_full')) return 'full';
+  if (text.includes('tenant_shard_not_open')) return 'not_open';
+  return null;
+}
 
 /**
  * Which unique constraint a failed insert hit, by name. The inserts are raw (step 0's named columns), so Postgres's
  * 23505 arrives inside Prisma's raw-query error; its constraint's name is in the message, never a value.
  */
 function uniqueOn(err: unknown): 'slug' | 'idempotency' | null {
-  const e = err as { code?: string; meta?: { code?: string; message?: string }; message?: string };
-  const text = `${e.meta?.message ?? ''} ${e.message ?? ''}`;
+  const e = err as { code?: string; meta?: { code?: string } };
+  const text = errorText(err);
   if (e.code !== 'P2010' && e.code !== 'P2002' && e.meta?.code !== '23505') return null;
   if (text.includes('tenant_slug_key')) return 'slug';
   if (text.includes('provisioning_job_requested_by_idempotency_key_key')) return 'idempotency';
@@ -64,22 +80,19 @@ export class PlatformProvisioning {
     const products = [...new Set([...ALWAYS_ON, ...body.products])].sort();
     const template = TEMPLATES[body.template];
 
-    // Q11: the active pool with the fewest institutions. Placed here because a tenant row needs its shard; the worker's
-    // first step checks the shard can be reached before anything is written to it.
-    const pools = await this.db.shard.findMany({ where: { kind: 'POOL', status: 'ACTIVE' }, select: { id: true } });
-    if (pools.length === 0) throw new ProblemError(503, 'provisioning.unavailable', 'No active shard');
-    const counts = await this.db.tenant.groupBy({ by: ['shardId'], where: { shardId: { in: pools.map((p) => p.id) } }, _count: { _all: true } });
-    const load = new Map(counts.map((c) => [c.shardId, c._count._all]));
-    const shardId = [...pools].sort((a, b) => (load.get(a.id) ?? 0) - (load.get(b.id) ?? 0) || a.id.localeCompare(b.id))[0]?.id;
-    if (!shardId) throw unavailable();
+    // Spec 0039 Q7: a pooled institution's pool is chosen here, under its capacity; a dedicated one claims its database
+    // inside the transaction below. Either way the worker's first step checks the shard answers before writing to it.
+    const poolId = body.level === 'POOLED' ? await this.choosePool() : null;
 
     const tenantId = randomUUID();
     // Sealed before the transaction: a Vault call never holds a database transaction open.
     const inviteEnc = await sealInvite(this.keys, tenantId, body.admin);
     try {
       const jobId = await this.db.$transaction(async (tx) => {
-        // The granted columns only, named: the status, tier and version are the database's defaults (REQUESTED,
-        // POOLED, 0), which the console role can't set, so it can't create an institution in any other state.
+        const shardId = poolId ?? (await this.claimReadyShard(tx));
+        // The granted columns only, named: the status and version are the database's defaults (REQUESTED, 0), which
+        // the console role can't set, so it can't create an institution in any other state. The tier is the shard's
+        // kind, set by the placement trigger (spec 0039 Q7).
         await tx.$executeRaw`
           INSERT INTO tenant (id, slug, legal_name, short_name, type, ownership, shard_id, template, updated_at)
           VALUES (${tenantId}::uuid, ${body.slug}, ${body.legalName}, ${body.shortName}, ${body.type}::"TenantType",
@@ -95,13 +108,20 @@ export class PlatformProvisioning {
         // Ids and choices only: the IT Admin's name and address never enter the audit chain (spec 0026 T26).
         await platformAudit(
           tx,
-          { actorId: actor.userId, tenantId, action: 'platform.tenant.provisioning_requested', metadata: { slug: body.slug, template: template.id, templateVersion: template.version, products, jobId: job.id } },
+          { actorId: actor.userId, tenantId, action: 'platform.tenant.provisioning_requested', metadata: { slug: body.slug, template: template.id, templateVersion: template.version, products, jobId: job.id, level: body.level, shardId } },
           meta,
         );
         return job.id;
       });
       return { tenantId, jobId, replayed: false };
     } catch (err) {
+      if (err instanceof ProblemError) throw err;
+      // The placement trigger, for a pool: full means this request lost a race with another after the check above;
+      // not open, that the pool went into maintenance meanwhile. A claimed dedicated database is neither, so its
+      // refusal stays an error.
+      const placement = body.level === 'POOLED' ? placementOn(err) : null;
+      if (placement === 'full') throw noPoolRoom();
+      if (placement === 'not_open') throw new ProblemError(503, 'provisioning.unavailable', 'No active shard');
       const on = uniqueOn(err);
       if (on === 'slug') throw new ProblemError(409, 'tenant.slug_taken', 'That subdomain is taken');
       if (on === 'idempotency') {
@@ -110,6 +130,27 @@ export class PlatformProvisioning {
       }
       throw err;
     }
+  }
+
+  /** Spec 0039 Q7: the active pool with the fewest institutions not purged, under its capacity. */
+  private async choosePool(): Promise<string> {
+    const pools = await this.db.shard.findMany({ where: { kind: 'POOL', status: 'ACTIVE' }, select: { id: true, capacity: true } });
+    if (pools.length === 0) throw new ProblemError(503, 'provisioning.unavailable', 'No active shard');
+    const counts = await this.db.tenant.groupBy({ by: ['shardId'], where: { shardId: { in: pools.map((p) => p.id) }, status: { not: 'PURGED' } }, _count: { _all: true } });
+    const held = new Map(counts.map((c) => [c.shardId, c._count._all]));
+    const id = choosePool(pools.map((p) => ({ id: p.id, capacity: p.capacity, held: held.get(p.id) ?? 0 })));
+    if (!id) throw noPoolRoom();
+    return id;
+  }
+
+  /**
+   * Spec 0039 Q7 (changed by the owner, 2026-11-24): a READY dedicated database, claimed in the create transaction by
+   * one statement (the definer function, the console's only way to change a shard). Rolled back with the transaction.
+   */
+  private async claimReadyShard(tx: PlatformTx): Promise<string> {
+    const [row] = await tx.$queryRaw<{ id: string | null }[]>`SELECT public.claim_ready_shard()::text AS id`;
+    if (!row?.id) throw noReadyShard();
+    return row.id;
   }
 
   private async replay(requestedBy: string, idempotencyKey: string) {

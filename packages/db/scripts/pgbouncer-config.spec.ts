@@ -131,6 +131,13 @@ describe('[PB9][D5] pgbouncer.ini: transaction pooling, the two profiles, no for
     );
   });
 
+  it('serves every other database (spec 0039: the dedicated ones) through one fallback entry, after the named ones', () => {
+    const lines = renderIni({ profile: 'suite', databases, serverPort: 5433 }).split('\n');
+    const fallback = lines.indexOf('* = host=host.docker.internal port=5433');
+    expect(fallback).toBeGreaterThan(lines.findIndex((l) => l.startsWith('univarse_pool_01 =')));
+    expect(lines.filter((l) => l.startsWith('* ='))).toHaveLength(1);
+  });
+
   it('forces no user= on any database, and leaves ignore_startup_parameters and max_packet_size unset (revision 5)', () => {
     const ini = renderIni({ profile: 'suite', databases, serverPort: 5432 });
     expect(ini).not.toMatch(/\buser\s*=/);
