@@ -99,7 +99,7 @@ export class TenantRegistry {
         template: true,
         createdAt: true,
         updatedAt: true,
-        shard: { select: { name: true, kind: true, region: true } },
+        shard: { select: { id: true, name: true, kind: true, status: true, region: true } },
         domains: { select: { hostname: true, kind: true, verifiedAt: true }, orderBy: { hostname: 'asc' } },
         products: { select: { product: true, entitled: true, enabled: true } },
         dataKeys: { select: { version: true, status: true, createdAt: true, retiredAt: true, destroyedAt: true }, orderBy: { version: 'desc' } },

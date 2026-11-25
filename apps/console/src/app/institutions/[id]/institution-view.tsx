@@ -9,6 +9,7 @@ import { useMe } from '../../../components/console-shell';
 import { NothingHere } from '../../../components/nothing-here';
 import { api, asApiError, type ApiError } from '../../../lib/api';
 import { when } from '../../../lib/device';
+import { SHARD_STATUS } from '../../../lib/shards';
 import { OWNERSHIP, STATUS, TYPE } from '../labels';
 import { BrandingSection } from './branding';
 import { ProductsSection } from './products';
@@ -119,9 +120,17 @@ export function InstitutionView() {
         <dl className="pc-facts pc-facts--card">
           <Fact term="Subdomain">{t.slug}</Fact>
           <Fact term="Ownership">{OWNERSHIP[t.ownership] ?? t.ownership}</Fact>
-          <Fact term="Tier">{t.tier === 'POOLED' ? 'Shared' : 'Dedicated'}</Fact>
+          <Fact term="Level">{t.tier === 'POOLED' ? 'Pooled' : 'Dedicated database'}</Fact>
           <Fact term="Database">
-            {t.shard.name}, {t.shard.region}
+            {me.permissions.includes('platform.shard.read') ? (
+              <Link className="uv-link" href="/shards">
+                {t.shard.name}
+              </Link>
+            ) : (
+              t.shard.name
+            )}
+            , {t.shard.region}
+            {t.shard.status === 'ACTIVE' ? null : ` (${SHARD_STATUS[t.shard.status].label.toLowerCase()})`}
           </Fact>
           <Fact term="Domains">{t.domains.length ? t.domains.map((d) => d.hostname).join(', ') : 'None'}</Fact>
           <Fact term="Created">{when(t.createdAt)}</Fact>

@@ -2239,3 +2239,108 @@ html {
   font-size: var(--uv-text-xs);
   overflow-wrap: anywhere;
 }
+
+/*
+ * Spec 0039 Q12: the Shards page. A server's connections as one measured bar (reserved, the platform's pools, its
+ * shards' pools; the track is what's left), with every number also in words: the bar adds nothing a reader needs.
+ */
+.pc-section > .pc-budget,
+.pc-section > .pc-approvals__group + .pc-budget,
+.pc-budget + .pc-approvals__group {
+  margin-top: var(--uv-space-8);
+}
+.pc-budget {
+  display: grid;
+  gap: var(--uv-space-3);
+  padding: var(--uv-space-6);
+  border-radius: var(--uv-radius-card);
+  background: var(--uv-surface);
+  box-shadow: var(--uv-shadow-card);
+}
+.pc-budget .pc-subhead {
+  margin: 0;
+}
+.pc-budget__bar {
+  display: flex;
+  height: 14px;
+  overflow: hidden;
+  border-radius: var(--uv-radius-pill);
+  background: var(--uv-deep-soft);
+}
+.pc-budget__seg {
+  height: 100%;
+}
+.pc-budget__seg + .pc-budget__seg {
+  box-shadow: inset 2px 0 0 var(--uv-surface);
+}
+.pc-budget__seg--reserved {
+  background: var(--uv-text-muted);
+}
+.pc-budget__seg--platform {
+  background: var(--uv-deep-strong);
+}
+.pc-budget__seg--shards {
+  background: var(--uv-info);
+}
+.pc-budget__legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--uv-space-2) var(--uv-space-6);
+  margin: 0;
+  font-size: var(--uv-text-sm);
+}
+.pc-budget__legend > div {
+  display: flex;
+  align-items: center;
+  gap: var(--uv-space-2);
+}
+.pc-budget__legend dt {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--uv-space-2);
+  color: var(--uv-text-muted);
+}
+.pc-budget__legend dd {
+  margin: 0;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.pc-budget__key {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+}
+.pc-budget__key--left {
+  background: var(--uv-deep-soft);
+  box-shadow: inset 0 0 0 1px var(--uv-border);
+}
+.pc-shard__about {
+  display: block;
+  margin-top: 2px;
+}
+.pc-code {
+  padding: 1px 6px;
+  border-radius: var(--uv-radius-sm);
+  background: var(--uv-deep-soft);
+  color: var(--uv-deep-strong);
+  font-family: ui-monospace, 'Cascadia Mono', 'Roboto Mono', Menlo, Consolas, monospace;
+  font-size: 0.875em;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 719px) {
+  .pc-budget {
+    padding: var(--uv-space-4);
+  }
+}
+/* A shard's long words (its database's name, a health check's sentence) wrap rather than widen a phone's page. */
+.pc-shards .pc-status {
+  white-space: normal;
+}
+.pc-shards .pc-table__mono {
+  overflow-wrap: anywhere;
+}
+@media (max-width: 719px) {
+  .pc-shards tr {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

@@ -115,6 +115,7 @@ function SignedInHeader({ me }: { me: Me }) {
     { href: '/inbox', label: 'Inbox', count: inboxCount },
     ...(me.permissions.includes('platform.approval.decide') || me.permissions.includes('platform.staff.manage') ? [{ href: '/approvals', label: 'Approvals' }] : []),
     ...(me.permissions.includes('platform.tenant.read') ? [{ href: '/institutions', label: 'Institutions' }, { href: '/incidents', label: 'Incidents' }, { href: '/notices', label: 'Notices' }] : []),
+    ...(me.permissions.includes('platform.shard.read') ? [{ href: '/shards', label: 'Shards' }] : []),
     { href: '/account', label: 'Your account' },
     ...(me.permissions.includes('platform.staff.read') ? [{ href: '/staff', label: 'Staff' }] : []),
     ...(me.permissions.includes('platform.audit.read') ? [{ href: '/audit', label: 'Audit log' }] : []),

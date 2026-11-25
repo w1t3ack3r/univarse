@@ -12,25 +12,13 @@
 import { randomBytes } from 'node:crypto';
 import pg from 'pg';
 import { writePlatformAudit } from '@univarse/crypto';
-import { createPlatformClient, shardUrl, type PlatformClient } from '@univarse/db';
+import { budgetLeft, createPlatformClient, dedicatedRoom, DEDICATED_POOL_SIZE, MINIMUM_READY, PLATFORM_POOLS, shardUrl, type PlatformClient } from '@univarse/db';
 import { createDedicatedDatabase, dropDedicatedDatabase } from '@univarse/db-ops';
 import { prismaTenant, realShardSteps, type Env } from './real-shards.js';
 import { migrateShards, type RunErrorCode } from './shards.js';
 
-/** Spec 0039 Q6: PgBouncer's pools on the platform database (the API's, the console's and the relay's roles, 10 each). */
-export const PLATFORM_POOLS = 30;
-/** Q3: a dedicated database's PgBouncer pool (its fallback entry's pool_size). */
-export const DEDICATED_POOL_SIZE = 3;
-/** Q5: below this many READY dedicated databases, the deploy and `list` warn. */
-export const MINIMUM_READY = 2;
-
-/** Q6: the connections a server has left for new shards. Pure. */
-export function budgetLeft(s: { maxConnections: number; reservedConnections: number; shardPoolSizes: readonly number[] }): number {
-  return s.maxConnections - s.reservedConnections - PLATFORM_POOLS - s.shardPoolSizes.reduce((a, b) => a + b, 0);
-}
-
-/** Q6: how many dedicated databases a budget holds. */
-export const dedicatedRoom = (left: number): number => Math.max(0, Math.floor(left / DEDICATED_POOL_SIZE));
+// The budget's arithmetic is @univarse/db's (shard-budget.ts), shared with the console's Shards page (PR D).
+export { budgetLeft, dedicatedRoom, DEDICATED_POOL_SIZE, MINIMUM_READY, PLATFORM_POOLS };
 
 /** Q5: the deploy's warning when too few dedicated databases are ready, or null. Pure. */
 export function readyWarning(ready: number): string | null {

@@ -95,6 +95,22 @@ const verificationRun = z.strictObject({
 
 const securityLevelCounts = z.strictObject({ act: z.number().int(), watch: z.number().int(), note: z.number().int() });
 const institution = z.strictObject({ id: z.uuid(), slug: z.string().nullable(), name: z.string().nullable() });
+/** Spec 0039 Q3, Q12: a shard's kind and state, as the console shows them. */
+const shardKind = z.enum(['POOL', 'DEDICATED']);
+const shardStatus = z.enum(['READY', 'ACTIVE', 'MAINTENANCE', 'RETIRED']);
+/** Spec 0039 Q8: a migration run's fixed error codes (never a message). */
+const migrationRunError = z.enum(['unreachable', 'no_credentials', 'migrate_failed', 'rls_failed', 'unexpected']);
+/** Spec 0039 Q11: a health check's fixed error codes. */
+const shardHealthError = z.enum(['unreachable', 'timeout', 'no_credentials', 'unexpected']);
+const shardRef = z.strictObject({ id: z.uuid(), name: z.string() });
+/** Spec 0039 Q12: the Shards page's warnings, each with what it needs to be said in plain words. */
+const shardWarning = z.discriminatedUnion('type', [
+  z.strictObject({ type: z.literal('maintenance'), shard: z.string(), errorCode: migrationRunError.nullable(), since: z.iso.datetime() }),
+  z.strictObject({ type: z.literal('unreachable'), shard: z.string(), errorCode: shardHealthError.nullable(), lastSuccessAt: z.iso.datetime().nullable() }),
+  z.strictObject({ type: z.literal('unchecked'), shard: z.string(), checkedAt: z.iso.datetime().nullable() }),
+  z.strictObject({ type: z.literal('ready_low'), ready: z.number().int(), minimum: z.number().int() }),
+  z.strictObject({ type: z.literal('pool_nearly_full'), shard: z.string(), held: z.number().int(), capacity: z.number().int() }),
+]);
 
 /** Spec 0034. */
 const provisioningStepKey = z.enum(['place', 'key', 'seed', 'template', 'host', 'products', 'invite', 'done']);
@@ -369,6 +385,10 @@ const inboxItem = z.discriminatedUnion('type', [
   z.strictObject({ type: z.literal('approval_decided'), approvalId: z.uuid(), kind: approvalKind, status: approvalStatus, decidedAt: z.iso.datetime() }),
   z.strictObject({ type: z.literal('provisioning_failed'), tenant: institution, step: provisioningStepKey, code: provisioningError, failedAt: z.iso.datetime() }),
   z.strictObject({ type: z.literal('security_act'), event: z.string(), count: z.number().int(), lastSeenAt: z.iso.datetime(), tenant: institution.nullable() }),
+  /** Spec 0039 Q12: a shard in maintenance (its last migration failed); its institutions answer 503. */
+  z.strictObject({ type: z.literal('shard_maintenance'), shard: shardRef, errorCode: migrationRunError.nullable(), since: z.iso.datetime(), institutions: z.number().int() }),
+  /** Spec 0039 Q12: fewer dedicated databases ready than the minimum. */
+  z.strictObject({ type: z.literal('ready_low'), ready: z.number().int(), minimum: z.number().int() }),
 ]);
 
 export const PlatformOps = {
@@ -424,6 +444,55 @@ export const PlatformOps = {
   requestApproval: { body: approvalRequest, response: approvalView },
   approve: { body: z.strictObject({ payloadHash: z.string().regex(/^[0-9a-f]{64}$/) }), response: approvalView },
   inbox: { response: z.strictObject({ items: z.array(inboxItem), count: z.number().int() }) },
+  /** Spec 0039 Q12: the servers, the shards and what to watch. Never a connection string or a variable's name. */
+  shards: {
+    response: z.strictObject({
+      servers: z.array(
+        z.strictObject({
+          id: z.uuid(),
+          name: z.string(),
+          region: z.string(),
+          maxConnections: z.number().int(),
+          reservedConnections: z.number().int(),
+          platformPools: z.number().int(),
+          shardPools: z.number().int(),
+          left: z.number().int(),
+          dedicatedRoom: z.number().int(),
+        }),
+      ),
+      shards: z.array(
+        z.strictObject({
+          id: z.uuid(),
+          name: z.string(),
+          kind: shardKind,
+          status: shardStatus,
+          statusChangedAt: z.iso.datetime(),
+          server: z.string(),
+          database: z.string(),
+          capacity: z.number().int(),
+          poolSize: z.number().int(),
+          institutions: z.number().int(),
+          institution: institution.nullable(),
+          lastRun: z
+            .strictObject({
+              status: z.enum(['RUNNING', 'SUCCEEDED', 'FAILED']),
+              applied: z.number().int().nullable(),
+              lastMigration: z.string().nullable(),
+              errorCode: migrationRunError.nullable(),
+              startedAt: z.iso.datetime(),
+              finishedAt: z.iso.datetime().nullable(),
+            })
+            .nullable(),
+          health: z
+            .strictObject({ ok: z.boolean(), latencyMs: z.number().int().nullable(), errorCode: shardHealthError.nullable(), checkedAt: z.iso.datetime(), lastSuccessAt: z.iso.datetime().nullable() })
+            .nullable(),
+        }),
+      ),
+      ready: z.number().int(),
+      minimumReady: z.number().int(),
+      warnings: z.array(shardWarning),
+    }),
+  },
   /** Spec 0033. Strict: any other parameter is a 400. The slug appears in no body, so nothing can change it. */
   tenants: {
     query: z.strictObject({ cursor: Cursor.optional(), limit: PageLimit.optional(), status: tenantStatus.optional(), type: tenantType.optional(), q: z.string().trim().min(2).max(80).optional() }),
@@ -437,7 +506,7 @@ export const PlatformOps = {
       createdAt: z.iso.datetime(),
       updatedAt: z.iso.datetime(),
       typeLocked: z.boolean(),
-      shard: z.strictObject({ name: z.string(), kind: z.enum(['POOL', 'DEDICATED']), region: z.string() }),
+      shard: z.strictObject({ id: z.uuid(), name: z.string(), kind: shardKind, status: shardStatus, region: z.string() }),
       domains: z.array(z.strictObject({ hostname: z.string(), kind: z.enum(['SUBDOMAIN', 'CUSTOM']), verifiedAt: z.iso.datetime().nullable() })),
       products: z.array(z.strictObject({ product: z.string(), alwaysOn: z.boolean(), entitled: z.boolean(), enabled: z.boolean() })),
       keys: z.array(z.strictObject({ version: z.number().int(), status: z.enum(['ACTIVE', 'RETIRED', 'DESTROYED']), createdAt: z.iso.datetime(), retiredAt: z.iso.datetime().nullable(), destroyedAt: z.iso.datetime().nullable() })),
@@ -633,6 +702,9 @@ export type PlatformApproval = z.infer<typeof PlatformOps.approval.response>;
 export type PlatformApprovalRequest = z.infer<typeof PlatformOps.requestApproval.body>;
 export type PlatformInbox = z.infer<typeof PlatformOps.inbox.response>;
 export type PlatformInboxItem = PlatformInbox['items'][number];
+/** Spec 0039 Q12: the Shards page. */
+export type PlatformShards = z.infer<typeof PlatformOps.shards.response>;
+export type PlatformShardWarning = PlatformShards['warnings'][number];
 export type PlatformSuspension = z.infer<typeof suspensionView>;
 export type PlatformOffboarding = z.infer<typeof offboardingView>;
 export type PlatformTenantExportView = z.infer<typeof exportMirrorView>;
