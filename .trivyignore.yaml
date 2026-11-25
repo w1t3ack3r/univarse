@@ -30,5 +30,11 @@ vulnerabilities:
     statement: "Not reachable, on the same evidence as CVE-2026-124709 above (the same package, also in OpenSSL's QUIC stack). The flaw is in QUIC's handling of RETIRE_CONNECTION_ID frames, so only a process holding a QUIC connection is affected, as client or server. Of all the ELFs in the five release images, only Prisma's schema engine (api, migrate) and pgbouncer link the system libssl.so.3, and none of them imports any QUIC API, client or server (OSSL_QUIC_client_method, OSSL_QUIC_client_thread_method, OSSL_QUIC_server_method, SSL_new_listener, SSL_new_stream, SSL_accept_stream, SSL_accept_connection); web and console link it not at all. Node uses its own OpenSSL with QUIC compiled out, and no UniVarse code, config or the stack uses QUIC or HTTP/3. Debian has no fixed libssl3t64 in any release yet. Remove when the base images carry it."
     owner: samuel
     expired_at: 2026-12-23
+  - id: CVE-2026-124851
+    purls:
+      - pkg:deb/debian/libzstd1@1.5.7%2Bdfsg-1?arch=amd64&distro=debian-13.7
+    statement: "No attacker-controlled input reaches it, and its output never returns to a peer (verified 2026-11-25, as the owner required). The flaw leaks up to 64 KiB of a decoder buffer into DEcompressed output, so it needs crafted compressed input AND the output sent back to whoever supplied it. In all five release images the only ELF linking the system libzstd.so.1 is OpenSSL's libcrypto.so.3 (ZSTD_decompress and the DStream API, for BIO_f_zstd and TLS certificate compression); no UniVarse binary imports BIO_f_zstd, and a decompressed certificate is parsed locally, never sent back. The processes using that OpenSSL take no certificate from outside: pgbouncer serves clients with client_tls_sslmode = require (no client certificate requested) and, as a client, receives only the stack's own PostgreSQL certificate (verify-full); Prisma's schema engine (api, migrate) runs migrations against that same PostgreSQL. Node does not use this package. Debian 13 has the fix (1.5.7+dfsg-1+deb13u1); distroless's newest base-debian13 and nodejs24-debian13 still ship 1.5.7+dfsg-1. Remove when a base image carries the fix; reassess 2026-12-01. Node's own bundled zstd 1.5.7 is outside this entry (Trivy can't see it) and is tracked separately."
+    owner: samuel
+    expired_at: 2026-12-25
 secrets: []
 misconfigurations: []
