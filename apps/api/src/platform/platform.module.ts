@@ -22,6 +22,8 @@ import { PlatformHealthController } from './platform-health.controller.js';
 import { PlatformInboxView } from './inbox/inbox.service.js';
 import { PlatformTenantsController } from './registry/tenant-registry.controller.js';
 import { PlatformIncidentsController } from './incidents/incidents.controller.js';
+import { PlatformShardsController } from './shards/shards.controller.js';
+import { PlatformShardsView } from './shards/shards.service.js';
 import { PlatformIncidents } from './incidents/incidents.service.js';
 import { PlatformNoticesController } from './notices/notices.controller.js';
 import { PlatformNotices } from './notices/notices.service.js';
@@ -54,6 +56,7 @@ export const PLATFORM_CONTROLLERS = [
   PlatformApprovalsController,
   PlatformNoticesController,
   PlatformIncidentsController,
+  PlatformShardsController,
   PlatformInboxController,
 ] as const;
 
@@ -111,6 +114,7 @@ export class PlatformModule {
         PlatformAccessReviews,
         PlatformApprovals,
         PlatformInboxView,
+        PlatformShardsView,
         ...(overrides.extraProviders ?? []),
         ...(overrides.onShutdown ? [shutdownHook(overrides.onShutdown)] : []),
       ],

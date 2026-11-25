@@ -7,4 +7,5 @@ export * as TenantModels from './generated/tenant/client.js';
 export * as PlatformModels from './generated/platform/client.js';
 export { isConnectionUnavailable, isPermissionRefused, POOL_OPTIONS, TRANSACTION_OPTIONS } from './pool.js';
 export { DEDICATED_DATABASE, POOL_SECRET_REF, SERVER_SECRET_REF, shardUrl, shardUrlVariable } from './shard-url.js';
+export { budgetLeft, dedicatedRoom, DEDICATED_POOL_SIZE, MINIMUM_READY, PLATFORM_POOLS } from './shard-budget.js';
 export type { ShardAddress, ShardRole, ShardUrlProblem } from './shard-url.js';

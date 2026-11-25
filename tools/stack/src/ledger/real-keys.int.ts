@@ -98,7 +98,7 @@ beforeAll(async () => {
   await su.query("DELETE FROM tenant_data_key WHERE status = 'DESTROYED'");
   app = new pg.Client({ connectionString: copyUrl });
   await app.connect();
-  shardId = (await app.query<{ id: string }>('SELECT id::text FROM shard WHERE is_active LIMIT 1')).rows[0]?.id ?? '';
+  shardId = (await app.query<{ id: string }>("SELECT id::text FROM shard WHERE name = 'pool-01'")).rows[0]?.id ?? '';
   // A destruction from before the ledger, as an older release left it: v1 DESTROYED with its wrap erased, and an audit
   // event that names no op (the chain isn't verified in this copy, so the row's hashes are placeholders).
   legacy = await scratch('legacy');

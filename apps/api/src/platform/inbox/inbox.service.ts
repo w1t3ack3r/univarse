@@ -18,7 +18,9 @@ import {
   type ProvisioningStepKey,
   purgeAuthorisationExpiry,
 } from '@univarse/domain';
+import { MINIMUM_READY } from '@univarse/db';
 import { NO_TENANT } from '../../shared/observability/security-rollup.js';
+import { PlatformShardsView } from '../shards/shards.service.js';
 import type { PlatformActor } from '../identity/types.js';
 import { CONSOLE_DB } from '../platform-config.js';
 
@@ -34,7 +36,10 @@ export const OFFBOARDING_SOON_MS = 7 * DAY_MS;
 
 @Injectable()
 export class PlatformInboxView {
-  constructor(@Inject(CONSOLE_DB) private readonly db: PlatformClient) {}
+  constructor(
+    @Inject(CONSOLE_DB) private readonly db: PlatformClient,
+    private readonly shards: PlatformShardsView,
+  ) {}
 
   async read(actor: PlatformActor, now = new Date()): Promise<PlatformInbox> {
     const can = (p: PlatformPermission) => isPlatformRole(actor.role) && PLATFORM_ROLE_PERMISSIONS[actor.role].includes(p);
@@ -47,6 +52,7 @@ export class PlatformInboxView {
       ...(can('platform.notice.publish') ? await this.maintenanceSoon(now) : []),
       ...(can('platform.tenant.offboard') ? await this.offboardingEnding(now) : []),
       ...(can('platform.tenant.offboard') ? await this.purgesWaiting(now) : []),
+      ...(can('platform.shard.read') ? await this.shardItems() : []),
     ];
     return { items, count: items.length };
   }
@@ -182,6 +188,30 @@ export class PlatformInboxView {
       if (t) out.push({ type: 'purge_waiting', tenant: { id: t.id, slug: t.slug, name: t.shortName }, authorisedAt: r.executedAt.toISOString(), expiresAt: expiresAt.toISOString(), started: r.purge !== null });
     }
     return out;
+  }
+
+  /**
+   * Spec 0039 Q12: each shard in maintenance (its last migration failed: its institutions answer 503), and too few
+   * ready dedicated databases. Each leaves when its cause does: a run that succeeds, a database made ready.
+   */
+  private async shardItems(): Promise<PlatformInboxItem[]> {
+    const [down, ready] = await Promise.all([
+      this.db.shard.findMany({ where: { status: 'MAINTENANCE' }, orderBy: { statusChangedAt: 'asc' }, select: { id: true, name: true, statusChangedAt: true, _count: { select: { tenants: { where: { status: { not: 'PURGED' } } } } } } }),
+      this.db.shard.count({ where: { kind: 'DEDICATED', status: 'READY' } }),
+    ]);
+    const runs = down.length ? await this.shards.lastRuns() : new Map<string, never>();
+    const items: PlatformInboxItem[] = down.map((s) => {
+      const run = runs.get(s.id);
+      return {
+        type: 'shard_maintenance',
+        shard: { id: s.id, name: s.name },
+        errorCode: run?.status === 'FAILED' ? run.errorCode : null,
+        since: s.statusChangedAt.toISOString(),
+        institutions: s._count.tenants,
+      };
+    });
+    if (ready < MINIMUM_READY) items.push({ type: 'ready_low', ready, minimum: MINIMUM_READY });
+    return items;
   }
 
   /** Spec 0031 Q12's "act" events in the last day, per event and institution: "S3 shows; S6 tells". */

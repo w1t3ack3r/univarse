@@ -1,6 +1,6 @@
 # Spec 0039: Phase 1's S8, shards and migrations
 
-**Status:** **Approved by the owner on 2026-11-23, all as written:** Q1 to Q16, and the `[VERIFY]` numbers (a pool's capacity of 50, pool sizes of 10 and 3, a minimum of 2 ready shards) until load tests replace them. **PR A's decisions Q-A1 to Q-A12 approved on 2026-11-24**, including Q-A3's proposal: new migrations wrap themselves in `BEGIN … COMMIT`, except a `CREATE INDEX CONCURRENTLY` (its own migration). **PR B's decisions Q-B1 to Q-B8 approved on 2026-11-24.** **Q7 changed by the owner on 2026-11-24:** a dedicated institution claims its database when the console creates it, and is refused at once when none is ready (see "PR C: the design").
+**Status:** **Approved by the owner on 2026-11-23, all as written:** Q1 to Q16, and the `[VERIFY]` numbers (a pool's capacity of 50, pool sizes of 10 and 3, a minimum of 2 ready shards) until load tests replace them. **PR A's decisions Q-A1 to Q-A12 approved on 2026-11-24**, including Q-A3's proposal: new migrations wrap themselves in `BEGIN … COMMIT`, except a `CREATE INDEX CONCURRENTLY` (its own migration). **PR B's decisions Q-B1 to Q-B8 approved on 2026-11-24.** **PR C's decisions Q-C1 to Q-C11 approved on 2026-11-24.** **Q7 changed by the owner on 2026-11-24:** a dedicated institution claims its database when the console creates it, and is refused at once when none is ready (see "PR C: the design").
 **Phase:** 1, slice **S8** of [spec 0025](0025-phase-1-control-plane.md), the last slice of Phase 1.
 **Builds on:**
 
@@ -449,7 +449,7 @@ The API maps the trigger's refusal on a full pool to the same 409; its own check
   - the purge on the pool whatever the shard; the backups reading a shard in maintenance.
 - **Fixtures:** five suites picked "the first active shard" (four by the retired `is_active`); they now name `pool-01`, since a dedicated database can be active too.
 
-**Decisions made while building (for the owner's approval):**
+**Decisions made while building (approved by the owner on 2026-11-24):**
 
 | # | Decision | Why |
 | --- | --- | --- |
@@ -464,3 +464,105 @@ The API maps the trigger's refusal on a full pool to the same 409; its own check
 | Q-C9 | **`apps/api` gains three dev dependencies** (`@univarse/db-ops`, `pg`, `@types/pg`), already in the lockfile, so nothing new is downloaded. | The tests make real dedicated databases with db-ops' own code. |
 | Q-C10 | **Shard health's codes are `unreachable`, `timeout`, `no_credentials` and `unexpected`; a check waits 5 s; a failure keeps the last success.** A retired shard isn't checked. | The console shows how long a shard has been down, never a driver's words. |
 | Q-C11 | **A pool that goes into maintenance between the check and the insert answers 503 `provisioning.unavailable`**, as no active pool does today. | Rare, and "every pool is full" would be the wrong words. |
+
+## PR D: the design
+
+Written before the code, as the self-review asks; what changes while building is listed under "PR D: what was built".
+
+**A permission and a route (Q12):**
+- **`platform.shard.read`**, no step-up, for OWNER and SUPER_ADMIN.
+- **`GET /api/platform/v1/shards`**, read through the console's role. It returns:
+  - **each server:**
+    - its connection budget: `max_connections`, reserved, the platform's pools (30), its shards' pools, what's left;
+    - room for how many more dedicated databases;
+  - **each shard:**
+    - name, kind, status (since when), server, database name, capacity, pool size;
+    - how many institutions it holds (not purged), and, for a dedicated database, which one;
+    - its last migration run (status, applied, its last migration, a failed run's code, when);
+    - its health (ok and latency, or the failure's code; when last checked and last answered);
+  - **how many dedicated databases are ready, and the minimum (2);**
+  - **its warnings:**
+    - a pool at 80% or more of its capacity;
+    - fewer than 2 ready;
+    - a shard in maintenance, with its run's code;
+    - a shard unreachable;
+    - a shard not checked for 3 minutes (the worker's pass not running).
+
+  Retired shards are listed last and never warn. **No connection string or variable name is returned**: the console's role can't read `secret_ref` on either table, and a test checks the response for one.
+- **The budget's arithmetic moves to `packages/db`** (`shard-budget.ts`, beside `shard-url.ts`), so `stack:shards` and the page count the same way. Both apps already depend on that package, so the migrate image gains nothing. **The warnings are a pure function in `packages/domain`** (`shardWarnings`).
+
+**The inbox (Q12):** for `platform.shard.read`:
+- **`shard_maintenance`:** each shard in maintenance, with its run's code and since when;
+- **`ready_low`:** fewer than 2 ready dedicated databases, with the count and the command that fixes it.
+
+Each leaves the inbox when its cause does, as every inbox item does.
+
+**The institution's page:**
+- **"Level":** Pooled or Dedicated database.
+- **"Database":** its shard by name, its status when it isn't `ACTIVE`, and a link to the Shards page for those who may see it.
+
+The tenant detail's `shard` gains `id`, `kind` and `status`, a field added to the response.
+
+**The console's Shards page (`/shards`, in the navigation for `platform.shard.read`):** built with impeccable (`--target apps/console`), in the console's own patterns.
+- **The warnings first**, each in plain words with what to do.
+- **Each server's budget** as a measured bar, with its numbers in words.
+- **The shards in the console's table**, stacked on a phone: status in words and a mark, never colour alone; a migration's failure code and a health failure explained in plain words.
+- **Desktop and phone pass axe** (acceptance 8). No action: making shards stays the owner's host command (T4).
+
+**Tests:**
+- **Unit:** the warnings, each at its edge; the budget's arithmetic (moved with its tests); the route's permission in the platform route sweep.
+- **Integration:**
+  - the route: who may read it (SUPPORT, FINANCE and READ_ONLY are 404); its numbers against the database; no secret in the response;
+  - the inbox's two items, which appear and then leave;
+  - the institution detail's shard.
+- **E2E:** the Shards page and the institution's level, desktop and phone, with axe.
+- **Mutation checks:** the warnings' edges, the budget, the permission, the inbox items.
+
+## PR D: what was built
+
+**Built:**
+- **`platform.shard.read`** (OWNER and SUPER_ADMIN, no step-up) and **`GET /api/platform/v1/shards`** (`apps/api/src/platform/shards`):
+  - each server's budget;
+  - every shard with its institutions, last migration run and health;
+  - the ready count and the minimum;
+  - the warnings.
+
+  Every column is named; nothing returned holds a connection string or a variable's name.
+- **The budget's arithmetic** in `packages/db` (`shard-budget.ts`), which `stack:shards` now imports. **The warnings** in `packages/domain` (`shardWarnings`).
+- **The inbox's `shard_maintenance` and `ready_low` items**, for `platform.shard.read`.
+- **The tenant detail's shard** gains `id` and `status`. The institution's page says "Level: Pooled" or "Dedicated database", names its shard (a link to the Shards page for those who may see it) and its status when not in service.
+- **The console's Shards page** (`/shards`, in the navigation):
+  - what needs attention, in words, with the command for each;
+  - each server's connections as a measured bar, every number also in words;
+  - every shard in the console's table, stacked on a phone.
+
+  It adds one drawn icon to `packages/ui` (`Database`).
+- **Docs:** 08 (T39), 10 (the runbook), 12, 18, and the console's PRODUCT.md.
+
+**Evidence:**
+- **Unit:**
+  - domain 169 (the warnings' 8 among them);
+  - `packages/db` 39 (the budget's 2);
+  - console 24 (the shard texts' 3);
+  - API 462 (the platform route sweep included);
+  - `tools/stack` 639, one skipped as before.
+- **Integration:** `shards.int.spec.ts` 9 (who may read, the numbers against the database, every warning, no secret, the inbox's items arriving and leaving, the institution detail's shard). The suites around it pass: the registry, approvals and the inbox, the console role's grants, placement.
+- **E2E:** `shards.e2e.ts` on desktop and phone with axe; `institutions.e2e.ts` and `approvals.e2e.ts` unchanged. The first phone run found the page scrolling sideways by 101 px (a long health sentence in a pill that didn't wrap); fixed, and the page checked by screenshot on both.
+- **Mutations: 14 tried, 14 caught:**
+  - the warnings: the 80% edge, the minimum, the 3-minute edge, retired shards, unreachable never said;
+  - the budget without the platform's pools;
+  - SUPPORT given the permission;
+  - the service: retired shards in the budget, a dedicated shard's institution not named, a failed run's code dropped;
+  - the inbox: shard items for everyone, `ready_low` never, a shard back in service staying;
+  - the console showing a stale check as healthy.
+
+**Decisions made while building (for the owner's approval):**
+
+| # | Decision | Why |
+| --- | --- | --- |
+| Q-D1 | **The budget's arithmetic lives in `packages/db`, beside `shard-url.ts`; the warnings in `packages/domain`.** | Both apps already depend on `packages/db`, so the migrate image gains no package. The warnings are a rule about what staff should act on, so they belong in `packages/domain`. |
+| Q-D2 | **A fifth warning, "not checked lately":** a shard whose last health check is more than 3 minutes old, or that was never checked. | Q12's list had no way to show that the worker's health pass itself had stopped; without it, a stale "answering" would read as healthy. |
+| Q-D3 | **A pool's institutions show as a count ("12 of 50"); a dedicated database links to its one institution.** | A pool holds up to 50, too many links for a row; the institutions list already finds them. |
+| Q-D4 | **The institution page's "Tier: Shared/Dedicated" becomes "Level: Pooled/Dedicated database"**, the words the New institution form uses. | One name for one idea across the console. |
+| Q-D5 | **The Shards suite's scratch shard with a failed migration run is left retired in the test database.** | A migration run is kept by a trigger, and its shard can't be deleted while it has one. A retired shard never warns or counts. |
+| Q-D6 | **Development's worker reports a dedicated database as "no connection settings"** until `.env` holds the `local` server's two templates (`pnpm db:setup` writes them since PR C; an older `.env` has none). The stack's env files have them. | Seen on the page during the visual check: the page tells the truth about the worker's own settings. |

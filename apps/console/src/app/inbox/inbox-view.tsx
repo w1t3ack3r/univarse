@@ -1,7 +1,7 @@
 'use client';
 
 import { securityEventText, type PlatformInbox, type PlatformInboxItem } from '@univarse/contracts';
-import { Activity, AlertCircle, ArrowRight, Building, Check, Clock, Notice, Users } from '@univarse/ui';
+import { Activity, AlertCircle, ArrowRight, Building, Check, Clock, Database, Notice, Users } from '@univarse/ui';
 import Link from 'next/link';
 import { useEffect, useState, type ReactNode } from 'react';
 import { STEP } from '../institutions/labels';
@@ -9,6 +9,7 @@ import { APPROVAL_KIND_LABEL, APPROVAL_STATUS, timeLeft } from '../../lib/approv
 import { clockText, INCIDENT_STATUS, SEVERITY } from '../../lib/incidents';
 import { api, ApiError, asApiError } from '../../lib/api';
 import { when } from '../../lib/device';
+import { RUN_ERROR, warningText } from '../../lib/shards';
 
 
 /**
@@ -70,6 +71,10 @@ function keyOf(i: PlatformInboxItem): string {
     case 'offboarding_ending':
     case 'purge_waiting':
       return `${i.type}:${i.tenant.id}`;
+    case 'shard_maintenance':
+      return `${i.type}:${i.shard.id}`;
+    case 'ready_low':
+      return i.type;
   }
 }
 
@@ -89,6 +94,20 @@ function Row({ href, icon, title, meta, chip }: { href: string; icon: ReactNode;
 
 function Item({ item }: { item: PlatformInboxItem }) {
   switch (item.type) {
+    case 'shard_maintenance':
+      return (
+        <Row
+          href="/shards"
+          icon={<Database />}
+          title={`${item.shard.name} is in maintenance: ${item.errorCode ? RUN_ERROR[item.errorCode] : 'its last migration failed'}`}
+          meta={`Since ${when(item.since)}, ${item.institutions === 1 ? 'its institution sees' : `its ${String(item.institutions)} institutions see`} “closed for maintenance”. Settle the migration on the host, then run pnpm stack:shards migrate ${item.shard.name}.`}
+          chip={<span className="pc-status pc-status--bad">Closed</span>}
+        />
+      );
+    case 'ready_low': {
+      const t = warningText(item);
+      return <Row href="/shards" icon={<Database />} title={t.title} meta={t.todo} chip={<span className="pc-status pc-status--wait">Low</span>} />;
+    }
     case 'incident_open': {
       const clock = item.breachDeadline ? clockText(item.breachDeadline) : null;
       return (

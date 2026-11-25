@@ -23,6 +23,7 @@ export const PLATFORM_PERMISSIONS = [
   'platform.release.manage',
   'platform.incident.manage',
   'platform.tenant.offboard',
+  'platform.shard.read',
 ] as const;
 export type PlatformPermission = (typeof PLATFORM_PERMISSIONS)[number];
 
@@ -50,6 +51,7 @@ export const PLATFORM_PERMISSION_CATALOG: Readonly<Record<PlatformPermission, { 
   'platform.release.manage': { stepUp: true, description: "Set an institution's release ring (spec 0037 Q1, Q12)." },
   'platform.incident.manage': { stepUp: true, description: 'Open, update and resolve incidents, and record their follow-up (spec 0037 Q1, Q13).' },
   'platform.tenant.offboard': { stepUp: true, description: "Start, cancel or extend an institution's offboarding, and ask for its purge (spec 0038 Q1)." },
+  'platform.shard.read': { stepUp: false, description: 'The shards and database servers: status, capacity, the connection budget, migration runs and health. No connection string (spec 0039 Q12).' },
 });
 
 /** The roles' grants, in code (A5): a change here is a reviewed change, never data. Only OWNER manages staff. */
@@ -74,6 +76,7 @@ export const PLATFORM_ROLE_PERMISSIONS: Readonly<Record<PlatformRole, readonly P
     'platform.release.manage',
     'platform.incident.manage',
     'platform.tenant.offboard',
+    'platform.shard.read',
   ],
   SUPER_ADMIN: [
     'platform.self',
@@ -93,6 +96,7 @@ export const PLATFORM_ROLE_PERMISSIONS: Readonly<Record<PlatformRole, readonly P
     'platform.release.manage',
     'platform.incident.manage',
     'platform.tenant.offboard',
+    'platform.shard.read',
   ],
   SUPPORT: ['platform.self', 'platform.tenant.read', 'platform.notice.publish', 'platform.incident.manage'],
   FINANCE: ['platform.self', 'platform.tenant.read'],

@@ -223,3 +223,11 @@ export const Megaphone = (p: IconProps) => (
     <path d="M8 15l1.2 4.5M18.5 9.5a3.5 3.5 0 0 1 0 5" />
   </Icon>
 );
+/** Spec 0039: a database (a shard): three stacked discs. */
+export const Database = (p: IconProps) => (
+  <Icon {...p}>
+    <ellipse cx="12" cy="6" rx="7.5" ry="2.75" />
+    <path d="M4.5 6v12c0 1.52 3.36 2.75 7.5 2.75s7.5-1.23 7.5-2.75V6" />
+    <path d="M4.5 12c0 1.52 3.36 2.75 7.5 2.75s7.5-1.23 7.5-2.75" />
+  </Icon>
+);
