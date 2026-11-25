@@ -4,12 +4,13 @@
  * no request may reach it; one with no database answers unreachable; one with no URL in the environment, no
  * credentials; a retired one isn't checked. Scratch shards only, removed at the end.
  */
-import { randomBytes, randomInt } from 'node:crypto';
+import { randomBytes } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { createPlatformClient, type PlatformClient } from '@univarse/db';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { ShardRegistry, ShardUnavailableError } from './db.module.js';
 import { ShardHealthPass } from './shard-health.js';
+import { freePoolDatabase } from '../../testing/scratch-pool.js';
 
 const rootEnv = new URL('../../../../../.env', import.meta.url);
 if (existsSync(rootEnv)) process.loadEnvFile(rootEnv);
@@ -23,8 +24,7 @@ const variables: string[] = [];
 
 /** A scratch pool, reached through its own variable (set to pool_01's URL, or left unset). */
 async function pool(status: 'MAINTENANCE' | 'RETIRED', reachable: boolean): Promise<string> {
-  const n = String(randomInt(10, 99));
-  const variable = `TENANT_POOL_${n}${randomBytes(2).toString('hex').toUpperCase()}_DATABASE_URL`;
+  const variable = `TENANT_POOL_${randomBytes(3).toString('hex').toUpperCase()}_DATABASE_URL`;
   if (reachable) {
     process.env[variable] = process.env.TENANT_POOL_01_DATABASE_URL;
     variables.push(variable);
@@ -40,7 +40,7 @@ async function pool(status: 'MAINTENANCE' | 'RETIRED', reachable: boolean): Prom
       secretRef: variable,
       region: 'local',
       serverId: server.id,
-      database: `univarse_pool_${n}`,
+      database: await freePoolDatabase(migrator, server.id),
       capacity: 50,
       poolSize: 10,
       status,

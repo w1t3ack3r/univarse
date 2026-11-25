@@ -19,6 +19,7 @@ import { createPlatformApp } from '../platform-app.js';
 import { CONSOLE_DB } from '../platform-config.js';
 import { platformTestConfig } from '../../testing/platform-env.js';
 import { pruneTestTenants } from '../../testing/tenant-cleanup.js';
+import { freePoolDatabase } from '../../testing/scratch-pool.js';
 
 const rootEnv = new URL('../../../../../.env', import.meta.url);
 if (existsSync(rootEnv)) process.loadEnvFile(rootEnv);
@@ -82,14 +83,14 @@ async function shard(
   capacity = 1,
 ): Promise<string> {
   const s = suffix();
-  const [name, database, secretRef, poolSize] =
-    kind === 'DEDICATED'
-      ? [`t-${s}`, `univarse_t_${s}`, 'UNUSED_DATABASE_URL', 3]
-      : [`plc-pool-${s}`, `univarse_pool_${String(randomInt(10, 99))}`, 'UNUSED_DATABASE_URL', 10];
   const server = await migrator.dbServer.findUniqueOrThrow({
     where: { name: 'local' },
     select: { id: true },
   });
+  const [name, database, secretRef, poolSize] =
+    kind === 'DEDICATED'
+      ? [`t-${s}`, `univarse_t_${s}`, 'UNUSED_DATABASE_URL', 3]
+      : [`plc-pool-${s}`, await freePoolDatabase(migrator, server.id), 'UNUSED_DATABASE_URL', 10];
   const { id } = await migrator.shard.create({
     data: {
       name,

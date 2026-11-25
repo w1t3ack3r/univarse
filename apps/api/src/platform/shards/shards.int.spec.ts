@@ -15,6 +15,7 @@ import { PlatformSessions } from '../identity/sessions.js';
 import { createPlatformApp } from '../platform-app.js';
 import { CONSOLE_DB } from '../platform-config.js';
 import { platformTestConfig } from '../../testing/platform-env.js';
+import { freePoolDatabase } from '../../testing/scratch-pool.js';
 
 const rootEnv = new URL('../../../../../.env', import.meta.url);
 if (existsSync(rootEnv)) process.loadEnvFile(rootEnv);
@@ -56,7 +57,7 @@ const inbox = async (role: Role = 'OWNER') => ((await get('/inbox', role)).body.
 
 async function shard(kind: 'POOL' | 'DEDICATED', status: 'READY' | 'ACTIVE' | 'MAINTENANCE' | 'RETIRED'): Promise<{ id: string; name: string }> {
   const s = randomBytes(6).toString('hex');
-  const [name, database, capacity, poolSize] = kind === 'DEDICATED' ? [`t-${s}`, `univarse_t_${s}`, 1, 3] : [`shd-pool-${s}`, `univarse_pool_${String(randomInt(10, 99))}`, 50, 10];
+  const [name, database, capacity, poolSize] = kind === 'DEDICATED' ? [`t-${s}`, `univarse_t_${s}`, 1, 3] : [`shd-pool-${s}`, await freePoolDatabase(migrator, serverId), 50, 10];
   const { id } = await migrator.shard.create({ data: { name, kind, secretRef: 'SHARDS_TEST_DATABASE_URL', region: 'local', serverId, database, capacity, poolSize, status }, select: { id: true } });
   shardIds.push(id);
   return { id, name };
