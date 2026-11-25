@@ -1,6 +1,6 @@
 # Spec 0039: Phase 1's S8, shards and migrations
 
-**Status:** **Approved by the owner on 2026-11-23, all as written:** Q1 to Q16, and the `[VERIFY]` numbers (a pool's capacity of 50, pool sizes of 10 and 3, a minimum of 2 ready shards) until load tests replace them. **PR A's decisions Q-A1 to Q-A12 approved on 2026-11-24**, including Q-A3's proposal: new migrations wrap themselves in `BEGIN … COMMIT`, except a `CREATE INDEX CONCURRENTLY` (its own migration). **PR B's decisions Q-B1 to Q-B8 approved on 2026-11-24.** **PR C's decisions Q-C1 to Q-C11 approved on 2026-11-24.** **Q7 changed by the owner on 2026-11-24:** a dedicated institution claims its database when the console creates it, and is refused at once when none is ready (see "PR C: the design").
+**Status:** **Done (2026-11-25).** Released as `1f6f2ea` and deployed; criterion 9 passed on the stack (below). **Approved by the owner on 2026-11-23, all as written:** Q1 to Q16, and the `[VERIFY]` numbers (a pool's capacity of 50, pool sizes of 10 and 3, a minimum of 2 ready shards) until load tests replace them. **PR A's decisions Q-A1 to Q-A12 approved on 2026-11-24**, including Q-A3's proposal: new migrations wrap themselves in `BEGIN … COMMIT`, except a `CREATE INDEX CONCURRENTLY` (its own migration). **PR B's decisions Q-B1 to Q-B8 approved on 2026-11-24.** **PR C's decisions Q-C1 to Q-C11 approved on 2026-11-24. PR D's decisions Q-D1 to Q-D6 approved on 2026-11-25.** **Q7 changed by the owner on 2026-11-24:** a dedicated institution claims its database when the console creates it, and is refused at once when none is ready (see "PR C: the design").
 **Phase:** 1, slice **S8** of [spec 0025](0025-phase-1-control-plane.md), the last slice of Phase 1.
 **Builds on:**
 
@@ -556,7 +556,7 @@ The tenant detail's `shard` gains `id`, `kind` and `status`, a field added to th
   - the inbox: shard items for everyone, `ready_low` never, a shard back in service staying;
   - the console showing a stale check as healthy.
 
-**Decisions made while building (for the owner's approval):**
+**Decisions made while building (approved by the owner on 2026-11-25):**
 
 | # | Decision | Why |
 | --- | --- | --- |
@@ -566,3 +566,22 @@ The tenant detail's `shard` gains `id`, `kind` and `status`, a field added to th
 | Q-D4 | **The institution page's "Tier: Shared/Dedicated" becomes "Level: Pooled/Dedicated database"**, the words the New institution form uses. | One name for one idea across the console. |
 | Q-D5 | **The Shards suite's scratch shard with a failed migration run is left retired in the test database.** | A migration run is kept by a trigger, and its shard can't be deleted while it has one. A retired shard never warns or counts. |
 | Q-D6 | **Development's worker reports a dedicated database as "no connection settings"** until `.env` holds the `local` server's two templates (`pnpm db:setup` writes them since PR C; an older `.env` has none). The stack's env files have them. | Seen on the page during the visual check: the page tells the truth about the worker's own settings. |
+
+## Done: the release, the deploy and criterion 9
+
+- **Released and deployed on 2026-11-25** as `1f6f2ea` (record `releases/2026-11-25-1f6f2ea.json`): five images built, scanned, signed, attested and verified; the five running on the stack are the release's own digests.
+- **On the way there:** PR D's CI found a new HIGH in Debian's zstd (`libzstd1`, CVE-2026-124851) in every image's distroless base. Debian 13 has the fix; no distroless base carried it yet. **The owner approved a 30-day exception (until 2026-12-25, reassess 2026-12-01) only after the exposure was verified:**
+  - every zstd decoder in the five images was found, by symbol and by zstd's own error strings: Debian's library (all five), Node's bundled 1.5.7 (the four Node images, which Trivy can't see) and a static copy in Prisma's schema engine;
+  - no input from outside reaches one whose output goes back: OpenSSL decompresses at most a peer's certificate and parses it locally; PgBouncer requests no client certificate; our Fastify refuses a zstd-encoded body; and Node's `fetch`, which does decode zstd, calls only UniVarse's own API and Vault.
+
+  Node's own copy is tracked separately, to take the first Node 24 release bundling zstd ≥ 1.6.0.
+- **Criterion 9, the owner's check on the stack, passed (2026-11-25):**
+  1. **Two ready databases:** `pnpm stack:shards ready --count 2` made `t-b7d83b1e3e75` and `t-6a68a9730ac0`. Each was migrated (12 migrations, `rls:check` passed) and reached through PgBouncer as the app, so PgBouncer's fallback entry (Q-B1) is proved on the stack.
+  2. **A dedicated institution:** created from the console with "Dedicated database", it claimed `t-b7d83b1e3e75`, which is now `ACTIVE` with one institution.
+  3. **The Shards page:** both shards, with their migration runs and health, seen by the owner.
+  4. **The migration drill:** `pnpm stack:shards drill` made `t-c41b33de4f2e`, whose first migration failed as planned (`migrate_failed`). It went into maintenance, its failed migration was settled as rolled back, it migrated again (`rls:check` passed) and is `READY`. "The drill passed."
+  5. **After it:** `pnpm stack:shards list` shows `pool-01` (8 institutions), the dedicated institution's shard, and two ready databases. The server has 36 connections left: room for 12 more dedicated databases.
+- **What the check showed that the docs didn't say:**
+  - **A scheduled backup fails while the stack is down for a release.** The 13:30 run stopped at the database copy, the stack being stopped for the release. WAL shipping waited for the release's registry lock, and lost nothing. A manual `pnpm stack:backup` after the deploy took set `20261125T221755Z-ff51`. [10 §4](../10-infrastructure-and-deployment.md) now says to take one after a release that crosses the backup's time.
+  - **That failed run's log said only `exit 1`, with no reason.** Every other failure path logs its reason, so one doesn't. That is an open follow-up.
+
