@@ -332,6 +332,8 @@ h2.pc-section__title {
   flex: 1;
   gap: 2px;
   min-width: 0;
+  /* A long name (a shard's, an institution's slug) breaks rather than widen a phone's page beside the chip. */
+  overflow-wrap: anywhere;
 }
 .pc-list__title {
   font-weight: 600;
