@@ -148,6 +148,8 @@ describe('[P5] the console role, in the database', () => {
         migration_run: 'S',
         // Spec 0039 Q11: shard health is the worker's; the console only reads it.
         shard_health: 'S',
+        // Spec 0041 Q6, Q8: profile assignments are the worker's (and the seed's); the console only reads them.
+        tenant_profile_assignment: 'S',
         platform_one_time_code: 'SIU',
         platform_recovery_code: 'SIU',
         platform_security_event_rollup: 'SIU',

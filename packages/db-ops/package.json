@@ -21,6 +21,7 @@
   "dependencies": {
     "@univarse/contracts": "workspace:*",
     "@univarse/db": "workspace:*",
+    "@univarse/domain": "workspace:*",
     "pg": "^8.16.0"
   },
   "devDependencies": {

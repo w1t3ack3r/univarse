@@ -10,6 +10,7 @@ export * from './platform/permissions.js';
 export * from './platform/access-review.js';
 export * from './platform/security-levels.js';
 export * from './platform/tenant-registry.js';
+export * from './platform/profiles.js';
 export * from './platform/provisioning.js';
 export * from './platform/approvals.js';
 export * from './platform/suspension.js';

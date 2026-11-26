@@ -37,7 +37,7 @@ describe('spec 0034: provisioning rules', () => {
     expect(templateForType('UNIVERSITY')).toBe('university');
     expect(templateForType('POLYTECHNIC')).toBe('polytechnic');
     expect(templateForType('COLLEGE_OF_EDUCATION')).toBe('college-of-education');
-    expect(templateRef(TEMPLATES.polytechnic)).toBe('polytechnic@1');
+    expect(templateRef(TEMPLATES.polytechnic)).toBe('polytechnic@2');
     for (const t of Object.values(TEMPLATES)) expect(Object.keys(t.settings)).toEqual(['registration.unitLimits']);
   });
 

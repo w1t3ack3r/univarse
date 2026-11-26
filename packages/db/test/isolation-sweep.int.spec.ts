@@ -62,6 +62,10 @@ async function buildFixtures(tx: TenantTx, tenantId: string): Promise<Record<str
     notice_dismissal: (await tx.noticeDismissal.create({ data: { tenantId, userId, noticeId: randomUUID() } })).id,
     // Spec 0038: a failed export (no passphrase to seal, so no fake ciphertext for a key sweep to trip on).
     data_export: (await tx.dataExport.create({ data: { tenantId, requestedBy: userId, state: 'FAILED', failedAt: new Date() } })).id,
+    // Spec 0041 Q4: an assigned profile's snapshot (append-only: it stays, hidden by RLS, as the audit rows do).
+    institution_profile: (
+      await tx.institutionProfile.create({ data: { tenantId, template: 'polytechnic', templateVersion: 1, contentHash: '0'.repeat(64), profile: { sweep: tag }, source: 'BACKFILL' } })
+    ).id,
   };
   return rows;
 }

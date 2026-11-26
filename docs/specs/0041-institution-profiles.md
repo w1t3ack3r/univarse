@@ -139,6 +139,62 @@ One PR. It contains:
 - **A tenant screen for the profile** (Q8).
 - **Which role each office grants** (S3).
 
+## The PR: what was built
+
+- **The profiles** (`packages/domain/src/platform/profiles.ts`): the appendix as frozen data, `profileProblems` (Q11's checks), and the three templates at `@2` with their profiles (`provisioning.ts`).
+- **The content hash:** SHA-256 over the existing `canonicalJson` (spec 0037 Q3), computed in `packages/db` (`profileContentHash`).
+  - `university@2`: `52a77041…2170`
+  - `polytechnic@2`: `b561011e…0b29`
+  - `college-of-education@2`: `6ba7744e…e0f8`
+
+  The tests pin all three.
+- **The tenant side:** `institution_profile` (forced RLS; the app may only insert and read) and `recordProfileSnapshot`, which writes once and refuses a different hash under the same version.
+- **The platform side:** `tenant_profile_assignment`.
+  - Its checks: the status and its fixed codes, and the hash's format.
+  - A trigger keeps what was assigned unchanged, and an `ASSIGNED` row unchanged entirely.
+  - Grants: the app's platform role may update only the status columns; the console may read.
+- **`ProfileAssigner`** (`apps/api/src/modules/profiles`): open (`PENDING`), snapshot (with the audit `setup.profile_assigned`), close (`ASSIGNED`, with the platform's audit `platform.tenant.profile_assigned`), fail (`FAILED`, with its fixed code). Provisioning's `template` step uses it inside the settings' own tenant transaction.
+- **`ProfilePass`** in the worker, at start and every 15 minutes (`PROFILE_PASS_INTERVAL_MS`).
+- **The seed** asks for its institutions' profiles.
+- **The export catalogue, the purge and the test cleanup** know both tables.
+- **The lint rule** (`tools/lint/type-branching.mjs`), its tests (`node --test tools/lint/type-branching.test.mjs`, in CI), and both `no-restricted-syntax` blocks spreading it.
+- **The console:** the institution's facts gain "Profile". The detail's contract gains `profileAssignment`.
+
+**Tests:**
+- **Unit:** the domain's 195 tests (`profiles.spec.ts`: every check, the pinned hashes, the differences the documents require), with `profiles.ts` at 100 % of lines.
+- **Integration, run against the development databases:**
+  - `profiles.int.spec.ts`, 8 tests: the statuses that get one and the ones that don't; the seed's request completed; running again creates nothing new and changes no configuration; a pass stopped after the snapshot is finished without a second audit; `hash_mismatch` recorded, then retried; the snapshot can't be updated or deleted; an `ASSIGNED` row can't change; cross-tenant.
+  - Provisioning, the export catalogue, the tenant registry, the purge and the exports: 61 tests, updated for `@2`, the profile's audit and the console's field.
+  - The tenant isolation sweep (spec 0004, `packages/db`): `institution_profile` has its fixture, so every read, write and delete across institutions is refused for it too (55 tests in that package).
+- **E2E:** the console's provisioning journey now expects `polytechnic@2` and the profile line.
+- **Mutation checks:** 11 mutants, each caught by a test:
+  - Senate and Academic Board together;
+  - a conditional stage without its condition;
+  - a profile change without a new version;
+  - NID offered;
+  - the switch selector removed;
+  - `db-ops` not permitted;
+  - `OFFBOARDING` assigned;
+  - a wrong hash accepted;
+  - the audit written on every run;
+  - no snapshot in the template step;
+  - the console's field dropped.
+
+### Decisions made while building, for the owner's approval
+
+| # | Decision | Why |
+| --- | --- | --- |
+| Q-A1 | **The seed only asks:** it writes the platform's row (`PENDING`, source `SEED`), and `ProfilePass` completes it (the snapshot, its audit, `ASSIGNED`) with the source kept. | The institution's audit writer (its hash chain) lives in the API; the seed writes no audit events. One assigning path keeps every assignment audited. Locally, the worker assigns them at start. |
+| Q-A2 | **The pass records a failure on its row and carries on,** rather than failing the whole pass, unlike the offboarding pass. The worker logs the institution's id and the fixed code. | One institution on an unreachable shard must not mark every pass failed. Its row says `FAILED` with the code, for the console, and the next pass tries again. |
+| Q-A3 | **The audits name the hash `sha256`,** not `contentHash`. | The audit's redaction (spec 0002 A6) blanks any key naming a hash or a code; `sha256` is how the export's records name theirs. |
+| Q-A4 | **The assignment's foreign key to `tenant` cascades,** like the other configuration children (products, domains, branding). The purge still deletes it explicitly. | Tenants are never deleted in production: they're purged to a tombstone. The suites that delete their own tenants by hand mustn't fail because a running worker gave one a profile. |
+| Q-A5 | **The console's field is `profileAssignment`.** | `tenantProfile` is already the route that edits an institution's names; `profile` would mean two things. |
+| Q-A6 | **An institution provisioned at `@1` is assigned its template's current version (`@2`).** | `@1` had no profile; the template's id is what it chose. |
+| Q-A7 | **The source never changes once recorded** (the app's role may not update it). | Where an assignment came from is history. |
+| Q-A8 | **`packages/db-ops` depends on `@univarse/domain`:** the seed needs the templates. | The migrate image already builds its workspace dependencies (`turbo … --filter=@univarse/migrate...`). |
+| Q-A9 | **A few values the appendix left open:**<ul><li>a university's bachelor's levels run to "600 Level" (MBBS);</li><li>postgraduate levels: a PGD "Year 1"; a master's to "Year 3"; a doctorate to "Year 5";</li><li>sub-degree diplomas "Year 1"–"Year 2" and certificates "Year 1";</li><li>the full names of the qualifications and regulators;</li><li>NSQ's regulator `[VERIFY]` (NCCE in the data).</li></ul>A programme uses the first N labels and S4 makes them editable. | Labels a type needs, without a code change, until S4's screens. |
+| Q-A10 | **The root may contain every type,** implied rather than listed in the data. | It's the institution: General Studies and Entrepreneurship sit under it at the pilot. |
+
 ## Appendix: the profiles' contents
 
 The entries are drawn from the owner's guidance documents. Words in quotes are each type's display names; keys are in `code`. Entries marked `[VERIFY]` depend on the institution's Scheme of Service, conditions of service or enabling law.

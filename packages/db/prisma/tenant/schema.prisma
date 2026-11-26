@@ -66,6 +66,31 @@ model OrgUnit {
   @@map("org_unit")
 }
 
+enum ProfileSource {
+  PROVISIONING
+  SEED
+  BACKFILL
+}
+
+/// Spec 0041 Q4: the institution-type profile this institution was assigned, as it was: one row per template version,
+/// append-only (the app may only insert). Later slices project their part into their own editable tables; the
+/// institution's edits live there, never here. `contentHash` is SHA-256 of the profile's canonical JSON, as the
+/// platform's `tenant_profile_assignment` holds it.
+model InstitutionProfile {
+  id              String        @id @default(dbgenerated("uuidv7()")) @db.Uuid
+  tenantId        String        @map("tenant_id") @db.Uuid
+  template        String
+  templateVersion Int           @map("template_version")
+  contentHash     String        @map("content_hash")
+  profile         Json
+  source          ProfileSource
+  assignedAt      DateTime      @default(now()) @map("assigned_at") @db.Timestamptz(3)
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, template, templateVersion])
+  @@map("institution_profile")
+}
+
 // ───────────────────────── Identity & access ─────────────────────────
 
 enum UserStatus {

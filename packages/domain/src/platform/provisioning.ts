@@ -2,6 +2,7 @@
  * Spec 0034: provisioning's rules. Pure, so they're tested without a database: the slug a new institution may take,
  * the steps a provisioning runs and in what order, the templates (E13), and the go-live checklist (E6).
  */
+import { PROFILES, type InstitutionProfile } from './profiles.js';
 import { isReservedName } from './reserved-names.js';
 import type { TenantStatusName, TenantTypeName } from './tenant-registry.js';
 
@@ -88,6 +89,11 @@ export interface InstitutionTemplate {
    * setting adds its default here and a migration applies it to the institutions already provisioned (Q6).
    */
   readonly settings: Readonly<Record<string, unknown>>;
+  /**
+   * Spec 0041 Q1: from `@2`, the institution-type profile, the starting data later slices project into the
+   * institution's own tables. A change to it is a new version (its content hash is pinned in the tests, Q11).
+   */
+  readonly profile: InstitutionProfile;
 }
 
 const COMMON_SETTINGS = Object.freeze({
@@ -96,14 +102,15 @@ const COMMON_SETTINGS = Object.freeze({
 });
 
 export const TEMPLATES: Readonly<Record<TemplateId, InstitutionTemplate>> = Object.freeze({
-  university: Object.freeze({ id: 'university', version: 1, label: 'University (NUC)', forType: 'UNIVERSITY', settings: COMMON_SETTINGS }),
-  polytechnic: Object.freeze({ id: 'polytechnic', version: 1, label: 'Polytechnic (NBTE)', forType: 'POLYTECHNIC', settings: COMMON_SETTINGS }),
+  university: Object.freeze({ id: 'university', version: 2, label: 'University (NUC)', forType: 'UNIVERSITY', settings: COMMON_SETTINGS, profile: PROFILES.university }),
+  polytechnic: Object.freeze({ id: 'polytechnic', version: 2, label: 'Polytechnic (NBTE)', forType: 'POLYTECHNIC', settings: COMMON_SETTINGS, profile: PROFILES.polytechnic }),
   'college-of-education': Object.freeze({
     id: 'college-of-education',
-    version: 1,
+    version: 2,
     label: 'College of education (NCCE)',
     forType: 'COLLEGE_OF_EDUCATION',
     settings: COMMON_SETTINGS,
+    profile: PROFILES['college-of-education'],
   }),
 });
 

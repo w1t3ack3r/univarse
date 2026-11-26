@@ -521,6 +521,21 @@ export const PlatformOps = {
       branding: z.strictObject({ primaryColor: z.string().nullable(), textColor: z.string().nullable(), logoSha256: z.string().nullable() }),
       /** Spec 0034 Q6: the template it was provisioned from (`polytechnic@1`); null for the seed's. */
       template: z.string().nullable(),
+      /**
+       * Spec 0041 Q8: its institution-type profile's assignment (the latest version), or null before one is asked
+       * for. An inspection view: the profile's content stays in the institution's own database.
+       */
+      profileAssignment: z
+        .strictObject({
+          template: z.enum(['university', 'polytechnic', 'college-of-education']),
+          templateVersion: z.number().int().min(1),
+          contentHash: z.string().regex(/^[0-9a-f]{64}$/),
+          source: z.enum(['PROVISIONING', 'SEED', 'BACKFILL']),
+          status: z.enum(['PENDING', 'ASSIGNED', 'FAILED']),
+          errorCode: z.enum(['shard_unavailable', 'hash_mismatch', 'database', 'unexpected']).nullable(),
+          assignedAt: z.iso.datetime().nullable(),
+        })
+        .nullable(),
       /** Spec 0037 Q6: its suspensions, newest first (the open one, if any, is first), at most 10. */
       suspensions: z.array(suspensionView),
       /** Spec 0038: its latest offboarding (open, archived or cancelled), or null. */

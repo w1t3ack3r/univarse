@@ -20,7 +20,8 @@
 | `univarse_readonly` | `SELECT` on a curated set of reporting views. RLS still applies | Reporting, read replica |
 | `univarse_audit_writer` (optional) | `INSERT` only on `audit_event` | Audit writer path |
 
-- Revoke `UPDATE, DELETE` on `audit_event`, `ledger_entry`, `course_result`, `score_sheet_event` and `outbox_event` (except `published_at`) from `univarse_app`. Append-only is **enforced by grants**, not by convention.
+- Revoke `UPDATE, DELETE` on `audit_event`, `ledger_entry`, `course_result`, `score_sheet_event` and `outbox_event` (except `published_at`) from `univarse_app`. Append-only is **enforced by grants**, not by convention. [Spec 0041](specs/0041-institution-profiles.md) Q4 adds `institution_profile` (the institution's snapshot of its assigned profile): the app inserts and reads it, and only the purge (the migrator) deletes it.
+- **Spec 0041 Q6, the platform's `tenant_profile_assignment`:** `univarse_app_platform` (the worker, and the seed) may `SELECT`, `INSERT` and `UPDATE` only `status`, `error_code`, `assigned_at` and `updated_at`, never `DELETE`; `univarse_console` may `SELECT`. A trigger keeps what was assigned (the institution, template, version and hash) unchanged for every login, and an `ASSIGNED` row unchanged entirely. Its foreign key to `tenant` cascades, as a configuration child's; the purge deletes it explicitly.
 - `PUBLIC` has no privileges. `REVOKE ALL ON SCHEMA public FROM PUBLIC`.
 - The superuser/admin credential is stored in the secret manager, used only for break-glass, and audited.
 

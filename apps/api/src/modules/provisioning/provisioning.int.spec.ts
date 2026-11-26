@@ -150,9 +150,11 @@ async function counts(tenantId: string) {
     settings: await tx.setting.count(),
     units: await tx.orgUnit.count(),
     emails: await tx.outboxEvent.count({ where: { type: 'email.send' } }),
+    profiles: await tx.institutionProfile.count(),
   }));
   return {
     ...side,
+    profileAssignments: await migrator.tenantProfileAssignment.count({ where: { tenantId, status: 'ASSIGNED' } }),
     keys: await migrator.tenantDataKey.count({ where: { tenantId } }),
     hosts: await migrator.tenantDomain.count({ where: { tenantId } }),
     products: await migrator.tenantProduct.count({ where: { tenantId } }),
@@ -261,7 +263,7 @@ describe('[Q5, Q7] a request, then the eight steps', () => {
   it('records the tenant, the job and the audit together; the invite is sealed and the console can never read it', async () => {
     const { tenantId, jobId, tag, body } = await create();
     const t = await migrator.tenant.findUniqueOrThrow({ where: { id: tenantId }, select: { status: true, template: true, slug: true } });
-    expect(t).toEqual({ status: 'REQUESTED', template: 'polytechnic@1', slug: body.slug });
+    expect(t).toEqual({ status: 'REQUESTED', template: 'polytechnic@2', slug: body.slug });
     const job = await migrator.provisioningJob.findUniqueOrThrow({ where: { id: jobId } });
     expect([job.status, job.products, job.inviteMasked]).toEqual(['QUEUED', ['academics', 'core'], `i•••@inst.test`]);
     expect(JSON.stringify(job)).not.toContain(ADMIN_EMAIL(tag));
@@ -278,7 +280,7 @@ describe('[Q5, Q7] a request, then the eight steps', () => {
     const t = await migrator.tenant.findUniqueOrThrow({ where: { id: tenantId }, select: { status: true, shardId: true } });
     expect(t.status).toBe('ONBOARDING');
     const c = await counts(tenantId);
-    expect(c).toEqual({ users: 1, roles: 18, assignments: 1, settings: 1, units: 1, emails: 1, keys: 1, hosts: 1, products: 2 });
+    expect(c).toEqual({ users: 1, roles: 18, assignments: 1, settings: 1, units: 1, emails: 1, profiles: 1, profileAssignments: 1, keys: 1, hosts: 1, products: 2 });
     const side = await shards.tx(t.shardId, tenantId, async (tx) => ({
       user: await tx.userAccount.findFirstOrThrow({ select: { username: true, email: true, status: true, passwordHash: true } }),
       role: await tx.roleAssignment.findFirstOrThrow({ select: { role: { select: { key: true } } } }),
@@ -298,12 +300,26 @@ describe('[Q5, Q7] a request, then the eight steps', () => {
       'platform.tenant.provisioning_requested',
       'platform.tenant.provisioning_started',
       'crypto.tenant_key.created',
+      'platform.tenant.profile_assigned',
       'platform.tenant.host_added',
       'platform.tenant.products_set',
       'platform.tenant.admin_invited',
       'platform.tenant.provisioned',
     ]);
     expect(await runner.run(jobId)).toBe('skipped');
+    // Spec 0041 Q5, Q6, Q8: the template's profile, in the institution's own database and recorded on the platform with
+    // the same hash; the console reads the assignment, never the content.
+    const profile = await shards.tx(t.shardId, tenantId, async (tx) => ({
+      snapshot: await tx.institutionProfile.findFirstOrThrow({ select: { template: true, templateVersion: true, contentHash: true, source: true } }),
+      audit: await tx.auditEvent.findMany({ where: { action: 'setup.profile_assigned' }, select: { after: true } }),
+    }));
+    const assignment = await migrator.tenantProfileAssignment.findFirstOrThrow({ where: { tenantId }, select: { template: true, templateVersion: true, contentHash: true, source: true, status: true } });
+    expect(profile.snapshot).toEqual({ template: 'polytechnic', templateVersion: 2, contentHash: assignment.contentHash, source: 'PROVISIONING' });
+    expect(assignment).toMatchObject({ template: 'polytechnic', templateVersion: 2, source: 'PROVISIONING', status: 'ASSIGNED' });
+    expect(profile.audit).toEqual([{ after: { template: 'polytechnic', templateVersion: 2, sha256: assignment.contentHash, source: 'PROVISIONING' } }]);
+    const detail = await call('GET', `/tenants/${tenantId}`, { cookie: await as('READ_ONLY') });
+    expect(detail.body.profileAssignment).toMatchObject({ template: 'polytechnic', templateVersion: 2, contentHash: assignment.contentHash, source: 'PROVISIONING', status: 'ASSIGNED', errorCode: null });
+    expect(JSON.stringify(detail.body)).not.toContain('Chief Lecturer');
   });
 
   it('[Q15] every step run again, as after a kill at any point, makes no duplicate role, key, host or email', async () => {

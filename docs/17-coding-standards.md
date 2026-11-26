@@ -118,4 +118,5 @@ Enforced with dependency-cruiser in CI.
 - `Math.random()` for anything security-related (use `crypto.randomBytes` / `randomUUID`)
 - `float`/`number` for money. `Date.now()` / `new Date()` in domain/use cases (use `Clock`)
 - Tenant-specific `if` branches (`if (tenant.slug === 'x')`). Use settings/feature flags
+- **Branching on the institution's type** (`if (t.type === 'POLYTECHNIC')`, or a `switch` case on a type), lint-enforced ([spec 0041](specs/0041-institution-profiles.md) Q10, ADR-039). Institution-type differences are data: read the institution's profile, a setting, or choose by a stable identifier (a qualification's family). The rule (`tools/lint/type-branching.mjs`) permits only the profile definitions and provisioning's selection (`packages/domain/src/platform/`), tests, and migration tooling (`packages/db-ops`); a new exception is a reviewed change to that file
 - Mock data imported by production code

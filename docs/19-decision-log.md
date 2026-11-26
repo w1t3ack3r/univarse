@@ -664,6 +664,8 @@ Alternatives considered: option — why not.
 **Consequences:**
 - Polytechnics and colleges of education are supported from Phase 2 (their type-specific operations, such as SIWES and Teaching Practice placements, come later); private universities remain the launch market and pilot.
 - The profiles become reviewed data with versions, like the templates (`university@1`); a profile change affects only institutions provisioned after it, or one that adopts it.
+- **Built in P2-S0 ([spec 0041](specs/0041-institution-profiles.md)):** the templates are `@2`, each with its profile, checked by pure tests and pinned by its content hash. Each institution holds an append-only snapshot of the profile it was assigned, and the platform records the assignment. Later slices project their part into their own editable tables; a new profile version never changes a live institution unless an explicit, versioned migration says so (Q7).
+- **Enforced by lint (spec 0041 Q10):** a comparison or `switch` case on a type literal fails `pnpm lint`, except in the profile definitions and provisioning's selection, tests, and migration tooling (`tools/lint/type-branching.mjs`).
 - Phase 2 grows to about 9 to 11 weeks (spec 0040 Q16).
 
 **Alternatives considered:**

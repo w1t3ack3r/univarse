@@ -96,8 +96,10 @@ test('[J1] create → provisioned → the checklist → live, in under ten minut
 
   await test.step('provisioned by the worker, and the invitation sent', async () => {
     await expect(page.getByRole('heading', { level: 1, name: `E2E Polytechnic ${tag}` })).toBeVisible();
-    await expect(page.getByText(/^Finished .* from the polytechnic@1 template\. The invitation went to i•••@e2e-prov\.test\.$/)).toBeVisible({ timeout: 120_000 });
+    await expect(page.getByText(/^Finished .* from the polytechnic@2 template\. The invitation went to i•••@e2e-prov\.test\.$/)).toBeVisible({ timeout: 120_000 });
     await expect(page.getByText('Onboarding', { exact: true }).first()).toBeVisible();
+    // Spec 0041 Q8: its institution-type profile, assigned in the template step (the page reads it again when it finishes).
+    await expect(page.getByText(/^Polytechnic \(NBTE\), version 2: assigned /)).toBeVisible({ timeout: 30_000 });
     await page.getByText('Show the steps').click();
     await expect(page.getByRole('list', { name: 'Provisioning steps' }).getByRole('listitem')).toHaveCount(8);
     await expectAccessible(page);

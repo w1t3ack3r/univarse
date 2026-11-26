@@ -34,6 +34,8 @@ export const AUDIT_ACTION_LABELS: Readonly<Record<string, string>> = Object.free
   'platform.tenant.product_revoked': 'Revoked a product',
   'platform.tenant.provisioning_requested': 'Asked for a new institution',
   'platform.tenant.provisioning_started': 'Started provisioning an institution',
+  // Spec 0041 Q6: which institution-type profile an institution was given (its template, version and hash).
+  'platform.tenant.profile_assigned': 'Gave an institution its institution-type profile',
   'platform.tenant.host_added': "Gave an institution its address",
   'platform.tenant.products_set': "Set a new institution's products",
   'platform.tenant.admin_invited': "Invited an institution's first administrator",

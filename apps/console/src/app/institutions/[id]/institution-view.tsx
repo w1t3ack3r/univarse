@@ -1,6 +1,7 @@
 'use client';
 
 import type { PlatformTenantDetail } from '@univarse/contracts';
+import { TEMPLATES } from '@univarse/domain';
 import { Notice } from '@univarse/ui';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
@@ -10,7 +11,7 @@ import { NothingHere } from '../../../components/nothing-here';
 import { api, asApiError, type ApiError } from '../../../lib/api';
 import { when } from '../../../lib/device';
 import { SHARD_STATUS } from '../../../lib/shards';
-import { OWNERSHIP, STATUS, TYPE } from '../labels';
+import { OWNERSHIP, PROFILE_ERROR, STATUS, TYPE } from '../labels';
 import { BrandingSection } from './branding';
 import { ProductsSection } from './products';
 import { ProfileForm, RegulatoryForm } from './forms';
@@ -21,6 +22,18 @@ import { ReleaseSection } from './release';
 import { SuspensionSection } from './suspension';
 
 export type Tenant = PlatformTenantDetail;
+
+/**
+ * Spec 0041 Q8: which institution-type profile it was given, its version and where that stands, in words (never colour
+ * alone). An inspection, not a setting: the profile's content stays in the institution's own database.
+ */
+export function profileLine(a: Tenant['profileAssignment']): string {
+  if (!a) return 'Not assigned yet';
+  const which = `${TEMPLATES[a.template].label}, version ${String(a.templateVersion)}`;
+  if (a.status === 'ASSIGNED') return `${which}: assigned ${when(a.assignedAt)}`;
+  if (a.status === 'FAILED') return `${which}: not assigned, ${a.errorCode ? PROFILE_ERROR[a.errorCode] : 'something unexpected stopped it'}. The worker tries again within 15 minutes`;
+  return `${which}: waiting for the worker`;
+}
 
 export interface Changing {
   /** A change landed: say so, and read the institution again. */
@@ -135,6 +148,7 @@ export function InstitutionView() {
           <Fact term="Domains">{t.domains.length ? t.domains.map((d) => d.hostname).join(', ') : 'None'}</Fact>
           <Fact term="Created">{when(t.createdAt)}</Fact>
           {t.template ? <Fact term="Template">{t.template}</Fact> : null}
+          <Fact term="Profile">{profileLine(t.profileAssignment)}</Fact>
         </dl>
         <p className="pc-note">
           {me.permissions.includes('platform.audit.read') ? (

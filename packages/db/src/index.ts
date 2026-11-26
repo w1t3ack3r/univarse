@@ -2,6 +2,8 @@ export { createTenantShardClient, forTenant, TENANT_TX_TIMEOUT_MS, withTenantTx 
 export type { TenantShardClient, TenantTx, TenantTxOptions } from './tenant.js';
 export { createPlatformClient } from './platform.js';
 export { seedTenantBase } from './tenant-base.js';
+export { profileContentHash, ProfileHashMismatch, recordProfileSnapshot } from './tenant-profile.js';
+export type { ProfileSnapshot, ProfileSourceName } from './tenant-profile.js';
 export type { PlatformClient } from './platform.js';
 export * as TenantModels from './generated/tenant/client.js';
 export * as PlatformModels from './generated/platform/client.js';
