@@ -140,7 +140,7 @@ Carried over from the Phase 0 handoff, which was retired when Phase 0 closed.
 
 Claude gives the exact commands; the owner runs them on their machine.
 
-- **Releases:** `pnpm images:release`, signed with the owner's key (the owner sets `COSIGN_PASSWORD`). Before a release on the 8 GB machine: `pnpm stack:down`, stop the dev ClamAV, and check the dev Vault is unsealed.
+- **Releases:** `pnpm images:release`, signed with the owner's key (the owner sets `COSIGN_PASSWORD`). Before a release on the 8 GB machine: `pnpm stack:down`, stop the dev ClamAV, and check the dev Vault is unsealed. **On a slow or unsteady connection, download the scanners' databases first:** the release reuses a Trivy database downloaded in the last 6 hours, but the PgBouncer Grype gate always asks for Grype's newest database, and a download that breaks off (`unexpected EOF`) fails the release. Running `grype db update` on its own, into the gate's cache volume `uv-grype-cache` (the gate's pinned Grype image, `GRYPE_DB_CACHE_DIR=/cache`), leaves the gate nothing to download (2026-11-26).
 - **The stack:** `pnpm stack:deploy releases/<record>.json`, `stack:keys …`, `stack:smoke`, `stack:bucket-check`, and unsealing Vault.
 - **Backups:**
   - the backup key pair: the private half never leaves the owner and is never read;

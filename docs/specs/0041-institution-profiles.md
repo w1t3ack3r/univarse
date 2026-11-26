@@ -1,6 +1,6 @@
 # Spec 0041: Phase 2's P2-S0, the institution-type profiles
 
-**Status:** **Approved by the owner on 2026-11-26, with refinements, all written in below:**
+**Status:** **Done (2026-11-26).** Released as `e94e732` and deployed; criterion 7 passed on the stack (see "Done" below). **The build's decisions Q-A1 to Q-A10 approved by the owner on 2026-11-26.** **Approved by the owner on 2026-11-26, with refinements, all written in below:**
 - **Q2:** unit-type hierarchy rules, award types, academic and administrative governance kept apart, mandatory and conditional approval stages, and the regulators of each qualification.
 - **Q3:** stable lower-case keys, such as `institution_head`, `department_head` and `academic_governing_body`.
 - **Q6:** an assignment record with the content hash, the source and the status.
@@ -111,7 +111,7 @@ One PR. It contains:
 
 - ~~Approve or change Q1 to Q11 and the appendix.~~ Approved 2026-11-26, with refinements.
 - **The ranks, governance bodies and approval defaults stay `[VERIFY]`:** they are what the documents describe. Each institution checks them against its own Scheme of Service and enabling law, in S3 and S5.
-- After the release and deploy: check that the console's institution pages show an assigned profile for each institution on the stack.
+- ~~After the release and deploy: check that the console's institution pages show an assigned profile for each institution on the stack.~~ Done 2026-11-26.
 
 ## Affected docs
 
@@ -180,7 +180,7 @@ One PR. It contains:
   - no snapshot in the template step;
   - the console's field dropped.
 
-### Decisions made while building, for the owner's approval
+### Decisions made while building (approved by the owner on 2026-11-26)
 
 | # | Decision | Why |
 | --- | --- | --- |
@@ -194,6 +194,13 @@ One PR. It contains:
 | Q-A8 | **`packages/db-ops` depends on `@univarse/domain`:** the seed needs the templates. | The migrate image already builds its workspace dependencies (`turbo … --filter=@univarse/migrate...`). |
 | Q-A9 | **A few values the appendix left open:**<ul><li>a university's bachelor's levels run to "600 Level" (MBBS);</li><li>postgraduate levels: a PGD "Year 1"; a master's to "Year 3"; a doctorate to "Year 5";</li><li>sub-degree diplomas "Year 1"–"Year 2" and certificates "Year 1";</li><li>the full names of the qualifications and regulators;</li><li>NSQ's regulator `[VERIFY]` (NCCE in the data).</li></ul>A programme uses the first N labels and S4 makes them editable. | Labels a type needs, without a code change, until S4's screens. |
 | Q-A10 | **The root may contain every type,** implied rather than listed in the data. | It's the institution: General Studies and Entrepreneurship sit under it at the pilot. |
+
+## Done: the release, the deploy and criterion 7
+
+- **Released and deployed on 2026-11-26** as `e94e732` (record `releases/2026-11-26-e94e732.json`): five images built, scanned, signed, attested and verified; the five running on the stack are the release's own digests. The migrate job applied `20261126120000_profile_assignment` to the platform database and `20261126120000_institution_profile` to every shard.
+- **On the way there:** the first run stopped at the PgBouncer Grype gate, because downloading Grype's database broke off (`unexpected EOF`): the network, not a finding. The database was downloaded on its own into the release's cache (`uv-grype-cache`, built 2026-11-26), and the second run passed every gate with no new exception.
+- **Criterion 7, the owner's check on the stack, passed (2026-11-26):** every onboarding, active and suspended institution on the stack shows its type's profile, version 2, assigned, on its console page; no institution shows a failed or waiting assignment.
+- **The backup:** the release and deploy finished before the backup's 13:30 run, so no manual backup was needed ([10 §4.2](../10-infrastructure-and-deployment.md)).
 
 ## Appendix: the profiles' contents
 
