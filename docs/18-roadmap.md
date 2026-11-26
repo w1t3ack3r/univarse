@@ -198,7 +198,7 @@ The rest of [spec 0025](specs/0025-phase-1-control-plane.md) (owner decision 202
 
 ## Phase 2 — Institution setup (~9–11 wks, re-estimated)
 
-**Plan:** [spec 0040](specs/0040-phase-2-institution-setup.md), a draft for the owner's approval (Q1 to Q16). It turns the owner's Phase 2 guidance documents (2026-11-26, kept locally) into slices and decisions. **They widen the phase:** universities, polytechnics and colleges of education on one academic core with institution-type profiles (Q1, ADR-039), a real staff model (Q7), prerequisite and elective rules, effective-dated history. Re-estimated from ~6 to **about 9 to 11 weeks** (Q16). Each slice gets its own spec before it is built.
+**Plan:** [spec 0040](specs/0040-phase-2-institution-setup.md), **approved by the owner on 2026-11-26, all as written** (Q1 to Q16, T40 to T45, ADR-039). It turns the owner's Phase 2 guidance documents (2026-11-26, kept locally) into slices and decisions. **They widen the phase:** universities, polytechnics and colleges of education on one academic core with institution-type profiles (Q1, ADR-039), a real staff model (Q7), prerequisite and elective rules, effective-dated history. Re-estimated from ~6 to **about 9 to 11 weeks** (Q16). Each slice gets its own spec before it is built.
 
 | Slice | What it delivers |
 | --- | --- |
@@ -214,7 +214,7 @@ The rest of [spec 0025](specs/0025-phase-1-control-plane.md) (owner decision 202
 
 - **Carried in:** ADR-028's `ORG_UNIT` and `PROGRAMME` scopes, checked against the loaded resource, with positive and negative tests.
 - **Alongside it (owner's decision, 2026-11-26):** the review of the postgres image's 86 HIGH findings, carried from Phase 0.
-- **Needed from the owner, early:** anonymised spreadsheets from a pilot institution.
+- **Pilot data:** a synthetic stand-in set (a fictional private university, with deliberate real-world messiness and an answer key) is held locally for building the importer; the exit still needs a real institution's anonymised files.
 
 **Exit (spec 0040):** J2 E2E green; a pilot institution's real spreadsheets (anonymised) import its structure, programmes, courses and curricula without code changes; all three institution types provision from their profiles, a dual-mandate college holding NCE and degree programmes side by side; scopes tested both ways; a published curriculum can't be changed; the rollover's dry run changes nothing; integration secrets never come back.
 

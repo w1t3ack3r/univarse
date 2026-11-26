@@ -648,7 +648,7 @@ Alternatives considered: option — why not.
 - **Failing the whole deploy on any shard's failure, as before:** one institution's database would hold every other institution's release.
 
 ## ADR-039 — One academic core; institution types are profiles of data
-**Status:** Proposed with [spec 0040](specs/0040-phase-2-institution-setup.md) (Phase 2), for the owner's approval (Q1, Q10).
+**Status:** Accepted (2026-11-26) with [spec 0040](specs/0040-phase-2-institution-setup.md) (Phase 2; Q1 and Q10, approved by the owner).
 
 **Context:**
 - Until now, polytechnics and colleges of education were post-GA ([01 §3](01-product-brief.md)), and the three provisioning templates differed only in name.

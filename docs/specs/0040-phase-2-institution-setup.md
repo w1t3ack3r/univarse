@@ -1,6 +1,6 @@
 # Spec 0040: Phase 2, institution setup: slices and decisions
 
-**Status:** Draft, for the owner's approval: Q1 to Q16, the threat rows T40 to T45, ADR-039 and the re-estimate.
+**Status:** **Approved by the owner on 2026-11-26, all as written:** Q1 to Q16, the threat rows T40 to T45, ADR-039 and the re-estimate (about 9 to 11 weeks).
 **Phase:** 2 ([18](../18-roadmap.md)): "Institution setup (~6 wks)".
 **Builds on:**
 
@@ -103,6 +103,7 @@ Each slice gets its own spec before it is built, as in Phase 1.
 
 - Approve or change Q1 to Q16, T40 to T45, ADR-039 and the re-estimate.
 - **Provide anonymised spreadsheets from a pilot institution** (its units, programmes, courses and a curriculum), as early as possible: they shape the import framework from its first slice.
+  - **Received 2026-11-26: a synthetic stand-in** for a fictional private university, kept locally (not in the repository): faculties and departments, a programmes export, the course catalogue, curricula in several layouts, an anonymised staff list and a handbook extract, with deliberate real-world messiness and an answer key. It builds and tests the importer (P2-S2 on); **it can't satisfy acceptance 2**, which still needs a real institution's files.
 
 ## Affected docs (updated with this spec)
 
