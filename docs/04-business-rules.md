@@ -119,10 +119,12 @@ The engine produces a **recommendation**. The status change (`WITHDRAWN`) needs 
 
 ## 6. Level progression and duration
 
-- Students move up one level at the start of each new session **regardless of carryovers** (default), unless on a withdrawal recommendation or in a non-active status. `[CONFIG progression.requireMinUnitsPassed]` optionally requires a minimum number of units passed.
+- **Progression is a rule evaluated per student, never a blanket promotion** ([spec 0040](specs/0040-phase-2-institution-setup.md) Q6). The default rule: students move up one level at the start of each new session **regardless of carryovers**, unless on a withdrawal recommendation or in a non-active status. `[CONFIG progression.requireMinUnitsPassed]` optionally requires a minimum number of units passed.
 - **Direct Entry** starts at 200 level. Credit for 100-level courses follows the tenant's DE curriculum rules.
 - **Maximum duration** = normal duration × 1.5 (default, e.g. 4-year → 6 years) `[VERIFY]`. After the normal duration, the student is flagged **spillover**. Spillover fee rules apply (often reduced, per unit registered `[CONFIG]`).
-- Exceeding the maximum duration → recommendation for withdrawal.
+- Exceeding the maximum duration → recommendation for withdrawal. Near-maximum and exceeded students are **flagged for the institution's decision**, never withdrawn automatically.
+- **Level labels are configurable** per qualification: 100–600 (degrees), ND1/ND2 and HND1/HND2 (polytechnics), NCE 100–300 (colleges of education), or Year 1… Durations are per programme, never assumed.
+- **ND completion is not HND admission.** An ND student's completion is recorded, and HND is a separate programme entered through its own admission route and checks (Phase 3).
 
 ## 7. Graduation requirements
 
@@ -185,7 +187,7 @@ Age rule: minimum age at admission (16 `[VERIFY]`) is a warning, not a hard bloc
 | Identifier | Default template `[CONFIG]` | Rules |
 |------------|---------------------------|-------|
 | Application number | `{YYYY}{SEQ:6}` | Per cycle |
-| Matric number | `{YY}/{FACULTY_CODE}/{DEPT_CODE}/{SEQ:4}` (e.g. `25/SCI/CSC/0042`) | Generated at enrolment. Sequence per `(programme or dept, cohort)`. Unique and immutable |
+| Matric number | `{YY}/{FACULTY_CODE}/{DEPT_CODE}/{SEQ:4}` (e.g. `25/SCI/CSC/0042`; a polytechnic's `25/SICT/CSC/0042`) | Generated at enrolment. **It keeps the unit codes it was issued with:** moving or renaming a unit never rewrites it, and a code used in an issued number is locked (a change is a new code, with history; spec 0040 Q11). Sequence per `(programme or dept, cohort)`. Unique and immutable |
 | Invoice number | `INV-{YYYY}-{SEQ:7}` | |
 | Receipt number | `RCT-{YYYY}-{SEQ:7}` | Gap-free within tenant/year (sequence updated in the same transaction as the payment) |
 | Ticket number | `TKT-{SEQ:6}` | |
@@ -205,7 +207,9 @@ Age rule: minimum age at admission (16 `[VERIFY]`) is a warning, not a hard bloc
 
 - All timestamps are stored in **UTC** (`timestamptz`). All deadlines are **defined and displayed in `Africa/Lagos`** (UTC+1, no DST).
 - A window "closes at 23:59 on 15 March" means `2026-03-15T23:59:59+01:00`.
-- Session names follow `YYYY/YYYY`, and there's only one ACTIVE session and semester per tenant.
+- Session names follow `YYYY/YYYY`, and there's only one ACTIVE session and semester per tenant; the active semester belongs to the active session. Special periods (a SIWES period) may sit beside the semesters.
+- **Window overrides:** a window may be overridden for a faculty or school, a department or a programme. **The most specific applies: programme > department > school/faculty > institution.** An override changes only its own window. The window that applies to a given student can always be shown.
+- Window decisions use **server time only**, never a device's clock.
 
 ## 14. Continuous assessment (CA tests and assignments)
 
@@ -231,3 +235,19 @@ Already defined in §5–§6. The operational expectation (from [01 §1](01-prod
 - opens the new session's windows,
 
 all with a dry-run report before commit, and all audited.
+
+**Phase 2 builds the framework first** (spec 0040 Q6): the next session, its periods and windows, structure validation and activation, with the dry run and an execution record (idempotency key, resumable, never half-transitioned). Promotion, carry-forward and duration flags join as operations when student records and results exist. Carry-forward uses **approved equivalences only** and keeps the original attempt history; a failed practical may need its practical assessment repeated, not only the theory.
+
+## 16. Curricula and equivalences
+
+From [spec 0040](specs/0040-phase-2-institution-setup.md):
+
+- **A curriculum version applies by admission cohort.** Once published it is immutable; a change is a new draft copied from it, approved through the chain and published, and the previous version stays. A student is never silently moved to a newer version; a migration is an explicit, authorised decision (a later phase).
+- **Approval chain** `[CONFIG]` per institution, as stages held by offices or governance bodies. Defaults: universities **HOD → Dean (→ Senate)**; polytechnics and colleges of education **HOD → Dean → Academic Board**. A stage may return for correction or reject with a reason. **External approval** (NUC, NBTE, NCCE) is a separate recorded event: internal approval never stands in for it, and it never stands in for internal approval. A submitter can't approve their own submission.
+- **Elective groups** carry rules: minimum and maximum courses, minimum and maximum units, mandatory selections, option restrictions.
+- **Prerequisites are rules:** pass a course; pass one of several; complete a course; a minimum of credit units; a completed level; combined with AND/OR. Evaluated by `packages/domain` (registration applies them in Phase 4).
+- **Course classifications are tags, not one category** (a course can be core and General Studies). Contact hours are recorded by component: theory, practical, workshop, laboratory, studio, fieldwork.
+- **Equivalences** (one-to-one, one-to-many, many-to-one) are explicit, approved, dated decisions with a reason, optionally restricted to programmes. **Never inferred from similar names or codes.**
+- **Requirements** in a curriculum (SIWES, Teaching Practice, project, practical) are configuration in Phase 2. SIWES is never marked complete because its dates passed; completion needs its evidence and an approved assessment (a later phase).
+- **Regulatory specifics are `[VERIFY]` reference data, never universal rules:** NBTE's curriculum proportions, SIWES durations, CCMAS minimums, HOD rank requirements.
+

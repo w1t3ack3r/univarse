@@ -71,34 +71,51 @@ Surfaces: **C** = platform console · **A** = `/apply` · **St** = `/student` ·
 
 ## 3. Institution setup (W: institution admin) — `[PHASE 2]`
 
+Planned in [spec 0040](specs/0040-phase-2-institution-setup.md), for universities, polytechnics and colleges of education on one core (institution-type profiles, ADR-039).
+
 | Feature | Pri | AC |
 |---------|-----|----|
-| Org tree: colleges/faculties/departments/admin units, drag to re-parent | M | Can't delete a unit with programmes/students. Archive instead |
-| Staff import & profiles, role assignment in bulk | M | |
+| Org tree: configurable unit types and names (college, faculty, school, institute, centre, department, directorate, division, unit, section), create, edit, child units, search by name or code, expand and collapse | M | Each institution's types and words ("School" or "Faculty") come from its profile and stay editable. No fixed hierarchy |
+| Re-parent by drag-and-drop **and** an accessible "Move unit" action | M | A unit can't become its own ancestor. Moves are audited with their effective date and need step-up |
+| Archive instead of delete; effective-dated history; the tree "as at a date" | M | Units with programmes, staff, students or history can't be deleted. An archived unit takes no new active child |
+| Unit codes locked once used in an issued identifier | M | A code change is a new code, with the old one in the unit's history; issued matric numbers never change |
+| Unit details: leadership (through appointments), programmes, staff, students | M | |
+| Staff profiles: category, cadre, rank, grade (catalogues per institution, seeded by type), employment type and status | M | Rank, office and governance membership are separate |
+| Offices and appointments (HOD, Dean, Provost, Director, coordinators), with dates and acting appointments | M | An appointment grants its office's role scoped to its unit or programme, for its dates only. Audited, step-up |
+| Governance bodies (Council, Senate or Academic Board, Faculty Boards, committees) and their membership | M | Bodies, not tree levels. Approval chains name them |
+| Staff import & profiles, role assignment in bulk | M | Through the import framework. Imported staff are `PENDING_ACTIVATION` and invited; no passwords imported |
+| Generic import framework (upload → validate → preview → commit) | M | Idempotent, resumable, audited; each row's errors shown before commit; no values in logs; spreadsheets written are safe against formula injection |
 | Settings UI for every `[CONFIG]` key, grouped, with defaults and help text | M | Changes are audited. Changes to grading/approval settings need step-up |
 | Integrations: payment gateways (keys encrypted, test/live), SMS sender ID, email from-address | M | Secrets are never shown back after save (write-only) |
 | Branding: logo, colors, institution letterhead for documents | M | |
 | **Product enablement** by the IT Admin within the institution's plan | M | Only products in the plan can be enabled. Enabling or disabling is audited and takes effect on the next request |
 | **IT Admin guardrails** ([01 §5.4](01-product-brief.md)) | M | Tests prove IT Admins can't read secrets, edit/disable audit, weaken platform security baselines (e.g. MFA for privileged roles) or reach other tenants |
 | Setup checklist/wizard (go-live readiness) | S | |
+| Accreditation records (NUC, NBTE, NCCE): status, reference, dates, review dates | S | Basic records; full accreditation management later. Internal and regulatory approval are separate |
 
 ## 4. Curriculum — `[PHASE 2]`
 
 | Feature | Pri | AC |
 |---------|-----|----|
-| Programmes (award, duration, entry modes, min units) | M | |
-| Course catalog (import), course equivalences | M | Course code unique per tenant |
-| Curriculum versions per programme: level × semester items, categories, elective groups, prerequisites | M | An approved version is read-only. Edits create a new draft version |
-| Curriculum approval (HOD → Dean) | S | |
-| Curriculum compliance view (units per level vs CCMAS minimums) | L | |
+| Qualifications per institution (B.Sc. … Ph.D.; ND, HND, NID; NCE, B.Ed., PGDE), with their level labels | M | A dual-mandate college holds NCE and degree qualifications side by side. Never every qualification for every institution |
+| Programmes (qualification, primary owning department and participating ones, coordinator, normal/minimum/maximum duration, entry modes, min units, study mode, status, effective session) | M | Durations are per programme, never assumed. HND admission is its own entry route |
+| Programme options and NCE subject combinations | M | |
+| ND → HND progression relationship | M | A formal link with its own conditions; never an automatic promotion |
+| Course catalog (import): code, title, units, level, owning department, tags, contact hours by component, status | M | Course code unique per tenant. Classifications are tags, not one category |
+| Course equivalences (one-to-one, one-to-many, many-to-one), approved, dated, with a reason | M | Explicit decisions only; never inferred from names |
+| Curriculum versions per programme and admission cohort: levels × periods, items, elective groups with rules, prerequisite rules | M | An approved version is read-only. Edits create a new draft version. Students stay on their cohort's version |
+| SIWES, Teaching Practice, project and practical requirements in a curriculum | M | Configuration only; the operations (placements, logbooks, assessments) are later phases |
+| Curriculum approval through a configurable chain (HOD → Dean → Senate or Academic Board), with return, rejection, resubmission, history and documents | M | Every decision recorded with its approver. External approval (NUC/NBTE/NCCE) recorded separately. A submitter can't approve their own |
+| Curriculum compliance view (CCMAS, NBTE, NCCE) | L | Records the edition it checked against |
 
 ## 5. Academic calendar — `[PHASE 2]`
 
 | Feature | Pri | AC |
 |---------|-----|----|
-| Sessions & semesters, activation | M | Only one active each. Activation is audited |
-| Windows (registration, late reg, add/drop, fee payment, score entry, hostel, clearance) with optional scope overrides | M | Window checks use server time in `Africa/Lagos` |
-| Session rollover wizard (promote levels, create offerings from curricula, generate fee invoices) | M | Dry-run preview first. Idempotent |
+| Sessions (`DRAFT` → `SCHEDULED` → `ACTIVE` → `COMPLETED` → `ARCHIVED`), semesters and special periods (SIWES, industrial attachment), activation | M | Only one active session and semester; the active semester is in the active session. Activation is audited |
+| Windows (registration, late reg, add/drop, fee payment, score entry, examination, hostel, clearance, graduation processing, SIWES application and assessment, project submission) with scope overrides | M | Window checks use server time in `Africa/Lagos`. Precedence programme > department > school/faculty > institution. Overrides are audited |
+| The window that applies to a given student | M | Shown to administrators, with which override decided it |
+| Session rollover wizard | M | Dry-run preview first. Idempotent and resumable. Phase 2 creates the next session, its periods and windows, validates programmes and curricula, and activates; promotion, carry-forward and duration flags join when student records and results exist (spec 0040 Q6) |
 | Public academic calendar page | S | |
 
 ## 6. Admissions (A, W) — `[PHASE 3]`

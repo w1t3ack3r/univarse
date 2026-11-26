@@ -8,7 +8,15 @@ Shared vocabulary for code, UI and docs. **Use these exact terms in code identif
 |------|---------|-----------------|
 | **NUC** | National Universities Commission. Regulates universities, sets minimum academic standards | — |
 | **CCMAS** | Core Curriculum and Minimum Academic Standards. NUC's curriculum baseline (2023 edition onward) | — |
-| **NBTE / NCCE** | Regulators for polytechnics / colleges of education (future tenant types) | `tenantType` |
+| **NBTE / NCCE** | Regulators for polytechnics / colleges of education (supported from Phase 2, [spec 0040](specs/0040-phase-2-institution-setup.md) Q1) | `tenantType` |
+| **ND / HND / NID** | National Diploma / Higher National Diploma / National Innovation Diploma: polytechnic qualifications. ND and HND are separate programmes; HND admission is its own route, never a promotion from ND | `qualification` |
+| **NCE** | Nigeria Certificate in Education: a college of education's three-year qualification, taken in a subject combination | `qualification` |
+| **Dual mandate** | NCCE's 2026 framework: a college of education may run NCE and approved degree programmes side by side | — |
+| **Subject combination** | An NCE student's approved pair of teaching subjects (a major and a minor) | `ProgrammeOption` |
+| **SIWES** | Students Industrial Work Experience Scheme: supervised industrial training, a curriculum requirement (polytechnics above all) | `requirementType = SIWES` |
+| **Teaching Practice** | Supervised classroom teaching, a college of education's curriculum requirement | `requirementType = TEACHING_PRACTICE` |
+| **Rector / Provost** | Chief executive of a polytechnic / college of education (a university's is the Vice-Chancellor) | office |
+| **Academic Board** | A polytechnic's or college of education's principal academic body, corresponding broadly to a university's Senate | `GovernanceBody` |
 | **JAMB** | Joint Admissions and Matriculation Board. Runs UTME and controls admissions via CAPS | — |
 | **UTME** | Unified Tertiary Matriculation Examination. JAMB entrance exam, scored out of 400 | `utmeScore` |
 | **DE** | Direct Entry. Admission into 200 level using A-level/ND/NCE etc. | `entryMode = DIRECT_ENTRY` |
@@ -67,6 +75,15 @@ Shared vocabulary for code, UI and docs. **Use these exact terms in code identif
 | **Platform staff** | UniVarse employees (Super Admin, Support, Finance). Never share identity with tenant users |
 | **Workspace** | The permission-driven staff UI at `/staff` |
 | **Scope** | The org boundary a role applies to: institution, faculty, department, programme, course offering, hostel |
+| **Unit type** | An institution's configured kind of organisational unit (faculty, school, college, institute, centre, department, directorate, division, unit, section), with its own name | `OrgUnitType` (configurable) |
+| **Institution-type profile** | The data a university, polytechnic or college of education starts with: unit types, level labels, qualification families, staff catalogues, governance bodies, approval defaults. Copied at provisioning; the institution owns its copy (ADR-039) | `InstitutionProfile` |
+| **Office / appointment** | A position of authority (HOD, Dean, Director, coordinator) / a person holding it for a period. An appointment grants the office's role, scoped to its unit or programme, for its dates | `Office`, `Appointment` |
+| **Category / cadre / rank** | Separate staff attributes: academic or non-academic / a career stream (lecturer, technologist, accountant) / a step in it (Senior Lecturer, Chief Lecturer, Professor). A rank is not an office | `staffCategory`, `staffCadre`, `staffRank` |
+| **Governance body** | A council, Senate, Academic Board, Faculty Board or committee: a decision-making body, not a level of the org tree | `GovernanceBody` |
+| **Curriculum version** | A programme's curriculum for an admission cohort: immutable once published; a change is a new version | `CurriculumVersion` |
+| **Equivalence** | An approved, dated declaration that courses count for one another (one-to-one, one-to-many, many-to-one); never inferred from names | `CourseEquivalence` |
+| **Window override** | A calendar window's dates for one faculty or school, department or programme. The most specific one wins | `CalendarWindowOverride` |
+| **Rollover** | The guided move from one session to the next: a dry run, then an idempotent, audited execution | `RolloverRun` |
 | **Step-up** | Re-authentication (password + MFA) needed before a sensitive action |
 | **Outbox** | Table where domain events are written in the same transaction as the change, then published asynchronously |
 
