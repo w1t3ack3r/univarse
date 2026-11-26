@@ -646,3 +646,27 @@ Alternatives considered: option — why not.
 - **Schema per tenant:** a pool's connection limits with a database's migration cost.
 - **One database per institution for everyone:** a hundred databases' connections and migrations for institutions that need none of it.
 - **Failing the whole deploy on any shard's failure, as before:** one institution's database would hold every other institution's release.
+
+## ADR-039 — One academic core; institution types are profiles of data
+**Status:** Accepted (2026-11-26) with [spec 0040](specs/0040-phase-2-institution-setup.md) (Phase 2; Q1 and Q10, approved by the owner).
+
+**Context:**
+- Until now, polytechnics and colleges of education were post-GA ([01 §3](01-product-brief.md)), and the three provisioning templates differed only in name.
+- The owner's Phase 2 guidance documents (2026-11-26) design universities, polytechnics and colleges of education together. They differ in governance (Senate or Academic Board), unit names (Faculty or School), qualifications (degrees; ND, HND, NID; NCE and, under NCCE's 2026 dual mandate, degrees too), level labels (100L, ND1, NCE 100), staff ranks (Professor or Chief Lecturer), and type-specific requirements (SIWES, Teaching Practice). Their academic engines (the org tree, programmes, courses, curricula, approvals, the calendar, rollover) are the same.
+- Invariant 4: institution differences are settings, never `if (tenant === …)`.
+
+**Decision:**
+- **One academic core** for all three types: one org-tree engine, one programme and course catalogue, one curriculum and approval engine, one calendar, one rollover orchestrator.
+- **An institution-type profile is versioned data,** grown from today's templates: unit types and names, level labels, qualification families, staff categories, cadres and ranks, governance bodies, approval-chain defaults, window and period types. **Provisioning copies it into the institution, which owns and edits its copy.** Nothing in the code branches on the institution's type.
+- **Rules that differ are chosen by the qualification, not the institution:** ND → HND progression, NCE subject combinations and their rules are pure functions in `packages/domain`, selected by the qualification's configuration. A dual-mandate college runs NCE and degree rules side by side in one tenant.
+- **Regulatory specifics are `[VERIFY]` reference data,** never enforced as universal rules; compliance views (CCMAS, NBTE, NCCE) are later adapters that record the edition they checked against.
+
+**Consequences:**
+- Polytechnics and colleges of education are supported from Phase 2 (their type-specific operations, such as SIWES and Teaching Practice placements, come later); private universities remain the launch market and pilot.
+- The profiles become reviewed data with versions, like the templates (`university@1`); a profile change affects only institutions provisioned after it, or one that adopts it.
+- Phase 2 grows to about 9 to 11 weeks (spec 0040 Q16).
+
+**Alternatives considered:**
+- **Separate engines per institution type:** three copies of every academic engine, and a dual-mandate college fits none of them.
+- **The university model only, others later:** the data model every later product points at would be reshaped once the other types arrive, often under append-only records.
+- **Branching on the institution's type in code:** violates invariant 4, and a dual-mandate college would need both branches at once.

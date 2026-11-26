@@ -11,7 +11,7 @@ gantt
   section Build
   P0 Foundations            :p0, 0, 6
   P1 Platform control plane :p1, after p0, 8
-  P2 Institution setup      :p2, after p1, 5
+  P2 Institution setup      :p2, after p1, 10
   P1b Support + compliance  :p1b, after p2, 4
   P3 Admissions + Bursary   :p3, after p1b, 8
   P4 Records + Registration :p4, after p3, 6
@@ -24,7 +24,7 @@ gantt
   P7 Hostel, Comms, Helpdesk, Reporting :p7, after p6, 6
   P8 Hardening + GA         :p8, after p7, 5
 ```
-*(Units are weeks. Total ≈ 69 weeks, after Phase 1's re-estimate and Phase 1b ([spec 0025](specs/0025-phase-1-control-plane.md), 2026-10-28). Phases 6–8 overlap with pilot support. Because products are enabled independently (ADR-020), the pilot can go live on Core + Bursary + Academics even if Phase 4b slips. Results accept manually entered CA scores.)*
+*(Units are weeks. Total ≈ 74 weeks, after Phase 1's re-estimate and Phase 1b ([spec 0025](specs/0025-phase-1-control-plane.md), 2026-10-28) and Phase 2's ([spec 0040](specs/0040-phase-2-institution-setup.md), 2026-11-26). Phases 6–8 overlap with pilot support. Because products are enabled independently (ADR-020), the pilot can go live on Core + Bursary + Academics even if Phase 4b slips. Results accept manually entered CA scores.)*
 
 ---
 
@@ -196,17 +196,27 @@ The rest of [spec 0025](specs/0025-phase-1-control-plane.md) (owner decision 202
 
 **Exit:** each slice's acceptance in spec 0025, plus: an IT Admin raises a ticket and gets a reply, with both sides logged; a plan change changes entitlements, audited; the operations snapshot holds nothing secret (a test).
 
-## Phase 2 — Institution setup (~6 wks)
+## Phase 2 — Institution setup (~9–11 wks, re-estimated)
 
-- Org units tree, staff profiles, bulk user/staff import with activation invites
-- Programmes, courses, curriculum versions (items, electives, prerequisites), approval
-- Academic sessions/semesters, calendar windows, **session rollover wizard** (dry run)
-- Settings UI for all `[CONFIG]` keys (grading scheme, approval stages, registration limits, matric template…), branding, integrations screen (gateway keys, write-only)
-- **From Phase 0 (ADR-028):** `ORG_UNIT` and `PROGRAMME` scope enforcement, checked against the loaded resource, with positive and negative tests
-- Generic import framework (upload → validate → preview → commit) used by all modules
-- **The console (spec 0025 E17, E21):** a training sandbox per institution (its configuration in a tenant of its own, with made-up data; on the go-live checklist), and the import monitor (each import's progress and error counts, never its rows)
+**Plan:** [spec 0040](specs/0040-phase-2-institution-setup.md), **approved by the owner on 2026-11-26, all as written** (Q1 to Q16, T40 to T45, ADR-039). It turns the owner's Phase 2 guidance documents (2026-11-26, kept locally) into slices and decisions. **They widen the phase:** universities, polytechnics and colleges of education on one academic core with institution-type profiles (Q1, ADR-039), a real staff model (Q7), prerequisite and elective rules, effective-dated history. Re-estimated from ~6 to **about 9 to 11 weeks** (Q16). Each slice gets its own spec before it is built.
 
-**Exit:** J2 E2E green. A pilot institution's structure, programmes and curricula are imported from its real spreadsheets (anonymised) without code changes.
+| Slice | What it delivers |
+| --- | --- |
+| **P2-S0** Phase start | The threat rows T40–T45; ADR-039; the institution-type profiles as versioned data, copied at provisioning |
+| **P2-S1** The org tree | Configurable unit types and names; create, edit, move (with an accessible "Move unit"), archive; effective-dated history; codes locked once used in an identifier; **`ORG_UNIT` scope** (ADR-028) |
+| **P2-S2** The import framework | Upload → validate → preview → commit, idempotent and resumable, used by every later module; its first importer (org units); progress and counts mirrored for the console |
+| **P2-S3** Staff | Profiles; categories, cadres, ranks, grades; offices and appointments granting scoped roles for their dates; employment type and status; governance bodies; bulk staff import with activation invites |
+| **P2-S4** Programmes and courses | Qualification families (B.Sc. … Ph.D.; ND, HND, NID; NCE, B.Ed., PGDE); programme ownership, durations, entry modes (HND admission as its own route), options and NCE subject combinations, accreditation records; the course catalogue with tags and contact hours; approved equivalences; **`PROGRAMME` scope** |
+| **P2-S5** Curricula | Versions by admission cohort, immutable once published; elective groups and prerequisite rules; SIWES, Teaching Practice, project and practical requirements; the configurable approval chain (HOD → Dean → Senate or Academic Board), external approvals recorded separately |
+| **P2-S6** Calendar and rollover | Sessions and their lifecycle; semesters and special periods; windows with programme > department > school/faculty > institution overrides; the rollover orchestrator, framework first (student progression arrives with Phases 4 and 5) |
+| **P2-S7** Settings, integrations, branding | Every `[CONFIG]` key's screen; integrations write-only; the letterhead; the IT Admin guardrails; the setup checklist |
+| **P2-S8** The console (spec 0025 E17, E21) | A training sandbox per institution, and the import monitor (progress and error counts, never rows) |
+
+- **Carried in:** ADR-028's `ORG_UNIT` and `PROGRAMME` scopes, checked against the loaded resource, with positive and negative tests.
+- **Alongside it (owner's decision, 2026-11-26):** the review of the postgres image's 86 HIGH findings, carried from Phase 0.
+- **Pilot data:** a synthetic stand-in set (a fictional private university, with deliberate real-world messiness and an answer key) is held locally for building the importer; the exit still needs a real institution's anonymised files.
+
+**Exit (spec 0040):** J2 E2E green; a pilot institution's real spreadsheets (anonymised) import its structure, programmes, courses and curricula without code changes; all three institution types provision from their profiles, a dual-mandate college holding NCE and degree programmes side by side; scopes tested both ways; a published curriculum can't be changed; the rollover's dry run changes nothing; integration secrets never come back.
 
 ## Phase 3 — Admissions & Bursary core (~9 wks)
 

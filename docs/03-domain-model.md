@@ -64,30 +64,47 @@ Entities per bounded context, their key fields, invariants and lifecycles. This 
 
 ## 3. Organization
 
+Planned in [spec 0040](specs/0040-phase-2-institution-setup.md) (Phase 2), from the owner's guidance documents. `OrgUnit` and its root exist today; the rest is built slice by slice. Rank, office and governance membership are separate things: a Chief Lecturer (rank) may be HOD (office) and sit on the Academic Board (membership).
+
 | Entity | Key fields | Notes |
 |--------|-----------|-------|
-| `OrgUnit` | code, name, kind (`ACADEMIC`/`ADMINISTRATIVE`), type (`COLLEGE`/`FACULTY`/`SCHOOL`/`DEPARTMENT`/`INSTITUTE`/`CENTRE`/`UNIT`), parentId, path (ltree or materialized path), status | A tree handles University → College → Faculty → Department variations. The `path` enables scope checks (`resource.path <@ scope.path`) |
-| `StaffProfile` | userId, staffNumber, title, rank, primaryOrgUnitId, employmentType, status | |
+| `InstitutionProfile` | the type it came from (`UNIVERSITY`/`POLYTECHNIC`/`COLLEGE_OF_EDUCATION`) and its version; unit types and names, level labels, qualification families, staff catalogues, governance bodies, approval-chain defaults, window and period types | ADR-039. Copied from the institution-type profile at provisioning; the institution then owns and edits its copy. No code branches on the type |
+| `OrgUnitType` | key, name (the institution's own word: "School" or "Faculty"), kind (`ACADEMIC`/`ADMINISTRATIVE`/`RESEARCH`), status | Configurable per institution (spec 0040 Q2). Replaces today's fixed `OrgUnitType` enum by expand → migrate → contract |
+| `OrgUnit` | code, name, typeId, parentId, path (materialised), status (`ACTIVE`/`INACTIVE`/`ARCHIVED`), codeLockedAt?, description | One parent (except the root); never its own ancestor; an archived unit takes no new active child; referenced units are archived, never deleted (Q12). The `path` enables scope checks (`resource.path` starts with `scope.path`). A code used in an issued identifier is locked (Q11) |
+| `OrgUnitChange` | unitId, kind (`CREATED`/`RENAMED`/`MOVED`/`CODE_CHANGED`/`ARCHIVED`/`REACTIVATED`), before, after, effectiveFrom, by, reason | Append-only. Gives the tree "as at a date" (Q12) |
+| `StaffProfile` | userId, staffNumber, title, categoryId, cadreId, rankId, gradeId?, primaryOrgUnitId, employmentType, employmentStatus | Employment type (permanent, contract, part-time, adjunct, visiting, …) and status (active, on leave, retired, …) are separate (spec 0040 Q7) |
+| `StaffCategory`, `StaffCadre`, `StaffRank`, `StaffGrade` | per-institution catalogues seeded by the profile: a cadre's ranks in order | E.g. lecturer cadre: … Senior Lecturer → Associate Professor/Reader → Professor (university); … Principal Lecturer → Chief Lecturer (polytechnic) `[VERIFY]` per the institution's Scheme of Service |
+| `Office` | key, name (HOD, Dean, Provost, Director, Programme Coordinator, Level Coordinator…), the role it grants, its scope kind (unit or programme) | An office is authority, not a rank |
+| `Appointment` | staffId, officeId, scopeId (unit or programme), from, to?, acting?, by, reason | Grants the office's role for its dates, scoped (an appointment as HOD → `ORG_UNIT` on that department). Ends on its date (T41). Audited, step-up |
+| `GovernanceBody`, `GovernanceMembership` | Governing Council, Senate or Academic Board, Faculty Board, committees; a member's position (chair, secretary, member) and dates | Decision-making bodies, not levels of the tree. Approval chains name them (Q5) |
 
 ## 4. Curriculum
 
 | Entity | Key fields | Invariants |
 |--------|-----------|-----------|
-| `Programme` | code, name, award (`B.Sc.`, `B.Eng.`, `LL.B`, `MBBS`…), departmentId, normalDurationYears, maxDurationYears, entryModes[], minUnitsToGraduate, status | |
-| `Course` | code (`CSC 201`), title, creditUnits, ownerDepartmentId, description, courseType (`LECTURE`/`PRACTICAL`/`SEMINAR`/`PROJECT`/`SIWES`), status | Unique `(tenant, code)`. Units changes only affect **future** offerings |
-| `CurriculumVersion` | programmeId, name, effectiveFromCohortSessionId, status (`DRAFT`/`APPROVED`/`RETIRED`), approvedBy/At | Students are pinned to the version of their cohort |
-| `CurriculumItem` | curriculumVersionId, courseId, level, semesterNumber, category (`COMPULSORY`/`REQUIRED`/`ELECTIVE`/`GENERAL_STUDIES`), electiveGroupId? | |
-| `ElectiveGroup` | curriculumVersionId, name, minUnits, maxUnits | |
-| `Prerequisite` | courseId, requiresCourseId, kind (`PASSED`/`TAKEN`), curriculumVersionId? | |
-| `CourseEquivalence` | courseId, equivalentCourseId, fromSession | Handles code renames across curricula |
+| `Qualification` | key (`BSC`, `BENG`, `MSC`, `PHD`, `ND`, `HND`, `NID`, `NCE`, `BED`, `PGDE`…), name, family, level labels, the rule module it uses | Per institution, from its profile. A dual-mandate college holds NCE and degree qualifications side by side (spec 0040 Q8). Rules are chosen by the qualification, never by the tenant (Q10) |
+| `Programme` | code, name, qualificationId, primary owning unit (department), participating units[], coordinator, normal/minimum/maximum duration, entry modes[] (UTME, Direct Entry, **HND admission**, transfer, part-time…), minUnitsToGraduate, study mode, status, accreditation status, effectiveFromSession | One primary owner, optional participants (Q3). Durations configurable per programme, never assumed |
+| `ProgrammeOption` | programmeId, code, name (an option, a specialisation, an **NCE subject combination**) | |
+| `ProgrammeProgression` | fromProgrammeId (ND), toProgrammeId (HND), conditions | A formal link with its own admission checks, never an automatic promotion |
+| `AccreditationRecord` | programmeId?, regulator (`NUC`/`NBTE`/`NCCE`), status, reference, from, to?, reviewDate | Basic records in Phase 2; full accreditation management later. External approval is never internal approval |
+| `Course` | code (`CSC 201`), title, description, creditUnits, level (by label), ownerUnitId, tags[] (core, elective, GST, foundation, professional, practical, workshop, project, SIWES…), contact hours by component (theory, practical, workshop, laboratory, studio, fieldwork), status | Unique `(tenant, code)`. Tags, not one category: a course can be core *and* GST. Unit changes only affect **future** offerings |
+| `CourseEquivalence` | courses on each side (one-to-one, one-to-many, many-to-one), reason, effectiveFromSession, approved by/at, programme restriction? | An explicit, approved decision; never inferred from similar names (T45) |
+| `CurriculumVersion` | programmeId, version (`2025.1`), effective admission session (cohort), status (`DRAFT`/`SUBMITTED`/`IN_REVIEW`/`RETURNED`/`APPROVED`/`PUBLISHED`/`RETIRED`), regulator reference/edition? | **Immutable once published** (a database trigger, T40); a change is a new draft copied from it. Students are pinned to their cohort's version (Q4) |
+| `CurriculumItem` | versionId, courseId, level, period (semester or special period), requirement (`CORE`/`ELECTIVE`/…), groupId? | |
+| `CurriculumGroup` | versionId, level, period, name, min/max courses, min/max units, mandatory selections, option restriction? | Elective rules |
+| `CurriculumRule` | versionId, courseId?, kind (`PREREQUISITE`/`COREQUISITE`), expression (pass X; pass one of; complete; min units; completed level; AND/OR) | Evaluated by a pure function in `packages/domain` (Q15) |
+| `CurriculumRequirement` | versionId, type (`SIWES`/`TEACHING_PRACTICE`/`PROJECT`/`PRACTICAL`), level, period, duration, conditions | Configuration only in Phase 2; the operations come later |
+| `CurriculumApproval` | versionId, stage (an office or a governance body), decision (`APPROVED`/`RETURNED`/`REJECTED`), by, at, comment, documents | Append-only history. The chain is configurable per institution (Q5); external regulator approval is a separate event |
 
 ## 5. Academic calendar
 
 | Entity | Key fields | Invariants |
 |--------|-----------|-----------|
-| `AcademicSession` | name (`2025/2026`), startDate, endDate, status (`PLANNED`/`ACTIVE`/`CLOSED`) | At most one `ACTIVE` per tenant |
-| `Semester` | sessionId, number (1/2), name, startDate, endDate, status | At most one `ACTIVE` per tenant |
-| `CalendarWindow` | type (`APPLICATION`/`COURSE_REGISTRATION`/`LATE_REGISTRATION`/`ADD_DROP`/`FEE_PAYMENT`/`SCORE_ENTRY`/`HOSTEL_APPLICATION`/`CLEARANCE`), semesterId?/sessionId?, opensAt, closesAt, scopeType?, scopeId? | Times are stored UTC and shown in `Africa/Lagos` |
+| `AcademicSession` | name (`2025/2026`), startDate, endDate, status (`DRAFT`/`SCHEDULED`/`ACTIVE`/`COMPLETED`/`ARCHIVED`), activatedAt, closedAt | At most one `ACTIVE` per tenant |
+| `AcademicPeriod` | sessionId, kind (`SEMESTER`/`SUMMER`/`SIWES`/`INDUSTRIAL_ATTACHMENT`/…), number?, name, startDate, endDate, status | At most one `ACTIVE` semester per tenant, inside the active session. Special periods (a SIWES period) aren't forced into a semester. Later sections' `semesterId` is a period of kind `SEMESTER` |
+| `CalendarWindow` | type (`APPLICATION`/`COURSE_REGISTRATION`/`LATE_REGISTRATION`/`ADD_DROP`/`FEE_PAYMENT`/`SCORE_ENTRY`/`EXAMINATION`/`HOSTEL_APPLICATION`/`CLEARANCE`/`GRADUATION_PROCESSING`/`SIWES_APPLICATION`/`SIWES_ASSESSMENT`/`PROJECT_SUBMISSION`/…), sessionId, periodId?, opensAt, closesAt, status | Stored UTC; defined, displayed and judged in `Africa/Lagos` on server time only (T44) |
+| `CalendarWindowOverride` | windowId, scope (unit or programme), opensAt, closesAt, reason, by | Precedence: programme > department > school/faculty > institution. Overrides only their own window. "The window for this student" is computable and shown |
+| `RolloverRun` | source session, target session, idempotency key, stage, dry-run report, status (`DRY_RUN`/`CONFIRMED`/`RUNNING`/`PARTIAL`/`DONE`/`FAILED`), operation results, failures, started/completed, by | Dry run first; explicit confirmation; resumable without repeating done operations; every stage audited (spec 0040 Q6) |
 
 ## 6. Admissions
 

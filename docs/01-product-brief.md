@@ -44,7 +44,7 @@ UniVarse **does not replace national bodies** (JAMB, NUC, WAEC, NYSC, TSA/Remita
 | **Private universities** (≈150) | Fast decisions, smaller (2k–15k students), pay for quality. **Launch market and pilot target** | GA |
 | **State universities** | Medium/large, indigene fee rules, state procurement | GA+ |
 | **Federal universities** | Large (20k–60k+), TSA/Remita mandatory, formal procurement | GA+ |
-| Polytechnics / Colleges of Education | Different regulators (NBTE/NCCE), ND/HND and NCE structures | Post-GA (`tenantType` reserved now) |
+| Polytechnics / Colleges of Education | Different regulators (NBTE/NCCE); ND/HND and NCE structures, SIWES and Teaching Practice; a college of education may also award degrees (NCCE's 2026 dual mandate) | **Supported from Phase 2** on the same academic core, by institution-type profile ([spec 0040](specs/0040-phase-2-institution-setup.md) Q1, ADR-039); their type-specific operations (SIWES and Teaching Practice placements, laboratories) in later phases |
 
 Design for the **largest realistic single tenant: 60,000 active students and 3,000 staff**. Peaks to design for:
 - **10,000 concurrent users** at result release.
