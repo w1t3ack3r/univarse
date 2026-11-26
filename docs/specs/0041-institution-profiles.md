@@ -165,6 +165,7 @@ One PR. It contains:
 - **Integration, run against the development databases:**
   - `profiles.int.spec.ts`, 8 tests: the statuses that get one and the ones that don't; the seed's request completed; running again creates nothing new and changes no configuration; a pass stopped after the snapshot is finished without a second audit; `hash_mismatch` recorded, then retried; the snapshot can't be updated or deleted; an `ASSIGNED` row can't change; cross-tenant.
   - Provisioning, the export catalogue, the tenant registry, the purge and the exports: 61 tests, updated for `@2`, the profile's audit and the console's field.
+  - The tenant isolation sweep (spec 0004, `packages/db`): `institution_profile` has its fixture, so every read, write and delete across institutions is refused for it too (55 tests in that package).
 - **E2E:** the console's provisioning journey now expects `polytechnic@2` and the profile line.
 - **Mutation checks:** 11 mutants, each caught by a test:
   - Senate and Academic Board together;
