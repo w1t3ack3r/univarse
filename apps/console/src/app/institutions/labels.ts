@@ -59,11 +59,19 @@ export const STEP: Readonly<Record<string, { label: string; about: string }>> = 
   place: { label: 'Place', about: 'Check its database answers, then mark it as being provisioned.' },
   key: { label: 'Data key', about: 'Create the key that protects its data, in Vault.' },
   seed: { label: 'Roles', about: 'Set up its organisation root and the system roles.' },
-  template: { label: 'Template', about: 'Apply the settings its template defines.' },
+  template: { label: 'Template', about: 'Apply the settings and the institution-type profile its template defines.' },
   host: { label: 'Address', about: 'Give it its own web address.' },
   products: { label: 'Products', about: 'Grant the products chosen; switch Core on.' },
   invite: { label: 'Invitation', about: 'Create the first administrator’s account and email them.' },
   done: { label: 'Onboarding', about: 'Hand it over: the administrator can now activate.' },
+};
+
+/** Spec 0041 Q8: why an institution's profile couldn't be assigned. The worker tries again every 15 minutes. */
+export const PROFILE_ERROR: Readonly<Record<'shard_unavailable' | 'hash_mismatch' | 'database' | 'unexpected', string>> = {
+  shard_unavailable: 'its database didn’t answer',
+  hash_mismatch: 'it already holds a different profile under this version',
+  database: 'the database refused the change',
+  unexpected: 'something unexpected stopped it',
 };
 
 /** Spec 0034 Q4: a failed step's fixed code, and what to do about it. */

@@ -184,9 +184,45 @@ model Tenant {
   offboardings             PlatformTenantOffboarding[]
   exports                  PlatformTenantExport[]
   purge                    PlatformTenantPurge?
+  profileAssignments       TenantProfileAssignment[]
 
   @@index([releaseRing])
   @@map("tenant")
+}
+
+enum ProfileAssignmentSource {
+  PROVISIONING
+  SEED
+  BACKFILL
+}
+
+enum ProfileAssignmentStatus {
+  PENDING
+  ASSIGNED
+  FAILED
+}
+
+/// Spec 0041 Q6: which institution-type profile each institution was given, exactly: one row per institution and
+/// template version. ASSIGNED only once the tenant's `institution_profile` snapshot has committed, with the same hash.
+/// A FAILED row holds a fixed code, never a message. Written by the worker (and the seed); read by the console.
+model TenantProfileAssignment {
+  id              String                  @id @default(dbgenerated("uuidv7()")) @db.Uuid
+  tenantId        String                  @map("tenant_id") @db.Uuid
+  template        String
+  templateVersion Int                     @map("template_version")
+  contentHash     String                  @map("content_hash")
+  source          ProfileAssignmentSource
+  status          ProfileAssignmentStatus @default(PENDING)
+  errorCode       String?                 @map("error_code")
+  assignedAt      DateTime?               @map("assigned_at") @db.Timestamptz(3)
+  createdAt       DateTime                @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime                @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, template, templateVersion])
+  @@index([status])
+  @@map("tenant_profile_assignment")
 }
 
 enum TenantOperatingStatus {

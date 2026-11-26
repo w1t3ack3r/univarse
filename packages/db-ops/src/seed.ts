@@ -4,7 +4,8 @@
  * `pnpm db:seed` (scripts/seed.ts) and by the migrate image (spec 0019), compiled.
  */
 import type { ProductKey } from '@univarse/contracts';
-import { createPlatformClient, createTenantShardClient, seedTenantBase, withTenantTx } from '@univarse/db';
+import { createPlatformClient, createTenantShardClient, profileContentHash, seedTenantBase, withTenantTx } from '@univarse/db';
+import { canonicalJson, TEMPLATES, templateForType } from '@univarse/domain';
 import { TENANTS } from './seed-tenants.js';
 
 /** The development domain; the stack seeds `stack.univarse.localhost` (spec 0019 D6). */
@@ -59,6 +60,13 @@ export async function seed({ platformUrl, tenantUrl, domain = DEV_DOMAIN, log = 
         create: { tenantId: tenant.id, product, entitled, enabled: entitled && product === 'core' },
       });
     }
+    // Spec 0041 Q5: the seed asks for its institutions' profiles; the worker's pass assigns them (the snapshot, its
+    // audit and ASSIGNED), as for every institution live without one. An existing row is never touched.
+    const template = TEMPLATES[templateForType(t.type)];
+    await platform.tenantProfileAssignment.createMany({
+      data: [{ tenantId: tenant.id, template: template.id, templateVersion: template.version, contentHash: profileContentHash(canonicalJson(template.profile)), source: 'SEED' }],
+      skipDuplicates: true,
+    });
     const hostname = `${t.slug}.${domain}`;
     await platform.tenantDomain.upsert({
       where: { hostname },

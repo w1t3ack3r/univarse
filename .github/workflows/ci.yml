@@ -248,6 +248,8 @@ jobs:
         run: node --test tools/hooks/hooks.test.mjs
       - name: The dev edge — its routing (spec 0027 P3, P9), and WebSockets to the two Next.js apps only
         run: node --test tools/dev-edge/route.test.mjs tools/dev-edge/upgrade.test.mjs
+      - name: No branching on the institution's type — the lint rule's own tests (spec 0041 Q10, ADR-039)
+        run: node --test tools/lint/type-branching.test.mjs
 
       - name: Create roles + databases (least privilege)
         run: pnpm db:setup

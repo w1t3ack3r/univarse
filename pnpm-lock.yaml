@@ -397,6 +397,9 @@ importers:
       '@univarse/db':
         specifier: workspace:*
         version: link:../db
+      '@univarse/domain':
+        specifier: workspace:*
+        version: link:../domain
       pg:
         specifier: ^8.16.0
         version: 8.23.0

@@ -19,6 +19,7 @@ const TENANT_TABLES = [
   'file_object',
   'outbox_event',
   'setting',
+  'institution_profile',
   'audit_event',
   'sequence',
   'user_account',
@@ -33,10 +34,10 @@ export interface CleanupUrls {
 
 /**
  * Removes the test institutions whose slug starts with `prefix`. A prefix is required and must look like a test's
- * (`e2e-`, `prov-`, `susp-`, `exp-`, `plc-`, `ded-`): nothing else is ever pruned. Returns how many were removed.
+ * (`e2e-`, `prov-`, `susp-`, `exp-`, `plc-`, `ded-`, `prof-`): nothing else is ever pruned. Returns how many were removed.
  */
 export async function pruneTestTenants(urls: CleanupUrls, prefix: string): Promise<number> {
-  if (!/^(e2e|prov|susp|ntc|inc|exp|prg|plc|ded)-[a-z0-9-]*$/.test(prefix)) throw new Error(`refusing to prune tenants by the prefix "${prefix}"`);
+  if (!/^(e2e|prov|susp|ntc|inc|exp|prg|plc|ded|prof)-[a-z0-9-]*$/.test(prefix)) throw new Error(`refusing to prune tenants by the prefix "${prefix}"`);
   if (!urls.platformMigratorUrl || !urls.tenantMigratorUrl) return 0;
   const platform = createPlatformClient(urls.platformMigratorUrl);
   const shard = createTenantShardClient(urls.tenantMigratorUrl);
@@ -58,6 +59,7 @@ export async function pruneTestTenants(urls: CleanupUrls, prefix: string): Promi
       await tx.platformTenantOffboarding.deleteMany({ where: { tenantId: { in: ids } } });
       await tx.platformTenantExport.deleteMany({ where: { tenantId: { in: ids } } });
       await tx.platformTenantPurge.deleteMany({ where: { tenantId: { in: ids } } });
+      await tx.tenantProfileAssignment.deleteMany({ where: { tenantId: { in: ids } } });
       await tx.keyDestruction.deleteMany({ where: { tenantId: { in: ids } } });
       await tx.keyReencryption.deleteMany({ where: { tenantId: { in: ids } } });
       await tx.tenantDataKey.deleteMany({ where: { tenantId: { in: ids } } });

@@ -18,6 +18,8 @@ import { FileStorage } from './modules/files/file-storage.js';
 import { createPlatformClient } from '@univarse/db';
 import { DbModule } from './shared/db/db.module.js';
 import { ShardHealthPass } from './shared/db/shard-health.js';
+import { ProfileAssigner } from './modules/profiles/profile-assigner.js';
+import { ProfilePass } from './modules/profiles/profile-pass.js';
 import { MAILER, SmtpMailer, type Mailer } from './shared/infra/mailer.js';
 import { PlatformInvalidationRelay } from './shared/infra/platform-invalidation-relay.js';
 import { shutdownHook } from './shared/observability/shutdown-hook.js';
@@ -131,6 +133,10 @@ export class WorkerModule {
         ExportPass,
         // Spec 0039 Q11: every shard's health, once a minute, for the console's Shards page.
         ShardHealthPass,
+        // Spec 0041 Q5: institution-type profiles, assigned by provisioning's template step and, for institutions
+        // already live (and the seed's requests), by this pass.
+        ProfileAssigner,
+        ProfilePass,
         ...provisioningProviders(config, overrides),
         // Spec 0016: the platform invalidation relay, on its own role's connection. Only the worker process has
         // PLATFORM_RELAY_URL (loadConfig refuses it elsewhere), so the keys CLI never gets one.

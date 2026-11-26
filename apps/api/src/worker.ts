@@ -18,6 +18,7 @@ import { OffboardingPass } from './modules/offboarding/offboarding-pass.js';
 import { ProvisioningQueue } from './modules/provisioning/provisioning-queue.js';
 import { ExportPass } from './modules/exports/export-pass.js';
 import { ShardHealthPass } from './shared/db/shard-health.js';
+import { ProfilePass } from './modules/profiles/profile-pass.js';
 
 // Local dev convenience: repo-root .env. In deployed environments, env comes from the secret manager.
 const rootEnv = new URL('../../../.env', import.meta.url);
@@ -64,13 +65,16 @@ exports.start();
 // Spec 0039 Q11: every shard checked once a minute, for the console (which has no tenant credential).
 const health = ctx.get(ShardHealthPass);
 health.start(config.SHARD_HEALTH_INTERVAL_MS);
+// Spec 0041 Q5: institutions live without an assigned profile, at start and then every 15 minutes.
+const profiles = ctx.get(ProfilePass);
+profiles.start(config.PROFILE_PASS_INTERVAL_MS);
 const provisioning = config.PROVISIONING_KEY_PROVIDER ? ctx.get(ProvisioningQueue) : null;
 provisioning?.start();
 if (!provisioning) new Logger('Worker').log({ event: 'provisioning.off' }, 'Provisioning is off: no provisioning key in .env.worker (spec 0034 Q7)');
 new Logger('Worker').log({ event: 'worker.started', pollMs: config.WORKER_POLL_MS }, `UniVarse worker polling the outbox every ${String(config.WORKER_POLL_MS)} ms (${config.NODE_ENV})`);
 
 const shutdown = async () => {
-  await Promise.all([worker.stop(), keys.stop(), scans.stop(), relay.stop(), contact.stop(), onboarding.stop(), suspension.stop(), notices.stop(), offboarding.stop(), exports.stop(), health.stop(), provisioning?.stop()]);
+  await Promise.all([worker.stop(), keys.stop(), scans.stop(), relay.stop(), contact.stop(), onboarding.stop(), suspension.stop(), notices.stop(), offboarding.stop(), exports.stop(), health.stop(), profiles.stop(), provisioning?.stop()]);
   await ctx.close();
   process.exit(0);
 };

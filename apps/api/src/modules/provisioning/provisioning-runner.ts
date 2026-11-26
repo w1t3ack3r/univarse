@@ -11,6 +11,7 @@ import { APP_CONFIG, type AppConfig } from '../../config/config.js';
 import { AuditWriter } from '../../shared/audit/audit-writer.js';
 import { PLATFORM_DB, ShardRegistry } from '../../shared/db/db.module.js';
 import { Outbox } from '../../shared/outbox/outbox.js';
+import { ProfileAssigner, type OpenAssignment } from '../profiles/profile-assigner.js';
 
 export const TENANT_KEYS = Symbol('TENANT_KEYS');
 export const PROVISIONING_OPEN_KEYS = Symbol('PROVISIONING_OPEN_KEYS');
@@ -67,6 +68,7 @@ export class ProvisioningRunner {
     @Inject(APP_CONFIG) private readonly config: AppConfig,
     @Inject(TENANT_KEYS) private readonly tenantKeys: KeyProvider,
     @Inject(PROVISIONING_OPEN_KEYS) private readonly inviteKeys: KeyProvider,
+    private readonly profiles: ProfileAssigner,
     /** Tests: no waiting between retries. */
     @Inject('PROVISIONING_RETRY_DELAYS') private readonly retryDelays: readonly number[] = RETRIES,
   ) {}
@@ -170,10 +172,24 @@ export class ProvisioningRunner {
     if (n === 0 && t.status !== 'PROVISIONING') throw new StepRefused('state_conflict');
   }
 
-  /** Q6: only the settings the registry has today; a row already there (an earlier run's) is left as it is. */
+  /**
+   * Q6: only the settings the registry has today; a row already there (an earlier run's) is left as it is. Spec 0041
+   * Q5: the institution-type profile in the same tenant transaction, between the platform's PENDING and ASSIGNED.
+   */
   private async applyTemplate(job: JobRow, t: TenantRow): Promise<void> {
     if (!isTemplateId(job.template)) throw new StepRefused('unexpected');
     const template = TEMPLATES[job.template];
+    const profile = await this.profiles.open(t.id, template, 'PROVISIONING');
+    try {
+      await this.applySettingsAndProfile(t, template, profile);
+    } catch (err) {
+      await this.profiles.fail(t.id, template, err);
+      throw err;
+    }
+    await this.profiles.close(t.id, template, profile);
+  }
+
+  private async applySettingsAndProfile(t: TenantRow, template: (typeof TEMPLATES)[keyof typeof TEMPLATES], profile: OpenAssignment): Promise<void> {
     await this.shards.tx(t.shardId, t.id, async (tx) => {
       const written: string[] = [];
       for (const [key, value] of Object.entries(template.settings)) {
@@ -187,6 +203,7 @@ export class ProvisioningRunner {
       if (written.length > 0) {
         await this.audit.write(tx, t.id, { actorType: 'SYSTEM', actorId: null, action: 'settings.template_applied', entityType: 'tenant', entityId: t.id, after: { template: template.id, templateVersion: template.version, keys: written } });
       }
+      await this.profiles.snapshot(tx, t.id, template, profile);
     });
   }
 

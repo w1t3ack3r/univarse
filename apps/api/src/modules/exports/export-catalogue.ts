@@ -111,6 +111,15 @@ export const EXPORTED_TABLES: readonly ExportedTable[] = [
       FROM setting WHERE tenant_id = ${tenantId}::uuid AND id > ${afterId}::uuid ORDER BY id LIMIT ${limit}`,
   },
   {
+    // Spec 0041 Q4: the profile the institution was assigned, as it was. Its own configuration, so it goes with it.
+    table: 'institution_profile',
+    columns: ['id', 'tenant_id', 'template', 'template_version', 'content_hash', 'profile', 'source', 'assigned_at'],
+    excluded: {},
+    page: (tx, tenantId, afterId, limit) => tx.$queryRaw`
+      SELECT id::text, tenant_id::text, template, template_version, content_hash, profile, source::text, assigned_at
+      FROM institution_profile WHERE tenant_id = ${tenantId}::uuid AND id > ${afterId}::uuid ORDER BY id LIMIT ${limit}`,
+  },
+  {
     table: 'file_object',
     columns: ['id', 'tenant_id', 'bucket_key', 'original_name', 'mime', 'size_bytes', 'sha256', 'scan_status', 'classification', 'owner_type', 'owner_id', 'uploaded_by_id', 'created_at', 'state', 'detected_type', 'rejection_reason', 'scan_signature', 'scan_attempts', 'next_scan_at', 'lease_until', 'quarantine_key', 'clean_key', 'reserved_bytes', 'upload_expires_at', 'completed_at', 'scanned_at', 'deleted_at', 'updated_at', 'traceparent'],
     // A worker's claim on a scan: meaningless outside it.

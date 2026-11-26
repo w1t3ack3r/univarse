@@ -4,6 +4,7 @@ import js from '@eslint/js';
 import storybook from 'eslint-plugin-storybook';
 import globals from 'globals';
 import tseslint from 'typescript-eslint';
+import { TYPE_BRANCHING_PERMITTED, TYPE_BRANCHING_RESTRICTIONS } from './tools/lint/type-branching.mjs';
 
 const TEST_FILES = ['**/*.spec.ts', '**/test/**', '**/testing/**', '**/e2e/**'];
 const TOOLING_FILES = ['**/scripts/**', '**/*.config.ts', 'tools/**'];
@@ -84,6 +85,14 @@ export default tseslint.config(
     },
   },
 
+  // Spec 0041 Q10 (ADR-039): no branching on the institution's type in application or domain logic. The web app's block
+  // below sets the same rule again, so it spreads these in too (flat config replaces a rule, it doesn't merge it).
+  {
+    files: ['**/*.ts', '**/*.tsx'],
+    ignores: [...TEST_FILES, ...TOOLING_FILES, ...TYPE_BRANCHING_PERMITTED],
+    rules: { 'no-restricted-syntax': ['error', ...TYPE_BRANCHING_RESTRICTIONS] },
+  },
+
   // Operator CLIs (apps/*/src/cli), and the migrate and shards jobs' entrypoints (spec 0019 D3, spec 0039 PR B): stdout
   // is their interface. They print names, counts and versions only.
   {
@@ -130,6 +139,7 @@ export default tseslint.config(
       ],
       'no-restricted-syntax': [
         'error',
+        ...TYPE_BRANCHING_RESTRICTIONS,
         {
           // A hand-written API path. Allowed: the typed client's own path argument, and type positions.
           selector:

@@ -5,7 +5,7 @@ import { createHash } from 'node:crypto';
 import { Inject, Injectable } from '@nestjs/common';
 import { ALWAYS_ON, DEFAULT_PAGE_LIMIT, isProduct, PRODUCTS, type PlatformOps } from '@univarse/contracts';
 import type { PlatformClient } from '@univarse/db';
-import { checkLogo, registryWritable, regulatorForType, textColorOn, typeMayChange, type LogoProblem } from '@univarse/domain';
+import { checkLogo, isTemplateId, registryWritable, regulatorForType, textColorOn, typeMayChange, type LogoProblem } from '@univarse/domain';
 import type { z } from 'zod';
 import { ProblemError } from '../../shared/errors/problem.js';
 import { decodeCursor, encodeCursor } from '../../shared/http/cursor.js';
@@ -32,6 +32,18 @@ const LOGO_REFUSED: Readonly<Record<LogoProblem, string>> = {
 };
 
 /** Prisma's `contains` passes `%` and `_` through as wildcards: a search for a percent sign means a percent sign. */
+type AssignmentView = NonNullable<Detail['profileAssignment']>;
+const ASSIGNMENT_ERRORS: readonly string[] = ['shard_unavailable', 'hash_mismatch', 'database', 'unexpected'] satisfies AssignmentView['errorCode'][];
+
+/** Spec 0041 Q8: the latest assignment as the console shows it, or null; a template id it doesn't know shows as none. */
+function assignmentView(
+  a: { template: string; templateVersion: number; contentHash: string; source: AssignmentView['source']; status: AssignmentView['status']; errorCode: string | null; assignedAt: Date | null } | undefined,
+): AssignmentView | null {
+  if (!a || !isTemplateId(a.template)) return null;
+  const errorCode = a.errorCode !== null && ASSIGNMENT_ERRORS.includes(a.errorCode) ? (a.errorCode as AssignmentView['errorCode']) : null;
+  return { template: a.template, templateVersion: a.templateVersion, contentHash: a.contentHash, source: a.source, status: a.status, errorCode, assignedAt: a.assignedAt?.toISOString() ?? null };
+}
+
 const literal = (q: string) => q.replace(/[\\%_]/g, (c) => `\\${c}`);
 
 const SUMMARY = { id: true, slug: true, legalName: true, shortName: true, type: true, ownership: true, status: true, tier: true, releaseRing: true } as const;
@@ -103,6 +115,11 @@ export class TenantRegistry {
         domains: { select: { hostname: true, kind: true, verifiedAt: true }, orderBy: { hostname: 'asc' } },
         products: { select: { product: true, entitled: true, enabled: true } },
         dataKeys: { select: { version: true, status: true, createdAt: true, retiredAt: true, destroyedAt: true }, orderBy: { version: 'desc' } },
+        profileAssignments: {
+          select: { template: true, templateVersion: true, contentHash: true, source: true, status: true, errorCode: true, assignedAt: true },
+          orderBy: { templateVersion: 'desc' },
+          take: 1,
+        },
       },
     });
     if (!t) throw notFound();
@@ -145,6 +162,7 @@ export class TenantRegistry {
       },
       branding: { primaryColor: primary, textColor: primary ? textColorOn(primary) : null, logoSha256: branding?.logoSha256 ?? null },
       template: t.template,
+      profileAssignment: assignmentView(t.profileAssignments[0]),
     };
   }
 
