@@ -202,7 +202,7 @@ The rest of [spec 0025](specs/0025-phase-1-control-plane.md) (owner decision 202
 
 | Slice | What it delivers |
 | --- | --- |
-| **P2-S0** Phase start | The threat rows T40–T45 and ADR-039 (done with spec 0040); the institution-type profiles as versioned data, copied at provisioning: [spec 0041](specs/0041-institution-profiles.md), for the owner's approval |
+| **P2-S0** Phase start | The threat rows T40–T45 and ADR-039 (done with spec 0040); the institution-type profiles as versioned data, copied at provisioning: [spec 0041](specs/0041-institution-profiles.md), approved by the owner on 2026-11-26 with refinements |
 | **P2-S1** The org tree | Configurable unit types and names; create, edit, move (with an accessible "Move unit"), archive; effective-dated history; codes locked once used in an identifier; **`ORG_UNIT` scope** (ADR-028) |
 | **P2-S2** The import framework | Upload → validate → preview → commit, idempotent and resumable, used by every later module; its first importer (org units); progress and counts mirrored for the console |
 | **P2-S3** Staff | Profiles; categories, cadres, ranks, grades; offices and appointments granting scoped roles for their dates; employment type and status; governance bodies; bulk staff import with activation invites |
