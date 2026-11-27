@@ -441,6 +441,12 @@ describe('[Q13, Q12] the ORG_UNIT scope and the permissions', () => {
     }
     expect((await create(i, sid, { parentId: sci.id, typeId: i.types.department, name: 'Physics', code: 'PHY' })).res.status).toBe(201);
     expect((await create(i, sid, { parentId: eng.id, typeId: i.types.department, name: 'Civil' })).res.body.code).toBe('org.unit.parent_not_found');
+    // A replay of the dean's own create answers while the unit is in their scope, and is 404 once it's moved out.
+    const key = randomUUID();
+    const mine = await create(i, sid, { parentId: sci.id, typeId: i.types.department, name: 'Chemistry', code: 'CHM' }, key);
+    expect((await create(i, sid, { parentId: sci.id, typeId: i.types.department, name: 'Chemistry' }, key)).res.status).toBe(201);
+    expect((await call(i.host, 'POST', `/api/v1/org/units/${mine.id}/move`, { cookie: adminSid, body: { parentId: eng.id, reason: 'To engineering' }, headers: { 'if-match': mine.etag } })).status).toBe(200);
+    expect((await create(i, sid, { parentId: sci.id, typeId: i.types.department, name: 'Chemistry' }, key)).res.status).toBe(404);
     // Out of, or into, the scope: refused as 404, whichever end is outside.
     expect((await call(i.host, 'POST', `/api/v1/org/units/${csc.id}/move`, { cookie: sid, body: { parentId: eng.id, reason: 'x' }, headers: { 'if-match': csc.etag } })).body.code).toBe('org.unit.parent_not_found');
     expect((await call(i.host, 'POST', `/api/v1/org/units/${mee.id}/move`, { cookie: sid, body: { parentId: sci.id, reason: 'x' }, headers: { 'if-match': mee.etag } })).status).toBe(404);

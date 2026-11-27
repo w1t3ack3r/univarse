@@ -4,7 +4,7 @@
  */
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
-import { animationsSettled, cleanup, clearReplayGuardFor, emailedCode, hostUrl, makeUser, PASSWORD, randomClientIp, totpFromKey } from './fixtures';
+import { animationsSettled, cleanup, clearReplayGuardFor, emailedCode, hostUrl, makeUser, navTo, PASSWORD, randomClientIp, totpFromKey } from './fixtures';
 
 const DEMO = hostUrl('demo-uni');
 const NEW_PASSWORD = 'Kola nut on a Tuesday 4';
@@ -145,7 +145,7 @@ test('[W14][W15] step-up: managing products asks "confirm it’s you", then the 
   await page.getByRole('button', { name: 'Go to my workspace' }).click();
   await expect(page).toHaveURL(`${DEMO}/workspace`);
 
-  await page.getByRole('navigation', { name: 'Workspace' }).getByRole('link', { name: 'Products' }).click();
+  await navTo(page, 'Products'); // a phone's bar may hold it under "More" (spec 0042 added Structure)
   await expect(page.getByRole('heading', { name: 'Confirm it’s you to manage products' })).toBeVisible();
   await page.getByRole('button', { name: 'Confirm it’s me' }).click();
   const dialog = page.getByRole('dialog', { name: 'Confirm it’s you' });

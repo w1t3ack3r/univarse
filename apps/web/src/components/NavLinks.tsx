@@ -1,12 +1,12 @@
 'use client';
 
-import { Archive, FileText, Grid, Home, More, Sliders, Users } from '@univarse/ui';
+import { Archive, FileText, Grid, Home, More, OrgChart, Sliders, Users } from '@univarse/ui';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useEffect, useRef } from 'react';
 import type { NavIcon, NavItem } from '@/lib/nav';
 
-const ICONS: Record<NavIcon, typeof Home> = { home: Home, users: Users, products: Grid, settings: Sliders, documents: FileText, export: Archive };
+const ICONS: Record<NavIcon, typeof Home> = { home: Home, users: Users, structure: OrgChart, products: Grid, settings: Sliders, documents: FileText, export: Archive };
 
 /** The phone's bar holds five: past that, four and "More" (spec 0038 added a sixth for IT Admins). */
 export const THUMB_SLOTS = 5;

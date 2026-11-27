@@ -222,3 +222,52 @@ export function CopyButton({ text, label = 'Copy' }: { text: string; label?: str
     </button>
   );
 }
+
+/** Spec 0042: a labelled native select in the field vocabulary (hint and error linked as for TextField). */
+export function SelectField({
+  label,
+  hint,
+  error,
+  className,
+  children,
+  ...select
+}: Omit<ComponentProps<'select'>, 'id'> & { label: string; hint?: ReactNode; error?: string | undefined }) {
+  const { id, hintId, errorId, describedBy } = useDescribedBy(hint, error);
+  return (
+    <div className="uv-field">
+      <label className="uv-field__label" htmlFor={id}>
+        {label}
+      </label>
+      <select
+        id={id}
+        className={['uv-field__input', 'uv-field__input--select', className ?? ''].filter(Boolean).join(' ')}
+        aria-invalid={error ? true : undefined}
+        aria-describedby={describedBy}
+        {...select}
+      >
+        {children}
+      </select>
+      <FieldMessages hint={hint} hintId={hintId} error={error} errorId={errorId} />
+    </div>
+  );
+}
+
+/** Spec 0042: a labelled multi-line field (a reason, a description), 16px text like every field. */
+export function TextAreaField({ label, hint, error, className, ...area }: Omit<ComponentProps<'textarea'>, 'id'> & { label: string; hint?: ReactNode; error?: string | undefined }) {
+  const { id, hintId, errorId, describedBy } = useDescribedBy(hint, error);
+  return (
+    <div className="uv-field">
+      <label className="uv-field__label" htmlFor={id}>
+        {label}
+      </label>
+      <textarea
+        id={id}
+        className={['uv-field__input', 'uv-field__input--area', className ?? ''].filter(Boolean).join(' ')}
+        aria-invalid={error ? true : undefined}
+        aria-describedby={describedBy}
+        {...area}
+      />
+      <FieldMessages hint={hint} hintId={hintId} error={error} errorId={errorId} />
+    </div>
+  );
+}

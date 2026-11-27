@@ -143,8 +143,8 @@ export default tseslint.config(
         {
           // A hand-written API path. Allowed: the typed client's own path argument, and type positions.
           selector:
-            ":matches(Literal[value=/^.api.v1./], TemplateElement[value.raw=/^.api.v1./]):not(TSLiteralType > Literal):not(CallExpression[callee.property.name=/^(GET|POST|PUT|DELETE)$/] > Literal.arguments)",
-          message: 'API paths are typed: use client.GET/POST/PUT/DELETE (or contentUrl) from the generated client (spec 0011).',
+            ":matches(Literal[value=/^.api.v1./], TemplateElement[value.raw=/^.api.v1./]):not(TSLiteralType > Literal):not(CallExpression[callee.property.name=/^(GET|POST|PUT|PATCH|DELETE)$/] > Literal.arguments)",
+          message: 'API paths are typed: use client.GET/POST/PUT/PATCH/DELETE (or contentUrl) from the generated client (spec 0011).',
         },
         {
           selector: "MemberExpression[property.name='fetch'][object.name=/^(window|globalThis|self)$/]",
