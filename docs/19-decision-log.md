@@ -347,6 +347,7 @@ Alternatives considered: option — why not.
 - The Phase 0 line is reported as **partly met**: institution scope is enforced. `PolicyService` and the negative tests are remaining work, and the resource scopes are **deferred, not met**.
 - **Update (2026-10-18):** `PolicyService` and the negative tests are done ([spec 0018](specs/0018-policy-service.md)); only the resource scopes remain, deferred as decided.
 - No one can be granted a resource-scoped role that silently works or silently over-grants before its module exists.
+- **Update (P2-S1, [spec 0042](specs/0042-org-tree.md) Q13):** `ORG_UNIT` is built, with the org tree. Its context is the loaded unit's id and path; a grant on a unit covers it and every unit under it; scoped routes declare `@RequireScopedPermission` and decide on the loaded unit, out of scope answering 404; a list filters by scope in its query; a move needs both ends. Positive and negative tests in `policy.spec.ts`, `org.int.spec.ts` and the route sweep. The first way to hold such a grant is S3's appointments. `PROGRAMME` follows in S4.
 
 **Alternatives considered:**
 - **All scopes now:** there are no resources to check against, so this would add untestable code.

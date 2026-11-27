@@ -23,6 +23,9 @@
       "name": "operations"
     },
     {
+      "name": "org"
+    },
+    {
       "name": "products"
     },
     {
@@ -3332,6 +3335,8 @@
                           "identity.role.assign",
                           "org.unit.view",
                           "org.unit.manage",
+                          "org.unit.restructure",
+                          "org.unit_type.manage",
                           "settings.tenant.view",
                           "settings.tenant.manage",
                           "settings.registration.manage",
@@ -9642,6 +9647,5986 @@
           }
         ],
         "x-product": "core",
+        "x-step-up": false,
+        "x-csrf": "same-origin"
+      }
+    },
+    "/api/v1/org/unit-types": {
+      "get": {
+        "operationId": "listUnitTypes",
+        "summary": "The institution’s unit types, with what each may contain",
+        "tags": [
+          "org"
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string",
+                            "format": "uuid"
+                          },
+                          "key": {
+                            "type": "string"
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "ACADEMIC",
+                              "ADMINISTRATIVE",
+                              "RESEARCH"
+                            ]
+                          },
+                          "status": {
+                            "type": "string",
+                            "enum": [
+                              "ACTIVE",
+                              "ARCHIVED"
+                            ]
+                          },
+                          "sortOrder": {
+                            "type": "integer",
+                            "minimum": -9007199254740991,
+                            "maximum": 9007199254740991
+                          },
+                          "mayContain": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          },
+                          "units": {
+                            "type": "integer",
+                            "minimum": -9007199254740991,
+                            "maximum": 9007199254740991
+                          },
+                          "version": {
+                            "type": "integer",
+                            "minimum": -9007199254740991,
+                            "maximum": 9007199254740991
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "key",
+                          "name",
+                          "kind",
+                          "status",
+                          "sortOrder",
+                          "mayContain",
+                          "units",
+                          "version"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "canManage": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "data",
+                    "canManage"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "auth.unauthenticated",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 401
+                    },
+                    "code": {
+                      "enum": [
+                        "auth.unauthenticated"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "auth.forbidden, auth.mfa_enrolment_required",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 403
+                    },
+                    "code": {
+                      "enum": [
+                        "auth.forbidden",
+                        "auth.mfa_enrolment_required"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "tenant.not_found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 404
+                    },
+                    "code": {
+                      "enum": [
+                        "tenant.not_found"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "tenant.archived",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 410
+                    },
+                    "code": {
+                      "enum": [
+                        "tenant.archived"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "423": {
+            "description": "tenant.suspended",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 423
+                    },
+                    "code": {
+                      "enum": [
+                        "tenant.suspended"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "server.internal",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 500
+                    },
+                    "code": {
+                      "enum": [
+                        "server.internal"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "server.busy, tenant.maintenance",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 503
+                    },
+                    "code": {
+                      "enum": [
+                        "server.busy",
+                        "tenant.maintenance"
+                      ]
+                    }
+                  }
+                }
+              }
+            },
+            "headers": {
+              "Retry-After": {
+                "required": true,
+                "description": "Seconds to wait before retrying.",
+                "schema": {
+                  "type": "string",
+                  "pattern": "^[0-9]+$"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "x-product": "core",
+        "x-permission": "org.unit.view",
+        "x-scope": "resource",
+        "x-step-up": false
+      }
+    },
+    "/api/v1/org/unit-types/{key}": {
+      "put": {
+        "operationId": "saveUnitType",
+        "summary": "Create (If-Match \"v0\") or edit one unit type",
+        "tags": [
+          "org"
+        ],
+        "parameters": [
+          {
+            "name": "key",
+            "in": "path",
+            "required": true,
+            "description": "The type’s key (lower-case `snake_case`). A key that isn’t one is 404.",
+            "schema": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9_]{1,39}$"
+            },
+            "x-invalid": {
+              "status": 404,
+              "code": "resource.not_found"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "required": true,
+            "description": "The ETag you read. Missing: 428 precondition.required; stale: 412 precondition.failed.",
+            "schema": {
+              "type": "string",
+              "pattern": "^(W/)?\"v[0-9]+\"$"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 60
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "ACADEMIC",
+                      "ADMINISTRATIVE",
+                      "RESEARCH"
+                    ]
+                  },
+                  "mayContain": {
+                    "maxItems": 100,
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "pattern": "^[a-z][a-z0-9_]{1,39}$"
+                    }
+                  },
+                  "status": {
+                    "type": "string",
+                    "enum": [
+                      "ACTIVE",
+                      "ARCHIVED"
+                    ]
+                  },
+                  "sortOrder": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 10000
+                  }
+                },
+                "required": [
+                  "name",
+                  "kind",
+                  "mayContain",
+                  "status"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "key": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "kind": {
+                      "type": "string",
+                      "enum": [
+                        "ACADEMIC",
+                        "ADMINISTRATIVE",
+                        "RESEARCH"
+                      ]
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "ACTIVE",
+                        "ARCHIVED"
+                      ]
+                    },
+                    "sortOrder": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    "mayContain": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "units": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    "version": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "key",
+                    "name",
+                    "kind",
+                    "status",
+                    "sortOrder",
+                    "mayContain",
+                    "units",
+                    "version"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "headers": {
+              "ETag": {
+                "required": true,
+                "description": "Send it back as If-Match to change this resource.",
+                "schema": {
+                  "type": "string",
+                  "pattern": "^\"v[0-9]+\"$"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "request.invalid",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 400
+                    },
+                    "code": {
+                      "enum": [
+                        "request.invalid"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "auth.unauthenticated",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 401
+                    },
+                    "code": {
+                      "enum": [
+                        "auth.unauthenticated"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "auth.forbidden, auth.mfa_enrolment_required, auth.mfa_required, request.csrf_rejected",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 403
+                    },
+                    "code": {
+                      "enum": [
+                        "auth.forbidden",
+                        "auth.mfa_enrolment_required",
+                        "auth.mfa_required",
+                        "request.csrf_rejected"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "resource.not_found, tenant.not_found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 404
+                    },
+                    "code": {
+                      "enum": [
+                        "resource.not_found",
+                        "tenant.not_found"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "tenant.archived",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 410
+                    },
+                    "code": {
+                      "enum": [
+                        "tenant.archived"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "412": {
+            "description": "precondition.failed",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 412
+                    },
+                    "code": {
+                      "enum": [
+                        "precondition.failed"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "org.unit_type.kind_fixed, org.unit_type.name_taken, org.unit_type.unknown_child",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 422
+                    },
+                    "code": {
+                      "enum": [
+                        "org.unit_type.kind_fixed",
+                        "org.unit_type.name_taken",
+                        "org.unit_type.unknown_child"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "423": {
+            "description": "tenant.suspended",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 423
+                    },
+                    "code": {
+                      "enum": [
+                        "tenant.suspended"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "428": {
+            "description": "auth.step_up_required, precondition.required",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 428
+                    },
+                    "code": {
+                      "enum": [
+                        "auth.step_up_required",
+                        "precondition.required"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "server.internal",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 500
+                    },
+                    "code": {
+                      "enum": [
+                        "server.internal"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "server.busy, tenant.maintenance",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 503
+                    },
+                    "code": {
+                      "enum": [
+                        "server.busy",
+                        "tenant.maintenance"
+                      ]
+                    }
+                  }
+                }
+              }
+            },
+            "headers": {
+              "Retry-After": {
+                "required": true,
+                "description": "Seconds to wait before retrying.",
+                "schema": {
+                  "type": "string",
+                  "pattern": "^[0-9]+$"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "x-product": "core",
+        "x-permission": "org.unit_type.manage",
+        "x-step-up": true,
+        "x-csrf": "same-origin"
+      }
+    },
+    "/api/v1/org/units": {
+      "get": {
+        "operationId": "listOrgUnits",
+        "summary": "The tree, whole, as one list (or as it was on a day); only the units in your scope",
+        "tags": [
+          "org"
+        ],
+        "parameters": [
+          {
+            "name": "asAt",
+            "in": "query",
+            "required": false,
+            "description": "The tree as it was on this day (Q6). Today’s tree if left out.",
+            "schema": {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+            }
+          },
+          {
+            "name": "includeArchived",
+            "in": "query",
+            "required": false,
+            "description": "Archived units too. Left out by default.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "true",
+                "false"
+              ]
+            }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "description": "Units whose name or code contains this.",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string",
+                            "format": "uuid"
+                          },
+                          "parentId": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "format": "uuid"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "code": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "typeId": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "format": "uuid"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "state": {
+                            "type": "string",
+                            "enum": [
+                              "ACTIVE",
+                              "INACTIVE",
+                              "ARCHIVED"
+                            ]
+                          },
+                          "followsRules": {
+                            "type": "boolean"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "parentId",
+                          "code",
+                          "name",
+                          "typeId",
+                          "state",
+                          "followsRules"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "asAt": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+                          "description": "A calendar day, YYYY-MM-DD."
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "data",
+                    "asAt"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "request.invalid",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 400
+                    },
+                    "code": {
+                      "enum": [
+                        "request.invalid"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "auth.unauthenticated",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 401
+                    },
+                    "code": {
+                      "enum": [
+                        "auth.unauthenticated"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "auth.forbidden, auth.mfa_enrolment_required",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 403
+                    },
+                    "code": {
+                      "enum": [
+                        "auth.forbidden",
+                        "auth.mfa_enrolment_required"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "tenant.not_found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 404
+                    },
+                    "code": {
+                      "enum": [
+                        "tenant.not_found"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "tenant.archived",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 410
+                    },
+                    "code": {
+                      "enum": [
+                        "tenant.archived"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "org.unit.effective_date_future, org.unit.effective_date_invalid",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 422
+                    },
+                    "code": {
+                      "enum": [
+                        "org.unit.effective_date_future",
+                        "org.unit.effective_date_invalid"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "423": {
+            "description": "tenant.suspended",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 423
+                    },
+                    "code": {
+                      "enum": [
+                        "tenant.suspended"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "server.internal",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 500
+                    },
+                    "code": {
+                      "enum": [
+                        "server.internal"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "server.busy, tenant.maintenance",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 503
+                    },
+                    "code": {
+                      "enum": [
+                        "server.busy",
+                        "tenant.maintenance"
+                      ]
+                    }
+                  }
+                }
+              }
+            },
+            "headers": {
+              "Retry-After": {
+                "required": true,
+                "description": "Seconds to wait before retrying.",
+                "schema": {
+                  "type": "string",
+                  "pattern": "^[0-9]+$"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "x-product": "core",
+        "x-permission": "org.unit.view",
+        "x-scope": "resource",
+        "x-step-up": false
+      },
+      "post": {
+        "operationId": "createOrgUnit",
+        "summary": "Add a unit under another (Idempotency-Key required; a replay answers with the same unit)",
+        "tags": [
+          "org"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "parentId": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "typeId": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 120
+                  },
+                  "code": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "maxLength": 40
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "description": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "maxLength": 500
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "effectiveFrom": {
+                    "type": "string",
+                    "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+                    "description": "A calendar day, YYYY-MM-DD."
+                  }
+                },
+                "required": [
+                  "parentId",
+                  "typeId",
+                  "name"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "parentId": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "code": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "description": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "type": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string",
+                              "format": "uuid"
+                            },
+                            "key": {
+                              "type": "string"
+                            },
+                            "name": {
+                              "type": "string"
+                            },
+                            "kind": {
+                              "type": "string",
+                              "enum": [
+                                "ACADEMIC",
+                                "ADMINISTRATIVE",
+                                "RESEARCH"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "key",
+                            "name",
+                            "kind"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "state": {
+                      "type": "string",
+                      "enum": [
+                        "ACTIVE",
+                        "INACTIVE",
+                        "ARCHIVED"
+                      ]
+                    },
+                    "codeLocked": {
+                      "type": "boolean"
+                    },
+                    "followsRules": {
+                      "type": "boolean"
+                    },
+                    "version": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    "ancestors": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string",
+                            "format": "uuid"
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "code": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "name",
+                          "code"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "children": {
+                      "type": "object",
+                      "properties": {
+                        "open": {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        "archived": {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        }
+                      },
+                      "required": [
+                        "open",
+                        "archived"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "createdOn": {
+                      "type": "string",
+                      "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+                      "description": "A calendar day, YYYY-MM-DD."
+                    },
+                    "lastChangedOn": {
+                      "type": "string",
+                      "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+                      "description": "A calendar day, YYYY-MM-DD."
+                    },
+                    "can": {
+                      "type": "object",
+                      "properties": {
+                        "manage": {
+                          "type": "boolean"
+                        },
+                        "restructure": {
+                          "type": "boolean"
+                        }
+                      },
+                      "required": [
+                        "manage",
+                        "restructure"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "parentId",
+                    "code",
+                    "name",
+                    "description",
+                    "type",
+                    "state",
+                    "codeLocked",
+                    "followsRules",
+                    "version",
+                    "ancestors",
+                    "children",
+                    "createdOn",
+                    "lastChangedOn",
+                    "can"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "headers": {
+              "ETag": {
+                "required": true,
+                "description": "Send it back as If-Match to change this resource.",
+                "schema": {
+                  "type": "string",
+                  "pattern": "^\"v[0-9]+\"$"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "request.invalid",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 400
+                    },
+                    "code": {
+                      "enum": [
+                        "request.invalid"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "auth.unauthenticated",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 401
+                    },
+                    "code": {
+                      "enum": [
+                        "auth.unauthenticated"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "auth.forbidden, auth.mfa_enrolment_required, auth.mfa_required, request.csrf_rejected",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 403
+                    },
+                    "code": {
+                      "enum": [
+                        "auth.forbidden",
+                        "auth.mfa_enrolment_required",
+                        "auth.mfa_required",
+                        "request.csrf_rejected"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "org.unit.parent_not_found, org.unit.type_not_found, tenant.not_found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 404
+                    },
+                    "code": {
+                      "enum": [
+                        "org.unit.parent_not_found",
+                        "org.unit.type_not_found",
+                        "tenant.not_found"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "org.unit.code_taken, org.unit.key_reused",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 409
+                    },
+                    "code": {
+                      "enum": [
+                        "org.unit.code_taken",
+                        "org.unit.key_reused"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "tenant.archived",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 410
+                    },
+                    "code": {
+                      "enum": [
+                        "tenant.archived"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "org.unit.code_invalid, org.unit.effective_date_future, org.unit.effective_date_invalid, org.unit.effective_date_out_of_order, org.unit.limit_reached, org.unit.parent_not_active, org.unit.too_deep, org.unit.type_archived, org.unit.type_not_allowed",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 422
+                    },
+                    "code": {
+                      "enum": [
+                        "org.unit.code_invalid",
+                        "org.unit.effective_date_future",
+                        "org.unit.effective_date_invalid",
+                        "org.unit.effective_date_out_of_order",
+                        "org.unit.limit_reached",
+                        "org.unit.parent_not_active",
+                        "org.unit.too_deep",
+                        "org.unit.type_archived",
+                        "org.unit.type_not_allowed"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "423": {
+            "description": "tenant.suspended",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 423
+                    },
+                    "code": {
+                      "enum": [
+                        "tenant.suspended"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "server.internal",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 500
+                    },
+                    "code": {
+                      "enum": [
+                        "server.internal"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "server.busy, tenant.maintenance",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 503
+                    },
+                    "code": {
+                      "enum": [
+                        "server.busy",
+                        "tenant.maintenance"
+                      ]
+                    }
+                  }
+                }
+              }
+            },
+            "headers": {
+              "Retry-After": {
+                "required": true,
+                "description": "Seconds to wait before retrying.",
+                "schema": {
+                  "type": "string",
+                  "pattern": "^[0-9]+$"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "x-product": "core",
+        "x-permission": "org.unit.manage",
+        "x-scope": "resource",
+        "x-step-up": false,
+        "x-csrf": "same-origin"
+      }
+    },
+    "/api/v1/org/units/{id}": {
+      "get": {
+        "operationId": "getOrgUnit",
+        "summary": "One unit, with its ETag",
+        "tags": [
+          "org"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "The unit’s id. A malformed id, an unknown one, or a unit outside your scope is 404.",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "x-invalid": {
+              "status": 404,
+              "code": "resource.not_found"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "parentId": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "code": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "description": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "type": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string",
+                              "format": "uuid"
+                            },
+                            "key": {
+                              "type": "string"
+                            },
+                            "name": {
+                              "type": "string"
+                            },
+                            "kind": {
+                              "type": "string",
+                              "enum": [
+                                "ACADEMIC",
+                                "ADMINISTRATIVE",
+                                "RESEARCH"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "key",
+                            "name",
+                            "kind"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "state": {
+                      "type": "string",
+                      "enum": [
+                        "ACTIVE",
+                        "INACTIVE",
+                        "ARCHIVED"
+                      ]
+                    },
+                    "codeLocked": {
+                      "type": "boolean"
+                    },
+                    "followsRules": {
+                      "type": "boolean"
+                    },
+                    "version": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    "ancestors": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string",
+                            "format": "uuid"
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "code": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "name",
+                          "code"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "children": {
+                      "type": "object",
+                      "properties": {
+                        "open": {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        "archived": {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        }
+                      },
+                      "required": [
+                        "open",
+                        "archived"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "createdOn": {
+                      "type": "string",
+                      "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+                      "description": "A calendar day, YYYY-MM-DD."
+                    },
+                    "lastChangedOn": {
+                      "type": "string",
+                      "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+                      "description": "A calendar day, YYYY-MM-DD."
+                    },
+                    "can": {
+                      "type": "object",
+                      "properties": {
+                        "manage": {
+                          "type": "boolean"
+                        },
+                        "restructure": {
+                          "type": "boolean"
+                        }
+                      },
+                      "required": [
+                        "manage",
+                        "restructure"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "parentId",
+                    "code",
+                    "name",
+                    "description",
+                    "type",
+                    "state",
+                    "codeLocked",
+                    "followsRules",
+                    "version",
+                    "ancestors",
+                    "children",
+                    "createdOn",
+                    "lastChangedOn",
+                    "can"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "headers": {
+              "ETag": {
+                "required": true,
+                "description": "Send it back as If-Match to change this resource.",
+                "schema": {
+                  "type": "string",
+                  "pattern": "^\"v[0-9]+\"$"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "auth.unauthenticated",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 401
+                    },
+                    "code": {
+                      "enum": [
+                        "auth.unauthenticated"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "auth.forbidden, auth.mfa_enrolment_required",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 403
+                    },
+                    "code": {
+                      "enum": [
+                        "auth.forbidden",
+                        "auth.mfa_enrolment_required"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "resource.not_found, tenant.not_found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 404
+                    },
+                    "code": {
+                      "enum": [
+                        "resource.not_found",
+                        "tenant.not_found"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "tenant.archived",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 410
+                    },
+                    "code": {
+                      "enum": [
+                        "tenant.archived"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "423": {
+            "description": "tenant.suspended",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 423
+                    },
+                    "code": {
+                      "enum": [
+                        "tenant.suspended"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "server.internal",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 500
+                    },
+                    "code": {
+                      "enum": [
+                        "server.internal"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "server.busy, tenant.maintenance",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 503
+                    },
+                    "code": {
+                      "enum": [
+                        "server.busy",
+                        "tenant.maintenance"
+                      ]
+                    }
+                  }
+                }
+              }
+            },
+            "headers": {
+              "Retry-After": {
+                "required": true,
+                "description": "Seconds to wait before retrying.",
+                "schema": {
+                  "type": "string",
+                  "pattern": "^[0-9]+$"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "x-product": "core",
+        "x-permission": "org.unit.view",
+        "x-scope": "resource",
+        "x-step-up": false
+      },
+      "patch": {
+        "operationId": "updateOrgUnit",
+        "summary": "Rename, describe, correct an unlocked code, or retype a unit (If-Match required)",
+        "tags": [
+          "org"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "The unit’s id. A malformed id, an unknown one, or a unit outside your scope is 404.",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "x-invalid": {
+              "status": 404,
+              "code": "resource.not_found"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "required": true,
+            "description": "The ETag you read. Missing: 428 precondition.required; stale: 412 precondition.failed.",
+            "schema": {
+              "type": "string",
+              "pattern": "^(W/)?\"v[0-9]+\"$"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 120
+                  },
+                  "description": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "maxLength": 500
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "code": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "maxLength": 40
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "typeId": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "effectiveFrom": {
+                    "type": "string",
+                    "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+                    "description": "A calendar day, YYYY-MM-DD."
+                  },
+                  "reason": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 500
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "parentId": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "code": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "description": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "type": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string",
+                              "format": "uuid"
+                            },
+                            "key": {
+                              "type": "string"
+                            },
+                            "name": {
+                              "type": "string"
+                            },
+                            "kind": {
+                              "type": "string",
+                              "enum": [
+                                "ACADEMIC",
+                                "ADMINISTRATIVE",
+                                "RESEARCH"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "key",
+                            "name",
+                            "kind"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "state": {
+                      "type": "string",
+                      "enum": [
+                        "ACTIVE",
+                        "INACTIVE",
+                        "ARCHIVED"
+                      ]
+                    },
+                    "codeLocked": {
+                      "type": "boolean"
+                    },
+                    "followsRules": {
+                      "type": "boolean"
+                    },
+                    "version": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    "ancestors": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string",
+                            "format": "uuid"
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "code": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "name",
+                          "code"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "children": {
+                      "type": "object",
+                      "properties": {
+                        "open": {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        "archived": {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        }
+                      },
+                      "required": [
+                        "open",
+                        "archived"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "createdOn": {
+                      "type": "string",
+                      "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+                      "description": "A calendar day, YYYY-MM-DD."
+                    },
+                    "lastChangedOn": {
+                      "type": "string",
+                      "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+                      "description": "A calendar day, YYYY-MM-DD."
+                    },
+                    "can": {
+                      "type": "object",
+                      "properties": {
+                        "manage": {
+                          "type": "boolean"
+                        },
+                        "restructure": {
+                          "type": "boolean"
+                        }
+                      },
+                      "required": [
+                        "manage",
+                        "restructure"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "parentId",
+                    "code",
+                    "name",
+                    "description",
+                    "type",
+                    "state",
+                    "codeLocked",
+                    "followsRules",
+                    "version",
+                    "ancestors",
+                    "children",
+                    "createdOn",
+                    "lastChangedOn",
+                    "can"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "headers": {
+              "ETag": {
+                "required": true,
+                "description": "Send it back as If-Match to change this resource.",
+                "schema": {
+                  "type": "string",
+                  "pattern": "^\"v[0-9]+\"$"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "request.invalid",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 400
+                    },
+                    "code": {
+                      "enum": [
+                        "request.invalid"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "auth.unauthenticated",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 401
+                    },
+                    "code": {
+                      "enum": [
+                        "auth.unauthenticated"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "auth.forbidden, auth.mfa_enrolment_required, auth.mfa_required, request.csrf_rejected",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 403
+                    },
+                    "code": {
+                      "enum": [
+                        "auth.forbidden",
+                        "auth.mfa_enrolment_required",
+                        "auth.mfa_required",
+                        "request.csrf_rejected"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "org.unit.type_not_found, resource.not_found, tenant.not_found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 404
+                    },
+                    "code": {
+                      "enum": [
+                        "org.unit.type_not_found",
+                        "resource.not_found",
+                        "tenant.not_found"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "org.unit.code_locked, org.unit.code_taken",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 409
+                    },
+                    "code": {
+                      "enum": [
+                        "org.unit.code_locked",
+                        "org.unit.code_taken"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "tenant.archived",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 410
+                    },
+                    "code": {
+                      "enum": [
+                        "tenant.archived"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "412": {
+            "description": "precondition.failed",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 412
+                    },
+                    "code": {
+                      "enum": [
+                        "precondition.failed"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "org.unit.children_not_allowed, org.unit.code_invalid, org.unit.effective_date_future, org.unit.effective_date_invalid, org.unit.effective_date_out_of_order, org.unit.kind_change, org.unit.root_fixed, org.unit.same_type, org.unit.type_archived, org.unit.type_not_allowed",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 422
+                    },
+                    "code": {
+                      "enum": [
+                        "org.unit.children_not_allowed",
+                        "org.unit.code_invalid",
+                        "org.unit.effective_date_future",
+                        "org.unit.effective_date_invalid",
+                        "org.unit.effective_date_out_of_order",
+                        "org.unit.kind_change",
+                        "org.unit.root_fixed",
+                        "org.unit.same_type",
+                        "org.unit.type_archived",
+                        "org.unit.type_not_allowed"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "423": {
+            "description": "tenant.suspended",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 423
+                    },
+                    "code": {
+                      "enum": [
+                        "tenant.suspended"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "428": {
+            "description": "precondition.required",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 428
+                    },
+                    "code": {
+                      "enum": [
+                        "precondition.required"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "server.internal",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 500
+                    },
+                    "code": {
+                      "enum": [
+                        "server.internal"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "server.busy, tenant.maintenance",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 503
+                    },
+                    "code": {
+                      "enum": [
+                        "server.busy",
+                        "tenant.maintenance"
+                      ]
+                    }
+                  }
+                }
+              }
+            },
+            "headers": {
+              "Retry-After": {
+                "required": true,
+                "description": "Seconds to wait before retrying.",
+                "schema": {
+                  "type": "string",
+                  "pattern": "^[0-9]+$"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "x-product": "core",
+        "x-permission": "org.unit.manage",
+        "x-scope": "resource",
+        "x-step-up": false,
+        "x-csrf": "same-origin"
+      }
+    },
+    "/api/v1/org/units/{id}/archive": {
+      "post": {
+        "operationId": "archiveOrgUnit",
+        "summary": "Archive a unit whose units are all archived (If-Match, a reason)",
+        "tags": [
+          "org"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "The unit’s id. A malformed id, an unknown one, or a unit outside your scope is 404.",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "x-invalid": {
+              "status": 404,
+              "code": "resource.not_found"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "required": true,
+            "description": "The ETag you read. Missing: 428 precondition.required; stale: 412 precondition.failed.",
+            "schema": {
+              "type": "string",
+              "pattern": "^(W/)?\"v[0-9]+\"$"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "effectiveFrom": {
+                    "type": "string",
+                    "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+                    "description": "A calendar day, YYYY-MM-DD."
+                  },
+                  "reason": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 500
+                  }
+                },
+                "required": [
+                  "reason"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "parentId": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "code": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "description": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "type": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string",
+                              "format": "uuid"
+                            },
+                            "key": {
+                              "type": "string"
+                            },
+                            "name": {
+                              "type": "string"
+                            },
+                            "kind": {
+                              "type": "string",
+                              "enum": [
+                                "ACADEMIC",
+                                "ADMINISTRATIVE",
+                                "RESEARCH"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "key",
+                            "name",
+                            "kind"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "state": {
+                      "type": "string",
+                      "enum": [
+                        "ACTIVE",
+                        "INACTIVE",
+                        "ARCHIVED"
+                      ]
+                    },
+                    "codeLocked": {
+                      "type": "boolean"
+                    },
+                    "followsRules": {
+                      "type": "boolean"
+                    },
+                    "version": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    "ancestors": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string",
+                            "format": "uuid"
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "code": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "name",
+                          "code"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "children": {
+                      "type": "object",
+                      "properties": {
+                        "open": {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        "archived": {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        }
+                      },
+                      "required": [
+                        "open",
+                        "archived"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "createdOn": {
+                      "type": "string",
+                      "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+                      "description": "A calendar day, YYYY-MM-DD."
+                    },
+                    "lastChangedOn": {
+                      "type": "string",
+                      "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+                      "description": "A calendar day, YYYY-MM-DD."
+                    },
+                    "can": {
+                      "type": "object",
+                      "properties": {
+                        "manage": {
+                          "type": "boolean"
+                        },
+                        "restructure": {
+                          "type": "boolean"
+                        }
+                      },
+                      "required": [
+                        "manage",
+                        "restructure"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "parentId",
+                    "code",
+                    "name",
+                    "description",
+                    "type",
+                    "state",
+                    "codeLocked",
+                    "followsRules",
+                    "version",
+                    "ancestors",
+                    "children",
+                    "createdOn",
+                    "lastChangedOn",
+                    "can"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "headers": {
+              "ETag": {
+                "required": true,
+                "description": "Send it back as If-Match to change this resource.",
+                "schema": {
+                  "type": "string",
+                  "pattern": "^\"v[0-9]+\"$"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "request.invalid",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 400
+                    },
+                    "code": {
+                      "enum": [
+                        "request.invalid"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "auth.unauthenticated",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 401
+                    },
+                    "code": {
+                      "enum": [
+                        "auth.unauthenticated"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "auth.forbidden, auth.mfa_enrolment_required, auth.mfa_required, request.csrf_rejected",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 403
+                    },
+                    "code": {
+                      "enum": [
+                        "auth.forbidden",
+                        "auth.mfa_enrolment_required",
+                        "auth.mfa_required",
+                        "request.csrf_rejected"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "resource.not_found, tenant.not_found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 404
+                    },
+                    "code": {
+                      "enum": [
+                        "resource.not_found",
+                        "tenant.not_found"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "tenant.archived",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 410
+                    },
+                    "code": {
+                      "enum": [
+                        "tenant.archived"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "412": {
+            "description": "precondition.failed",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 412
+                    },
+                    "code": {
+                      "enum": [
+                        "precondition.failed"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "org.unit.already_archived, org.unit.effective_date_future, org.unit.effective_date_invalid, org.unit.effective_date_out_of_order, org.unit.has_open_children, org.unit.root_fixed",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 422
+                    },
+                    "code": {
+                      "enum": [
+                        "org.unit.already_archived",
+                        "org.unit.effective_date_future",
+                        "org.unit.effective_date_invalid",
+                        "org.unit.effective_date_out_of_order",
+                        "org.unit.has_open_children",
+                        "org.unit.root_fixed"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "423": {
+            "description": "tenant.suspended",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 423
+                    },
+                    "code": {
+                      "enum": [
+                        "tenant.suspended"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "428": {
+            "description": "auth.step_up_required, precondition.required",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 428
+                    },
+                    "code": {
+                      "enum": [
+                        "auth.step_up_required",
+                        "precondition.required"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "server.internal",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 500
+                    },
+                    "code": {
+                      "enum": [
+                        "server.internal"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "server.busy, tenant.maintenance",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 503
+                    },
+                    "code": {
+                      "enum": [
+                        "server.busy",
+                        "tenant.maintenance"
+                      ]
+                    }
+                  }
+                }
+              }
+            },
+            "headers": {
+              "Retry-After": {
+                "required": true,
+                "description": "Seconds to wait before retrying.",
+                "schema": {
+                  "type": "string",
+                  "pattern": "^[0-9]+$"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "x-product": "core",
+        "x-permission": "org.unit.restructure",
+        "x-scope": "resource",
+        "x-step-up": true,
+        "x-csrf": "same-origin"
+      }
+    },
+    "/api/v1/org/units/{id}/code": {
+      "post": {
+        "operationId": "changeOrgUnitCode",
+        "summary": "Give a locked unit a new code; the old one stays reserved (If-Match, a reason)",
+        "tags": [
+          "org"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "The unit’s id. A malformed id, an unknown one, or a unit outside your scope is 404.",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "x-invalid": {
+              "status": 404,
+              "code": "resource.not_found"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "required": true,
+            "description": "The ETag you read. Missing: 428 precondition.required; stale: 412 precondition.failed.",
+            "schema": {
+              "type": "string",
+              "pattern": "^(W/)?\"v[0-9]+\"$"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "code": {
+                    "type": "string",
+                    "maxLength": 40
+                  },
+                  "effectiveFrom": {
+                    "type": "string",
+                    "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+                    "description": "A calendar day, YYYY-MM-DD."
+                  },
+                  "reason": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 500
+                  }
+                },
+                "required": [
+                  "code",
+                  "reason"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "parentId": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "code": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "description": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "type": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string",
+                              "format": "uuid"
+                            },
+                            "key": {
+                              "type": "string"
+                            },
+                            "name": {
+                              "type": "string"
+                            },
+                            "kind": {
+                              "type": "string",
+                              "enum": [
+                                "ACADEMIC",
+                                "ADMINISTRATIVE",
+                                "RESEARCH"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "key",
+                            "name",
+                            "kind"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "state": {
+                      "type": "string",
+                      "enum": [
+                        "ACTIVE",
+                        "INACTIVE",
+                        "ARCHIVED"
+                      ]
+                    },
+                    "codeLocked": {
+                      "type": "boolean"
+                    },
+                    "followsRules": {
+                      "type": "boolean"
+                    },
+                    "version": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    "ancestors": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string",
+                            "format": "uuid"
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "code": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "name",
+                          "code"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "children": {
+                      "type": "object",
+                      "properties": {
+                        "open": {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        "archived": {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        }
+                      },
+                      "required": [
+                        "open",
+                        "archived"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "createdOn": {
+                      "type": "string",
+                      "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+                      "description": "A calendar day, YYYY-MM-DD."
+                    },
+                    "lastChangedOn": {
+                      "type": "string",
+                      "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+                      "description": "A calendar day, YYYY-MM-DD."
+                    },
+                    "can": {
+                      "type": "object",
+                      "properties": {
+                        "manage": {
+                          "type": "boolean"
+                        },
+                        "restructure": {
+                          "type": "boolean"
+                        }
+                      },
+                      "required": [
+                        "manage",
+                        "restructure"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "parentId",
+                    "code",
+                    "name",
+                    "description",
+                    "type",
+                    "state",
+                    "codeLocked",
+                    "followsRules",
+                    "version",
+                    "ancestors",
+                    "children",
+                    "createdOn",
+                    "lastChangedOn",
+                    "can"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "headers": {
+              "ETag": {
+                "required": true,
+                "description": "Send it back as If-Match to change this resource.",
+                "schema": {
+                  "type": "string",
+                  "pattern": "^\"v[0-9]+\"$"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "request.invalid",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 400
+                    },
+                    "code": {
+                      "enum": [
+                        "request.invalid"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "auth.unauthenticated",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 401
+                    },
+                    "code": {
+                      "enum": [
+                        "auth.unauthenticated"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "auth.forbidden, auth.mfa_enrolment_required, auth.mfa_required, request.csrf_rejected",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 403
+                    },
+                    "code": {
+                      "enum": [
+                        "auth.forbidden",
+                        "auth.mfa_enrolment_required",
+                        "auth.mfa_required",
+                        "request.csrf_rejected"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "resource.not_found, tenant.not_found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 404
+                    },
+                    "code": {
+                      "enum": [
+                        "resource.not_found",
+                        "tenant.not_found"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "org.unit.code_not_locked, org.unit.code_taken",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 409
+                    },
+                    "code": {
+                      "enum": [
+                        "org.unit.code_not_locked",
+                        "org.unit.code_taken"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "tenant.archived",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 410
+                    },
+                    "code": {
+                      "enum": [
+                        "tenant.archived"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "412": {
+            "description": "precondition.failed",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 412
+                    },
+                    "code": {
+                      "enum": [
+                        "precondition.failed"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "org.unit.code_invalid, org.unit.effective_date_future, org.unit.effective_date_invalid, org.unit.effective_date_out_of_order, org.unit.root_fixed, org.unit.same_code",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 422
+                    },
+                    "code": {
+                      "enum": [
+                        "org.unit.code_invalid",
+                        "org.unit.effective_date_future",
+                        "org.unit.effective_date_invalid",
+                        "org.unit.effective_date_out_of_order",
+                        "org.unit.root_fixed",
+                        "org.unit.same_code"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "423": {
+            "description": "tenant.suspended",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 423
+                    },
+                    "code": {
+                      "enum": [
+                        "tenant.suspended"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "428": {
+            "description": "auth.step_up_required, precondition.required",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 428
+                    },
+                    "code": {
+                      "enum": [
+                        "auth.step_up_required",
+                        "precondition.required"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "server.internal",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 500
+                    },
+                    "code": {
+                      "enum": [
+                        "server.internal"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "server.busy, tenant.maintenance",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 503
+                    },
+                    "code": {
+                      "enum": [
+                        "server.busy",
+                        "tenant.maintenance"
+                      ]
+                    }
+                  }
+                }
+              }
+            },
+            "headers": {
+              "Retry-After": {
+                "required": true,
+                "description": "Seconds to wait before retrying.",
+                "schema": {
+                  "type": "string",
+                  "pattern": "^[0-9]+$"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "x-product": "core",
+        "x-permission": "org.unit.restructure",
+        "x-scope": "resource",
+        "x-step-up": true,
+        "x-csrf": "same-origin"
+      }
+    },
+    "/api/v1/org/units/{id}/deactivate": {
+      "post": {
+        "operationId": "deactivateOrgUnit",
+        "summary": "Deactivate a unit: it stays in the tree and takes no new unit (If-Match)",
+        "tags": [
+          "org"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "The unit’s id. A malformed id, an unknown one, or a unit outside your scope is 404.",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "x-invalid": {
+              "status": 404,
+              "code": "resource.not_found"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "required": true,
+            "description": "The ETag you read. Missing: 428 precondition.required; stale: 412 precondition.failed.",
+            "schema": {
+              "type": "string",
+              "pattern": "^(W/)?\"v[0-9]+\"$"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "effectiveFrom": {
+                    "type": "string",
+                    "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+                    "description": "A calendar day, YYYY-MM-DD."
+                  },
+                  "reason": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 500
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "parentId": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "code": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "description": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "type": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string",
+                              "format": "uuid"
+                            },
+                            "key": {
+                              "type": "string"
+                            },
+                            "name": {
+                              "type": "string"
+                            },
+                            "kind": {
+                              "type": "string",
+                              "enum": [
+                                "ACADEMIC",
+                                "ADMINISTRATIVE",
+                                "RESEARCH"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "key",
+                            "name",
+                            "kind"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "state": {
+                      "type": "string",
+                      "enum": [
+                        "ACTIVE",
+                        "INACTIVE",
+                        "ARCHIVED"
+                      ]
+                    },
+                    "codeLocked": {
+                      "type": "boolean"
+                    },
+                    "followsRules": {
+                      "type": "boolean"
+                    },
+                    "version": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    "ancestors": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string",
+                            "format": "uuid"
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "code": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "name",
+                          "code"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "children": {
+                      "type": "object",
+                      "properties": {
+                        "open": {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        "archived": {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        }
+                      },
+                      "required": [
+                        "open",
+                        "archived"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "createdOn": {
+                      "type": "string",
+                      "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+                      "description": "A calendar day, YYYY-MM-DD."
+                    },
+                    "lastChangedOn": {
+                      "type": "string",
+                      "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+                      "description": "A calendar day, YYYY-MM-DD."
+                    },
+                    "can": {
+                      "type": "object",
+                      "properties": {
+                        "manage": {
+                          "type": "boolean"
+                        },
+                        "restructure": {
+                          "type": "boolean"
+                        }
+                      },
+                      "required": [
+                        "manage",
+                        "restructure"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "parentId",
+                    "code",
+                    "name",
+                    "description",
+                    "type",
+                    "state",
+                    "codeLocked",
+                    "followsRules",
+                    "version",
+                    "ancestors",
+                    "children",
+                    "createdOn",
+                    "lastChangedOn",
+                    "can"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "headers": {
+              "ETag": {
+                "required": true,
+                "description": "Send it back as If-Match to change this resource.",
+                "schema": {
+                  "type": "string",
+                  "pattern": "^\"v[0-9]+\"$"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "request.invalid",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 400
+                    },
+                    "code": {
+                      "enum": [
+                        "request.invalid"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "auth.unauthenticated",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 401
+                    },
+                    "code": {
+                      "enum": [
+                        "auth.unauthenticated"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "auth.forbidden, auth.mfa_enrolment_required, auth.mfa_required, request.csrf_rejected",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 403
+                    },
+                    "code": {
+                      "enum": [
+                        "auth.forbidden",
+                        "auth.mfa_enrolment_required",
+                        "auth.mfa_required",
+                        "request.csrf_rejected"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "resource.not_found, tenant.not_found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 404
+                    },
+                    "code": {
+                      "enum": [
+                        "resource.not_found",
+                        "tenant.not_found"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "tenant.archived",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 410
+                    },
+                    "code": {
+                      "enum": [
+                        "tenant.archived"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "412": {
+            "description": "precondition.failed",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 412
+                    },
+                    "code": {
+                      "enum": [
+                        "precondition.failed"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "org.unit.effective_date_future, org.unit.effective_date_invalid, org.unit.effective_date_out_of_order, org.unit.not_active, org.unit.root_fixed",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 422
+                    },
+                    "code": {
+                      "enum": [
+                        "org.unit.effective_date_future",
+                        "org.unit.effective_date_invalid",
+                        "org.unit.effective_date_out_of_order",
+                        "org.unit.not_active",
+                        "org.unit.root_fixed"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "423": {
+            "description": "tenant.suspended",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 423
+                    },
+                    "code": {
+                      "enum": [
+                        "tenant.suspended"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "428": {
+            "description": "precondition.required",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 428
+                    },
+                    "code": {
+                      "enum": [
+                        "precondition.required"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "server.internal",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 500
+                    },
+                    "code": {
+                      "enum": [
+                        "server.internal"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "server.busy, tenant.maintenance",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 503
+                    },
+                    "code": {
+                      "enum": [
+                        "server.busy",
+                        "tenant.maintenance"
+                      ]
+                    }
+                  }
+                }
+              }
+            },
+            "headers": {
+              "Retry-After": {
+                "required": true,
+                "description": "Seconds to wait before retrying.",
+                "schema": {
+                  "type": "string",
+                  "pattern": "^[0-9]+$"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "x-product": "core",
+        "x-permission": "org.unit.manage",
+        "x-scope": "resource",
+        "x-step-up": false,
+        "x-csrf": "same-origin"
+      }
+    },
+    "/api/v1/org/units/{id}/history": {
+      "get": {
+        "operationId": "getOrgUnitHistory",
+        "summary": "A unit’s changes, newest first",
+        "tags": [
+          "org"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "The unit’s id. A malformed id, an unknown one, or a unit outside your scope is 404.",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "x-invalid": {
+              "status": 404,
+              "code": "resource.not_found"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string",
+                            "format": "uuid"
+                          },
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "CREATED",
+                              "RENAMED",
+                              "DESCRIBED",
+                              "RETYPED",
+                              "MOVED",
+                              "CODE_CHANGED",
+                              "CODE_CORRECTED",
+                              "DEACTIVATED",
+                              "ARCHIVED",
+                              "REACTIVATED"
+                            ]
+                          },
+                          "effectiveFrom": {
+                            "type": "string",
+                            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+                            "description": "A calendar day, YYYY-MM-DD."
+                          },
+                          "recordedAt": {
+                            "type": "string",
+                            "format": "date-time"
+                          },
+                          "code": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "typeId": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "format": "uuid"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "parentId": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "format": "uuid"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "state": {
+                            "type": "string",
+                            "enum": [
+                              "ACTIVE",
+                              "INACTIVE",
+                              "ARCHIVED"
+                            ]
+                          },
+                          "reason": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "actor": {
+                            "anyOf": [
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "id": {
+                                    "type": "string",
+                                    "format": "uuid"
+                                  },
+                                  "displayName": {
+                                    "type": "string"
+                                  }
+                                },
+                                "required": [
+                                  "id",
+                                  "displayName"
+                                ],
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "kind",
+                          "effectiveFrom",
+                          "recordedAt",
+                          "code",
+                          "name",
+                          "typeId",
+                          "parentId",
+                          "state",
+                          "reason",
+                          "actor"
+                        ],
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "auth.unauthenticated",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 401
+                    },
+                    "code": {
+                      "enum": [
+                        "auth.unauthenticated"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "auth.forbidden, auth.mfa_enrolment_required",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 403
+                    },
+                    "code": {
+                      "enum": [
+                        "auth.forbidden",
+                        "auth.mfa_enrolment_required"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "resource.not_found, tenant.not_found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 404
+                    },
+                    "code": {
+                      "enum": [
+                        "resource.not_found",
+                        "tenant.not_found"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "tenant.archived",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 410
+                    },
+                    "code": {
+                      "enum": [
+                        "tenant.archived"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "423": {
+            "description": "tenant.suspended",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 423
+                    },
+                    "code": {
+                      "enum": [
+                        "tenant.suspended"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "server.internal",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 500
+                    },
+                    "code": {
+                      "enum": [
+                        "server.internal"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "server.busy, tenant.maintenance",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 503
+                    },
+                    "code": {
+                      "enum": [
+                        "server.busy",
+                        "tenant.maintenance"
+                      ]
+                    }
+                  }
+                }
+              }
+            },
+            "headers": {
+              "Retry-After": {
+                "required": true,
+                "description": "Seconds to wait before retrying.",
+                "schema": {
+                  "type": "string",
+                  "pattern": "^[0-9]+$"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "x-product": "core",
+        "x-permission": "org.unit.view",
+        "x-scope": "resource",
+        "x-step-up": false
+      }
+    },
+    "/api/v1/org/units/{id}/move": {
+      "post": {
+        "operationId": "moveOrgUnit",
+        "summary": "Move a unit, with everything under it, to another parent (If-Match, a reason)",
+        "tags": [
+          "org"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "The unit’s id. A malformed id, an unknown one, or a unit outside your scope is 404.",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "x-invalid": {
+              "status": 404,
+              "code": "resource.not_found"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "required": true,
+            "description": "The ETag you read. Missing: 428 precondition.required; stale: 412 precondition.failed.",
+            "schema": {
+              "type": "string",
+              "pattern": "^(W/)?\"v[0-9]+\"$"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "parentId": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "effectiveFrom": {
+                    "type": "string",
+                    "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+                    "description": "A calendar day, YYYY-MM-DD."
+                  },
+                  "reason": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 500
+                  }
+                },
+                "required": [
+                  "parentId",
+                  "reason"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "parentId": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "code": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "description": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "type": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string",
+                              "format": "uuid"
+                            },
+                            "key": {
+                              "type": "string"
+                            },
+                            "name": {
+                              "type": "string"
+                            },
+                            "kind": {
+                              "type": "string",
+                              "enum": [
+                                "ACADEMIC",
+                                "ADMINISTRATIVE",
+                                "RESEARCH"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "key",
+                            "name",
+                            "kind"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "state": {
+                      "type": "string",
+                      "enum": [
+                        "ACTIVE",
+                        "INACTIVE",
+                        "ARCHIVED"
+                      ]
+                    },
+                    "codeLocked": {
+                      "type": "boolean"
+                    },
+                    "followsRules": {
+                      "type": "boolean"
+                    },
+                    "version": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    "ancestors": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string",
+                            "format": "uuid"
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "code": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "name",
+                          "code"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "children": {
+                      "type": "object",
+                      "properties": {
+                        "open": {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        "archived": {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        }
+                      },
+                      "required": [
+                        "open",
+                        "archived"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "createdOn": {
+                      "type": "string",
+                      "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+                      "description": "A calendar day, YYYY-MM-DD."
+                    },
+                    "lastChangedOn": {
+                      "type": "string",
+                      "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+                      "description": "A calendar day, YYYY-MM-DD."
+                    },
+                    "can": {
+                      "type": "object",
+                      "properties": {
+                        "manage": {
+                          "type": "boolean"
+                        },
+                        "restructure": {
+                          "type": "boolean"
+                        }
+                      },
+                      "required": [
+                        "manage",
+                        "restructure"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "parentId",
+                    "code",
+                    "name",
+                    "description",
+                    "type",
+                    "state",
+                    "codeLocked",
+                    "followsRules",
+                    "version",
+                    "ancestors",
+                    "children",
+                    "createdOn",
+                    "lastChangedOn",
+                    "can"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "headers": {
+              "ETag": {
+                "required": true,
+                "description": "Send it back as If-Match to change this resource.",
+                "schema": {
+                  "type": "string",
+                  "pattern": "^\"v[0-9]+\"$"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "request.invalid",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 400
+                    },
+                    "code": {
+                      "enum": [
+                        "request.invalid"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "auth.unauthenticated",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 401
+                    },
+                    "code": {
+                      "enum": [
+                        "auth.unauthenticated"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "auth.forbidden, auth.mfa_enrolment_required, auth.mfa_required, request.csrf_rejected",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 403
+                    },
+                    "code": {
+                      "enum": [
+                        "auth.forbidden",
+                        "auth.mfa_enrolment_required",
+                        "auth.mfa_required",
+                        "request.csrf_rejected"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "org.unit.parent_not_found, resource.not_found, tenant.not_found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 404
+                    },
+                    "code": {
+                      "enum": [
+                        "org.unit.parent_not_found",
+                        "resource.not_found",
+                        "tenant.not_found"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "tenant.archived",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 410
+                    },
+                    "code": {
+                      "enum": [
+                        "tenant.archived"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "412": {
+            "description": "precondition.failed",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 412
+                    },
+                    "code": {
+                      "enum": [
+                        "precondition.failed"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "org.unit.archived, org.unit.cycle, org.unit.effective_date_future, org.unit.effective_date_invalid, org.unit.effective_date_out_of_order, org.unit.parent_not_active, org.unit.root_fixed, org.unit.same_parent, org.unit.too_deep, org.unit.type_archived, org.unit.type_not_allowed",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 422
+                    },
+                    "code": {
+                      "enum": [
+                        "org.unit.archived",
+                        "org.unit.cycle",
+                        "org.unit.effective_date_future",
+                        "org.unit.effective_date_invalid",
+                        "org.unit.effective_date_out_of_order",
+                        "org.unit.parent_not_active",
+                        "org.unit.root_fixed",
+                        "org.unit.same_parent",
+                        "org.unit.too_deep",
+                        "org.unit.type_archived",
+                        "org.unit.type_not_allowed"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "423": {
+            "description": "tenant.suspended",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 423
+                    },
+                    "code": {
+                      "enum": [
+                        "tenant.suspended"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "428": {
+            "description": "auth.step_up_required, precondition.required",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 428
+                    },
+                    "code": {
+                      "enum": [
+                        "auth.step_up_required",
+                        "precondition.required"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "server.internal",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 500
+                    },
+                    "code": {
+                      "enum": [
+                        "server.internal"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "server.busy, tenant.maintenance",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 503
+                    },
+                    "code": {
+                      "enum": [
+                        "server.busy",
+                        "tenant.maintenance"
+                      ]
+                    }
+                  }
+                }
+              }
+            },
+            "headers": {
+              "Retry-After": {
+                "required": true,
+                "description": "Seconds to wait before retrying.",
+                "schema": {
+                  "type": "string",
+                  "pattern": "^[0-9]+$"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "x-product": "core",
+        "x-permission": "org.unit.restructure",
+        "x-scope": "resource",
+        "x-step-up": true,
+        "x-csrf": "same-origin"
+      }
+    },
+    "/api/v1/org/units/{id}/reactivate": {
+      "post": {
+        "operationId": "reactivateOrgUnit",
+        "summary": "Make an inactive or archived unit active again (If-Match)",
+        "tags": [
+          "org"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "The unit’s id. A malformed id, an unknown one, or a unit outside your scope is 404.",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "x-invalid": {
+              "status": 404,
+              "code": "resource.not_found"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "required": true,
+            "description": "The ETag you read. Missing: 428 precondition.required; stale: 412 precondition.failed.",
+            "schema": {
+              "type": "string",
+              "pattern": "^(W/)?\"v[0-9]+\"$"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "effectiveFrom": {
+                    "type": "string",
+                    "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+                    "description": "A calendar day, YYYY-MM-DD."
+                  },
+                  "reason": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 500
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "parentId": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "code": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "description": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "type": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string",
+                              "format": "uuid"
+                            },
+                            "key": {
+                              "type": "string"
+                            },
+                            "name": {
+                              "type": "string"
+                            },
+                            "kind": {
+                              "type": "string",
+                              "enum": [
+                                "ACADEMIC",
+                                "ADMINISTRATIVE",
+                                "RESEARCH"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "key",
+                            "name",
+                            "kind"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "state": {
+                      "type": "string",
+                      "enum": [
+                        "ACTIVE",
+                        "INACTIVE",
+                        "ARCHIVED"
+                      ]
+                    },
+                    "codeLocked": {
+                      "type": "boolean"
+                    },
+                    "followsRules": {
+                      "type": "boolean"
+                    },
+                    "version": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    "ancestors": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string",
+                            "format": "uuid"
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "code": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "name",
+                          "code"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "children": {
+                      "type": "object",
+                      "properties": {
+                        "open": {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        "archived": {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        }
+                      },
+                      "required": [
+                        "open",
+                        "archived"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "createdOn": {
+                      "type": "string",
+                      "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+                      "description": "A calendar day, YYYY-MM-DD."
+                    },
+                    "lastChangedOn": {
+                      "type": "string",
+                      "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+                      "description": "A calendar day, YYYY-MM-DD."
+                    },
+                    "can": {
+                      "type": "object",
+                      "properties": {
+                        "manage": {
+                          "type": "boolean"
+                        },
+                        "restructure": {
+                          "type": "boolean"
+                        }
+                      },
+                      "required": [
+                        "manage",
+                        "restructure"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "parentId",
+                    "code",
+                    "name",
+                    "description",
+                    "type",
+                    "state",
+                    "codeLocked",
+                    "followsRules",
+                    "version",
+                    "ancestors",
+                    "children",
+                    "createdOn",
+                    "lastChangedOn",
+                    "can"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "headers": {
+              "ETag": {
+                "required": true,
+                "description": "Send it back as If-Match to change this resource.",
+                "schema": {
+                  "type": "string",
+                  "pattern": "^\"v[0-9]+\"$"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "request.invalid",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 400
+                    },
+                    "code": {
+                      "enum": [
+                        "request.invalid"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "auth.unauthenticated",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 401
+                    },
+                    "code": {
+                      "enum": [
+                        "auth.unauthenticated"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "auth.forbidden, auth.mfa_enrolment_required, auth.mfa_required, request.csrf_rejected",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 403
+                    },
+                    "code": {
+                      "enum": [
+                        "auth.forbidden",
+                        "auth.mfa_enrolment_required",
+                        "auth.mfa_required",
+                        "request.csrf_rejected"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "resource.not_found, tenant.not_found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 404
+                    },
+                    "code": {
+                      "enum": [
+                        "resource.not_found",
+                        "tenant.not_found"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "tenant.archived",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 410
+                    },
+                    "code": {
+                      "enum": [
+                        "tenant.archived"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "412": {
+            "description": "precondition.failed",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 412
+                    },
+                    "code": {
+                      "enum": [
+                        "precondition.failed"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "org.unit.already_active, org.unit.effective_date_future, org.unit.effective_date_invalid, org.unit.effective_date_out_of_order, org.unit.parent_not_active",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 422
+                    },
+                    "code": {
+                      "enum": [
+                        "org.unit.already_active",
+                        "org.unit.effective_date_future",
+                        "org.unit.effective_date_invalid",
+                        "org.unit.effective_date_out_of_order",
+                        "org.unit.parent_not_active"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "423": {
+            "description": "tenant.suspended",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 423
+                    },
+                    "code": {
+                      "enum": [
+                        "tenant.suspended"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "428": {
+            "description": "precondition.required",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 428
+                    },
+                    "code": {
+                      "enum": [
+                        "precondition.required"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "server.internal",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 500
+                    },
+                    "code": {
+                      "enum": [
+                        "server.internal"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "server.busy, tenant.maintenance",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    }
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": 503
+                    },
+                    "code": {
+                      "enum": [
+                        "server.busy",
+                        "tenant.maintenance"
+                      ]
+                    }
+                  }
+                }
+              }
+            },
+            "headers": {
+              "Retry-After": {
+                "required": true,
+                "description": "Seconds to wait before retrying.",
+                "schema": {
+                  "type": "string",
+                  "pattern": "^[0-9]+$"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "x-product": "core",
+        "x-permission": "org.unit.manage",
+        "x-scope": "resource",
         "x-step-up": false,
         "x-csrf": "same-origin"
       }

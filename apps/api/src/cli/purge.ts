@@ -56,7 +56,13 @@ export const PURGE_TABLE_ORDER = [
   'file_object',
   'sequence',
   'user_account',
+  // Spec 0042: a unit's history goes before it; its code reservations go with it (the cascade, which the code lock's
+  // guard allows once the unit's row is gone), so their own step finds none; the types go once no unit uses them.
+  'org_unit_change',
   'org_unit',
+  'org_unit_code',
+  'org_unit_type_rule',
+  'org_unit_type',
 ] as const;
 
 /** Each table's delete, typed (no SQL text is built from a name). org_unit is deleted leaves first, below. */
@@ -81,6 +87,11 @@ const DELETERS: Readonly<Record<Exclude<(typeof PURGE_TABLE_ORDER)[number], 'org
   file_object: (tx, tenantId) => tx.fileObject.deleteMany({ where: { tenantId } }),
   sequence: (tx, tenantId) => tx.sequence.deleteMany({ where: { tenantId } }),
   user_account: (tx, tenantId) => tx.userAccount.deleteMany({ where: { tenantId } }),
+  // Spec 0042 Q6: append-only for the app; the purge, as the migrator, removes it with the institution.
+  org_unit_change: (tx, tenantId) => tx.orgUnitChange.deleteMany({ where: { tenantId } }),
+  org_unit_code: (tx, tenantId) => tx.orgUnitCode.deleteMany({ where: { tenantId } }),
+  org_unit_type_rule: (tx, tenantId) => tx.unitTypeRule.deleteMany({ where: { tenantId } }),
+  org_unit_type: (tx, tenantId) => tx.unitType.deleteMany({ where: { tenantId } }),
 };
 
 /** Q-C5: the platform tables whose rows of the institution go, in an order its foreign keys allow. */
@@ -276,12 +287,15 @@ export async function rows(platform: PlatformClient, shards: MigratorShards, slu
   const known = new Set<string>(PURGE_TABLE_ORDER);
   if (tables.some((x) => !known.has(x.table_name))) throw new PurgeRefused('unknown_tenant_table');
   const counts: Record<string, number> = {};
+  // Spec 0042: a unit's code reservations go with it (the cascade); the units' step counts them for their own step.
+  let codesWithUnits = 0;
   for (const table of PURGE_TABLE_ORDER) {
     counts[table] = await withTenantTx(
       shard,
       s.t.id,
       async (tx) => {
         if (table === 'org_unit') {
+          codesWithUnits = await tx.orgUnitCode.count({ where: { tenantId: s.t.id } });
           // A unit's parent can't go before its children (RESTRICT): leaves first, until none is left.
           let n = 0;
           for (;;) {
@@ -293,7 +307,8 @@ export async function rows(platform: PlatformClient, shards: MigratorShards, slu
           }
           return n;
         }
-        return (await DELETERS[table](tx, s.t.id)).count;
+        const deleted = (await DELETERS[table](tx, s.t.id)).count;
+        return table === 'org_unit_code' ? codesWithUnits + deleted : deleted;
       },
       { timeoutMs: 300_000 },
     );

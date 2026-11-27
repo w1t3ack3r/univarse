@@ -8,7 +8,7 @@
 // configuration the institution already has is touched. The content is never audited or logged: its hash is.
 import { Inject, Injectable } from '@nestjs/common';
 import { writePlatformAudit } from '@univarse/crypto';
-import { profileContentHash, ProfileHashMismatch, recordProfileSnapshot, type PlatformClient, type TenantTx } from '@univarse/db';
+import { profileContentHash, ProfileHashMismatch, projectUnitTypes, recordProfileSnapshot, type PlatformClient, type TenantTx } from '@univarse/db';
 import { canonicalJson, type InstitutionTemplate } from '@univarse/domain';
 import { AuditWriter } from '../../shared/audit/audit-writer.js';
 import { PLATFORM_DB, ShardUnavailableError } from '../../shared/db/db.module.js';
@@ -73,9 +73,13 @@ export class ProfileAssigner {
     return { canonical, contentHash, source: row.source };
   }
 
-  /** Step 2, in the caller's tenant transaction: the snapshot, and its audit when this run wrote it. */
+  /**
+   * Step 2, in the caller's tenant transaction: the snapshot, and its audit when this run wrote it. Spec 0042 Q1: the
+   * institution's unit types are projected from it in the same transaction, if it has none yet (Q-A4).
+   */
   async snapshot(tx: TenantTx, tenantId: string, t: InstitutionTemplate, open: OpenAssignment): Promise<boolean> {
     const { created, contentHash } = await recordProfileSnapshot(tx, tenantId, { template: t.id, templateVersion: t.version, canonical: open.canonical, source: open.source });
+    await projectUnitTypes(tx, tenantId, t.profile.unitTypes);
     if (created) {
       await this.audit.write(tx, tenantId, {
         actorType: 'SYSTEM',

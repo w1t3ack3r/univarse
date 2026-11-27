@@ -1,6 +1,6 @@
 # Spec 0042: Phase 2's P2-S1, the org tree
 
-**Status:** Draft, for the owner's approval (Q1 to Q16).
+**Status:** **Approved by the owner on 2026-11-26, all as written** (Q1 to Q16, and the `[VERIFY]` limits until the pilot's real files test them). PR A is being built (its design is below).
 **Phase:** 2, slice **P2-S1** of [spec 0040](0040-phase-2-institution-setup.md) ("The org tree").
 **Builds on:**
 
@@ -39,7 +39,7 @@ S1 also gives the policy its first resource scope, so a grant on a faculty cover
 - **`role_assignment.scope_type`** already allows `ORG_UNIT`, but the policy counts only `INSTITUTION` grants (spec 0018 D4), and **no route or screen grants a role with a scope.**
 - **The profile snapshot** (`institution_profile`) holds each institution's unit types with `key`, `kind` (`academic`/`administrative`/`research`), `name` and `mayContain`.
 
-## Decisions for approval
+## Decisions (approved)
 
 | # | Decision | Recommendation, and why |
 | --- | --- | --- |
@@ -120,8 +120,8 @@ A unit's names and codes aren't personal data. The history records who made each
 
 ## The owner's steps
 
-- Approve or change Q1 to Q16.
-- **Confirm or change the `[VERIFY]` limits** (Q3): 8 levels below the root, 5,000 units per institution.
+- ~~Approve or change Q1 to Q16.~~ Approved 2026-11-26.
+- The `[VERIFY]` limits (Q3), 8 levels below the root and 5,000 units per institution, stand until the pilot's real files test them.
 - After the release and deploy: criterion 9 on the stack.
 
 ## Affected docs
@@ -149,3 +149,108 @@ A unit's names and codes aren't personal data. The history records who made each
 - **Issuing identifiers, and so setting the code lock** (Phase 3).
 - **The contract migration** that drops the old columns and enums (Q16): a later release.
 - **An `org.unit.changed` event** (Q15).
+
+## PR A: the design
+
+### The tables (tenant, one migration, expand only)
+
+- **`org_unit_type`:**
+  - `key` (`^[a-z][a-z0-9_]{1,39}$`, unique per institution, never changed), `name` (1 to 60 characters), `kind` (`OrgUnitTypeKind`: `ACADEMIC`, `ADMINISTRATIVE`, `RESEARCH`, never changed), `sort_order`, `status` (`ACTIVE`/`ARCHIVED`), `version`;
+  - forced RLS. The app may insert and update it, never delete (Q2: a type is archived, never deleted).
+- **`org_unit_type_rule`:** (parent type, child type), both the institution's. The app inserts and deletes rows (a changed "may contain").
+- **`org_unit` gains:**
+  - `type_id` (the institution's type; null exactly for the root, a `CHECK`);
+  - `state` (`OrgUnitStatus`: `ACTIVE`, `INACTIVE`, `ARCHIVED`);
+  - `description` (up to 500 characters);
+  - `code_locked_at`;
+  - `creation_key` (Q-A2).
+
+  **`code` becomes nullable** (Q8), and gets a format `CHECK` (`^[A-Z][A-Z0-9]{1,11}$`). One root per institution (a partial unique index).
+- **`org_unit_code`, the code reservations** (Q8): `code` unique per institution, and the unit that holds it.
+  - Every unit's current code has its row: a deferred foreign key from (`tenant_id`, `id`, `code`) to it.
+  - A correction deletes the old row, which releases the code. A changed locked code keeps its row, so the code stays reserved.
+  - The app inserts and deletes rows, never updates them.
+- **`org_unit_change`:**
+  - `seq` (an identity column, the order within a day);
+  - `kind` (`OrgUnitChangeKind`, Q6's ten kinds);
+  - the state after the change: `code`, `name`, `description`, `type_id`, `parent_id`, `state`;
+  - `effective_from` (a `date`), `actor_id`, `reason`, `created_at`.
+
+  Append-only: `UPDATE`, `DELETE` and `TRUNCATE` revoked from the app's role.
+
+### The database's own rules
+
+- **A deferred constraint trigger on `org_unit`** checks, at commit, every row inserted or whose parent, path, type or state changed:
+  - its `path` is its parent's path plus its own id (the root's is its own id), so a cycle can't be stored;
+  - a new or moved active unit's parent is active, and its parent's type may contain its type (or the parent is the root).
+
+  It is deferred because a move rewrites a whole subtree's paths in one statement.
+- **A trigger on `org_unit` guards the lock** (Q9): `code_locked_at` can't be cleared, and a locked unit's code can change only if its old code keeps its reservation.
+- **A trigger on `org_unit_code`** refuses deleting the reservation of a unit whose code is locked.
+- **The migration projects the unit types** of every institution with a profile snapshot, from its latest `institution_profile`, and their rules. Then it:
+  - gives each root its `state`;
+  - reserves each existing code;
+  - writes each existing unit's `CREATED` change, effective from its creation date;
+  - gives the new permissions to the system roles (Q12), as `20261119120000_data_export` did.
+
+### The code
+
+- **`packages/domain/src/org/`:**
+  - the tree's rules as pure functions (Q3, Q7, Q8, Q10);
+  - the old columns' compatible values (Q16);
+  - the type key made from a name;
+  - today's date in `Africa/Lagos`.
+- **`packages/db`:**
+  - `projectUnitTypes(tx, tenantId, unitTypes)`, called by the profile's assignment when the institution has no unit types yet;
+  - `seedTenantBase` reserves the root's code and writes its `CREATED` change.
+- **The policy:**
+  - `ResourceContext` gains `{ scope: 'ORG_UNIT', unitId, path }`, and `covers` gains its path rule;
+  - `holdsSomewhere(actor, permission)`, for a route's first gate.
+- **The access guard:** a new `@RequireScopedPermission(permission)` admits an actor who holds the permission at some scope (otherwise 403). The service then decides against the loaded unit with `enforceOn` (out of scope is 404; MFA and step-up as usual). The OpenAPI document gives both decorators' permission.
+- **`apps/api/src/modules/org/`** (`@Product('core')`): the controller and its services. Each write runs in one transaction:
+  1. the unit's row is locked, `FOR UPDATE`;
+  2. the version is checked (`If-Match`);
+  3. the rules are checked;
+  4. the row and its subtree are written, then the change rows;
+  5. the audit is written.
+- **The routes:**
+
+  | Route | Permission (on) | Notes |
+  | --- | --- | --- |
+  | `GET /api/v1/org/units` | `org.unit.view` (each unit) | `?asAt=YYYY-MM-DD`, `?includeArchived=true`, `?q=`. Out-of-scope units are left out |
+  | `GET /api/v1/org/units/:id` | `org.unit.view` (the unit) | `ETag`; its ancestors (for the breadcrumb), its type, its counts of children |
+  | `GET /api/v1/org/units/:id/history` | `org.unit.view` (the unit) | Newest first, with who made each change |
+  | `POST /api/v1/org/units` | `org.unit.manage` (the parent) | `Idempotency-Key` required (Q-A2). 201 with `ETag` |
+  | `PATCH /api/v1/org/units/:id` | `org.unit.manage` (the unit); `org.unit.restructure` to retype | `If-Match`. Name, description, an unlocked code, the type |
+  | `POST /api/v1/org/units/:id/move` | `org.unit.restructure` (the unit and the new parent) | `If-Match`, reason |
+  | `POST /api/v1/org/units/:id/deactivate` | `org.unit.manage` | `If-Match` |
+  | `POST /api/v1/org/units/:id/archive` | `org.unit.restructure` | `If-Match`, reason |
+  | `POST /api/v1/org/units/:id/reactivate` | `org.unit.manage` from inactive; `org.unit.restructure` from archived | `If-Match` |
+  | `POST /api/v1/org/units/:id/code` | `org.unit.restructure` | A locked unit's new code: `If-Match`, reason |
+  | `GET /api/v1/org/unit-types` | `org.unit.view` (anywhere) | Each type with its rules and the number of units of that type |
+  | `PUT /api/v1/org/unit-types/:key` | `org.unit_type.manage` (the institution) | Creates or edits one type (Q-A3). `If-Match` (`"v0"` for a new one) |
+
+  Each write takes an optional `effectiveFrom` (today in `Africa/Lagos` by default).
+- **The audit actions:** `org.unit.created`, `org.unit.updated`, `org.unit.moved`, `org.unit.code_changed`, `org.unit.deactivated`, `org.unit.archived`, `org.unit.reactivated` and `org.unit_type.saved`. Each holds the change's kinds, the before and after of what changed, the effective date and the reason.
+- **The seed** gives `demo-uni` a small tree (a faculty with two departments, the registry) and `test-poly` a school with one department, for development and the E2E.
+- **The export, the purge, the tenant cleanup and the isolation sweep** gain the new tables.
+
+### Decisions made while building, for the owner's approval
+
+| # | Decision | Why |
+| --- | --- | --- |
+| Q-A1 | **The root shows the institution's current legal name, read from the registry,** not the name stored at provisioning. The institution's names stay edited only in the console, and the root's own name isn't edited anywhere. Q4 expected "the profile page renames the root in the same transaction". | The names live in the platform's database and the root in the institution's. No transaction spans both. Showing the registry's name keeps one name in one place. The console's audit already records each rename. |
+| Q-A2 | **A create's `Idempotency-Key` is stored on the unit it made** (`creation_key`, unique per institution), rather than in a key store with stored responses. A replay by the same person answers with that unit. A replay by someone else is refused (409). Every other write is protected by `If-Match`: a replay finds a newer version and gets 412, never a second effect. | The tenant API has no idempotency store yet (docs/06 §5 lists the routes that need one, S2's import commit among them). One column gives the guarantee without one. |
+| Q-A3 | **Unit types are saved one at a time** (`PUT /org/unit-types/:key`), each with its own version, rather than the whole set in one `PUT`. | Two administrators editing different types don't overwrite each other. |
+| Q-A4 | **A type is projected only into an institution that has no unit types yet.** | A type the institution archived, or a rule it removed, is never brought back by a later assignment. Spec 0041 Q7 already says upgrades are explicit. |
+| Q-A5 | **`code_locked_at` stays set after a locked code is changed,** so the new code is treated as locked too: it can be changed with a date and reason, never corrected. | Q9 says the lock is never cleared. Treating the new code as locked is the safe side. It costs only the ability to fix a typo in a code that issued identifiers may soon carry. |
+| Q-A6 | **A `PATCH` that changes several things writes one change row per kind,** with the same date, in a fixed order. | "As at" takes each unit's last change, and each row stays one kind, as Q6 lists them. |
+| Q-A7 | **The root's creation date bounds nothing:** a faculty may be created, or moved under the root, with any past date. Below the root, a unit's date is never before its parent's creation. | The institution existed long before its UniVarse account (the root is created at provisioning, today). An import of the real structure (S2) needs its founding dates. |
+| Q-A8 | **The audit names a unit's code `acronym`.** | The audit's redaction (spec 0002 A6) blanks any key naming a code, as spec 0041's Q-A3 found for a hash. A unit's code isn't a secret. |
+| Q-A9 | **The seed projects its institutions' unit types itself,** from the same template the pass assigns (the pass then finds them there and changes nothing), and gives `demo-uni` a small tree (Faculty of Science `SCI` with `CSC` and `MTH`, the Registry `REG`) and `test-poly` one school (`SICT` with `CSC`). | The seed runs before the worker, so its institutions have no types when it runs; development and the E2E need a structure. The codes match the seeded student's matric number (`25/SCI/CSC/0001`). |
+| Q-A10 | **The code's two checks (its format, and its reservation) are added `NOT VALID`**: they bind every row written from now on and leave rows from before untouched. The contract release validates them. | A development database holds roots left by old isolation-test runs, with codes and paths the new rules refuse; the stack's roots all hold `ROOT`. Expand-only migrations don't rewrite data. |
+| Q-A11 | **`org_unit_type_rule` has its own `id`,** with the pair unique. | The isolation sweep checks every tenant table by row id. |
+| Q-A12 | **The list filters by scope in its SQL** (docs/06 §6); for a unit whose parent is outside the caller's scope, only that parent's type id is read, to say whether the unit follows the rules. | A list never loads what it doesn't return. The parent's type id says nothing of the parent. |
+| Q-A13 | **Reactivating declares `org.unit.manage` at the route;** reactivating an archived unit needs `org.unit.restructure`, decided on the loaded unit (as a setting's own manage permission is, spec 0007). | Which one applies depends on the unit's state, which the route can't know. The contract's summary says so. |
+| Q-A14 | **The tests use institutions of their own** (`org-…`, removed at the end), and a helper that writes units as the API does. **The route sweep archives its own units at the end**, as the migrator. | Units are never deleted, so tests on `demo-uni` would pile up in it on every local run. |
+

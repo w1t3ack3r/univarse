@@ -134,7 +134,7 @@ export function buildOpenApi(controllers: readonly Ctor[], settings: Readonly<Re
       problems.push(`${where}: path parameters [${names.join(', ')}] but the contract declares [${Object.keys(params).join(', ')}]`);
     }
 
-    const permission = access?.kind === 'permission' ? access.permission : undefined;
+    const permission = access?.kind === 'permission' || access?.kind === 'scoped' ? access.permission : undefined;
     const stepUp = explicitStepUp || (permission !== undefined && requiresStepUp(permission));
     const isPublic = noTenant || access?.kind === 'public';
     const security = op.cookies?.reads ? [{ [op.cookies.reads]: [] }] : isPublic ? [] : [{ session: [] }];
@@ -211,6 +211,8 @@ export function buildOpenApi(controllers: readonly Ctor[], settings: Readonly<Re
     if (noTenant) operation['x-no-tenant'] = true;
     if (product) operation['x-product'] = product;
     if (permission) operation['x-permission'] = permission;
+    // Spec 0042 Q13: decided against the loaded resource; out of scope answers 404.
+    if (access?.kind === 'scoped') operation['x-scope'] = 'resource';
     if (op.permissionBySettingKey) {
       operation['x-permission-by-key'] = Object.fromEntries(
         Object.entries(settings).map(([k, d]) => [k, { permission: d.manage, stepUp: requiresStepUp(d.manage) }]),

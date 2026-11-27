@@ -36,7 +36,7 @@ Applies to every HTTP endpoint in `apps/api`. Contracts live in `packages/contra
 ```
 - **A `GET` that writes:** `GET /api/platform/v1/audit` writes one audit row for a new query, in the same transaction as the read ([spec 0031](specs/0031-seeing-what-happened.md) Q3), because viewing the audit log is itself audited. It is the only `GET` that writes.
 - **An answer that doesn't say:** `POST /api/platform/v1/me/email` and `POST /api/v1/auth/email` give the same 202 whether or not the address is taken ([spec 0032](specs/0032-contact-details.md) Q4). Confirming then fails exactly as a wrong code does.
-- **Pagination:** cursor-based by default (`?cursor=&limit=`, max 200). Offset pagination is allowed only for small admin tables with a known size. **The cursor is opaque and holds a row id, never a value from the row** (a username is a matric or staff number, and cursors travel in page URLs); the server looks the row up again under the tenant's RLS. A cursor that doesn't resolve is `400 request.invalid_cursor`, the same answer whatever the reason. Query parameters are declared in the operation's strict `query` object and parsed by the handler, like a body ([spec 0021](specs/0021-users-pagination.md)).
+- **Pagination:** cursor-based by default (`?cursor=&limit=`, max 200). Offset pagination is allowed only for small admin tables with a known size. **A bounded tree is returned whole:** the org tree (`GET /org/units`, at most 5,000 units, [spec 0042](specs/0042-org-tree.md) Q14) comes as one flat list, because a paged tree can't be drawn. **The cursor is opaque and holds a row id, never a value from the row** (a username is a matric or staff number, and cursors travel in page URLs); the server looks the row up again under the tenant's RLS. A cursor that doesn't resolve is `400 request.invalid_cursor`, the same answer whatever the reason. Query parameters are declared in the operation's strict `query` object and parsed by the handler, like a body ([spec 0021](specs/0021-users-pagination.md)).
 - **Filtering/sorting:** `?status=SUBMITTED&level=300&sort=-createdAt&q=adeyemi`. Only allow-listed fields.
 - **Response DTOs** are explicit mappers. Never serialize ORM objects, because hidden fields (password hashes, encrypted secrets) must be impossible to leak by accident.
 - `201 Created` + `Location` header for creates. `202 Accepted` + a job resource for async work. `204` for deletes.
@@ -82,12 +82,14 @@ Error `code`s are stable, namespaced and listed in `packages/contracts/errors.ts
 
 - Mutable resources that people edit concurrently (score sheets, fee schedules, settings, curriculum drafts) return `ETag: "v{version}"`. Updates **must** send `If-Match`, or the server returns 428/412.
 - `Idempotency-Key` header (UUID) is **required** on: payment initiation, manual payments, imports commit, invoice generation, publication, enrolment, and any bulk action. Keys are stored for 24h per (tenant, user, route). A replay returns the original response.
+- **Creating an org unit** takes a required `Idempotency-Key`, stored on the unit it made ([spec 0042](specs/0042-org-tree.md) Q-A2): a replay by the same person answers `201` with that unit and `Idempotent-Replayed: true`; by anyone else, `409 org.unit.key_reused`. The tree's other writes are protected by `If-Match` (a replay finds a newer version: `412`).
 - Webhook handlers are idempotent by `(gateway, eventId/reference)`.
 
 ## 6. Authorization in endpoints
 
 - Every controller method declares its permission: `@RequirePermission('results.scoresheet.approve_hod')`.
 - The **resource-scope check** happens in the use case (it needs the loaded resource): `policy.assert(actor, 'results.scoresheet.approve_hod', sheet.orgPath)`.
+- **A scoped route** declares `@RequireScopedPermission(permission)` ([spec 0042](specs/0042-org-tree.md) Q13): the guard admits a caller holding the permission at some scope (otherwise 403), and the use case decides on the loaded resource with `enforceOn` (out of scope is 404, as an unknown resource). The OpenAPI document marks it `x-scope: resource`.
 - Sensitive actions add `@RequireStepUp()`.
 - List endpoints **filter by scope in the query**. They never filter after loading.
 

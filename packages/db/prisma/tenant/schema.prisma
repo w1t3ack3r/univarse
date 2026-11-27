@@ -41,29 +41,146 @@ enum RecordStatus {
   ARCHIVED
 }
 
+/// Spec 0042 Q16: `kind`, `type` and `status` are the old columns, still written with values the earlier images can
+/// read (packages/domain `legacyColumns`) until the contract release drops them. Read `unitType` and `state`.
 model OrgUnit {
-  id        String       @id @default(dbgenerated("uuidv7()")) @db.Uuid
-  tenantId  String       @map("tenant_id") @db.Uuid
-  code      String
-  name      String
-  kind      OrgUnitKind
-  type      OrgUnitType
-  parentId  String?      @map("parent_id") @db.Uuid
+  id           String         @id @default(dbgenerated("uuidv7()")) @db.Uuid
+  tenantId     String         @map("tenant_id") @db.Uuid
+  /// Q8: null until assigned. Unique among every code the institution has used (`org_unit_code`).
+  code         String?
+  name         String
+  kind         OrgUnitKind
+  type         OrgUnitType
+  /// Q1: the institution's own type; null exactly for the root (a CHECK).
+  typeId       String?        @map("type_id") @db.Uuid
+  parentId     String?        @map("parent_id") @db.Uuid
   /// Materialized path of ancestor ids, e.g. "/<root>/<faculty>/<dept>/" — used for scope checks.
-  path      String
-  status    RecordStatus @default(ACTIVE)
-  createdAt DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt DateTime     @updatedAt @map("updated_at") @db.Timestamptz(3)
-  version   Int          @default(0)
+  path         String
+  status       RecordStatus   @default(ACTIVE)
+  /// Q5: the unit's status.
+  state        OrgUnitStatus  @default(ACTIVE)
+  description  String?
+  /// Q9: set when an issued identifier first carries the code; never cleared (a trigger).
+  codeLockedAt DateTime?      @map("code_locked_at") @db.Timestamptz(3)
+  /// Q-A2: the Idempotency-Key of the request that created it.
+  creationKey  String?        @map("creation_key") @db.Uuid
+  createdAt    DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt    DateTime       @updatedAt @map("updated_at") @db.Timestamptz(3)
+  version      Int            @default(0)
 
-  parent   OrgUnit?  @relation("OrgTree", fields: [tenantId, parentId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
-  children OrgUnit[] @relation("OrgTree")
+  parent   OrgUnit?      @relation("OrgTree", fields: [tenantId, parentId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  children OrgUnit[]     @relation("OrgTree")
+  unitType UnitType? @relation(fields: [tenantId, typeId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
 
   @@unique([tenantId, id])
   @@unique([tenantId, code])
+  @@unique([tenantId, creationKey])
   @@index([tenantId, parentId])
   @@index([tenantId, path])
   @@map("org_unit")
+}
+
+enum OrgUnitStatus {
+  ACTIVE
+  INACTIVE
+  ARCHIVED
+}
+
+enum UnitTypeKind {
+  ACADEMIC
+  ADMINISTRATIVE
+  RESEARCH
+}
+
+/// Spec 0042 Q1: the institution's unit types, projected from its profile snapshot and then its own. Never deleted
+/// (Q2: archived); `key` and `kind` never change.
+model UnitType {
+  id        String          @id @default(dbgenerated("uuidv7()")) @db.Uuid
+  tenantId  String          @map("tenant_id") @db.Uuid
+  key       String
+  name      String
+  kind      UnitTypeKind
+  sortOrder Int             @map("sort_order")
+  status    RecordStatus    @default(ACTIVE)
+  createdAt DateTime        @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime        @updatedAt @map("updated_at") @db.Timestamptz(3)
+  version   Int             @default(1)
+
+  units    OrgUnit[]
+  contains UnitTypeRule[] @relation("RuleParent")
+  within   UnitTypeRule[] @relation("RuleChild")
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, key])
+  @@map("org_unit_type")
+}
+
+/// Q1: a type's "may contain": a unit of `childTypeId` may sit under a unit of `parentTypeId`.
+model UnitTypeRule {
+  id           String       @id @default(dbgenerated("uuidv7()")) @db.Uuid
+  tenantId     String       @map("tenant_id") @db.Uuid
+  parentTypeId String       @map("parent_type_id") @db.Uuid
+  childTypeId  String       @map("child_type_id") @db.Uuid
+  parent       UnitType @relation("RuleParent", fields: [tenantId, parentTypeId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+  child        UnitType @relation("RuleChild", fields: [tenantId, childTypeId], references: [tenantId, id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, parentTypeId, childTypeId])
+  @@map("org_unit_type_rule")
+}
+
+/// Q8: every code the institution has used, current or former. A correction deletes the old row (the code is free
+/// again); a locked code keeps its row for ever (a trigger). Each unit's current code has its row (a deferred FK).
+model OrgUnitCode {
+  id        String   @id @default(dbgenerated("uuidv7()")) @db.Uuid
+  tenantId  String   @map("tenant_id") @db.Uuid
+  code      String
+  unitId    String   @map("unit_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, code])
+  @@unique([tenantId, unitId, code])
+  @@index([tenantId, unitId])
+  @@map("org_unit_code")
+}
+
+enum OrgUnitChangeKind {
+  CREATED
+  RENAMED
+  DESCRIBED
+  RETYPED
+  MOVED
+  CODE_CHANGED
+  CODE_CORRECTED
+  DEACTIVATED
+  ARCHIVED
+  REACTIVATED
+}
+
+/// Q6: every change to a unit, effective-dated, with the unit's state after it. Append-only for the app. "As at a
+/// date" is each unit's last change effective on or before it (ties by `seq`).
+model OrgUnitChange {
+  id            String            @id @default(dbgenerated("uuidv7()")) @db.Uuid
+  tenantId      String            @map("tenant_id") @db.Uuid
+  seq           BigInt            @default(autoincrement())
+  unitId        String            @map("unit_id") @db.Uuid
+  kind          OrgUnitChangeKind
+  code          String?
+  name          String
+  description   String?
+  typeId        String?           @map("type_id") @db.Uuid
+  parentId      String?           @map("parent_id") @db.Uuid
+  state         OrgUnitStatus
+  effectiveFrom DateTime          @map("effective_from") @db.Date
+  actorId       String?           @map("actor_id") @db.Uuid
+  reason        String?
+  createdAt     DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  @@unique([tenantId, id])
+  @@index([tenantId, unitId, effectiveFrom, seq])
+  @@index([tenantId, effectiveFrom])
+  @@map("org_unit_change")
 }
 
 enum ProfileSource {

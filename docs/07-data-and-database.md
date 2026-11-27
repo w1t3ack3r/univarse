@@ -20,7 +20,7 @@
 | `univarse_readonly` | `SELECT` on a curated set of reporting views. RLS still applies | Reporting, read replica |
 | `univarse_audit_writer` (optional) | `INSERT` only on `audit_event` | Audit writer path |
 
-- Revoke `UPDATE, DELETE` on `audit_event`, `ledger_entry`, `course_result`, `score_sheet_event` and `outbox_event` (except `published_at`) from `univarse_app`. Append-only is **enforced by grants**, not by convention. [Spec 0041](specs/0041-institution-profiles.md) Q4 adds `institution_profile` (the institution's snapshot of its assigned profile): the app inserts and reads it, and only the purge (the migrator) deletes it.
+- Revoke `UPDATE, DELETE` on `audit_event`, `ledger_entry`, `course_result`, `score_sheet_event` and `outbox_event` (except `published_at`) from `univarse_app`. Append-only is **enforced by grants**, not by convention. [Spec 0041](specs/0041-institution-profiles.md) Q4 adds `institution_profile` (the institution's snapshot of its assigned profile): the app inserts and reads it, and only the purge (the migrator) deletes it. [Spec 0042](specs/0042-org-tree.md) adds the org tree's: `org_unit_change` (the structure's effective-dated history) is append-only; the app can't delete an `org_unit` (Q5: archived, never deleted) or an `org_unit_type` (archived); it adds and removes `org_unit_type_rule` rows and adds and releases `org_unit_code` reservations, never changing either.
 - **Spec 0041 Q6, the platform's `tenant_profile_assignment`:** `univarse_app_platform` (the worker, and the seed) may `SELECT`, `INSERT` and `UPDATE` only `status`, `error_code`, `assigned_at` and `updated_at`, never `DELETE`; `univarse_console` may `SELECT`. A trigger keeps what was assigned (the institution, template, version and hash) unchanged for every login, and an `ASSIGNED` row unchanged entirely. Its foreign key to `tenant` cascades, as a configuration child's; the purge deletes it explicitly.
 - `PUBLIC` has no privileges. `REVOKE ALL ON SCHEMA public FROM PUBLIC`.
 - The superuser/admin credential is stored in the secret manager, used only for break-glass, and audited.
@@ -154,7 +154,14 @@ The integration suite creates two tenants with identical data shapes and asserts
 
 - `CHECK` constraints: scores `BETWEEN 0 AND 100`, `amount_kobo > 0` on payments, `valid_to > valid_from`, `level IN (100..700)`.
 - FKs with `ON DELETE RESTRICT` by default. `CASCADE` only for true composition (score entries of a draft sheet).
-- Triggers only for: `updated_at`, the audit hash chain, preventing updates to immutable rows (belt-and-braces on top of grants), and **change capture for cache invalidation** on the cached platform tables ([ADR-031](19-decision-log.md), §6.1). **No business logic in triggers.**
+- Triggers only for: `updated_at`, the audit hash chain, preventing updates to immutable rows (belt-and-braces on top of grants), **change capture for cache invalidation** on the cached platform tables ([ADR-031](19-decision-log.md), §6.1), and **the org tree's structure** (below). **No business logic in triggers.**
+- **The org tree ([spec 0042](specs/0042-org-tree.md)):** the rules live in `packages/domain`; the database holds the structural ones again, so a bug can't store a broken tree:
+  - a **deferred constraint trigger** checks at commit that a unit's `path` is its parent's plus its own id (so no cycle can be stored), and that a unit placed, moved or made active again sits under an active parent whose type may contain its own. Deferred, because a move rewrites a whole subtree's paths in one statement;
+  - one root per institution (a partial unique index), and only the root has no type (a `CHECK`);
+  - a unit's current code is one of its `org_unit_code` reservations (a deferred foreign key), and a code is unique among every code the institution has used;
+  - **the code lock:** `code_locked_at` is never cleared, and a locked unit's reservations are never released (triggers), so a code on an issued identifier never comes to mean another unit.
+
+  The code's two checks were added `NOT VALID` (expand only: they bind every row written since, and old test leftovers in a development database stay untouched); the contract release validates them, with the old `kind`, `type` and `status` columns' drop.
 
 ### 6.1 Platform invalidation capture ([spec 0016](specs/0016-platform-invalidation-outbox.md), ADR-031)
 

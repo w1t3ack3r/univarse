@@ -22,6 +22,7 @@ import { createPlatformApp } from '../platform/platform-app.js';
 import { CONSOLE_DB } from '../platform/platform-config.js';
 import { platformTestConfig } from '../testing/platform-env.js';
 import { dropDedicatedShard, localServer, readyDedicatedShard, type DedicatedShard } from '../testing/dedicated-shard.js';
+import { testTree } from '../testing/org-units.js';
 import { pruneTestTenants } from '../testing/tenant-cleanup.js';
 import { begin, check, facts, finish, keysDone, migratorShards, objects, platformRows, PURGE_TABLE_ORDER, PURGED_PLATFORM_TABLES, PurgeRefused, rows, type Storage } from './purge.js';
 
@@ -109,9 +110,10 @@ async function institution(status: 'ARCHIVED' | 'ACTIVE' = 'ARCHIVED', slug = `$
   await migrator.tenantBranding.create({ data: { tenantId: t.id, primaryColor: '#123456' } });
   await provisionTenantKey(migrator, keyProviderFrom(loadConfig({ ...process.env, NODE_ENV: 'test' })), t.id);
   const db = forTenant(place.client, t.id);
-  const root = await db.orgUnit.create({ data: { tenantId: t.id, code: 'ROOT', name: 'Root', kind: 'ACADEMIC', type: 'INSTITUTION', path: '/' }, select: { id: true } });
-  const fac = await db.orgUnit.create({ data: { tenantId: t.id, code: 'FAC', name: 'Faculty', kind: 'ACADEMIC', type: 'FACULTY', parentId: root.id, path: `/${root.id}/` }, select: { id: true } });
-  await db.orgUnit.create({ data: { tenantId: t.id, code: 'DEP', name: 'Department', kind: 'ACADEMIC', type: 'DEPARTMENT', parentId: fac.id, path: `/${root.id}/${fac.id}/` } });
+  await testTree(place.client, t.id, [
+    { ref: 'FAC', type: 'faculty', name: 'Faculty', code: 'FAC' },
+    { ref: 'DEP', type: 'department', name: 'Department', code: 'DEP', parent: 'FAC' },
+  ], 'Root');
   const role = await db.role.create({ data: { tenantId: t.id, key: 'STUDENT', name: 'Student', isSystem: true, permissions: [] }, select: { id: true } });
   for (let i = 0; i < 3; i++) {
     const u = await db.userAccount.create({ data: { tenantId: t.id, username: `PG-${randomBytes(3).toString('hex').toUpperCase()}`, displayName: 'Purged Person', status: 'ACTIVE' }, select: { id: true } });

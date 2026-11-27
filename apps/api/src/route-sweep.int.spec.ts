@@ -56,7 +56,7 @@ let shardId = '';
 // ---------------------------------------------------------------------------------------------------
 // HTTP against the sweep app (real guards, filters, CSRF hook, rate limiting by client IP)
 // ---------------------------------------------------------------------------------------------------
-type Method = 'GET' | 'POST' | 'PUT' | 'DELETE';
+type Method = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
 interface Req {
   method: Method;
   host: string;
@@ -261,6 +261,32 @@ async function exporterSession(): Promise<string> {
   return exporterA.session;
 }
 let scanner: FileScanWorker;
+
+// Spec 0042: the org routes' own Registrar (their step-ups don't spend the shared one's), and two faculties of A's for
+// the sweep's own units, archived at the end so A's tree shows none of them. B's seeded school is the B marker.
+let orgA: Person;
+let orgSteppedAt = 0;
+const org = { parentA: '', parentB: '', department: '', unitB: '', sci: '' };
+async function orgSession(): Promise<string> {
+  if (Date.now() - orgSteppedAt > 3 * 60_000) {
+    await stepUp(orgA);
+    orgSteppedAt = Date.now();
+  }
+  return orgA.session;
+}
+async function orgUnit(opts: { parent?: string; type?: string; name?: string; code?: string } = {}): Promise<string> {
+  const res = await send({
+    method: 'POST',
+    host: A,
+    url: '/api/v1/org/units',
+    cookie: await orgSession(),
+    body: { parentId: opts.parent ?? org.parentA, typeId: opts.type ?? org.department, name: opts.name ?? `Sweep ${run} ${randomBytes(3).toString('hex')}`, ...(opts.code ? { code: opts.code } : {}) },
+    headers: { 'idempotency-key': randomUUID() },
+  });
+  expectStatus(res, 201);
+  return String(json(res).id);
+}
+const orgCode = () => `SW${randomBytes(4).toString('hex').toUpperCase()}`;
 
 /** Upload through the real flow (slot → presigned POST → complete) and scan it; returns the id. */
 async function uploadFile(p: Person, name: string, opts: { complete?: boolean; scan?: boolean } = {}): Promise<string> {
@@ -1044,6 +1070,194 @@ const DECLS: Record<RouteKey, Decl> = {
     },
   },
 
+  // Spec 0042: the org tree. Scoped routes; each write on a unit of the sweep's own, made fresh for every call.
+  'GET /api/v1/org/units': {
+    auth: 'session',
+    classes: ['collection'],
+    strictQuery: true,
+    skeleton: (cookie) => ({ method: 'GET', host: A, url: '/api/v1/org/units', ...(cookie ? { cookie } : {}) }),
+    prepare: () => ({
+      req: { method: 'GET', host: A, url: '/api/v1/org/units', cookie: regA.session },
+      verify: (r) => {
+        expectStatus(r, 200);
+        const ids = (json(r).data as { id: string }[]).map((u) => u.id);
+        expect(ids).toContain(org.sci);
+        expect(ids).not.toContain(org.unitB);
+      },
+    }),
+  },
+  'GET /api/v1/org/units/:id': {
+    auth: 'session',
+    classes: [],
+    skeleton: (cookie) => ({ method: 'GET', host: A, url: `/api/v1/org/units/${org.sci}`, ...(cookie ? { cookie } : {}) }),
+    prepare: () => ({
+      req: { method: 'GET', host: A, url: `/api/v1/org/units/${org.sci}`, cookie: regA.session },
+      verify: (r) => {
+        expectStatus(r, 200);
+        expect(json(r)).toMatchObject({ id: org.sci, code: 'SCI' });
+      },
+    }),
+  },
+  'GET /api/v1/org/units/:id/history': {
+    auth: 'session',
+    classes: [],
+    skeleton: (cookie) => ({ method: 'GET', host: A, url: `/api/v1/org/units/${org.sci}/history`, ...(cookie ? { cookie } : {}) }),
+    prepare: () => ({
+      req: { method: 'GET', host: A, url: `/api/v1/org/units/${org.sci}/history`, cookie: regA.session },
+      verify: (r) => {
+        expectStatus(r, 200);
+        expect((json(r).data as { kind: string }[]).at(-1)?.kind).toBe('CREATED');
+      },
+    }),
+  },
+  'POST /api/v1/org/units': {
+    auth: 'session',
+    classes: ['self'],
+    strictBody: true,
+    skeleton: (cookie) => ({ method: 'POST', host: A, url: '/api/v1/org/units', ...(cookie ? { cookie } : {}), body: { parentId: org.parentA, typeId: org.department, name: 'Skeleton' }, headers: { 'idempotency-key': randomUUID() } }),
+    prepare: async () => {
+      const name = `Sweep ${run} ${randomBytes(3).toString('hex')}`;
+      return {
+        req: { method: 'POST', host: A, url: '/api/v1/org/units', cookie: await orgSession(), body: { parentId: org.parentA, typeId: org.department, name }, headers: { 'idempotency-key': randomUUID() } },
+        verify: async (r) => {
+          expectStatus(r, 201);
+          expect(json(r)).toMatchObject({ name, parentId: org.parentA, state: 'ACTIVE' });
+          expect(await db('A').orgUnitChange.count({ where: { unitId: String(json(r).id), kind: 'CREATED' } })).toBe(1);
+        },
+      };
+    },
+  },
+  'PATCH /api/v1/org/units/:id': {
+    auth: 'session',
+    classes: [],
+    strictBody: true,
+    skeleton: (cookie) => ({ method: 'PATCH', host: A, url: `/api/v1/org/units/${org.parentA}`, ...(cookie ? { cookie } : {}), body: { name: 'Skeleton' }, headers: { 'if-match': '"v0"' } }),
+    prepare: async () => {
+      const id = await orgUnit();
+      return {
+        req: { method: 'PATCH', host: A, url: `/api/v1/org/units/${id}`, cookie: await orgSession(), body: { name: `Renamed ${run}` }, headers: { 'if-match': '"v0"' } },
+        verify: (r) => {
+          expectStatus(r, 200);
+          expect(json(r)).toMatchObject({ id, name: `Renamed ${run}`, version: 1 });
+        },
+      };
+    },
+  },
+  'POST /api/v1/org/units/:id/move': {
+    auth: 'session',
+    classes: [],
+    strictBody: true,
+    skeleton: (cookie) => ({ method: 'POST', host: A, url: `/api/v1/org/units/${org.parentA}/move`, ...(cookie ? { cookie } : {}), body: { parentId: org.parentB, reason: 'Skeleton' }, headers: { 'if-match': '"v0"' } }),
+    prepare: async () => {
+      const id = await orgUnit();
+      return {
+        req: { method: 'POST', host: A, url: `/api/v1/org/units/${id}/move`, cookie: await orgSession(), body: { parentId: org.parentB, reason: 'Route sweep' }, headers: { 'if-match': '"v0"' } },
+        verify: (r) => {
+          expectStatus(r, 200);
+          expect(json(r)).toMatchObject({ id, parentId: org.parentB, version: 1 });
+        },
+      };
+    },
+  },
+  'POST /api/v1/org/units/:id/deactivate': {
+    auth: 'session',
+    classes: [],
+    strictBody: true,
+    skeleton: (cookie) => ({ method: 'POST', host: A, url: `/api/v1/org/units/${org.parentA}/deactivate`, ...(cookie ? { cookie } : {}), body: {}, headers: { 'if-match': '"v0"' } }),
+    prepare: async () => {
+      const id = await orgUnit();
+      return {
+        req: { method: 'POST', host: A, url: `/api/v1/org/units/${id}/deactivate`, cookie: await orgSession(), body: {}, headers: { 'if-match': '"v0"' } },
+        verify: (r) => {
+          expectStatus(r, 200);
+          expect(json(r)).toMatchObject({ id, state: 'INACTIVE' });
+        },
+      };
+    },
+  },
+  'POST /api/v1/org/units/:id/archive': {
+    auth: 'session',
+    classes: [],
+    strictBody: true,
+    skeleton: (cookie) => ({ method: 'POST', host: A, url: `/api/v1/org/units/${org.parentA}/archive`, ...(cookie ? { cookie } : {}), body: { reason: 'Skeleton' }, headers: { 'if-match': '"v0"' } }),
+    prepare: async () => {
+      const id = await orgUnit();
+      return {
+        req: { method: 'POST', host: A, url: `/api/v1/org/units/${id}/archive`, cookie: await orgSession(), body: { reason: 'Route sweep' }, headers: { 'if-match': '"v0"' } },
+        verify: (r) => {
+          expectStatus(r, 200);
+          expect(json(r)).toMatchObject({ id, state: 'ARCHIVED' });
+        },
+      };
+    },
+  },
+  'POST /api/v1/org/units/:id/reactivate': {
+    auth: 'session',
+    classes: [],
+    strictBody: true,
+    skeleton: (cookie) => ({ method: 'POST', host: A, url: `/api/v1/org/units/${org.parentA}/reactivate`, ...(cookie ? { cookie } : {}), body: {}, headers: { 'if-match': '"v0"' } }),
+    prepare: async () => {
+      const id = await orgUnit();
+      const cookie = await orgSession();
+      expectStatus(await send({ method: 'POST', host: A, url: `/api/v1/org/units/${id}/deactivate`, cookie, body: {}, headers: { 'if-match': '"v0"' } }), 200);
+      return {
+        req: { method: 'POST', host: A, url: `/api/v1/org/units/${id}/reactivate`, cookie, body: {}, headers: { 'if-match': '"v1"' } },
+        verify: (r) => {
+          expectStatus(r, 200);
+          expect(json(r)).toMatchObject({ id, state: 'ACTIVE', version: 2 });
+        },
+      };
+    },
+  },
+  'POST /api/v1/org/units/:id/code': {
+    auth: 'session',
+    classes: [],
+    strictBody: true,
+    skeleton: (cookie) => ({ method: 'POST', host: A, url: `/api/v1/org/units/${org.parentA}/code`, ...(cookie ? { cookie } : {}), body: { code: 'SKEL', reason: 'Skeleton' }, headers: { 'if-match': '"v0"' } }),
+    prepare: async () => {
+      const id = await orgUnit({ code: orgCode() });
+      // Locked as an issued identifier will lock it (Phase 3).
+      await forTenant(tenantMigrator, tenant.A).orgUnit.update({ where: { id }, data: { codeLockedAt: new Date() } });
+      const code = orgCode();
+      return {
+        req: { method: 'POST', host: A, url: `/api/v1/org/units/${id}/code`, cookie: await orgSession(), body: { code, reason: 'Route sweep' }, headers: { 'if-match': '"v0"' } },
+        verify: (r) => {
+          expectStatus(r, 200);
+          expect(json(r)).toMatchObject({ id, code, codeLocked: true });
+        },
+      };
+    },
+  },
+  'GET /api/v1/org/unit-types': {
+    auth: 'session',
+    classes: ['collection'],
+    skeleton: (cookie) => ({ method: 'GET', host: A, url: '/api/v1/org/unit-types', ...(cookie ? { cookie } : {}) }),
+    prepare: () => ({
+      req: { method: 'GET', host: A, url: '/api/v1/org/unit-types', cookie: regA.session },
+      verify: (r) => {
+        expectStatus(r, 200);
+        expect((json(r).data as { key: string }[]).map((t) => t.key)).toContain('faculty');
+      },
+    }),
+  },
+  'PUT /api/v1/org/unit-types/:key': {
+    auth: 'session',
+    classes: ['keyed'],
+    strictBody: true,
+    skeleton: (cookie) => ({ method: 'PUT', host: A, url: '/api/v1/org/unit-types/sweep_skeleton', ...(cookie ? { cookie } : {}), body: { name: 'Skeleton', kind: 'ACADEMIC', status: 'ARCHIVED', mayContain: [] }, headers: { 'if-match': '"v0"' } }),
+    prepare: async () => {
+      // A new type of the sweep's own, archived from the start, so A's lists don't offer it.
+      const key = `sweep_${run.toLowerCase()}_${randomBytes(3).toString('hex')}`;
+      return {
+        req: { method: 'PUT', host: A, url: `/api/v1/org/unit-types/${key}`, cookie: await orgSession(), body: { name: `Sweep ${key}`, kind: 'ACADEMIC', status: 'ARCHIVED', mayContain: [] }, headers: { 'if-match': '"v0"' } },
+        verify: (r) => {
+          expectStatus(r, 200);
+          expect(json(r)).toMatchObject({ key, version: 1, status: 'ARCHIVED' });
+        },
+      };
+    },
+  },
+
   // Synthetic negative controls (RS8). Registered only in this test app.
   'GET /api/v1/__test/leaky-user/:id': { auth: 'session', classes: ['resource'], control: true },
   'GET /api/v1/__test/leaky-users': { auth: 'session', classes: ['collection'], control: true },
@@ -1095,6 +1309,15 @@ beforeAll(async () => {
   tenantMigrator = createTenantShardClient(process.env.TENANT_POOL_01_MIGRATOR_URL!);
   exporterA = await mfaPerson('A', 'INSTITUTION_ADMIN');
   exportB = (await readyExport('B')).id;
+  // Spec 0042: the seed's units (A's Faculty of Science, B's school), and two faculties of the sweep's own.
+  org.sci = (await db('A').orgUnit.findFirstOrThrow({ where: { code: 'SCI' }, select: { id: true } })).id;
+  org.unitB = (await db('B').orgUnit.findFirstOrThrow({ where: { code: 'SICT' }, select: { id: true } })).id;
+  org.department = (await db('A').unitType.findFirstOrThrow({ where: { key: 'department' }, select: { id: true } })).id;
+  orgA = await mfaPerson('A', 'REGISTRAR');
+  const faculty = (await db('A').unitType.findFirstOrThrow({ where: { key: 'faculty' }, select: { id: true } })).id;
+  const root = (await db('A').orgUnit.findFirstOrThrow({ where: { parentId: null }, select: { id: true } })).id;
+  org.parentA = await orgUnit({ parent: root, type: faculty, name: `Sweep ${run} faculty A` });
+  org.parentB = await orgUnit({ parent: root, type: faculty, name: `Sweep ${run} faculty B` });
 
   // Keyed markers: A's setting through the API, B's directly (B has no Academics, so no API for it).
   const cookie = await stepUp(regA);
@@ -1115,6 +1338,11 @@ afterAll(async () => {
   await setProduct(tenant.A, 'academics', false);
   await setProduct(tenant.B, 'admissions', false);
   await db('B').setting.deleteMany({ where: { key: 'registration.unitLimits' } });
+  // Spec 0042 Q5: units are never deleted; the sweep's are archived (hidden from A's tree), as the migrator.
+  for (const parent of [org.parentA, org.parentB].filter(Boolean)) {
+    await forTenant(tenantMigrator, tenant.A).$executeRaw`
+      UPDATE org_unit SET state = 'ARCHIVED', status = 'ARCHIVED' WHERE path LIKE '%/' || ${parent} || '/%'`;
+  }
   // Spec 0038: the sweep's exports and their archives.
   const storage = app.get(FileStorage);
   for (const t of ['A', 'B'] as const) {
@@ -1201,6 +1429,15 @@ describe('[OA2] the OpenAPI document covers exactly the routes the app serves', 
     'POST /api/v1/users/:id/email': { role: 'INSTITUTION_ADMIN', stepUp: true, body: { email: 'x@sweep.test', oldAddressWrong: false } },
     'POST /api/v1/notices/:id/dismiss': { role: 'STUDENT' },
     'GET /api/v1/exports/:id/content': { role: 'INSTITUTION_ADMIN', stepUp: true },
+    'GET /api/v1/org/units/:id': { role: 'REGISTRAR' },
+    'GET /api/v1/org/units/:id/history': { role: 'REGISTRAR' },
+    'PATCH /api/v1/org/units/:id': { role: 'REGISTRAR', body: { name: 'x' }, headers: { 'if-match': '"v0"' } },
+    'POST /api/v1/org/units/:id/move': { role: 'REGISTRAR', stepUp: true, body: { parentId: randomUUID(), reason: 'x' }, headers: { 'if-match': '"v0"' } },
+    'POST /api/v1/org/units/:id/deactivate': { role: 'REGISTRAR', body: {}, headers: { 'if-match': '"v0"' } },
+    'POST /api/v1/org/units/:id/archive': { role: 'REGISTRAR', stepUp: true, body: { reason: 'x' }, headers: { 'if-match': '"v0"' } },
+    'POST /api/v1/org/units/:id/reactivate': { role: 'REGISTRAR', body: {}, headers: { 'if-match': '"v0"' } },
+    'POST /api/v1/org/units/:id/code': { role: 'REGISTRAR', stepUp: true, body: { code: 'NEWCODE', reason: 'x' }, headers: { 'if-match': '"v0"' } },
+    'PUT /api/v1/org/unit-types/:key': { role: 'REGISTRAR', stepUp: true, body: { name: 'x', kind: 'ACADEMIC', status: 'ARCHIVED', mayContain: [] }, headers: { 'if-match': '"v0"' } },
   };
   const withParams = [...docOps].filter(([, op]) => (op.parameters ?? []).some((x) => x.in === 'path')).map(([k]) => k);
 
@@ -1411,6 +1648,36 @@ describe('[RS6][RS8] resources by id, and the negative controls', () => {
     expect(await db('B').auditEvent.count({ where: { entityType: 'data_export', entityId: exportB } })).toBe(0);
     expect(await db('A').auditEvent.count({ where: { entityType: 'data_export', entityId: exportB } })).toBe(0);
   });
+
+  it('[RS6] the org routes (spec 0042): B’s unit answers exactly like a nonexistent id, and nothing of B’s changes', async () => {
+    const cookie = await orgSession();
+    const before = JSON.stringify(await db('B').orgUnit.findUniqueOrThrow({ where: { id: org.unitB } }));
+    const probes: [Method, string, unknown?][] = [
+      ['GET', ''],
+      ['GET', '/history'],
+      ['PATCH', '', { name: 'Taken' }],
+      ['POST', '/move', { parentId: org.parentB, reason: 'x' }],
+      ['POST', '/deactivate', {}],
+      ['POST', '/archive', { reason: 'x' }],
+      ['POST', '/reactivate', {}],
+      ['POST', '/code', { code: 'TAKEN', reason: 'x' }],
+    ];
+    for (const [method, suffix, body] of probes) {
+      const call = (id: string) => send({ method, host: A, url: `/api/v1/org/units/${id}${suffix}`, cookie, ...(body === undefined ? {} : { body }), headers: { 'if-match': '"v0"' } });
+      const missing = await call(randomUUID());
+      const elsewhere = await call(org.unitB);
+      expect([elsewhere.statusCode, json(elsewhere).code], `${method} ${suffix}`).toEqual([missing.statusCode, json(missing).code]);
+      expect(elsewhere.statusCode).toBe(404);
+    }
+    // As a parent: B's unit is no parent of A's, for a new unit or a move.
+    const made = await send({ method: 'POST', host: A, url: '/api/v1/org/units', cookie, body: { parentId: org.unitB, typeId: org.department, name: 'Under B' }, headers: { 'idempotency-key': randomUUID() } });
+    expect([made.statusCode, json(made).code]).toEqual([404, 'org.unit.parent_not_found']);
+    const id = await orgUnit();
+    const moved = await send({ method: 'POST', host: A, url: `/api/v1/org/units/${id}/move`, cookie, body: { parentId: org.unitB, reason: 'x' }, headers: { 'if-match': '"v0"' } });
+    expect([moved.statusCode, json(moved).code]).toEqual([404, 'org.unit.parent_not_found']);
+    expect(JSON.stringify(await db('B').orgUnit.findUniqueOrThrow({ where: { id: org.unitB } }))).toBe(before);
+  });
+
 
   it('[RS6] real resource routes exist now (spec 0010 FU2), reported separately from the controls', () => {
     expect(resourceRoutes.sort()).toEqual(['DELETE /api/v1/files/:id', 'GET /api/v1/files/:id', 'GET /api/v1/files/:id/content', 'POST /api/v1/files/:id/complete']);
