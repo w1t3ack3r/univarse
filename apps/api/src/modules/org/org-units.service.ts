@@ -712,6 +712,9 @@ export class OrgUnitService {
     });
     if (created?.actorId !== actor.userId)
       throw new ProblemError(409, 'org.unit.key_reused', 'Idempotency key reused');
+    // Q13 (the security review of PR A): a replay answers only while the unit is still in the caller's view; one moved
+    // out of their scope since is 404, as any unit outside it.
+    enforceOn(actor, 'org.unit.view', orgUnit(unit));
     return unit;
   }
 

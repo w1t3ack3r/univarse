@@ -1,6 +1,6 @@
 # Spec 0042: Phase 2's P2-S1, the org tree
 
-**Status:** **Approved by the owner on 2026-11-26, all as written** (Q1 to Q16, and the `[VERIFY]` limits until the pilot's real files test them). PR A is being built (its design is below).
+**Status:** **Approved by the owner on 2026-11-26, all as written** (Q1 to Q16, and the `[VERIFY]` limits until the pilot's real files test them). **PR A merged (#206, 2026-11-27); its decisions Q-A1 to Q-A14 approved on 2026-11-27.** PR B (the screens) is built, for review ("PR B: what was built", below).
 **Phase:** 2, slice **P2-S1** of [spec 0040](0040-phase-2-institution-setup.md) ("The org tree").
 **Builds on:**
 
@@ -235,7 +235,7 @@ A unit's names and codes aren't personal data. The history records who made each
 - **The seed** gives `demo-uni` a small tree (a faculty with two departments, the registry) and `test-poly` a school with one department, for development and the E2E.
 - **The export, the purge, the tenant cleanup and the isolation sweep** gain the new tables.
 
-### Decisions made while building, for the owner's approval
+### Decisions made while building (approved by the owner on 2026-11-27)
 
 | # | Decision | Why |
 | --- | --- | --- |
@@ -254,3 +254,32 @@ A unit's names and codes aren't personal data. The history records who made each
 | Q-A13 | **Reactivating declares `org.unit.manage` at the route;** reactivating an archived unit needs `org.unit.restructure`, decided on the loaded unit (as a setting's own manage permission is, spec 0007). | Which one applies depends on the unit's state, which the route can't know. The contract's summary says so. |
 | Q-A14 | **The tests use institutions of their own** (`org-…`, removed at the end), and a helper that writes units as the API does. **The route sweep archives its own units at the end**, as the migrator. | Units are never deleted, so tests on `demo-uni` would pile up in it on every local run. |
 
+
+## PR B: what was built
+
+- **The Structure page** (`apps/web/src/app/(workspace)/workspace/structure/`), in the navigation for anyone holding `org.unit.view`:
+  - the tree drawn as the institution's organisation chart: the institution as a deep-green trunk card, its units as hanging branches, with fold and unfold;
+  - search by name or code (the path to each match stays shown), "Show archived", and "As at" a day (read-only, in the address);
+  - a panel for the chosen unit: where it sits, its type, code and status, its counts and dates, and its history;
+  - the forms, in the panel: add (a unit inside), edit (name, code while unlocked, description, type), move (a findable list of the units it may go under), deactivate, archive (leaf first, refused with the count), reactivate, and a locked unit's new code. Every one has "Takes effect";
+  - drag-and-drop on desktop: a drop opens the move form, prefilled, and nothing moves until it's confirmed (with step-up);
+  - on a phone, the panel takes the chart's place, with "Back to the structure".
+- **The unit types page** (`…/structure/types`): each type's name, kind, units and "may hold"; edited one at a time (name, what it may hold, archived); a new type by name and kind.
+- **Shared:** `SelectField` and `TextAreaField` in `@univarse/ui`; the icons `OrgChart`, `Plus`, `Move`, `Pencil`, `Pause`, `History`, `ChevronRight`.
+- **The replay's scope (the security review of PR A, below its bar):** a create replayed by its own author answers only while the unit is still in their scope; moved out since, it's 404 (`org.int.spec.ts`, mutation-checked).
+- **Tests:** `tree.spec.ts` (the page's reading of the tree), and `e2e/structure.e2e.ts` on desktop and phone (build, edit, move by drag on desktop and by "Move unit" on a phone, step-up, as at a day, search, archive leaf first, show archived, the unit types editor; a lecturer reads and changes nothing; axe at each step).
+- **The design review** (impeccable, code-led): the owner chose the layout from a three-structure roll; a fresh reviewer's first pass asked for seven fixes (the panel under the top bar, a spine joining every row, archived drawn dashed, the toolbar stepping aside on phones, grouped actions, 44px breadcrumb links, icons on status chips), all made in one batch. DESIGN.md records the page.
+
+### Decisions made while building, for the owner's approval
+
+| # | Decision | Why |
+| --- | --- | --- |
+| Q-B1 | **The organisation chart**, chosen by the owner (2026-11-27) from three structures (the chart, columns, a directory list), for the Registrar building the tree on a desktop. | The owner's answer. |
+| Q-B2 | **No dialogs: every change in the panel beside the chart.** The only dialog is step-up's. | A modal is the last resort on a working surface; the chart stays visible while a change is made, so the Registrar sees what they're changing. |
+| Q-B3 | **The institution's own card is a drop target too** (a unit may move to sit directly under the institution). | The root may hold every type (spec 0041). |
+| Q-B4 | **Changing the day or "Show archived" closes the chosen unit.** | The unit may not exist on that day; keeping a stale panel would show today's facts beside the past's chart. |
+| Q-B5 | **On a phone, while a unit is open, the toolbar steps aside** and the panel scrolls itself into view. | Search and "Add a unit" filter and act on a chart that isn't shown there. |
+| Q-B6 | **Branches start open to the units inside each faculty; deeper levels folded,** and choosing a unit opens the path to it. | The first view is the institution's shape, without every section of every department. |
+| Q-B7 | **The lint rule on typed API paths now knows `PATCH`** (it listed GET, POST, PUT and DELETE). | `PATCH /org/units/{id}` is the first PATCH the web app calls. |
+| Q-B8 | **The trunk is deep green,** the rail's colour, not a white card. | "The institution leads" (PRODUCT.md); one card reads as the institution itself. |
+| Q-B9 | **E2E units are archived at the end of each run,** and stay in `demo-uni`'s history. | Units are never deleted (Q5); archived ones are hidden unless asked for. |

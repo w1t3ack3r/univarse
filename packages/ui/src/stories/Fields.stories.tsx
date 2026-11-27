@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { expect, userEvent, within } from 'storybook/test';
-import { PasswordField, TextField } from '../client';
+import { PasswordField, SelectField, TextAreaField, TextField } from '../client';
 import { Phone } from './frames';
 
 const meta = { title: 'Components/Fields', component: TextField, args: { label: 'Email address', name: 'email' } } satisfies Meta<typeof TextField>;
@@ -44,4 +44,25 @@ export const Password: Story = {
 export const PasswordWithErrorOnPhone: Story = {
   render: () => <PasswordField label="New password" name="password" hint="At least 12 characters." error="That password appears in known data breaches. Choose another." />,
   decorators: [(S) => <Phone><S /></Phone>],
+};
+
+/** Spec 0042: a select drawn as the field, with the set's own chevron; its error is linked like a text field's. */
+export const Select: Story = {
+  render: () => (
+    <SelectField label="Type" name="type" defaultValue="department" hint="What a faculty may hold." error="Choose a type of unit.">
+      <option value="department">Department</option>
+      <option value="centre">Centre</option>
+      <option value="institute">Institute</option>
+    </SelectField>
+  ),
+  play: async ({ canvasElement }) => {
+    const select = within(canvasElement).getByLabelText('Type');
+    await expect(select).toHaveAttribute('aria-invalid', 'true');
+    await expect(select).toHaveAccessibleDescription(/What a faculty may hold\..*Choose a type of unit\./);
+  },
+};
+
+/** Spec 0042: a reason or a description, at the field's 16px type size. */
+export const TextArea: Story = {
+  render: () => <TextAreaField label="Why it’s moving" name="reason" rows={3} hint="Kept in its history, for whoever asks later." defaultValue="Computing gets its own faculty from 2026/27." />,
 };

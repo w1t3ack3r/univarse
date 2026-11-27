@@ -180,6 +180,26 @@
     background: var(--uv-deep-soft);
   }
 }
+/* Spec 0042: a select drawn as the field, with the set's own chevron; a text area at the field's type size. */
+.uv-field__input--select {
+  appearance: none;
+  padding-right: 48px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='20' viewBox='0 0 24 24' fill='none' stroke='%23485550' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9.5 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 16px center;
+  cursor: pointer;
+}
+.uv-field__input--area {
+  min-height: 104px;
+  padding: 14px var(--uv-space-4);
+  resize: vertical;
+  line-height: 1.5;
+}
+.uv-field__input:disabled {
+  background-color: var(--uv-offwhite);
+  color: var(--uv-text-muted);
+  cursor: not-allowed;
+}
 .uv-field__error {
   display: flex;
   gap: 6px;

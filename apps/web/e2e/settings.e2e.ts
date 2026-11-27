@@ -56,7 +56,7 @@ test('[ST13] Registrar edits course registration limits; admin sees them read-on
   const admin = await signedIn(browser, 'INSTITUTION_ADMIN', viewport);
   await navTo(admin.page, 'Settings'); // an IT Admin's phone bar has "More" (spec 0038)
   await expect(admin.page.getByText('Course registration settings appear here once Academics is switched on')).toBeVisible();
-  await nav(admin.page).getByRole('link', { name: 'Products' }).click();
+  await navTo(admin.page, 'Products'); // under "More" on a phone since spec 0042 added Structure
   await admin.page.getByRole('button', { name: 'Confirm it’s me' }).click();
   await confirmItsMe(admin.page, admin.u);
   const academics = admin.page.getByRole('switch', { name: 'Academics' });

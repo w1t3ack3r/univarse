@@ -231,3 +231,45 @@ export const Database = (p: IconProps) => (
     <path d="M4.5 12c0 1.52 3.36 2.75 7.5 2.75s7.5-1.23 7.5-2.75" />
   </Icon>
 );
+// Spec 0042 (the Structure page): an organisation chart, and the tree's actions.
+export const OrgChart = (p: IconProps) => (
+  <Icon {...p}>
+    <rect x="9" y="3.5" width="6" height="5" rx="1.5" />
+    <rect x="3.5" y="15.5" width="6" height="5" rx="1.5" />
+    <rect x="14.5" y="15.5" width="6" height="5" rx="1.5" />
+    <path d="M12 8.5v3.5M6.5 15.5V12h11v3.5" />
+  </Icon>
+);
+export const Plus = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M12 5v14M5 12h14" />
+  </Icon>
+);
+export const Move = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M5 9V6.5A1.5 1.5 0 0 1 6.5 5H12M5 9l-2-2M5 9l2-2" />
+    <rect x="10" y="10" width="10" height="9" rx="2" />
+  </Icon>
+);
+export const Pencil = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="m14.5 5.5 4 4L9 19H5v-4l9.5-9.5ZM12.5 7.5l4 4" />
+  </Icon>
+);
+export const Pause = (p: IconProps) => (
+  <Icon {...p}>
+    <circle cx="12" cy="12" r="8.5" />
+    <path d="M10 9v6M14 9v6" />
+  </Icon>
+);
+export const History = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M4.5 12a7.5 7.5 0 1 0 2.2-5.3L4.5 9M4.5 4.5V9H9" />
+    <path d="M12 8v4.5l3 1.8" />
+  </Icon>
+);
+export const ChevronRight = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="m9.5 6 6 6-6 6" />
+  </Icon>
+);

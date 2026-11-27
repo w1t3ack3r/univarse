@@ -2,7 +2,7 @@
 // the permission it needs. Items the user can't use are not rendered. The API stays the enforcement point.
 import type { Permission, ProductKey } from '@univarse/contracts';
 
-export type NavIcon = 'home' | 'users' | 'products' | 'settings' | 'documents' | 'export';
+export type NavIcon = 'home' | 'users' | 'structure' | 'products' | 'settings' | 'documents' | 'export';
 
 export interface NavItem {
   readonly href: string;
@@ -17,6 +17,8 @@ export const NAV: readonly NavItem[] = [
   { href: '/workspace', label: 'Home', icon: 'home', product: 'core' },
   { href: '/workspace/documents', label: 'Documents', icon: 'documents', product: 'core', requires: 'files.file.upload' },
   { href: '/workspace/users', label: 'Users', icon: 'users', product: 'core', requires: 'identity.user.view' },
+  // Spec 0042: the org tree, for everyone who may see it (a scoped grant sees its own part).
+  { href: '/workspace/structure', label: 'Structure', icon: 'structure', product: 'core', requires: 'org.unit.view' },
   { href: '/workspace/products', label: 'Products', icon: 'products', product: 'core', requires: 'settings.product.manage' },
   { href: '/workspace/settings', label: 'Settings', icon: 'settings', product: 'core', requires: 'settings.tenant.view' },
   // Spec 0038 Q7: the institution's full export, for its IT Admins.
