@@ -251,3 +251,13 @@ From [spec 0040](specs/0040-phase-2-institution-setup.md):
 - **Requirements** in a curriculum (SIWES, Teaching Practice, project, practical) are configuration in Phase 2. SIWES is never marked complete because its dates passed; completion needs its evidence and an approved assessment (a later phase).
 - **Regulatory specifics are `[VERIFY]` reference data, never universal rules:** NBTE's curriculum proportions, SIWES durations, CCMAS minimums, HOD rank requirements.
 
+
+## 17. The org tree
+
+From [spec 0042](specs/0042-org-tree.md) (P2-S1), as pure functions in `packages/domain/src/org/` (the database holds the structural ones again):
+
+- **Unit types are the institution's**, projected from its profile and then edited: renamed, extended, archived. A type's key and kind never change. Each says which types it may contain; the root (the institution itself) may contain every type. **A changed rule applies to new placements and moves only**: a unit placed before stays, flagged "doesn't follow the current rules".
+- **The tree:** one parent (except the root); never its own ancestor; an inactive or archived unit takes no new child and nothing moves under it; archiving is leaf first; **no unit is ever deleted**. Limits `[VERIFY]`: 8 levels below the institution, 5,000 units.
+- **Effective dates:** every change takes effect on a calendar day in `Africa/Lagos`, today or earlier, never in the future. A unit's changes stay in date order; a new unit or a move takes effect no earlier than its parent's creation (the institution's root bounds nothing: the institution predates its account). "As at a day" is each unit's last change effective on or before it.
+- **Codes:** 2 to 12 letters and digits, starting with a letter, upper-cased; optional until assigned; unique among every code the institution has ever used. Before an identifier uses it, an edit is a correction and frees the old code. **Once locked** (§11), a code is never corrected: a new one is a dated change with a reason, and the old one stays reserved for ever.
+- **Retyping** keeps the unit's kind (academic, administrative, research) and must fit its parent and its children.

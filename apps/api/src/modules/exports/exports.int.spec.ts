@@ -22,6 +22,7 @@ import { createApp } from '../../bootstrap.js';
 import { loadConfig } from '../../config/config.js';
 import { TenantResolver } from '../../shared/tenancy/tenant-resolver.service.js';
 import { enrolTestTotp, resetReplayGuard, totpCode } from '../../testing/mfa-helpers.js';
+import { testTree } from '../../testing/org-units.js';
 import { pruneTestTenants } from '../../testing/tenant-cleanup.js';
 import { WorkerModule } from '../../worker.module.js';
 import { contactAad } from '../identity/contact.service.js';
@@ -117,8 +118,7 @@ async function institution(): Promise<Inst> {
   await migrator.tenantDomain.create({ data: { tenantId: t.id, hostname: host, kind: 'SUBDOMAIN', verifiedAt: new Date() } });
   await provisionTenantKey(migrator, keyProviderFrom(loadConfig({ ...process.env, NODE_ENV: 'test' })), t.id);
   const db = forTenant(shard, t.id);
-  const root = await db.orgUnit.create({ data: { tenantId: t.id, code: 'ROOT', name: 'Export University', kind: 'ACADEMIC', type: 'INSTITUTION', path: '/' }, select: { id: true } });
-  const dept = await db.orgUnit.create({ data: { tenantId: t.id, code: 'CSC', name: 'Computer Science', kind: 'ACADEMIC', type: 'DEPARTMENT', parentId: root.id, path: `/${root.id}/` }, select: { id: true } });
+  const dept = { id: (await testTree(shard, t.id, [{ ref: 'CSC', type: 'department', name: 'Computer Science', code: 'CSC' }], 'Export University')).CSC ?? '' };
   const role = async (key: string, permissions: string[]) => (await db.role.create({ data: { tenantId: t.id, key, name: key, isSystem: true, permissions }, select: { id: true } })).id;
   const adminRole = await role('INSTITUTION_ADMIN', ['settings.product.manage', 'data.export.request']);
   const studentRole = await role('STUDENT', ['files.file.upload', 'files.file.read']);

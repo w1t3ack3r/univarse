@@ -254,7 +254,9 @@ describe('[OA5][OA6] authentication, step-up, CSRF and path parameters as enforc
     // Explicit: disable, regenerate. Catalog: settings.product.manage is stepUp-flagged, so even the
     // products overview GET needs a fresh step-up (the web app wraps it in withStepUp).
     // Spec 0038: data.export.request is stepUp-flagged, so all three export routes need one (the page confirms it first).
-    expect(ids((o) => o['x-step-up'] === true)).toEqual(['correctContact', 'disableTotp', 'downloadExport', 'listExports', 'productsOverview', 'regenerateRecoveryCodes', 'requestContactChange', 'requestExport', 'setProductEnabled']);
+    // Spec 0042 Q12: org.unit.restructure and org.unit_type.manage are stepUp-flagged (a move, an archive, a locked code's
+    // change, a unit type). Reactivating from archived needs it too, decided on the loaded unit (documented on the route).
+    expect(ids((o) => o['x-step-up'] === true)).toEqual(['archiveOrgUnit', 'changeOrgUnitCode', 'correctContact', 'disableTotp', 'downloadExport', 'listExports', 'moveOrgUnit', 'productsOverview', 'regenerateRecoveryCodes', 'requestContactChange', 'requestExport', 'saveUnitType', 'setProductEnabled']);
   });
 
   it('[OA5] enrolment-only sessions are allowed exactly where @AllowRestricted is (spec 0001 M15′)', () => {

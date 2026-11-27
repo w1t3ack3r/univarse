@@ -39,11 +39,48 @@ export const FIRST_ID = ZERO;
 export const EXPORTED_TABLES: readonly ExportedTable[] = [
   {
     table: 'org_unit',
-    columns: ['id', 'tenant_id', 'code', 'name', 'kind', 'type', 'parent_id', 'path', 'status', 'created_at', 'updated_at', 'version'],
+    // Spec 0042: `kind`, `type` and `status` are the old columns (Q16), exported while they exist.
+    columns: ['id', 'tenant_id', 'code', 'name', 'description', 'kind', 'type', 'type_id', 'parent_id', 'path', 'status', 'state', 'code_locked_at', 'created_at', 'updated_at', 'version'],
+    // The request key a create was retried with (Q-A2): meaningless outside the API.
+    excluded: { creation_key: 'plumbing' },
+    page: (tx, tenantId, afterId, limit) => tx.$queryRaw`
+      SELECT id::text, tenant_id::text, code, name, description, kind::text, type::text, type_id::text, parent_id::text, path, status::text, state::text,
+        code_locked_at, created_at, updated_at, version
+      FROM org_unit WHERE tenant_id = ${tenantId}::uuid AND id > ${afterId}::uuid ORDER BY id LIMIT ${limit}`,
+  },
+  // Spec 0042: the institution's unit types, their rules, every code it has used, and its structure's history.
+  {
+    table: 'org_unit_type',
+    columns: ['id', 'tenant_id', 'key', 'name', 'kind', 'sort_order', 'status', 'created_at', 'updated_at', 'version'],
     excluded: {},
     page: (tx, tenantId, afterId, limit) => tx.$queryRaw`
-      SELECT id::text, tenant_id::text, code, name, kind::text, type::text, parent_id::text, path, status::text, created_at, updated_at, version
-      FROM org_unit WHERE tenant_id = ${tenantId}::uuid AND id > ${afterId}::uuid ORDER BY id LIMIT ${limit}`,
+      SELECT id::text, tenant_id::text, key, name, kind::text, sort_order, status::text, created_at, updated_at, version
+      FROM org_unit_type WHERE tenant_id = ${tenantId}::uuid AND id > ${afterId}::uuid ORDER BY id LIMIT ${limit}`,
+  },
+  {
+    table: 'org_unit_type_rule',
+    columns: ['id', 'tenant_id', 'parent_type_id', 'child_type_id'],
+    excluded: {},
+    page: (tx, tenantId, afterId, limit) => tx.$queryRaw`
+      SELECT id::text, tenant_id::text, parent_type_id::text, child_type_id::text
+      FROM org_unit_type_rule WHERE tenant_id = ${tenantId}::uuid AND id > ${afterId}::uuid ORDER BY id LIMIT ${limit}`,
+  },
+  {
+    table: 'org_unit_code',
+    columns: ['id', 'tenant_id', 'code', 'unit_id', 'created_at'],
+    excluded: {},
+    page: (tx, tenantId, afterId, limit) => tx.$queryRaw`
+      SELECT id::text, tenant_id::text, code, unit_id::text, created_at
+      FROM org_unit_code WHERE tenant_id = ${tenantId}::uuid AND id > ${afterId}::uuid ORDER BY id LIMIT ${limit}`,
+  },
+  {
+    table: 'org_unit_change',
+    columns: ['id', 'tenant_id', 'seq', 'unit_id', 'kind', 'code', 'name', 'description', 'type_id', 'parent_id', 'state', 'effective_from', 'actor_id', 'reason', 'created_at'],
+    excluded: {},
+    page: (tx, tenantId, afterId, limit) => tx.$queryRaw`
+      SELECT id::text, tenant_id::text, seq, unit_id::text, kind::text, code, name, description, type_id::text, parent_id::text, state::text,
+        to_char(effective_from, 'YYYY-MM-DD') AS effective_from, actor_id::text, reason, created_at
+      FROM org_unit_change WHERE tenant_id = ${tenantId}::uuid AND id > ${afterId}::uuid ORDER BY id LIMIT ${limit}`,
   },
   {
     table: 'user_account',

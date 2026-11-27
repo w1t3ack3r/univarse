@@ -7,6 +7,7 @@ import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import pg from 'pg';
 import { createTenantShardClient, forTenant, withTenantTx, type TenantShardClient } from '../src/tenant.js';
+import { ensureRoot } from '../src/tenant-base.js';
 import { loadRootEnv, requireEnv } from '../scripts/env.js';
 
 loadRootEnv();
@@ -38,18 +39,15 @@ beforeAll(async () => {
   const a = forTenant(shard, A);
   const b = forTenant(shard, B);
   userA = (await a.userAccount.create({ data: { tenantId: A, username: 'STAFF/001', displayName: 'Adaeze Okafor' } })).id;
-  unitB = (
-    await b.orgUnit.create({
-      data: { tenantId: B, code: 'SCI', name: 'Faculty of Science', kind: 'ACADEMIC', type: 'FACULTY', path: '/' },
-    })
-  ).id;
+  // Spec 0042: B's root, as every institution has one (its path, its code's reservation and its history).
+  unitB = await withTenantTx(shard, B, (tx) => ensureRoot(tx, B, 'Institution B'));
   await b.userAccount.create({ data: { tenantId: B, username: 'STAFF/001', displayName: 'Bello Musa' } });
 });
 
 afterAll(async () => {
   await forTenant(shard, A).userAccount.deleteMany({});
   await forTenant(shard, B).userAccount.deleteMany({});
-  await forTenant(shard, B).orgUnit.deleteMany({});
+  // Spec 0042 Q5: the app can't delete a unit. B's root stays, as append-only rows do, hidden from every real tenant.
   await raw.end();
   await shard.$disconnect();
 });

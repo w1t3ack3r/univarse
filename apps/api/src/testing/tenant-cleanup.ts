@@ -24,8 +24,11 @@ const TENANT_TABLES = [
   'sequence',
   'user_account',
   'role',
-  'org_unit',
+  'org_unit_change',
 ] as const;
+
+/** Spec 0042: after the units (leaves first; their code reservations go with them), the types they used. */
+const AFTER_UNITS = ['org_unit_type_rule', 'org_unit_type'] as const;
 
 export interface CleanupUrls {
   readonly platformMigratorUrl: string | undefined;
@@ -34,10 +37,10 @@ export interface CleanupUrls {
 
 /**
  * Removes the test institutions whose slug starts with `prefix`. A prefix is required and must look like a test's
- * (`e2e-`, `prov-`, `susp-`, `exp-`, `plc-`, `ded-`, `prof-`): nothing else is ever pruned. Returns how many were removed.
+ * (`e2e-`, `prov-`, `susp-`, `exp-`, `plc-`, `ded-`, `prof-`, `org-`): nothing else is ever pruned. Returns how many were removed.
  */
 export async function pruneTestTenants(urls: CleanupUrls, prefix: string): Promise<number> {
-  if (!/^(e2e|prov|susp|ntc|inc|exp|prg|plc|ded|prof)-[a-z0-9-]*$/.test(prefix)) throw new Error(`refusing to prune tenants by the prefix "${prefix}"`);
+  if (!/^(e2e|prov|susp|ntc|inc|exp|prg|plc|ded|prof|org)-[a-z0-9-]*$/.test(prefix)) throw new Error(`refusing to prune tenants by the prefix "${prefix}"`);
   if (!urls.platformMigratorUrl || !urls.tenantMigratorUrl) return 0;
   const platform = createPlatformClient(urls.platformMigratorUrl);
   const shard = createTenantShardClient(urls.tenantMigratorUrl);
@@ -47,6 +50,14 @@ export async function pruneTestTenants(urls: CleanupUrls, prefix: string): Promi
     for (const t of tenants) {
       await withTenantTx(shard, t.id, async (tx) => {
         for (const table of TENANT_TABLES) await tx.$executeRawUnsafe(`DELETE FROM ${table} WHERE tenant_id = $1::uuid`, t.id);
+        // A unit's parent can't go before its children (RESTRICT): leaves first, until none is left.
+        for (;;) {
+          const n = await tx.$executeRaw`
+            DELETE FROM org_unit o WHERE o.tenant_id = ${t.id}::uuid
+              AND NOT EXISTS (SELECT 1 FROM org_unit c WHERE c.tenant_id = o.tenant_id AND c.parent_id = o.id)`;
+          if (n === 0) break;
+        }
+        for (const table of AFTER_UNITS) await tx.$executeRawUnsafe(`DELETE FROM ${table} WHERE tenant_id = $1::uuid`, t.id);
       });
     }
     const ids = tenants.map((t) => t.id);

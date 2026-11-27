@@ -75,7 +75,10 @@ Shared vocabulary for code, UI and docs. **Use these exact terms in code identif
 | **Platform staff** | UniVarse employees (Super Admin, Support, Finance). Never share identity with tenant users |
 | **Workspace** | The permission-driven staff UI at `/staff` |
 | **Scope** | The org boundary a role applies to: institution, faculty, department, programme, course offering, hostel |
-| **Unit type** | An institution's configured kind of organisational unit (faculty, school, college, institute, centre, department, directorate, division, unit, section), with its own name | `OrgUnitType` (configurable) |
+| **Unit type** | An institution's configured kind of organisational unit (faculty, school, college, institute, centre, department, directorate, division, unit, section), with its own name and the types it may contain | `UnitType` (`org_unit_type`), its rules `UnitTypeRule` |
+| **Effective date** | The calendar day a change to the structure takes effect: today or earlier, never later ([spec 0042](specs/0042-org-tree.md) Q7) | `OrgUnitChange.effectiveFrom` |
+| **As at** | The org tree as it was on a given day, read from its history | `GET /org/units?asAt=` |
+| **Code lock** | Once a unit's code is on an issued identifier (a matric number), it is never corrected: a change is dated and the old code stays reserved for ever | `OrgUnit.codeLockedAt`, `OrgUnitCode` |
 | **Institution-type profile** | The data a university, polytechnic or college of education starts with: unit types, level labels, qualification families, staff catalogues, governance bodies, approval defaults. Copied at provisioning; the institution owns its copy (ADR-039) | `InstitutionProfile` |
 | **Office / appointment** | A position of authority (HOD, Dean, Director, coordinator) / a person holding it for a period. An appointment grants the office's role, scoped to its unit or programme, for its dates | `Office`, `Appointment` |
 | **Category / cadre / rank** | Separate staff attributes: academic or non-academic / a career stream (lecturer, technologist, accountant) / a step in it (Senior Lecturer, Chief Lecturer, Professor). A rank is not an office | `staffCategory`, `staffCadre`, `staffRank` |

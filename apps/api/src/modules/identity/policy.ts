@@ -6,12 +6,17 @@ import type { Permission } from '@univarse/contracts';
 import { hasFreshStepUp, isPrivileged, requiresStepUp, type Actor, type Grant } from './actor.js';
 
 /**
- * What a permission is checked against. One variant today; each resource scope (ORG_UNIT, PROGRAMME, COHORT,
- * COURSE_OFFERING, HOSTEL) adds its own, with its containment check, alongside its first consuming module (ADR-028).
- * Until then a check against such a scope doesn't type-check (D2).
+ * What a permission is checked against. Each resource scope adds its variant, with its containment check, alongside
+ * its first consuming module (ADR-028): `ORG_UNIT` with the org tree (spec 0042 Q13), built from the LOADED unit.
+ * PROGRAMME, COHORT, COURSE_OFFERING and HOSTEL don't type-check until theirs (D2).
  */
-export type ResourceContext = { readonly scope: 'INSTITUTION' };
+export type ResourceContext =
+  | { readonly scope: 'INSTITUTION' }
+  | { readonly scope: 'ORG_UNIT'; readonly unitId: string; readonly path: string };
 export const INSTITUTION: ResourceContext = Object.freeze({ scope: 'INSTITUTION' });
+
+/** Spec 0042 Q13: the context of a unit, from the row the use case loaded (never from request input). */
+export const orgUnit = (unit: { readonly id: string; readonly path: string }): ResourceContext => Object.freeze({ scope: 'ORG_UNIT', unitId: unit.id, path: unit.path });
 
 export type Refusal = 'forbidden' | 'mfa_required' | 'step_up_required';
 export type Decision =
@@ -27,8 +32,37 @@ export type PolicyActor = Pick<Actor, 'grants' | 'mfaAt' | 'stepUpAt'>;
 const coversInstitution = (g: Grant): boolean =>
   g.scopeType === 'INSTITUTION' && g.scopeId === null;
 
-/** Whether a grant covers the context. One context today (D2); each resource scope adds its branch here. */
-const covers = (g: Grant, _resource: ResourceContext): boolean => coversInstitution(g);
+/**
+ * Spec 0042 Q13: a grant scoped to a unit covers that unit and every unit under it, read from the loaded unit's
+ * path (which holds every ancestor's id). A grant scoped to a unit that isn't on the path covers nothing.
+ */
+const coversUnit = (g: Grant, path: string): boolean =>
+  g.scopeType === 'ORG_UNIT' && typeof g.scopeId === 'string' && g.scopeId.length > 0 && path.includes(`/${g.scopeId}/`);
+
+/** Whether a grant covers the context: an institution grant covers everything; each resource scope adds its branch. */
+const covers = (g: Grant, resource: ResourceContext): boolean =>
+  coversInstitution(g) || (resource.scope === 'ORG_UNIT' && coversUnit(g, resource.path));
+
+/** Grants the policy understands at some scope (a malformed or unknown one counts for nothing, D4). */
+const knownScope = (g: Grant): boolean => coversInstitution(g) || (g.scopeType === 'ORG_UNIT' && typeof g.scopeId === 'string' && g.scopeId.length > 0);
+
+/**
+ * Spec 0042: whether the permission is held at any scope the policy knows. A scoped route's first gate: an actor
+ * with no such grant anywhere is refused (403) before anything is loaded; each unit is then decided on its own.
+ */
+export function holdsSomewhere(actor: PolicyActor, permission: Permission): boolean {
+  return actor.grants.some((g) => g.permission === permission && knownScope(g));
+}
+
+/**
+ * Spec 0042 Q13, for a list: the unit ids the actor's grants of `permission` are scoped to, or `'all'` when one
+ * covers the institution. A unit is in scope when its path holds one of them.
+ */
+export function scopeRoots(actor: PolicyActor, permission: Permission): 'all' | readonly string[] {
+  const held = actor.grants.filter((g) => g.permission === permission);
+  if (held.some(coversInstitution)) return 'all';
+  return [...new Set(held.filter(knownScope).map((g) => g.scopeId as string))];
+}
 
 const ALLOW: Decision = Object.freeze({ allowed: true });
 const refuse = (reason: Refusal): Decision => ({ allowed: false, reason });

@@ -8,6 +8,7 @@ import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { loadRootEnv, requireEnv } from '../scripts/env.js';
 import { createTenantShardClient, withTenantTx, type TenantShardClient, type TenantTx } from '../src/tenant.js';
+import { ensureRoot } from '../src/tenant-base.js';
 
 loadRootEnv();
 const url = requireEnv('TENANT_POOL_01_DATABASE_URL');
@@ -35,7 +36,11 @@ const soon = () => new Date(Date.now() + 3_600_000);
  */
 async function buildFixtures(tx: TenantTx, tenantId: string): Promise<Record<string, string>> {
   const tag = randomBytes(4).toString('hex');
-  const unit = await tx.orgUnit.create({ data: { tenantId, code: `SWEEP-${tag}`, name: 'Sweep Faculty', kind: 'ACADEMIC', type: 'FACULTY', path: '/' } });
+  // Spec 0042: a root (its path, its code's reservation, its CREATED change), a type with a rule, as the API writes them.
+  const rootId = await ensureRoot(tx, tenantId, 'Sweep Institution');
+  const unitType = await tx.unitType.create({ data: { tenantId, key: `sweep_${tag}`, name: `Sweep ${tag}`, kind: 'ACADEMIC', sortOrder: 0 } });
+  const rule = await tx.unitTypeRule.create({ data: { tenantId, parentTypeId: unitType.id, childTypeId: unitType.id } });
+  const unit = { id: rootId };
   const user = await tx.userAccount.create({ data: { tenantId, username: `SWEEP/${tag}`, displayName: 'Sweep User' } });
   const role = await tx.role.create({ data: { tenantId, key: `SWEEP_${tag}`, name: 'Sweep Role' } });
   const userId = user.id;
@@ -63,6 +68,10 @@ async function buildFixtures(tx: TenantTx, tenantId: string): Promise<Record<str
     // Spec 0038: a failed export (no passphrase to seal, so no fake ciphertext for a key sweep to trip on).
     data_export: (await tx.dataExport.create({ data: { tenantId, requestedBy: userId, state: 'FAILED', failedAt: new Date() } })).id,
     // Spec 0041 Q4: an assigned profile's snapshot (append-only: it stays, hidden by RLS, as the audit rows do).
+    org_unit_type: unitType.id,
+    org_unit_type_rule: rule.id,
+    org_unit_code: (await tx.orgUnitCode.findFirstOrThrow({ where: { unitId: rootId }, select: { id: true } })).id,
+    org_unit_change: (await tx.orgUnitChange.findFirstOrThrow({ where: { unitId: rootId }, select: { id: true } })).id,
     institution_profile: (
       await tx.institutionProfile.create({ data: { tenantId, template: 'polytechnic', templateVersion: 1, contentHash: '0'.repeat(64), profile: { sweep: tag }, source: 'BACKFILL' } })
     ).id,

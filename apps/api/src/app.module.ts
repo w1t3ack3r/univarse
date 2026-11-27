@@ -40,6 +40,9 @@ import {
   type SettingsRegistry,
 } from './modules/settings/settings.service.js';
 import { TenantProfileController } from './modules/tenant-profile/tenant-profile.controller.js';
+import { OrgController } from './modules/org/org.controller.js';
+import { OrgUnitService } from './modules/org/org-units.service.js';
+import { UnitTypeService } from './modules/org/unit-types.service.js';
 import { NoticesController } from './modules/notices/notices.controller.js';
 import { NoticeBoard } from './modules/notices/notice-board.service.js';
 import { IncidentBoard } from './modules/notices/incident-board.service.js';
@@ -68,6 +71,7 @@ export const API_CONTROLLERS = [
   SettingsController,
   FilesController,
   ExportsController,
+  OrgController,
 ] as const;
 
 export interface AppOverrides {
@@ -136,6 +140,8 @@ export class AppModule {
         FileStorage,
         FilesService,
         ExportsService,
+        OrgUnitService,
+        UnitTypeService,
         overrides.settingsRegistry
           ? { provide: SETTINGS_REGISTRY, useValue: overrides.settingsRegistry }
           : settingsRegistryProvider,

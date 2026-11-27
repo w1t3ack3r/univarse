@@ -19,7 +19,7 @@ export type CookieName = 'session' | 'mfaChallenge';
 export interface ApiOperation {
   readonly operationId: string;
   readonly summary: string;
-  readonly tag: 'auth' | 'mfa' | 'users' | 'products' | 'settings' | 'files' | 'exports' | 'tenant' | 'operations';
+  readonly tag: 'auth' | 'mfa' | 'users' | 'products' | 'settings' | 'files' | 'exports' | 'tenant' | 'operations' | 'org';
   readonly params?: Readonly<Record<string, PathParam>>;
   /** The exact schema the handler passes to `parse` (OA3). */
   readonly body?: z.ZodType;

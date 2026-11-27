@@ -15,7 +15,10 @@ export const PERMISSIONS = {
   'identity.user.contact.manage': { description: 'Correct a user’s email address (spec 0032)', privileged: true, stepUp: true },
   'identity.role.assign': { description: 'Grant or revoke roles', privileged: true, stepUp: true },
   'org.unit.view': { description: 'View the organisation structure' },
-  'org.unit.manage': { description: 'Create and edit org units', privileged: true },
+  'org.unit.manage': { description: 'Create and edit org units, and deactivate or reactivate one', privileged: true },
+  // Spec 0042 Q12: moving, retyping and archiving move authority (T41), so they're split from editing.
+  'org.unit.restructure': { description: 'Move, retype, archive or reactivate an archived org unit, and change a locked code', privileged: true, stepUp: true },
+  'org.unit_type.manage': { description: 'Edit the institution’s unit types and what each may contain', privileged: true, stepUp: true },
   'settings.tenant.view': { description: 'View institution settings and who changed them' },
   'settings.tenant.manage': { description: 'Change institution settings', privileged: true, stepUp: true },
   'settings.registration.manage': {
@@ -74,6 +77,8 @@ export const SYSTEM_ROLE_PERMISSIONS: Readonly<Record<string, readonly Permissio
     'identity.role.assign',
     'org.unit.view',
     'org.unit.manage',
+    'org.unit.restructure',
+    'org.unit_type.manage',
     'settings.tenant.view',
     'settings.tenant.manage',
     'settings.product.manage',
@@ -82,8 +87,20 @@ export const SYSTEM_ROLE_PERMISSIONS: Readonly<Record<string, readonly Permissio
   ],
   // Oversight of registration settings is by view + audit + role assignment, not by holding the manage
   // permission (spec 0007 ST5). The Registrar owns them.
-  REGISTRAR: ['identity.user.view', 'org.unit.view', 'audit.event.view', 'settings.tenant.view', 'settings.registration.manage'],
+  // Spec 0042 Q12: the Registrar manages the structure (the owner's guidance, §1.5).
+  REGISTRAR: [
+    'identity.user.view',
+    'org.unit.view',
+    'org.unit.manage',
+    'org.unit.restructure',
+    'org.unit_type.manage',
+    'audit.event.view',
+    'settings.tenant.view',
+    'settings.registration.manage',
+  ],
   DEAN: ['org.unit.view'],
   HOD: ['org.unit.view'],
   LECTURER: ['org.unit.view'],
+  // Spec 0042 Q12: read-only, with the structure's history.
+  MANAGEMENT_VIEWER: ['org.unit.view'],
 };

@@ -14,11 +14,15 @@ import type { FastifyRequest } from 'fastify';
 import { ProblemError } from '../../shared/errors/problem.js';
 import { NO_TENANT } from '../../shared/tenancy/tenant.guard.js';
 import { hasFreshStepUp, type Actor } from './actor.js';
-import { evaluate, INSTITUTION, type Refusal } from './policy.js';
+import { evaluate, holdsSomewhere, INSTITUTION, type Refusal, type ResourceContext } from './policy.js';
 import { readSessionCookie, SessionService } from './session.service.js';
 
 const ACCESS = 'univarse:access';
-export type Access = { kind: 'public' } | { kind: 'authenticated' } | { kind: 'permission'; permission: Permission };
+export type Access =
+  | { kind: 'public' }
+  | { kind: 'authenticated' }
+  | { kind: 'permission'; permission: Permission }
+  | { kind: 'scoped'; permission: Permission };
 
 /** Anyone on the tenant host (login, activation, public profile). */
 export const Public = () => SetMetadata(ACCESS, { kind: 'public' } satisfies Access);
@@ -34,6 +38,13 @@ export const AllowRestricted = () => SetMetadata(ALLOW_RESTRICTED, true);
 /** Signed-in member holding the permission institution-wide. */
 export const RequirePermission = (permission: Permission) =>
   SetMetadata(ACCESS, { kind: 'permission', permission } satisfies Access);
+
+/**
+ * Spec 0042 Q13: a signed-in member holding the permission at some scope (otherwise 403). The use case then decides
+ * against the loaded resource with `enforceOn` (out of scope is 404), with MFA and step-up as the catalog says.
+ */
+export const RequireScopedPermission = (permission: Permission) =>
+  SetMetadata(ACCESS, { kind: 'scoped', permission } satisfies Access);
 
 /**
  * What AccessGuard will enforce for a handler, read from the same metadata with the same precedence
@@ -94,6 +105,7 @@ export class AccessGuard implements CanActivate {
     }
 
     if (access.kind === 'permission') enforcePermission(actor, access.permission);
+    if (access.kind === 'scoped' && !holdsSomewhere(actor, access.permission)) throw REFUSALS.forbidden();
     // S1: explicit @RequireStepUp() (a permission flagged stepUp is enforced above).
     if (explicitStepUp) enforceStepUp(actor);
     return true;
@@ -115,6 +127,17 @@ export const REFUSALS: Record<Refusal, () => ProblemError> = {
 export function enforcePermission(actor: Actor, permission: Permission): void {
   const decision = evaluate(actor, permission, INSTITUTION, new Date());
   if (!decision.allowed) throw REFUSALS[decision.reason]();
+}
+
+/**
+ * Spec 0042 Q13: the permission against a loaded resource. Not held there is 404, as an unknown resource (docs/06:
+ * out of scope never says it exists); held there, MFA and step-up refuse as they do everywhere.
+ */
+export function enforceOn(actor: Actor, permission: Permission, resource: ResourceContext, notFound = 'resource.not_found'): void {
+  const decision = evaluate(actor, permission, resource, new Date());
+  if (decision.allowed) return;
+  if (decision.reason === 'forbidden') throw new ProblemError(404, notFound, 'Not found');
+  throw REFUSALS[decision.reason]();
 }
 
 function enforceStepUp(actor: Actor): void {

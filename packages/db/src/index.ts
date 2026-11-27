@@ -1,7 +1,9 @@
 export { createTenantShardClient, forTenant, TENANT_TX_TIMEOUT_MS, withTenantTx } from './tenant.js';
 export type { TenantShardClient, TenantTx, TenantTxOptions } from './tenant.js';
 export { createPlatformClient } from './platform.js';
-export { seedTenantBase } from './tenant-base.js';
+export { ensureRoot, seedTenantBase } from './tenant-base.js';
+export { calendarDay, lagosDay, projectUnitTypes } from './org-units.js';
+export type { ProjectableUnitType } from './org-units.js';
 export { profileContentHash, ProfileHashMismatch, recordProfileSnapshot } from './tenant-profile.js';
 export type { ProfileSnapshot, ProfileSourceName } from './tenant-profile.js';
 export type { PlatformClient } from './platform.js';

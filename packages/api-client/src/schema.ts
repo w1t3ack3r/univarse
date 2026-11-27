@@ -483,6 +483,178 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/org/unit-types": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The institution’s unit types, with what each may contain */
+        get: operations["listUnitTypes"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/org/unit-types/{key}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Create (If-Match "v0") or edit one unit type */
+        put: operations["saveUnitType"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/org/units": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The tree, whole, as one list (or as it was on a day); only the units in your scope */
+        get: operations["listOrgUnits"];
+        put?: never;
+        /** Add a unit under another (Idempotency-Key required; a replay answers with the same unit) */
+        post: operations["createOrgUnit"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/org/units/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One unit, with its ETag */
+        get: operations["getOrgUnit"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Rename, describe, correct an unlocked code, or retype a unit (If-Match required) */
+        patch: operations["updateOrgUnit"];
+        trace?: never;
+    };
+    "/api/v1/org/units/{id}/archive": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Archive a unit whose units are all archived (If-Match, a reason) */
+        post: operations["archiveOrgUnit"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/org/units/{id}/code": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Give a locked unit a new code; the old one stays reserved (If-Match, a reason) */
+        post: operations["changeOrgUnitCode"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/org/units/{id}/deactivate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Deactivate a unit: it stays in the tree and takes no new unit (If-Match) */
+        post: operations["deactivateOrgUnit"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/org/units/{id}/history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** A unit’s changes, newest first */
+        get: operations["getOrgUnitHistory"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/org/units/{id}/move": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Move a unit, with everything under it, to another parent (If-Match, a reason) */
+        post: operations["moveOrgUnit"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/org/units/{id}/reactivate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Make an inactive or archived unit active again (If-Match) */
+        post: operations["reactivateOrgUnit"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/products": {
         parameters: {
             query?: never;
@@ -2398,7 +2570,7 @@ export interface operations {
                         displayName: string;
                         mfa: boolean;
                         restricted: boolean;
-                        permissions: ("identity.user.view" | "identity.user.manage" | "identity.user.contact.manage" | "identity.role.assign" | "org.unit.view" | "org.unit.manage" | "settings.tenant.view" | "settings.tenant.manage" | "settings.registration.manage" | "settings.product.manage" | "audit.event.view" | "data.export.request" | "files.file.upload" | "files.file.read" | "files.file.delete")[];
+                        permissions: ("identity.user.view" | "identity.user.manage" | "identity.user.contact.manage" | "identity.role.assign" | "org.unit.view" | "org.unit.manage" | "org.unit.restructure" | "org.unit_type.manage" | "settings.tenant.view" | "settings.tenant.manage" | "settings.registration.manage" | "settings.product.manage" | "audit.event.view" | "data.export.request" | "files.file.upload" | "files.file.read" | "files.file.delete")[];
                     };
                 };
             };
@@ -5342,6 +5514,2460 @@ export interface operations {
                         status?: 423;
                         /** @enum {unknown} */
                         code?: "tenant.suspended";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description server.internal */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 500;
+                        /** @enum {unknown} */
+                        code?: "server.internal";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description server.busy, tenant.maintenance */
+            503: {
+                headers: {
+                    /** @description Seconds to wait before retrying. */
+                    "Retry-After": string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 503;
+                        /** @enum {unknown} */
+                        code?: "server.busy" | "tenant.maintenance";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    listUnitTypes: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: {
+                            /** Format: uuid */
+                            id: string;
+                            key: string;
+                            name: string;
+                            /** @enum {string} */
+                            kind: "ACADEMIC" | "ADMINISTRATIVE" | "RESEARCH";
+                            /** @enum {string} */
+                            status: "ACTIVE" | "ARCHIVED";
+                            sortOrder: number;
+                            mayContain: string[];
+                            units: number;
+                            version: number;
+                        }[];
+                        canManage: boolean;
+                    };
+                };
+            };
+            /** @description auth.unauthenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 401;
+                        /** @enum {unknown} */
+                        code?: "auth.unauthenticated";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description auth.forbidden, auth.mfa_enrolment_required */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 403;
+                        /** @enum {unknown} */
+                        code?: "auth.forbidden" | "auth.mfa_enrolment_required";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description tenant.not_found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 404;
+                        /** @enum {unknown} */
+                        code?: "tenant.not_found";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description tenant.archived */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 410;
+                        /** @enum {unknown} */
+                        code?: "tenant.archived";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description tenant.suspended */
+            423: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 423;
+                        /** @enum {unknown} */
+                        code?: "tenant.suspended";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description server.internal */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 500;
+                        /** @enum {unknown} */
+                        code?: "server.internal";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description server.busy, tenant.maintenance */
+            503: {
+                headers: {
+                    /** @description Seconds to wait before retrying. */
+                    "Retry-After": string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 503;
+                        /** @enum {unknown} */
+                        code?: "server.busy" | "tenant.maintenance";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    saveUnitType: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description The ETag you read. Missing: 428 precondition.required; stale: 412 precondition.failed. */
+                "If-Match": string;
+            };
+            path: {
+                /** @description The type’s key (lower-case `snake_case`). A key that isn’t one is 404. */
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    name: string;
+                    /** @enum {string} */
+                    kind: "ACADEMIC" | "ADMINISTRATIVE" | "RESEARCH";
+                    mayContain: string[];
+                    /** @enum {string} */
+                    status: "ACTIVE" | "ARCHIVED";
+                    sortOrder?: number;
+                };
+            };
+        };
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    /** @description Send it back as If-Match to change this resource. */
+                    ETag: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: uuid */
+                        id: string;
+                        key: string;
+                        name: string;
+                        /** @enum {string} */
+                        kind: "ACADEMIC" | "ADMINISTRATIVE" | "RESEARCH";
+                        /** @enum {string} */
+                        status: "ACTIVE" | "ARCHIVED";
+                        sortOrder: number;
+                        mayContain: string[];
+                        units: number;
+                        version: number;
+                    };
+                };
+            };
+            /** @description request.invalid */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 400;
+                        /** @enum {unknown} */
+                        code?: "request.invalid";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description auth.unauthenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 401;
+                        /** @enum {unknown} */
+                        code?: "auth.unauthenticated";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description auth.forbidden, auth.mfa_enrolment_required, auth.mfa_required, request.csrf_rejected */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 403;
+                        /** @enum {unknown} */
+                        code?: "auth.forbidden" | "auth.mfa_enrolment_required" | "auth.mfa_required" | "request.csrf_rejected";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description resource.not_found, tenant.not_found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 404;
+                        /** @enum {unknown} */
+                        code?: "resource.not_found" | "tenant.not_found";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description tenant.archived */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 410;
+                        /** @enum {unknown} */
+                        code?: "tenant.archived";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description precondition.failed */
+            412: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 412;
+                        /** @enum {unknown} */
+                        code?: "precondition.failed";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description org.unit_type.kind_fixed, org.unit_type.name_taken, org.unit_type.unknown_child */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 422;
+                        /** @enum {unknown} */
+                        code?: "org.unit_type.kind_fixed" | "org.unit_type.name_taken" | "org.unit_type.unknown_child";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description tenant.suspended */
+            423: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 423;
+                        /** @enum {unknown} */
+                        code?: "tenant.suspended";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description auth.step_up_required, precondition.required */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 428;
+                        /** @enum {unknown} */
+                        code?: "auth.step_up_required" | "precondition.required";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description server.internal */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 500;
+                        /** @enum {unknown} */
+                        code?: "server.internal";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description server.busy, tenant.maintenance */
+            503: {
+                headers: {
+                    /** @description Seconds to wait before retrying. */
+                    "Retry-After": string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 503;
+                        /** @enum {unknown} */
+                        code?: "server.busy" | "tenant.maintenance";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    listOrgUnits: {
+        parameters: {
+            query?: {
+                /** @description The tree as it was on this day (Q6). Today’s tree if left out. */
+                asAt?: string;
+                /** @description Archived units too. Left out by default. */
+                includeArchived?: "true" | "false";
+                /** @description Units whose name or code contains this. */
+                q?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: {
+                            /** Format: uuid */
+                            id: string;
+                            parentId: string | null;
+                            code: string | null;
+                            name: string;
+                            typeId: string | null;
+                            /** @enum {string} */
+                            state: "ACTIVE" | "INACTIVE" | "ARCHIVED";
+                            followsRules: boolean;
+                        }[];
+                        asAt: string | null;
+                    };
+                };
+            };
+            /** @description request.invalid */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 400;
+                        /** @enum {unknown} */
+                        code?: "request.invalid";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description auth.unauthenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 401;
+                        /** @enum {unknown} */
+                        code?: "auth.unauthenticated";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description auth.forbidden, auth.mfa_enrolment_required */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 403;
+                        /** @enum {unknown} */
+                        code?: "auth.forbidden" | "auth.mfa_enrolment_required";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description tenant.not_found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 404;
+                        /** @enum {unknown} */
+                        code?: "tenant.not_found";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description tenant.archived */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 410;
+                        /** @enum {unknown} */
+                        code?: "tenant.archived";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description org.unit.effective_date_future, org.unit.effective_date_invalid */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 422;
+                        /** @enum {unknown} */
+                        code?: "org.unit.effective_date_future" | "org.unit.effective_date_invalid";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description tenant.suspended */
+            423: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 423;
+                        /** @enum {unknown} */
+                        code?: "tenant.suspended";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description server.internal */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 500;
+                        /** @enum {unknown} */
+                        code?: "server.internal";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description server.busy, tenant.maintenance */
+            503: {
+                headers: {
+                    /** @description Seconds to wait before retrying. */
+                    "Retry-After": string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 503;
+                        /** @enum {unknown} */
+                        code?: "server.busy" | "tenant.maintenance";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    createOrgUnit: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** Format: uuid */
+                    parentId: string;
+                    /** Format: uuid */
+                    typeId: string;
+                    name: string;
+                    code?: string | null;
+                    description?: string | null;
+                    /** @description A calendar day, YYYY-MM-DD. */
+                    effectiveFrom?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Success */
+            201: {
+                headers: {
+                    /** @description Send it back as If-Match to change this resource. */
+                    ETag: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: uuid */
+                        id: string;
+                        parentId: string | null;
+                        code: string | null;
+                        name: string;
+                        description: string | null;
+                        type: {
+                            /** Format: uuid */
+                            id: string;
+                            key: string;
+                            name: string;
+                            /** @enum {string} */
+                            kind: "ACADEMIC" | "ADMINISTRATIVE" | "RESEARCH";
+                        } | null;
+                        /** @enum {string} */
+                        state: "ACTIVE" | "INACTIVE" | "ARCHIVED";
+                        codeLocked: boolean;
+                        followsRules: boolean;
+                        version: number;
+                        ancestors: {
+                            /** Format: uuid */
+                            id: string;
+                            name: string;
+                            code: string | null;
+                        }[];
+                        children: {
+                            open: number;
+                            archived: number;
+                        };
+                        /** @description A calendar day, YYYY-MM-DD. */
+                        createdOn: string;
+                        /** @description A calendar day, YYYY-MM-DD. */
+                        lastChangedOn: string;
+                        can: {
+                            manage: boolean;
+                            restructure: boolean;
+                        };
+                    };
+                };
+            };
+            /** @description request.invalid */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 400;
+                        /** @enum {unknown} */
+                        code?: "request.invalid";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description auth.unauthenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 401;
+                        /** @enum {unknown} */
+                        code?: "auth.unauthenticated";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description auth.forbidden, auth.mfa_enrolment_required, auth.mfa_required, request.csrf_rejected */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 403;
+                        /** @enum {unknown} */
+                        code?: "auth.forbidden" | "auth.mfa_enrolment_required" | "auth.mfa_required" | "request.csrf_rejected";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description org.unit.parent_not_found, org.unit.type_not_found, tenant.not_found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 404;
+                        /** @enum {unknown} */
+                        code?: "org.unit.parent_not_found" | "org.unit.type_not_found" | "tenant.not_found";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description org.unit.code_taken, org.unit.key_reused */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 409;
+                        /** @enum {unknown} */
+                        code?: "org.unit.code_taken" | "org.unit.key_reused";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description tenant.archived */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 410;
+                        /** @enum {unknown} */
+                        code?: "tenant.archived";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description org.unit.code_invalid, org.unit.effective_date_future, org.unit.effective_date_invalid, org.unit.effective_date_out_of_order, org.unit.limit_reached, org.unit.parent_not_active, org.unit.too_deep, org.unit.type_archived, org.unit.type_not_allowed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 422;
+                        /** @enum {unknown} */
+                        code?: "org.unit.code_invalid" | "org.unit.effective_date_future" | "org.unit.effective_date_invalid" | "org.unit.effective_date_out_of_order" | "org.unit.limit_reached" | "org.unit.parent_not_active" | "org.unit.too_deep" | "org.unit.type_archived" | "org.unit.type_not_allowed";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description tenant.suspended */
+            423: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 423;
+                        /** @enum {unknown} */
+                        code?: "tenant.suspended";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description server.internal */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 500;
+                        /** @enum {unknown} */
+                        code?: "server.internal";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description server.busy, tenant.maintenance */
+            503: {
+                headers: {
+                    /** @description Seconds to wait before retrying. */
+                    "Retry-After": string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 503;
+                        /** @enum {unknown} */
+                        code?: "server.busy" | "tenant.maintenance";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getOrgUnit: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The unit’s id. A malformed id, an unknown one, or a unit outside your scope is 404. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    /** @description Send it back as If-Match to change this resource. */
+                    ETag: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: uuid */
+                        id: string;
+                        parentId: string | null;
+                        code: string | null;
+                        name: string;
+                        description: string | null;
+                        type: {
+                            /** Format: uuid */
+                            id: string;
+                            key: string;
+                            name: string;
+                            /** @enum {string} */
+                            kind: "ACADEMIC" | "ADMINISTRATIVE" | "RESEARCH";
+                        } | null;
+                        /** @enum {string} */
+                        state: "ACTIVE" | "INACTIVE" | "ARCHIVED";
+                        codeLocked: boolean;
+                        followsRules: boolean;
+                        version: number;
+                        ancestors: {
+                            /** Format: uuid */
+                            id: string;
+                            name: string;
+                            code: string | null;
+                        }[];
+                        children: {
+                            open: number;
+                            archived: number;
+                        };
+                        /** @description A calendar day, YYYY-MM-DD. */
+                        createdOn: string;
+                        /** @description A calendar day, YYYY-MM-DD. */
+                        lastChangedOn: string;
+                        can: {
+                            manage: boolean;
+                            restructure: boolean;
+                        };
+                    };
+                };
+            };
+            /** @description auth.unauthenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 401;
+                        /** @enum {unknown} */
+                        code?: "auth.unauthenticated";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description auth.forbidden, auth.mfa_enrolment_required */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 403;
+                        /** @enum {unknown} */
+                        code?: "auth.forbidden" | "auth.mfa_enrolment_required";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description resource.not_found, tenant.not_found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 404;
+                        /** @enum {unknown} */
+                        code?: "resource.not_found" | "tenant.not_found";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description tenant.archived */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 410;
+                        /** @enum {unknown} */
+                        code?: "tenant.archived";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description tenant.suspended */
+            423: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 423;
+                        /** @enum {unknown} */
+                        code?: "tenant.suspended";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description server.internal */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 500;
+                        /** @enum {unknown} */
+                        code?: "server.internal";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description server.busy, tenant.maintenance */
+            503: {
+                headers: {
+                    /** @description Seconds to wait before retrying. */
+                    "Retry-After": string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 503;
+                        /** @enum {unknown} */
+                        code?: "server.busy" | "tenant.maintenance";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    updateOrgUnit: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description The ETag you read. Missing: 428 precondition.required; stale: 412 precondition.failed. */
+                "If-Match": string;
+            };
+            path: {
+                /** @description The unit’s id. A malformed id, an unknown one, or a unit outside your scope is 404. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    name?: string;
+                    description?: string | null;
+                    code?: string | null;
+                    /** Format: uuid */
+                    typeId?: string;
+                    /** @description A calendar day, YYYY-MM-DD. */
+                    effectiveFrom?: string;
+                    reason?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    /** @description Send it back as If-Match to change this resource. */
+                    ETag: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: uuid */
+                        id: string;
+                        parentId: string | null;
+                        code: string | null;
+                        name: string;
+                        description: string | null;
+                        type: {
+                            /** Format: uuid */
+                            id: string;
+                            key: string;
+                            name: string;
+                            /** @enum {string} */
+                            kind: "ACADEMIC" | "ADMINISTRATIVE" | "RESEARCH";
+                        } | null;
+                        /** @enum {string} */
+                        state: "ACTIVE" | "INACTIVE" | "ARCHIVED";
+                        codeLocked: boolean;
+                        followsRules: boolean;
+                        version: number;
+                        ancestors: {
+                            /** Format: uuid */
+                            id: string;
+                            name: string;
+                            code: string | null;
+                        }[];
+                        children: {
+                            open: number;
+                            archived: number;
+                        };
+                        /** @description A calendar day, YYYY-MM-DD. */
+                        createdOn: string;
+                        /** @description A calendar day, YYYY-MM-DD. */
+                        lastChangedOn: string;
+                        can: {
+                            manage: boolean;
+                            restructure: boolean;
+                        };
+                    };
+                };
+            };
+            /** @description request.invalid */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 400;
+                        /** @enum {unknown} */
+                        code?: "request.invalid";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description auth.unauthenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 401;
+                        /** @enum {unknown} */
+                        code?: "auth.unauthenticated";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description auth.forbidden, auth.mfa_enrolment_required, auth.mfa_required, request.csrf_rejected */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 403;
+                        /** @enum {unknown} */
+                        code?: "auth.forbidden" | "auth.mfa_enrolment_required" | "auth.mfa_required" | "request.csrf_rejected";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description org.unit.type_not_found, resource.not_found, tenant.not_found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 404;
+                        /** @enum {unknown} */
+                        code?: "org.unit.type_not_found" | "resource.not_found" | "tenant.not_found";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description org.unit.code_locked, org.unit.code_taken */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 409;
+                        /** @enum {unknown} */
+                        code?: "org.unit.code_locked" | "org.unit.code_taken";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description tenant.archived */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 410;
+                        /** @enum {unknown} */
+                        code?: "tenant.archived";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description precondition.failed */
+            412: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 412;
+                        /** @enum {unknown} */
+                        code?: "precondition.failed";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description org.unit.children_not_allowed, org.unit.code_invalid, org.unit.effective_date_future, org.unit.effective_date_invalid, org.unit.effective_date_out_of_order, org.unit.kind_change, org.unit.root_fixed, org.unit.same_type, org.unit.type_archived, org.unit.type_not_allowed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 422;
+                        /** @enum {unknown} */
+                        code?: "org.unit.children_not_allowed" | "org.unit.code_invalid" | "org.unit.effective_date_future" | "org.unit.effective_date_invalid" | "org.unit.effective_date_out_of_order" | "org.unit.kind_change" | "org.unit.root_fixed" | "org.unit.same_type" | "org.unit.type_archived" | "org.unit.type_not_allowed";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description tenant.suspended */
+            423: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 423;
+                        /** @enum {unknown} */
+                        code?: "tenant.suspended";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description precondition.required */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 428;
+                        /** @enum {unknown} */
+                        code?: "precondition.required";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description server.internal */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 500;
+                        /** @enum {unknown} */
+                        code?: "server.internal";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description server.busy, tenant.maintenance */
+            503: {
+                headers: {
+                    /** @description Seconds to wait before retrying. */
+                    "Retry-After": string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 503;
+                        /** @enum {unknown} */
+                        code?: "server.busy" | "tenant.maintenance";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    archiveOrgUnit: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description The ETag you read. Missing: 428 precondition.required; stale: 412 precondition.failed. */
+                "If-Match": string;
+            };
+            path: {
+                /** @description The unit’s id. A malformed id, an unknown one, or a unit outside your scope is 404. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @description A calendar day, YYYY-MM-DD. */
+                    effectiveFrom?: string;
+                    reason: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    /** @description Send it back as If-Match to change this resource. */
+                    ETag: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: uuid */
+                        id: string;
+                        parentId: string | null;
+                        code: string | null;
+                        name: string;
+                        description: string | null;
+                        type: {
+                            /** Format: uuid */
+                            id: string;
+                            key: string;
+                            name: string;
+                            /** @enum {string} */
+                            kind: "ACADEMIC" | "ADMINISTRATIVE" | "RESEARCH";
+                        } | null;
+                        /** @enum {string} */
+                        state: "ACTIVE" | "INACTIVE" | "ARCHIVED";
+                        codeLocked: boolean;
+                        followsRules: boolean;
+                        version: number;
+                        ancestors: {
+                            /** Format: uuid */
+                            id: string;
+                            name: string;
+                            code: string | null;
+                        }[];
+                        children: {
+                            open: number;
+                            archived: number;
+                        };
+                        /** @description A calendar day, YYYY-MM-DD. */
+                        createdOn: string;
+                        /** @description A calendar day, YYYY-MM-DD. */
+                        lastChangedOn: string;
+                        can: {
+                            manage: boolean;
+                            restructure: boolean;
+                        };
+                    };
+                };
+            };
+            /** @description request.invalid */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 400;
+                        /** @enum {unknown} */
+                        code?: "request.invalid";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description auth.unauthenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 401;
+                        /** @enum {unknown} */
+                        code?: "auth.unauthenticated";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description auth.forbidden, auth.mfa_enrolment_required, auth.mfa_required, request.csrf_rejected */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 403;
+                        /** @enum {unknown} */
+                        code?: "auth.forbidden" | "auth.mfa_enrolment_required" | "auth.mfa_required" | "request.csrf_rejected";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description resource.not_found, tenant.not_found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 404;
+                        /** @enum {unknown} */
+                        code?: "resource.not_found" | "tenant.not_found";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description tenant.archived */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 410;
+                        /** @enum {unknown} */
+                        code?: "tenant.archived";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description precondition.failed */
+            412: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 412;
+                        /** @enum {unknown} */
+                        code?: "precondition.failed";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description org.unit.already_archived, org.unit.effective_date_future, org.unit.effective_date_invalid, org.unit.effective_date_out_of_order, org.unit.has_open_children, org.unit.root_fixed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 422;
+                        /** @enum {unknown} */
+                        code?: "org.unit.already_archived" | "org.unit.effective_date_future" | "org.unit.effective_date_invalid" | "org.unit.effective_date_out_of_order" | "org.unit.has_open_children" | "org.unit.root_fixed";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description tenant.suspended */
+            423: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 423;
+                        /** @enum {unknown} */
+                        code?: "tenant.suspended";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description auth.step_up_required, precondition.required */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 428;
+                        /** @enum {unknown} */
+                        code?: "auth.step_up_required" | "precondition.required";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description server.internal */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 500;
+                        /** @enum {unknown} */
+                        code?: "server.internal";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description server.busy, tenant.maintenance */
+            503: {
+                headers: {
+                    /** @description Seconds to wait before retrying. */
+                    "Retry-After": string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 503;
+                        /** @enum {unknown} */
+                        code?: "server.busy" | "tenant.maintenance";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    changeOrgUnitCode: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description The ETag you read. Missing: 428 precondition.required; stale: 412 precondition.failed. */
+                "If-Match": string;
+            };
+            path: {
+                /** @description The unit’s id. A malformed id, an unknown one, or a unit outside your scope is 404. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    code: string;
+                    /** @description A calendar day, YYYY-MM-DD. */
+                    effectiveFrom?: string;
+                    reason: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    /** @description Send it back as If-Match to change this resource. */
+                    ETag: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: uuid */
+                        id: string;
+                        parentId: string | null;
+                        code: string | null;
+                        name: string;
+                        description: string | null;
+                        type: {
+                            /** Format: uuid */
+                            id: string;
+                            key: string;
+                            name: string;
+                            /** @enum {string} */
+                            kind: "ACADEMIC" | "ADMINISTRATIVE" | "RESEARCH";
+                        } | null;
+                        /** @enum {string} */
+                        state: "ACTIVE" | "INACTIVE" | "ARCHIVED";
+                        codeLocked: boolean;
+                        followsRules: boolean;
+                        version: number;
+                        ancestors: {
+                            /** Format: uuid */
+                            id: string;
+                            name: string;
+                            code: string | null;
+                        }[];
+                        children: {
+                            open: number;
+                            archived: number;
+                        };
+                        /** @description A calendar day, YYYY-MM-DD. */
+                        createdOn: string;
+                        /** @description A calendar day, YYYY-MM-DD. */
+                        lastChangedOn: string;
+                        can: {
+                            manage: boolean;
+                            restructure: boolean;
+                        };
+                    };
+                };
+            };
+            /** @description request.invalid */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 400;
+                        /** @enum {unknown} */
+                        code?: "request.invalid";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description auth.unauthenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 401;
+                        /** @enum {unknown} */
+                        code?: "auth.unauthenticated";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description auth.forbidden, auth.mfa_enrolment_required, auth.mfa_required, request.csrf_rejected */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 403;
+                        /** @enum {unknown} */
+                        code?: "auth.forbidden" | "auth.mfa_enrolment_required" | "auth.mfa_required" | "request.csrf_rejected";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description resource.not_found, tenant.not_found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 404;
+                        /** @enum {unknown} */
+                        code?: "resource.not_found" | "tenant.not_found";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description org.unit.code_not_locked, org.unit.code_taken */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 409;
+                        /** @enum {unknown} */
+                        code?: "org.unit.code_not_locked" | "org.unit.code_taken";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description tenant.archived */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 410;
+                        /** @enum {unknown} */
+                        code?: "tenant.archived";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description precondition.failed */
+            412: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 412;
+                        /** @enum {unknown} */
+                        code?: "precondition.failed";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description org.unit.code_invalid, org.unit.effective_date_future, org.unit.effective_date_invalid, org.unit.effective_date_out_of_order, org.unit.root_fixed, org.unit.same_code */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 422;
+                        /** @enum {unknown} */
+                        code?: "org.unit.code_invalid" | "org.unit.effective_date_future" | "org.unit.effective_date_invalid" | "org.unit.effective_date_out_of_order" | "org.unit.root_fixed" | "org.unit.same_code";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description tenant.suspended */
+            423: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 423;
+                        /** @enum {unknown} */
+                        code?: "tenant.suspended";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description auth.step_up_required, precondition.required */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 428;
+                        /** @enum {unknown} */
+                        code?: "auth.step_up_required" | "precondition.required";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description server.internal */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 500;
+                        /** @enum {unknown} */
+                        code?: "server.internal";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description server.busy, tenant.maintenance */
+            503: {
+                headers: {
+                    /** @description Seconds to wait before retrying. */
+                    "Retry-After": string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 503;
+                        /** @enum {unknown} */
+                        code?: "server.busy" | "tenant.maintenance";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    deactivateOrgUnit: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description The ETag you read. Missing: 428 precondition.required; stale: 412 precondition.failed. */
+                "If-Match": string;
+            };
+            path: {
+                /** @description The unit’s id. A malformed id, an unknown one, or a unit outside your scope is 404. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @description A calendar day, YYYY-MM-DD. */
+                    effectiveFrom?: string;
+                    reason?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    /** @description Send it back as If-Match to change this resource. */
+                    ETag: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: uuid */
+                        id: string;
+                        parentId: string | null;
+                        code: string | null;
+                        name: string;
+                        description: string | null;
+                        type: {
+                            /** Format: uuid */
+                            id: string;
+                            key: string;
+                            name: string;
+                            /** @enum {string} */
+                            kind: "ACADEMIC" | "ADMINISTRATIVE" | "RESEARCH";
+                        } | null;
+                        /** @enum {string} */
+                        state: "ACTIVE" | "INACTIVE" | "ARCHIVED";
+                        codeLocked: boolean;
+                        followsRules: boolean;
+                        version: number;
+                        ancestors: {
+                            /** Format: uuid */
+                            id: string;
+                            name: string;
+                            code: string | null;
+                        }[];
+                        children: {
+                            open: number;
+                            archived: number;
+                        };
+                        /** @description A calendar day, YYYY-MM-DD. */
+                        createdOn: string;
+                        /** @description A calendar day, YYYY-MM-DD. */
+                        lastChangedOn: string;
+                        can: {
+                            manage: boolean;
+                            restructure: boolean;
+                        };
+                    };
+                };
+            };
+            /** @description request.invalid */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 400;
+                        /** @enum {unknown} */
+                        code?: "request.invalid";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description auth.unauthenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 401;
+                        /** @enum {unknown} */
+                        code?: "auth.unauthenticated";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description auth.forbidden, auth.mfa_enrolment_required, auth.mfa_required, request.csrf_rejected */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 403;
+                        /** @enum {unknown} */
+                        code?: "auth.forbidden" | "auth.mfa_enrolment_required" | "auth.mfa_required" | "request.csrf_rejected";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description resource.not_found, tenant.not_found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 404;
+                        /** @enum {unknown} */
+                        code?: "resource.not_found" | "tenant.not_found";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description tenant.archived */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 410;
+                        /** @enum {unknown} */
+                        code?: "tenant.archived";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description precondition.failed */
+            412: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 412;
+                        /** @enum {unknown} */
+                        code?: "precondition.failed";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description org.unit.effective_date_future, org.unit.effective_date_invalid, org.unit.effective_date_out_of_order, org.unit.not_active, org.unit.root_fixed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 422;
+                        /** @enum {unknown} */
+                        code?: "org.unit.effective_date_future" | "org.unit.effective_date_invalid" | "org.unit.effective_date_out_of_order" | "org.unit.not_active" | "org.unit.root_fixed";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description tenant.suspended */
+            423: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 423;
+                        /** @enum {unknown} */
+                        code?: "tenant.suspended";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description precondition.required */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 428;
+                        /** @enum {unknown} */
+                        code?: "precondition.required";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description server.internal */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 500;
+                        /** @enum {unknown} */
+                        code?: "server.internal";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description server.busy, tenant.maintenance */
+            503: {
+                headers: {
+                    /** @description Seconds to wait before retrying. */
+                    "Retry-After": string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 503;
+                        /** @enum {unknown} */
+                        code?: "server.busy" | "tenant.maintenance";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getOrgUnitHistory: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The unit’s id. A malformed id, an unknown one, or a unit outside your scope is 404. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: {
+                            /** Format: uuid */
+                            id: string;
+                            /** @enum {string} */
+                            kind: "CREATED" | "RENAMED" | "DESCRIBED" | "RETYPED" | "MOVED" | "CODE_CHANGED" | "CODE_CORRECTED" | "DEACTIVATED" | "ARCHIVED" | "REACTIVATED";
+                            /** @description A calendar day, YYYY-MM-DD. */
+                            effectiveFrom: string;
+                            /** Format: date-time */
+                            recordedAt: string;
+                            code: string | null;
+                            name: string;
+                            typeId: string | null;
+                            parentId: string | null;
+                            /** @enum {string} */
+                            state: "ACTIVE" | "INACTIVE" | "ARCHIVED";
+                            reason: string | null;
+                            actor: {
+                                /** Format: uuid */
+                                id: string;
+                                displayName: string;
+                            } | null;
+                        }[];
+                    };
+                };
+            };
+            /** @description auth.unauthenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 401;
+                        /** @enum {unknown} */
+                        code?: "auth.unauthenticated";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description auth.forbidden, auth.mfa_enrolment_required */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 403;
+                        /** @enum {unknown} */
+                        code?: "auth.forbidden" | "auth.mfa_enrolment_required";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description resource.not_found, tenant.not_found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 404;
+                        /** @enum {unknown} */
+                        code?: "resource.not_found" | "tenant.not_found";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description tenant.archived */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 410;
+                        /** @enum {unknown} */
+                        code?: "tenant.archived";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description tenant.suspended */
+            423: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 423;
+                        /** @enum {unknown} */
+                        code?: "tenant.suspended";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description server.internal */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 500;
+                        /** @enum {unknown} */
+                        code?: "server.internal";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description server.busy, tenant.maintenance */
+            503: {
+                headers: {
+                    /** @description Seconds to wait before retrying. */
+                    "Retry-After": string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 503;
+                        /** @enum {unknown} */
+                        code?: "server.busy" | "tenant.maintenance";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    moveOrgUnit: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description The ETag you read. Missing: 428 precondition.required; stale: 412 precondition.failed. */
+                "If-Match": string;
+            };
+            path: {
+                /** @description The unit’s id. A malformed id, an unknown one, or a unit outside your scope is 404. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** Format: uuid */
+                    parentId: string;
+                    /** @description A calendar day, YYYY-MM-DD. */
+                    effectiveFrom?: string;
+                    reason: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    /** @description Send it back as If-Match to change this resource. */
+                    ETag: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: uuid */
+                        id: string;
+                        parentId: string | null;
+                        code: string | null;
+                        name: string;
+                        description: string | null;
+                        type: {
+                            /** Format: uuid */
+                            id: string;
+                            key: string;
+                            name: string;
+                            /** @enum {string} */
+                            kind: "ACADEMIC" | "ADMINISTRATIVE" | "RESEARCH";
+                        } | null;
+                        /** @enum {string} */
+                        state: "ACTIVE" | "INACTIVE" | "ARCHIVED";
+                        codeLocked: boolean;
+                        followsRules: boolean;
+                        version: number;
+                        ancestors: {
+                            /** Format: uuid */
+                            id: string;
+                            name: string;
+                            code: string | null;
+                        }[];
+                        children: {
+                            open: number;
+                            archived: number;
+                        };
+                        /** @description A calendar day, YYYY-MM-DD. */
+                        createdOn: string;
+                        /** @description A calendar day, YYYY-MM-DD. */
+                        lastChangedOn: string;
+                        can: {
+                            manage: boolean;
+                            restructure: boolean;
+                        };
+                    };
+                };
+            };
+            /** @description request.invalid */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 400;
+                        /** @enum {unknown} */
+                        code?: "request.invalid";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description auth.unauthenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 401;
+                        /** @enum {unknown} */
+                        code?: "auth.unauthenticated";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description auth.forbidden, auth.mfa_enrolment_required, auth.mfa_required, request.csrf_rejected */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 403;
+                        /** @enum {unknown} */
+                        code?: "auth.forbidden" | "auth.mfa_enrolment_required" | "auth.mfa_required" | "request.csrf_rejected";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description org.unit.parent_not_found, resource.not_found, tenant.not_found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 404;
+                        /** @enum {unknown} */
+                        code?: "org.unit.parent_not_found" | "resource.not_found" | "tenant.not_found";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description tenant.archived */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 410;
+                        /** @enum {unknown} */
+                        code?: "tenant.archived";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description precondition.failed */
+            412: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 412;
+                        /** @enum {unknown} */
+                        code?: "precondition.failed";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description org.unit.archived, org.unit.cycle, org.unit.effective_date_future, org.unit.effective_date_invalid, org.unit.effective_date_out_of_order, org.unit.parent_not_active, org.unit.root_fixed, org.unit.same_parent, org.unit.too_deep, org.unit.type_archived, org.unit.type_not_allowed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 422;
+                        /** @enum {unknown} */
+                        code?: "org.unit.archived" | "org.unit.cycle" | "org.unit.effective_date_future" | "org.unit.effective_date_invalid" | "org.unit.effective_date_out_of_order" | "org.unit.parent_not_active" | "org.unit.root_fixed" | "org.unit.same_parent" | "org.unit.too_deep" | "org.unit.type_archived" | "org.unit.type_not_allowed";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description tenant.suspended */
+            423: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 423;
+                        /** @enum {unknown} */
+                        code?: "tenant.suspended";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description auth.step_up_required, precondition.required */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 428;
+                        /** @enum {unknown} */
+                        code?: "auth.step_up_required" | "precondition.required";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description server.internal */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 500;
+                        /** @enum {unknown} */
+                        code?: "server.internal";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description server.busy, tenant.maintenance */
+            503: {
+                headers: {
+                    /** @description Seconds to wait before retrying. */
+                    "Retry-After": string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 503;
+                        /** @enum {unknown} */
+                        code?: "server.busy" | "tenant.maintenance";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    reactivateOrgUnit: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description The ETag you read. Missing: 428 precondition.required; stale: 412 precondition.failed. */
+                "If-Match": string;
+            };
+            path: {
+                /** @description The unit’s id. A malformed id, an unknown one, or a unit outside your scope is 404. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @description A calendar day, YYYY-MM-DD. */
+                    effectiveFrom?: string;
+                    reason?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    /** @description Send it back as If-Match to change this resource. */
+                    ETag: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: uuid */
+                        id: string;
+                        parentId: string | null;
+                        code: string | null;
+                        name: string;
+                        description: string | null;
+                        type: {
+                            /** Format: uuid */
+                            id: string;
+                            key: string;
+                            name: string;
+                            /** @enum {string} */
+                            kind: "ACADEMIC" | "ADMINISTRATIVE" | "RESEARCH";
+                        } | null;
+                        /** @enum {string} */
+                        state: "ACTIVE" | "INACTIVE" | "ARCHIVED";
+                        codeLocked: boolean;
+                        followsRules: boolean;
+                        version: number;
+                        ancestors: {
+                            /** Format: uuid */
+                            id: string;
+                            name: string;
+                            code: string | null;
+                        }[];
+                        children: {
+                            open: number;
+                            archived: number;
+                        };
+                        /** @description A calendar day, YYYY-MM-DD. */
+                        createdOn: string;
+                        /** @description A calendar day, YYYY-MM-DD. */
+                        lastChangedOn: string;
+                        can: {
+                            manage: boolean;
+                            restructure: boolean;
+                        };
+                    };
+                };
+            };
+            /** @description request.invalid */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 400;
+                        /** @enum {unknown} */
+                        code?: "request.invalid";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description auth.unauthenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 401;
+                        /** @enum {unknown} */
+                        code?: "auth.unauthenticated";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description auth.forbidden, auth.mfa_enrolment_required, auth.mfa_required, request.csrf_rejected */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 403;
+                        /** @enum {unknown} */
+                        code?: "auth.forbidden" | "auth.mfa_enrolment_required" | "auth.mfa_required" | "request.csrf_rejected";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description resource.not_found, tenant.not_found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 404;
+                        /** @enum {unknown} */
+                        code?: "resource.not_found" | "tenant.not_found";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description tenant.archived */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 410;
+                        /** @enum {unknown} */
+                        code?: "tenant.archived";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description precondition.failed */
+            412: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 412;
+                        /** @enum {unknown} */
+                        code?: "precondition.failed";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description org.unit.already_active, org.unit.effective_date_future, org.unit.effective_date_invalid, org.unit.effective_date_out_of_order, org.unit.parent_not_active */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 422;
+                        /** @enum {unknown} */
+                        code?: "org.unit.already_active" | "org.unit.effective_date_future" | "org.unit.effective_date_invalid" | "org.unit.effective_date_out_of_order" | "org.unit.parent_not_active";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description tenant.suspended */
+            423: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 423;
+                        /** @enum {unknown} */
+                        code?: "tenant.suspended";
+                    } & components["schemas"]["Problem"];
+                };
+            };
+            /** @description precondition.required */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": {
+                        /** @constant */
+                        status?: 428;
+                        /** @enum {unknown} */
+                        code?: "precondition.required";
                     } & components["schemas"]["Problem"];
                 };
             };

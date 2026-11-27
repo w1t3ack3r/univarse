@@ -10,8 +10,11 @@ import type { AuthService } from './auth.service.js';
 import {
   evaluate,
   holds,
+  holdsSomewhere,
   INSTITUTION,
+  orgUnit,
   permissionsHeld,
+  scopeRoots,
   PolicyService,
   type PolicyActor,
   type Refusal,
@@ -138,11 +141,59 @@ describe('[PS5] malformed grants are inert (D4)', () => {
   });
 });
 
+describe('[Q13] the ORG_UNIT scope (spec 0042), from the loaded unit’s path', () => {
+  const ROOT = '0190a000-0000-7000-8000-000000000001';
+  const SCI = '0190a000-0000-7000-8000-000000000002';
+  const CSC = '0190a000-0000-7000-8000-000000000003';
+  const ENG = '0190a000-0000-7000-8000-000000000004';
+  const csc = orgUnit({ id: CSC, path: `/${ROOT}/${SCI}/${CSC}/` });
+  const sci = orgUnit({ id: SCI, path: `/${ROOT}/${SCI}/` });
+  const eng = orgUnit({ id: ENG, path: `/${ROOT}/${ENG}/` });
+
+  it('a grant on a faculty covers the faculty and its departments, never a sibling, nor the institution', () => {
+    const dean = actorWith([grant('org.unit.manage', 'ORG_UNIT', SCI)]);
+    expect(evaluate(dean, 'org.unit.manage', sci, NOW)).toEqual({ allowed: true });
+    expect(evaluate(dean, 'org.unit.manage', csc, NOW)).toEqual({ allowed: true });
+    expect(evaluate(dean, 'org.unit.manage', eng, NOW)).toEqual({ allowed: false, reason: 'forbidden' });
+    expect(evaluate(dean, 'org.unit.manage', INSTITUTION, NOW)).toEqual({ allowed: false, reason: 'forbidden' });
+    // Another permission held there doesn't help.
+    expect(evaluate(dean, 'org.unit.restructure', csc, NOW).allowed).toBe(false);
+  });
+
+  it('an institution grant covers every unit; MFA and step-up still apply on a unit', () => {
+    expect(evaluate(actorWith([grant('org.unit.view', 'INSTITUTION', null)]), 'org.unit.view', eng, NOW)).toEqual({ allowed: true });
+    expect(evaluate(actorWith([grant('org.unit.manage', 'ORG_UNIT', SCI)], null), 'org.unit.manage', csc, NOW)).toEqual({ allowed: false, reason: 'mfa_required' });
+    expect(evaluate(actorWith([grant('org.unit.restructure', 'ORG_UNIT', SCI)], NOW, STEP_UPS.stale), 'org.unit.restructure', csc, NOW)).toEqual({ allowed: false, reason: 'step_up_required' });
+  });
+
+  it('matches whole ids only, and a scoped grant with no unit, or another scope type naming the unit, is inert', () => {
+    const prefix = SCI.slice(0, -1); // a unit whose id is a prefix of another's covers nothing of it
+    expect(evaluate(actorWith([grant('org.unit.view', 'ORG_UNIT', prefix)]), 'org.unit.view', sci, NOW).allowed).toBe(false);
+    for (const g of [grant('org.unit.view', 'ORG_UNIT', null), grant('org.unit.view', 'ORG_UNIT', ''), grant('org.unit.view', 'PROGRAMME', SCI), grant('org.unit.view', 'HOSTEL', SCI)]) {
+      expect(evaluate(actorWith([g]), 'org.unit.view', sci, NOW).allowed, `${g.scopeType}:${String(g.scopeId)}`).toBe(false);
+      expect(holdsSomewhere(actorWith([g]), 'org.unit.view')).toBe(false);
+    }
+  });
+
+  it('holdsSomewhere and scopeRoots: the first gate of a scoped route, and a list’s scope', () => {
+    const a = actorWith([grant('org.unit.view', 'ORG_UNIT', SCI), grant('org.unit.view', 'ORG_UNIT', ENG), grant('org.unit.view', 'ORG_UNIT', SCI), grant('org.unit.manage', 'ORG_UNIT', SCI)]);
+    expect(holdsSomewhere(a, 'org.unit.view')).toBe(true);
+    expect(holdsSomewhere(a, 'org.unit.restructure')).toBe(false);
+    expect([...(scopeRoots(a, 'org.unit.view') as string[])].sort()).toEqual([ENG, SCI].sort());
+    expect(scopeRoots(actorWith([grant('org.unit.view', 'INSTITUTION', null), grant('org.unit.view', 'ORG_UNIT', SCI)]), 'org.unit.view')).toBe('all');
+    expect(scopeRoots(actorWith([]), 'org.unit.view')).toEqual([]);
+    // The institution's permission list (/auth/me) counts institution grants only.
+    expect(permissionsHeld(a, INSTITUTION)).toEqual([]);
+  });
+});
+
 describe('[PS6] the resource context type (D2)', () => {
-  it('[PS6] only the institution context type-checks until a resource scope is built', () => {
+  it('[PS6] only the contexts built so far type-check (ORG_UNIT from spec 0042; PROGRAMME and the rest later)', () => {
     const a = actorWith([]);
-    // @ts-expect-error -- no ORG_UNIT context yet (ADR-028): it arrives with its first consuming module.
+    // @ts-expect-error -- an ORG_UNIT context names its unit and path, built from the loaded unit.
     evaluate(a, 'identity.user.view', { scope: 'ORG_UNIT', id: RESOURCE_ID }, NOW);
+    // @ts-expect-error -- no PROGRAMME context yet (ADR-028): it arrives with S4.
+    evaluate(a, 'identity.user.view', { scope: 'PROGRAMME', programmeId: RESOURCE_ID }, NOW);
     // @ts-expect-error -- nor an empty one.
     evaluate(a, 'identity.user.view', {}, NOW);
     expect(INSTITUTION).toEqual({ scope: 'INSTITUTION' });

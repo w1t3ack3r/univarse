@@ -75,10 +75,10 @@ Planned in [spec 0040](specs/0040-phase-2-institution-setup.md), for universitie
 
 | Feature | Pri | AC |
 |---------|-----|----|
-| Org tree: configurable unit types and names (college, faculty, school, institute, centre, department, directorate, division, unit, section), create, edit, child units, search by name or code, expand and collapse | M | Each institution's types and words ("School" or "Faculty") come from its profile and stay editable. No fixed hierarchy |
-| Re-parent by drag-and-drop **and** an accessible "Move unit" action | M | A unit can't become its own ancestor. Moves are audited with their effective date and need step-up |
-| Archive instead of delete; effective-dated history; the tree "as at a date" | M | Units with programmes, staff, students or history can't be deleted. An archived unit takes no new active child |
-| Unit codes locked once used in an issued identifier | M | A code change is a new code, with the old one in the unit's history; issued matric numbers never change |
+| Org tree: configurable unit types and names (college, faculty, school, institute, centre, department, directorate, division, unit, section), create, edit, child units, search by name or code, expand and collapse | M | Each institution's types and words ("School" or "Faculty") come from its profile and stay editable; each type says which it may contain ([spec 0042](specs/0042-org-tree.md) Q1–Q3; the API in P2-S1 PR A, the screens in PR B). A changed rule never moves a unit |
+| Re-parent by drag-and-drop **and** an accessible "Move unit" action | M | A unit can't become its own ancestor. Moves are audited with their effective date and reason, need step-up, and need the permission on both the unit and its new parent (spec 0042 Q11, Q13) |
+| Archive instead of delete; effective-dated history; the tree "as at a date" | M | No unit is ever deleted; archiving is leaf first, and an inactive or archived unit takes no new child. A change takes effect today or on an earlier day, never a later one (spec 0042 Q5–Q7) |
+| Unit codes locked once used in an issued identifier | M | A code is unique among every code the institution has used, and optional until assigned. Once locked, a change is dated and the old code stays reserved for ever; issued matric numbers never change (spec 0042 Q8, Q9) |
 | Unit details: leadership (through appointments), programmes, staff, students | M | |
 | Staff profiles: category, cadre, rank, grade (catalogues per institution, seeded by type), employment type and status | M | Rank, office and governance membership are separate |
 | Offices and appointments (HOD, Dean, Provost, Director, coordinators), with dates and acting appointments | M | An appointment grants its office's role scoped to its unit or programme, for its dates only. Audited, step-up |
